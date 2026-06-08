@@ -573,6 +573,53 @@
         }
     }
     const IM_PLUGIN_ENTRY_URL = withWidgetAssetVersion(`${window.location.origin}/chat/plugins/im/user/im_entry.js`);
+    function normalizeChatUsername(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+    async function fetchWsTicket(audience, payload, options) {
+        if (window.AKWsTicket && typeof window.AKWsTicket.fetchTicket === 'function') {
+            return window.AKWsTicket.fetchTicket(audience, payload, options);
+        }
+        const config = options || {};
+        const endpoint = config.endpoint || (config.admin ? '/admin/api/ws-ticket' : '/chat/api/ws-ticket');
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'include',
+            headers: Object.assign({'Content-Type': 'application/json'}, config.headers || {}),
+            body: JSON.stringify(Object.assign({}, payload || {}, {audience: String(audience || '').trim().toLowerCase()}))
+        });
+        let data = null;
+        try { data = await response.json(); } catch (e) {}
+        if (!response.ok || !data || !data.ticket) {
+            throw new Error(data && data.message ? data.message : ('WebSocket ticket failed: ' + response.status));
+        }
+        return data;
+    }
+    function buildTicketedWsUrl(path, ticket) {
+        if (window.AKWsTicket && typeof window.AKWsTicket.buildWsUrl === 'function') {
+            return window.AKWsTicket.buildWsUrl(path, ticket);
+        }
+        const url = new URL(path, window.location.origin);
+        url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.search = '';
+        url.searchParams.set('ticket', String(ticket || ''));
+        return url.toString();
+    }
+    async function buildChatWsUrl(nextUsername) {
+        const ticket = await fetchWsTicket('chat', {
+            username: normalizeChatUsername(nextUsername),
+            client_id: getPageClientId()
+        });
+        return buildTicketedWsUrl('/chat/ws', ticket.ticket);
+    }
+    async function buildAssistWsUrl(sessionId) {
+        const ticket = await fetchWsTicket('assist', {
+            session_id: String(sessionId || '').trim(),
+            site: 'ak_web',
+            readonly: false
+        });
+        return buildTicketedWsUrl('/admin/assist/ws', ticket.ticket);
+    }
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
@@ -4074,7 +4121,7 @@
         } catch (e) {}
     }
 
-    function connectAssist(sessionId) {
+    async function connectAssist(sessionId) {
         const wantedSessionId = String(sessionId || '').trim();
         if (!wantedSessionId) return;
         if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING) && assistSessionId === wantedSessionId) {
@@ -4095,7 +4142,7 @@
             wantedSessionId: wantedSessionId
         });
         try {
-            const currentAssistWs = new WebSocket(ASSIST_WS_URL + '?session_id=' + encodeURIComponent(wantedSessionId) + '&role=user&site=ak_web&readonly=0');
+            const currentAssistWs = new WebSocket(await buildAssistWsUrl(wantedSessionId));
             assistWs = currentAssistWs;
             currentAssistWs.onopen = function() {
                 if (assistWs !== currentAssistWs) return;
@@ -4242,14 +4289,14 @@
     }
     
     // 连接WebSocket
-    function connect() {
+    async function connect() {
         // 获取用户名
         username = getUsername();
         clearReconnectTimer();
         if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
         
         try {
-            const currentWs = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
+            const currentWs = new WebSocket(await buildChatWsUrl(username));
             ws = currentWs;
             
             currentWs.onopen = function() {

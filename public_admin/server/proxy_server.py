@@ -167,6 +167,8 @@ from .security.audit import (
 from .security.context import build_security_context
 from .security.result import SecurityResult
 from .ak_auth import AkUserKeyLoginFastPath
+from .ws_ticket import WsTicketRepository, WsTicketService, create_ws_ticket_router
+from .ws_ticket.service import WsTicketError
 
 from plugins.remote_assist.server import remote_assist
 
@@ -424,7 +426,10 @@ from plugins.notification.server.notification_service import NotificationService
 try:
     from plugins.notify_center.server.channels.web_push import WebPushChannel
     from plugins.notify_center.server.config import NotifyCenterConfig
-    from plugins.notify_center.server.identity import attach_identity_cookie as attach_notify_identity_cookie
+    from plugins.notify_center.server.identity import (
+        attach_identity_cookie as attach_notify_identity_cookie,
+        get_identity_cookie_username as get_notify_identity_cookie_username,
+    )
     from plugins.notify_center.server.outbox_worker import NotifyCenterOutboxWorker
     from plugins.notify_center.server.repository import NotifyCenterRepository
     from plugins.notify_center.server.router import create_notify_center_router
@@ -434,6 +439,7 @@ except Exception as e:
     WebPushChannel = None
     NotifyCenterConfig = None
     attach_notify_identity_cookie = None
+    get_notify_identity_cookie_username = None
     NotifyCenterOutboxWorker = None
     NotifyCenterRepository = None
     NotifyCenterService = None
@@ -4843,6 +4849,236 @@ def _attach_notify_center_identity_cookie(response, request: Request, username: 
         return False
 
 
+def _get_ws_ticket_ttl_seconds() -> int:
+    try:
+        return int(str(os.environ.get('WS_TICKET_TTL_SECONDS') or '45').strip() or 45)
+    except Exception:
+        return 45
+
+
+ws_ticket_service = WsTicketService(
+    WsTicketRepository(db._get_pool),
+    ttl_seconds=_get_ws_ticket_ttl_seconds(),
+    logger=logger,
+)
+
+
+def _get_notify_identity_settings() -> tuple[str, str]:
+    service = globals().get('notify_center_service')
+    config = getattr(service, 'config', None)
+    secret = str(getattr(config, 'identity_secret', '') or os.environ.get('NOTIFY_CENTER_IDENTITY_SECRET') or os.environ.get('NOTIFY_CENTER_INTERNAL_SECRET') or os.environ.get('IM_NOTIFY_CENTER_WEBHOOK_SECRET') or '').strip()
+    cookie_name = str(getattr(config, 'identity_cookie_name', '') or os.environ.get('NOTIFY_CENTER_IDENTITY_COOKIE') or 'ak_notify_identity').strip() or 'ak_notify_identity'
+    return cookie_name, secret
+
+
+def _resolve_signed_notify_username(request: Request) -> str:
+    if get_notify_identity_cookie_username is None:
+        return ''
+    cookie_name, secret = _get_notify_identity_settings()
+    if not secret:
+        return ''
+    try:
+        return online_manager.normalize_username(get_notify_identity_cookie_username(
+            request,
+            cookie_name=cookie_name,
+            secret=secret,
+        ))
+    except Exception:
+        return ''
+
+
+async def _resolve_ws_ticket_user_subject(request: Request, data: dict, audience: str) -> str:
+    return _resolve_signed_notify_username(request)
+
+
+async def _resolve_ws_ticket_admin_identity(request: Request, data: dict, audience: str) -> dict:
+    token, role, identity = await _resolve_admin_identity(request)
+    if not token or not role:
+        return {'ok': False, 'status': 401, 'code': 'unauthorized', 'message': 'unauthorized'}
+    subject = identity or role
+    return {
+        'ok': True,
+        'subject': subject,
+        'admin_role': role,
+        'admin_name': identity or '',
+    }
+
+
+def _ws_ticket_resource_id(data: dict, *names: str) -> str:
+    for name in names:
+        value = str((data or {}).get(name) or '').strip()
+        if value:
+            return value
+    return ''
+
+
+def _admin_can_access_assist_session(session, auth_context: dict) -> bool:
+    admin_role = str((auth_context or {}).get('admin_role') or '').strip()
+    admin_name = str((auth_context or {}).get('admin_name') or '').strip()
+    if admin_role == ROLE_SUPER_ADMIN:
+        return True
+    return bool(session and str(getattr(session, 'admin_username', '') or '').strip() == (admin_name or admin_role))
+
+
+def _admin_can_access_voice_session(session, auth_context: dict) -> bool:
+    admin_role = str((auth_context or {}).get('admin_role') or '').strip()
+    admin_name = str((auth_context or {}).get('admin_name') or '').strip()
+    if admin_role == ROLE_SUPER_ADMIN:
+        return True
+    return bool(session and str(getattr(session, 'admin_username', '') or '').strip() == (admin_name or admin_role))
+
+
+async def _validate_ws_ticket_issue(request: Request, data: dict, audience: str,
+                                    subject: str, role: str, auth_context: dict) -> dict:
+    normalized_subject = online_manager.normalize_username(subject)
+    normalized_role = 'admin' if str(role or '').strip().lower() == 'admin' else 'user'
+    if audience == 'chat':
+        return {
+            'ok': True,
+            'resource_type': 'chat_presence',
+            'resource_id': '',
+            'site': 'ak_web',
+            'readonly': False,
+            'claims': {'identity_source': 'signed_cookie' if _resolve_signed_notify_username(request) else 'guest'},
+        }
+    if audience == 'assist':
+        session_id = _ws_ticket_resource_id(data, 'session_id', 'resource_id', 'assist_session_id')
+        session = remote_assist.get_session(session_id) if session_id else None
+        if not session:
+            return {'ok': False, 'status': 404, 'code': 'assist_session_missing', 'message': 'assist session not found'}
+        if str(getattr(session, 'site_type', '') or 'ak_web') != 'ak_web':
+            return {'ok': False, 'status': 403, 'code': 'site_mismatch', 'message': 'assist site mismatch'}
+        if normalized_role == 'admin':
+            if not _admin_can_access_assist_session(session, auth_context):
+                return {'ok': False, 'status': 403, 'code': 'assist_forbidden', 'message': 'assist session forbidden'}
+            readonly = True
+        else:
+            target = online_manager.normalize_username(getattr(session, 'target_username', '') or '')
+            if not normalized_subject or normalized_subject != target:
+                return {'ok': False, 'status': 403, 'code': 'assist_user_mismatch', 'message': 'assist user mismatch'}
+            readonly = False
+        return {
+            'ok': True,
+            'resource_type': 'assist_session',
+            'resource_id': session.session_id,
+            'site': 'ak_web',
+            'readonly': readonly,
+            'claims': {
+                'target_username': getattr(session, 'target_username', '') or '',
+                'admin_role': str((auth_context or {}).get('admin_role') or ''),
+                'admin_name': str((auth_context or {}).get('admin_name') or ''),
+            },
+        }
+    if audience == 'voice':
+        voice_session_id = _ws_ticket_resource_id(data, 'voice_session_id', 'resource_id')
+        session = remote_voice.get_session(voice_session_id) if voice_session_id else None
+        if not session:
+            return {'ok': False, 'status': 404, 'code': 'voice_session_missing', 'message': 'voice session not found'}
+        if str(getattr(session, 'site_type', '') or 'ak_web') != 'ak_web' or session.status not in COUNTED_VOICE_SESSION_STATUSES:
+            return {'ok': False, 'status': 403, 'code': 'voice_session_inactive', 'message': 'voice session is not active'}
+        if normalized_role == 'admin':
+            if not _admin_can_access_voice_session(session, auth_context):
+                return {'ok': False, 'status': 403, 'code': 'voice_forbidden', 'message': 'voice session forbidden'}
+        else:
+            target = online_manager.normalize_username(getattr(session, 'target_username', '') or '')
+            if not normalized_subject or normalized_subject != target:
+                return {'ok': False, 'status': 403, 'code': 'voice_user_mismatch', 'message': 'voice user mismatch'}
+        return {
+            'ok': True,
+            'resource_type': 'voice_session',
+            'resource_id': session.voice_session_id,
+            'site': 'ak_web',
+            'readonly': False,
+            'claims': {
+                'assist_session_id': getattr(session, 'assist_session_id', '') or '',
+                'target_username': getattr(session, 'target_username', '') or '',
+                'admin_role': str((auth_context or {}).get('admin_role') or ''),
+                'admin_name': str((auth_context or {}).get('admin_name') or ''),
+            },
+        }
+    return {'ok': False, 'status': 400, 'code': 'unsupported_audience', 'message': 'unsupported websocket audience'}
+
+
+async def _consume_ws_ticket_from_websocket(websocket: WebSocket, audience: str):
+    ticket = str(websocket.query_params.get('ticket') or '').strip()
+    try:
+        return await ws_ticket_service.consume(
+            ticket=ticket,
+            audience=audience,
+            consume_ip=_websocket_client_ip(websocket),
+            consume_user_agent=websocket.headers.get('user-agent', ''),
+        )
+    except WsTicketError as e:
+        logger.warning(
+            f"[WsTicket] reject audience={audience} code={e.code} client={getattr(websocket, 'client', None)}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[WsTicket] reject audience={audience} code=consume_failed client={getattr(websocket, 'client', None)} err={e}"
+        )
+    try:
+        await websocket.close(code=1008)
+    except Exception:
+        pass
+    return None
+
+
+def _websocket_client_ip(websocket: WebSocket) -> str:
+    try:
+        forwarded = str(websocket.headers.get('x-forwarded-for') or '').split(',')[0].strip()
+        if forwarded:
+            return forwarded
+        real_ip = str(websocket.headers.get('x-real-ip') or '').strip()
+        if real_ip:
+            return real_ip
+        return str(getattr(getattr(websocket, 'client', None), 'host', '') or '')
+    except Exception:
+        return ''
+
+
+def _is_assist_ws_ticket_current(claims) -> bool:
+    if not claims or claims.audience != 'assist' or claims.resource_type != 'assist_session':
+        return False
+    session = remote_assist.get_session(claims.resource_id)
+    if not session or str(getattr(session, 'site_type', '') or 'ak_web') != 'ak_web':
+        return False
+    if claims.role == 'admin':
+        admin_role = str((claims.claims or {}).get('admin_role') or '').strip()
+        if admin_role == ROLE_SUPER_ADMIN:
+            return True
+        admin_name = str((claims.claims or {}).get('admin_name') or '').strip()
+        session_admin = str(getattr(session, 'admin_username', '') or '').strip()
+        return session_admin in {claims.subject, admin_name, admin_role}
+    return online_manager.normalize_username(getattr(session, 'target_username', '') or '') == claims.subject
+
+
+def _is_voice_ws_ticket_current(claims) -> bool:
+    if not claims or claims.audience != 'voice' or claims.resource_type != 'voice_session':
+        return False
+    session = remote_voice.get_session(claims.resource_id)
+    if not session or str(getattr(session, 'site_type', '') or 'ak_web') != 'ak_web':
+        return False
+    if session.status not in COUNTED_VOICE_SESSION_STATUSES:
+        return False
+    if claims.role == 'admin':
+        admin_role = str((claims.claims or {}).get('admin_role') or '').strip()
+        if admin_role == ROLE_SUPER_ADMIN:
+            return True
+        admin_name = str((claims.claims or {}).get('admin_name') or '').strip()
+        session_admin = str(getattr(session, 'admin_username', '') or '').strip()
+        return session_admin in {claims.subject, admin_name, admin_role}
+    return online_manager.normalize_username(getattr(session, 'target_username', '') or '') == claims.subject
+
+
+app.include_router(create_ws_ticket_router(
+    service=ws_ticket_service,
+    resolve_user_subject=_resolve_ws_ticket_user_subject,
+    resolve_admin_identity=_resolve_ws_ticket_admin_identity,
+    validate_issue=_validate_ws_ticket_issue,
+    logger=logger,
+))
+
+
 license_center_service = None
 if LicenseCenterRepository is not None and LicenseCenterService is not None:
     try:
@@ -4990,6 +5226,12 @@ async def admin_startup():
         )
 
         logger.info("PostgreSQL 数据库连接成功")
+
+        try:
+            await ws_ticket_service.ensure_schema()
+            logger.info("[WsTicket] ticket table initialized")
+        except Exception as e:
+            logger.warning(f"[WsTicket] ticket table init failed: {e}")
 
         try:
             pool = db._get_pool()
@@ -10492,10 +10734,21 @@ def _schedule_remote_assist_auto_unbind(session) -> None:
 @app.websocket("/admin/assist/ws")
 async def remote_assist_websocket(websocket: WebSocket):
 
-    session_id = (websocket.query_params.get('session_id') or '').strip()
-    role_name = (websocket.query_params.get('role') or 'user').strip().lower()
-    site = (websocket.query_params.get('site') or 'ak_web').strip() or 'ak_web'
-    readonly = (websocket.query_params.get('readonly') or '1').strip() != '0'
+    ticket_claims = await _consume_ws_ticket_from_websocket(websocket, 'assist')
+    if not ticket_claims:
+        return
+    if not _is_assist_ws_ticket_current(ticket_claims):
+        logger.warning(
+            f"[RemoteAssistWS] reject_ticket_stale session={getattr(ticket_claims, 'resource_id', '') or '-'} "
+            f"role={getattr(ticket_claims, 'role', '') or '-'} subject={getattr(ticket_claims, 'subject', '') or '-'}"
+        )
+        await websocket.close(code=1008)
+        return
+
+    session_id = str(ticket_claims.resource_id or '').strip()
+    role_name = str(ticket_claims.role or 'user').strip().lower()
+    site = str(ticket_claims.site or 'ak_web').strip() or 'ak_web'
+    readonly = bool(ticket_claims.readonly)
     role = AssistRole.ADMIN if role_name == 'admin' else AssistRole.USER
     browse_session_id = (websocket.cookies.get(_BROWSE_SESSION_COOKIE) or '').strip()
     participant_id = f"{role.value}_{secrets.token_hex(8)}"
@@ -10698,10 +10951,21 @@ async def remote_assist_websocket(websocket: WebSocket):
 @app.websocket("/voice/ws")
 async def remote_voice_websocket(websocket: WebSocket):
 
-    voice_session_id = (websocket.query_params.get('voice_session_id') or '').strip()
-    role_name = (websocket.query_params.get('role') or 'user').strip().lower()
+    ticket_claims = await _consume_ws_ticket_from_websocket(websocket, 'voice')
+    if not ticket_claims:
+        return
+    if not _is_voice_ws_ticket_current(ticket_claims):
+        logger.warning(
+            f"[RemoteVoiceWS] reject_ticket_stale voice_session={getattr(ticket_claims, 'resource_id', '') or '-'} "
+            f"role={getattr(ticket_claims, 'role', '') or '-'} subject={getattr(ticket_claims, 'subject', '') or '-'}"
+        )
+        await websocket.close(code=1008)
+        return
+
+    voice_session_id = str(ticket_claims.resource_id or '').strip()
+    role_name = str(ticket_claims.role or 'user').strip().lower()
     role_name = 'admin' if role_name == 'admin' else 'user'
-    site = (websocket.query_params.get('site') or 'ak_web').strip() or 'ak_web'
+    site = str(ticket_claims.site or 'ak_web').strip() or 'ak_web'
     connection_id = ''
     voice_session = remote_voice.get_session(voice_session_id)
 
@@ -10828,13 +11092,17 @@ async def remote_voice_websocket(websocket: WebSocket):
 @app.websocket("/chat/ws")
 async def chat_websocket(websocket: WebSocket):
 
+    ticket_claims = await _consume_ws_ticket_from_websocket(websocket, 'chat')
+    if not ticket_claims:
+        return
+
+    username = online_manager.normalize_username(ticket_claims.subject) or 'visitor'
+
     await websocket.accept()
 
-    raw_query_username = websocket.query_params.get('username', 'visitor')
+    raw_query_username = username
 
     cookie_username = _get_chat_ws_cookie_username(websocket)
-
-    username = _resolve_chat_ws_username(websocket, raw_query_username)
 
     normalized_query_username = online_manager.normalize_username(username)
 
@@ -10842,7 +11110,7 @@ async def chat_websocket(websocket: WebSocket):
 
     logger.warning(
 
-        f"[ChatWS] accepted query_username={raw_query_username or '-'} resolved_username={username or '-'} "
+        f"[ChatWS] accepted ticket_subject={raw_query_username or '-'} resolved_username={username or '-'} "
         f"cookie_username={cookie_username or '-'} client={client}"
 
     )
@@ -10876,7 +11144,7 @@ async def chat_websocket(websocket: WebSocket):
             if msg_type == 'online':
 
                 raw_incoming_username = data.get('username', username)
-                incoming_username = _resolve_chat_ws_username(websocket, raw_incoming_username, username)
+                incoming_username = username
                 incoming_page = str(data.get('page') or '')
                 incoming_page_client_id = str(data.get('pageClientId') or '')
                 current_ws_id = online_manager.get_websocket_id(websocket)
@@ -10988,7 +11256,7 @@ async def chat_websocket(websocket: WebSocket):
 
                 hp = data.get('page', '')
 
-                heartbeat_username = _resolve_chat_ws_username(websocket, data.get('username', ''), username)
+                heartbeat_username = username
 
                 if online_manager.normalize_username(heartbeat_username) != online_manager.normalize_username(username):
                     remaining_user = online_manager.user_offline(username, websocket)

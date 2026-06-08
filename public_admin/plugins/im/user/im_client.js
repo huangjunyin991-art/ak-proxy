@@ -2082,8 +2082,8 @@
             openActionSheet: openActionSheet,
             closeActionSheet: closeActionSheet,
             openReadProgressPanel: openReadProgressPanel,
-            createWebSocket: function(username) {
-                return new WebSocket(buildWsUrl(username));
+            createWebSocket: async function(username) {
+                return new WebSocket(await buildWsUrl(username));
             },
             getWebSocketUsername: function() {
                 return getBootstrapUsername();
@@ -3307,16 +3307,41 @@
         return getActiveRuntimeUsername() || getCanonicalUsername();
     }
 
-    function buildWsUrl(usernameOverride) {
-        const baseUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/im/ws`;
-        try {
-            const finalUrl = new URL(baseUrl);
-            const username = String(usernameOverride || getBootstrapUsername() || '').trim().toLowerCase();
-            if (username) finalUrl.searchParams.set('username', username);
-            return finalUrl.toString();
-        } catch (e) {
-            return baseUrl;
+    async function fetchWsTicket(audience, payload, options) {
+        if (window.AKWsTicket && typeof window.AKWsTicket.fetchTicket === 'function') {
+            return window.AKWsTicket.fetchTicket(audience, payload, options);
         }
+        const config = options || {};
+        const endpoint = config.endpoint || (String(audience || '').trim().toLowerCase() === 'im' ? '/im/api/ws-ticket' : '/chat/api/ws-ticket');
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'include',
+            headers: Object.assign({'Content-Type': 'application/json'}, config.headers || {}),
+            body: JSON.stringify(Object.assign({}, payload || {}, {audience: String(audience || '').trim().toLowerCase()}))
+        });
+        let data = null;
+        try { data = await response.json(); } catch (e) {}
+        if (!response.ok || !data || !data.ticket) {
+            throw new Error(data && data.message ? data.message : ('WebSocket ticket failed: ' + response.status));
+        }
+        return data;
+    }
+
+    function buildTicketedWsUrl(path, ticket) {
+        if (window.AKWsTicket && typeof window.AKWsTicket.buildWsUrl === 'function') {
+            return window.AKWsTicket.buildWsUrl(path, ticket);
+        }
+        const finalUrl = new URL(path, window.location.origin);
+        finalUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        finalUrl.search = '';
+        finalUrl.searchParams.set('ticket', String(ticket || ''));
+        return finalUrl.toString();
+    }
+
+    async function buildWsUrl(usernameOverride) {
+        const username = String(usernameOverride || getBootstrapUsername() || '').trim().toLowerCase();
+        const ticket = await fetchWsTicket('im', { username: username }, { endpoint: '/im/api/ws-ticket' });
+        return buildTicketedWsUrl('/im/ws', ticket.ticket);
     }
 
     function buildBootstrapUrl() {

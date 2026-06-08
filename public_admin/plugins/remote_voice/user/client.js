@@ -6,9 +6,44 @@
         { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
     ];
 
-    function buildDefaultWsUrl(voiceSessionId, role, site) {
-        const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-        return `${protocol}${window.location.host}/voice/ws?voice_session_id=${encodeURIComponent(String(voiceSessionId || ''))}&role=${encodeURIComponent(String(role || 'user'))}&site=${encodeURIComponent(String(site || DEFAULT_SITE))}`;
+    async function fetchWsTicket(audience, payload, options) {
+        if (global.AKWsTicket && typeof global.AKWsTicket.fetchTicket === 'function') {
+            return global.AKWsTicket.fetchTicket(audience, payload, options);
+        }
+        const config = options || {};
+        const endpoint = config.endpoint || (config.admin ? '/admin/api/ws-ticket' : '/chat/api/ws-ticket');
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'include',
+            headers: Object.assign({'Content-Type': 'application/json'}, config.headers || {}),
+            body: JSON.stringify(Object.assign({}, payload || {}, {audience: String(audience || '').trim().toLowerCase()}))
+        });
+        let data = null;
+        try { data = await response.json(); } catch (e) {}
+        if (!response.ok || !data || !data.ticket) {
+            throw new Error(data && data.message ? data.message : ('WebSocket ticket failed: ' + response.status));
+        }
+        return data;
+    }
+
+    function buildTicketedWsUrl(path, ticket) {
+        if (global.AKWsTicket && typeof global.AKWsTicket.buildWsUrl === 'function') {
+            return global.AKWsTicket.buildWsUrl(path, ticket);
+        }
+        const url = new URL(path, global.location.origin);
+        url.protocol = global.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.search = '';
+        url.searchParams.set('ticket', String(ticket || ''));
+        return url.toString();
+    }
+
+    async function buildDefaultWsUrl(voiceSessionId, role, site) {
+        const ticket = await fetchWsTicket('voice', {
+            voice_session_id: String(voiceSessionId || ''),
+            role: String(role || 'user'),
+            site: String(site || DEFAULT_SITE)
+        }, { admin: String(role || '').trim().toLowerCase() === 'admin' });
+        return buildTicketedWsUrl('/voice/ws', ticket.ticket);
     }
 
     function clampLevel(value) {
@@ -243,9 +278,10 @@
             if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
                 return this.ws;
             }
-            return await new Promise((resolve, reject) => {
+            return await new Promise(async (resolve, reject) => {
                 try {
-                    const currentWs = new WebSocket(this.wsUrlBuilder(this.voiceSessionId, this.role, this.site));
+                    const wsUrl = await this.wsUrlBuilder(this.voiceSessionId, this.role, this.site);
+                    const currentWs = new WebSocket(wsUrl);
                     let opened = false;
                     let settled = false;
                     const rejectConnect = error => {

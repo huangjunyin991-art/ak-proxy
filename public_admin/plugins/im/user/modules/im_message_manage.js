@@ -1546,6 +1546,59 @@
             return !!state && state.ws === socket && Number(meta.token || 0) === Number(token || 0);
         },
 
+        attachManagedWebSocket(state, currentSocket, token, expectedUsername) {
+            if (!state || !currentSocket) return;
+            const meta = this.ensureWsMeta(state);
+            const self = this;
+            try { meta.url = String(currentSocket.url || ''); } catch (e) {}
+            this.updateWebSocketDebug(state, 'connecting', { expectedUsername: expectedUsername });
+            currentSocket.addEventListener('open', function() {
+                if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                meta.opened = true;
+                meta.failureCount = 0;
+                meta.lastOpenAt = Date.now();
+                meta.lastCloseCode = 0;
+                meta.lastCloseReason = '';
+                meta.pending = false;
+                self.updateWebSocketDebug(state, 'open', { expectedUsername: expectedUsername });
+                try {
+                    const cur = self.getState();
+                    if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {
+                        self.markRead(cur.activeConversationId, { force: true });
+                    }
+                } catch (e) {}
+            });
+            currentSocket.addEventListener('message', function(event) {
+                if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    self.handleSocketPayload(data);
+                } catch (e) {}
+            });
+            currentSocket.addEventListener('error', function(event) {
+                if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                meta.lastErrorAt = Date.now();
+                meta.lastErrorType = String((event && event.type) || 'error');
+                meta.pending = false;
+                self.updateWebSocketDebug(state, 'error', { expectedUsername: expectedUsername });
+            });
+            currentSocket.addEventListener('close', function(event) {
+                if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                state.ws = null;
+                meta.pending = false;
+                meta.lastCloseAt = Date.now();
+                meta.lastCloseCode = Number((event && event.code) || 0);
+                meta.lastCloseReason = String((event && event.reason) || '');
+                meta.failureCount = Math.min(Number(meta.failureCount || 0) + 1, 6);
+                meta.opened = false;
+                self.updateWebSocketDebug(state, 'close', {
+                    expectedUsername: expectedUsername,
+                    wasClean: !!(event && event.wasClean)
+                });
+                self.scheduleWebSocketReconnect(state, 'ws_close');
+            });
+        },
+
         ensureWebSocket() {
             const state = this.getState();
             if (!state || !this.ctx || typeof this.ctx.createWebSocket !== 'function') return;
@@ -1556,6 +1609,10 @@
                 return;
             }
             const meta = this.ensureWsMeta(state);
+            if (meta.pending && String(meta.username || '').trim().toLowerCase() === expectedUsername) {
+                this.updateWebSocketDebug(state, 'reuse_pending_socket', { expectedUsername: expectedUsername });
+                return;
+            }
             if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
                 const currentUsername = String(meta.username || '').trim().toLowerCase();
                 if (!currentUsername || currentUsername === expectedUsername) {
@@ -1571,11 +1628,43 @@
             meta.username = expectedUsername;
             meta.url = '';
             meta.opened = false;
+            meta.pending = true;
             meta.lastAttemptAt = Date.now();
             try {
-                state.ws = this.ctx.createWebSocket(expectedUsername);
-                if (!state.ws) return;
+                const socketOrPromise = this.ctx.createWebSocket(expectedUsername);
+                if (socketOrPromise && typeof socketOrPromise.then === 'function') {
+                    socketOrPromise.then(function(socket) {
+                        if (Number(meta.token || 0) !== Number(token || 0)) {
+                            try { if (socket) socket.close(1000, 'stale_socket'); } catch (e) {}
+                            return;
+                        }
+                        meta.pending = false;
+                        state.ws = socket;
+                        if (!state.ws) return;
+                        self.attachManagedWebSocket(state, state.ws, token, expectedUsername);
+                    }).catch(function(error) {
+                        if (Number(meta.token || 0) !== Number(token || 0)) return;
+                        meta.pending = false;
+                        meta.failureCount = Math.min(Number(meta.failureCount || 0) + 1, 6);
+                        meta.lastErrorAt = Date.now();
+                        meta.lastErrorType = 'create_rejected';
+                        self.updateWebSocketDebug(state, 'create_rejected', {
+                            message: String((error && error.message) || error || '')
+                        });
+                        self.scheduleWebSocketReconnect(state, 'create_rejected');
+                    });
+                    return;
+                }
+                state.ws = socketOrPromise;
+                if (!state.ws) {
+                    meta.pending = false;
+                    meta.failureCount = Math.min(Number(meta.failureCount || 0) + 1, 6);
+                    this.updateWebSocketDebug(state, 'create_empty', { expectedUsername: expectedUsername });
+                    this.scheduleWebSocketReconnect(state, 'create_empty');
+                    return;
+                }
                 const currentSocket = state.ws;
+                meta.pending = false;
                 try { meta.url = String(currentSocket.url || ''); } catch (e) {}
                 this.updateWebSocketDebug(state, 'connecting', { expectedUsername: expectedUsername });
                 currentSocket.addEventListener('open', function() {
@@ -1605,11 +1694,13 @@
                     if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
                     meta.lastErrorAt = Date.now();
                     meta.lastErrorType = String((event && event.type) || 'error');
+                    meta.pending = false;
                     self.updateWebSocketDebug(state, 'error', { expectedUsername: expectedUsername });
                 });
                 currentSocket.addEventListener('close', function(event) {
                     if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
                     state.ws = null;
+                    meta.pending = false;
                     meta.lastCloseAt = Date.now();
                     meta.lastCloseCode = Number((event && event.code) || 0);
                     meta.lastCloseReason = String((event && event.reason) || '');
@@ -1622,6 +1713,7 @@
                     self.scheduleWebSocketReconnect(state, 'ws_close');
                 });
             } catch (e) {
+                meta.pending = false;
                 meta.failureCount = Math.min(Number(meta.failureCount || 0) + 1, 6);
                 meta.lastErrorAt = Date.now();
                 meta.lastErrorType = 'create_exception';

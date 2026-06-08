@@ -25,6 +25,33 @@
             }
         }
 
+        async function fetchWsTicket(audience, payload) {
+            const response = await fetch(`${API_BASE}/admin/api/ws-ticket`, {
+                method: 'POST',
+                headers: {
+                    ...getHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(Object.assign({}, payload || {}, {
+                    audience: String(audience || '').trim().toLowerCase()
+                }))
+            });
+            let data = null;
+            try { data = await response.json(); } catch (e) {}
+            if (!response.ok || !data || !data.ticket) {
+                throw new Error(data && data.message ? data.message : `WebSocket ticket failed: ${response.status}`);
+            }
+            return data;
+        }
+
+        function buildTicketedWsUrl(path, ticket) {
+            const url = new URL(path, window.location.origin);
+            url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            url.search = '';
+            url.searchParams.set('ticket', String(ticket || ''));
+            return url.toString();
+        }
+
         function formatAkBrowserTitle(username, mode = getAkBrowserMode()) {
             const name = String(username || '').trim();
             if (mode === 'assist') {
@@ -525,9 +552,13 @@
             renderRemoteAssistVoiceStrip();
         }
 
-        function buildRemoteVoiceWsUrl(voiceSessionId, role, site) {
-            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            return `${proto}${window.location.host}/voice/ws?voice_session_id=${encodeURIComponent(String(voiceSessionId || ''))}&role=${encodeURIComponent(String(role || 'admin'))}&site=${encodeURIComponent(String(site || 'ak_web'))}`;
+        async function buildRemoteVoiceWsUrl(voiceSessionId, role, site) {
+            const ticket = await fetchWsTicket('voice', {
+                voice_session_id: String(voiceSessionId || ''),
+                role: String(role || 'admin'),
+                site: String(site || 'ak_web')
+            });
+            return buildTicketedWsUrl('/voice/ws', ticket.ticket);
         }
 
         function ensureRemoteAssistVoiceLibrary() {
@@ -809,9 +840,13 @@
             return `<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">${safeText}</body></html>`;
         }
 
-        function buildRemoteAssistWsUrl(sessionId) {
-            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            return `${proto}${window.location.host}/admin/assist/ws?session_id=${encodeURIComponent(sessionId)}&role=admin&site=ak_web&readonly=1`;
+        async function buildRemoteAssistWsUrl(sessionId) {
+            const ticket = await fetchWsTicket('assist', {
+                session_id: String(sessionId || ''),
+                site: 'ak_web',
+                readonly: true
+            });
+            return buildTicketedWsUrl('/admin/assist/ws', ticket.ticket);
         }
 
         function getRemoteAssistSnapshotViewport(snapshot = remoteAssistPanelLastSnapshot) {
@@ -1951,12 +1986,23 @@
             }, 1500);
         }
 
-        function connectRemoteAssistPanelSocket(sessionId) {
+        async function connectRemoteAssistPanelSocket(sessionId) {
             const wantedSessionId = String(sessionId || '').trim();
             if (!wantedSessionId) return;
             if (remoteAssistPanelWs && (remoteAssistPanelWs.readyState === WebSocket.OPEN || remoteAssistPanelWs.readyState === WebSocket.CONNECTING) && remoteAssistPanelSessionId === wantedSessionId) return;
             clearRemoteAssistReconnectTimer();
-            const currentWs = new WebSocket(buildRemoteAssistWsUrl(wantedSessionId));
+            let currentWs = null;
+            try {
+                currentWs = new WebSocket(await buildRemoteAssistWsUrl(wantedSessionId));
+            } catch (error) {
+                setRemoteAssistMeta('远程指导连接失败，正在重试');
+                logRemoteAssistDebug('ws_ticket_failed', {
+                    session_id: wantedSessionId,
+                    message: String((error && error.message) || error || '')
+                });
+                scheduleRemoteAssistReconnect();
+                return;
+            }
             remoteAssistPanelWs = currentWs;
             currentWs.onopen = function() {
                 if (remoteAssistPanelWs !== currentWs) return;

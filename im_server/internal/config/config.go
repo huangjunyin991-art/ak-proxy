@@ -6,40 +6,48 @@ import (
 )
 
 type Config struct {
-	Addr                      string
-	DatabaseURL               string
-	CookieName                string
-	AllowedOrigin             string
-	CompressMinBytes          int
-	EmojiSourceDir            string
-	EmojiStoreDir             string
-	VoiceStoreDir             string
-	ImageStoreDir             string
-	FileStoreDir              string
-	VideoStoreDir             string
-	NotifyCenterEnabled       bool
-	NotifyCenterWebhookURL    string
-	NotifyCenterWebhookSecret string
-	NotifyCenterTimeoutMS     int
+	Addr                       string
+	DatabaseURL                string
+	CookieName                 string
+	AllowedOrigin              string
+	CompressMinBytes           int
+	EmojiSourceDir             string
+	EmojiStoreDir              string
+	VoiceStoreDir              string
+	ImageStoreDir              string
+	FileStoreDir               string
+	VideoStoreDir              string
+	NotifyCenterEnabled        bool
+	NotifyCenterWebhookURL     string
+	NotifyCenterWebhookSecret  string
+	NotifyCenterTimeoutMS      int
+	NotifyCenterIdentitySecret string
+	NotifyCenterIdentityCookie string
+	WsTicketTTLSeconds         int
 }
 
 func Load() Config {
+	notifySecret := getEnv("IM_NOTIFY_CENTER_WEBHOOK_SECRET", "")
+	identitySecret := getEnv("NOTIFY_CENTER_IDENTITY_SECRET", getEnv("NOTIFY_CENTER_INTERNAL_SECRET", notifySecret))
 	return Config{
-		Addr:                      getEnv("IM_ADDR", "127.0.0.1:18081"),
-		DatabaseURL:               getEnv("IM_DATABASE_URL", ""),
-		CookieName:                getEnv("IM_AUTH_COOKIE", "ak_username"),
-		AllowedOrigin:             getEnv("IM_ALLOWED_ORIGIN", ""),
-		CompressMinBytes:          1024,
-		EmojiSourceDir:            getEnv("IM_EMOJI_SOURCE_DIR", "./imageSource"),
-		EmojiStoreDir:             getEnv("IM_EMOJI_STORE_DIR", "./data/im/emoji_assets"),
-		VoiceStoreDir:             getEnv("IM_VOICE_STORE_DIR", "./data/im/voice_assets"),
-		ImageStoreDir:             getEnv("IM_IMAGE_STORE_DIR", "./data/im/image_assets"),
-		FileStoreDir:              getEnv("IM_FILE_STORE_DIR", "./data/im/file_assets"),
-		VideoStoreDir:             getEnv("IM_VIDEO_STORE_DIR", "./data/im/video_assets"),
-		NotifyCenterEnabled:       getEnvBool("IM_NOTIFY_CENTER_ENABLED", false),
-		NotifyCenterWebhookURL:    getEnv("IM_NOTIFY_CENTER_WEBHOOK_URL", ""),
-		NotifyCenterWebhookSecret: getEnv("IM_NOTIFY_CENTER_WEBHOOK_SECRET", ""),
-		NotifyCenterTimeoutMS:     getEnvInt("IM_NOTIFY_CENTER_TIMEOUT_MS", 1500),
+		Addr:                       getEnv("IM_ADDR", "127.0.0.1:18081"),
+		DatabaseURL:                getEnv("IM_DATABASE_URL", ""),
+		CookieName:                 getEnv("IM_AUTH_COOKIE", "ak_username"),
+		AllowedOrigin:              getEnv("IM_ALLOWED_ORIGIN", ""),
+		CompressMinBytes:           1024,
+		EmojiSourceDir:             getEnv("IM_EMOJI_SOURCE_DIR", "./imageSource"),
+		EmojiStoreDir:              getEnv("IM_EMOJI_STORE_DIR", "./data/im/emoji_assets"),
+		VoiceStoreDir:              getEnv("IM_VOICE_STORE_DIR", "./data/im/voice_assets"),
+		ImageStoreDir:              getEnv("IM_IMAGE_STORE_DIR", "./data/im/image_assets"),
+		FileStoreDir:               getEnv("IM_FILE_STORE_DIR", "./data/im/file_assets"),
+		VideoStoreDir:              getEnv("IM_VIDEO_STORE_DIR", "./data/im/video_assets"),
+		NotifyCenterEnabled:        getEnvBool("IM_NOTIFY_CENTER_ENABLED", false),
+		NotifyCenterWebhookURL:     getEnv("IM_NOTIFY_CENTER_WEBHOOK_URL", ""),
+		NotifyCenterWebhookSecret:  notifySecret,
+		NotifyCenterTimeoutMS:      getEnvInt("IM_NOTIFY_CENTER_TIMEOUT_MS", 1500),
+		NotifyCenterIdentitySecret: identitySecret,
+		NotifyCenterIdentityCookie: getEnv("NOTIFY_CENTER_IDENTITY_COOKIE", "ak_notify_identity"),
+		WsTicketTTLSeconds:         getEnvInt("WS_TICKET_TTL_SECONDS", 45),
 	}
 }
 

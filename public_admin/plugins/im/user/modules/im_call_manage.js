@@ -762,6 +762,8 @@
         return {
             socket: null,
             socketReady: false,
+            socketConnecting: false,
+            socketToken: 0,
             outboundQueue: [],
             options: {},
 
@@ -773,14 +775,48 @@
 
             getWsURL() {
                 if (this.options && typeof this.options.getWsURL === 'function') {
-                    return String(this.options.getWsURL() || '');
+                    const value = this.options.getWsURL();
+                    if (value && typeof value.then === 'function') {
+                        return value.then(function(url) { return String(url || ''); });
+                    }
+                    return String(value || '');
                 }
                 return '';
             },
 
             ensureSocket() {
                 if (this.socket && (this.socket.readyState === 0 || this.socket.readyState === 1)) return;
-                const wsURL = this.getWsURL();
+                if (this.socketConnecting) return;
+                let wsURL = '';
+                const token = Number(this.socketToken || 0) + 1;
+                this.socketToken = token;
+                try {
+                    wsURL = this.getWsURL();
+                } catch (error) {
+                    this.emitError('socket_error', error && error.message ? error.message : '通话信令初始化失败');
+                    return;
+                }
+                const self = this;
+                if (wsURL && typeof wsURL.then === 'function') {
+                    this.socketConnecting = true;
+                    wsURL.then(function(resolvedURL) {
+                        if (Number(self.socketToken || 0) !== token) return;
+                        self.socketConnecting = false;
+                        self.openSocket(resolvedURL, token);
+                    }).catch(function(error) {
+                        if (Number(self.socketToken || 0) !== token) return;
+                        self.socketConnecting = false;
+                        self.socketReady = false;
+                        self.emitError('socket_error', error && error.message ? error.message : '通话信令初始化失败');
+                    });
+                    return;
+                }
+                this.openSocket(wsURL, token);
+            },
+
+            openSocket(wsURL, token) {
+                if (Number(this.socketToken || 0) !== Number(token || 0)) return;
+                wsURL = String(wsURL || '');
                 if (!wsURL) {
                     this.emitError('socket_unavailable', '通话服务地址不可用');
                     return;
@@ -790,17 +826,21 @@
                     this.socket = socket;
                     const self = this;
                     socket.addEventListener('open', function() {
+                        if (self.socket !== socket || Number(self.socketToken || 0) !== Number(token || 0)) return;
                         self.socketReady = true;
                         self.flushQueue();
                     });
                     socket.addEventListener('message', function(event) {
+                        if (self.socket !== socket || Number(self.socketToken || 0) !== Number(token || 0)) return;
                         self.handleMessage(event.data);
                     });
                     socket.addEventListener('close', function() {
+                        if (Number(self.socketToken || 0) !== Number(token || 0)) return;
                         self.socketReady = false;
                         if (self.socket === socket) self.socket = null;
                     });
                     socket.addEventListener('error', function() {
+                        if (self.socket !== socket || Number(self.socketToken || 0) !== Number(token || 0)) return;
                         self.socketReady = false;
                         self.emitError('socket_error', '通话信令连接失败');
                     });
@@ -864,6 +904,8 @@
             destroy() {
                 this.outboundQueue = [];
                 this.socketReady = false;
+                this.socketConnecting = false;
+                this.socketToken += 1;
                 if (this.socket) {
                     try { this.socket.close(); } catch (e) {}
                 }
@@ -1335,16 +1377,44 @@
             }
         },
 
-        getWsURL() {
-            const apiBase = this.getApiBase();
-            if (!apiBase) return '';
-            try {
-                const url = new URL(apiBase, global.location.origin);
-                url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-                return url.origin.replace(/\/$/, '') + '/im/ws';
-            } catch (e) {
-                return global.location.origin.replace(/^http/, 'ws').replace(/\/$/, '') + '/im/ws';
+        async fetchWsTicket(audience, payload, options) {
+            if (global.AKWsTicket && typeof global.AKWsTicket.fetchTicket === 'function') {
+                return global.AKWsTicket.fetchTicket(audience, payload, options);
             }
+            const config = options || {};
+            const endpoint = config.endpoint || '/im/api/ws-ticket';
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                credentials: 'include',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, config.headers || {}),
+                body: JSON.stringify(Object.assign({}, payload || {}, {
+                    audience: trim(audience).toLowerCase()
+                }))
+            });
+            let data = null;
+            try { data = await response.json(); } catch (e) {}
+            if (!response.ok || !data || !data.ticket) {
+                throw new Error(data && data.message ? data.message : ('WebSocket ticket failed: ' + response.status));
+            }
+            return data;
+        },
+
+        buildTicketedWsUrl(path, ticket) {
+            if (global.AKWsTicket && typeof global.AKWsTicket.buildWsUrl === 'function') {
+                return global.AKWsTicket.buildWsUrl(path, ticket);
+            }
+            const finalUrl = new URL(path, global.location.origin);
+            finalUrl.protocol = global.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            finalUrl.search = '';
+            finalUrl.searchParams.set('ticket', String(ticket || ''));
+            return finalUrl.toString();
+        },
+
+        getWsURL() {
+            const self = this;
+            return this.fetchWsTicket('im', {}, { endpoint: '/im/api/ws-ticket' }).then(function(ticket) {
+                return self.buildTicketedWsUrl('/im/ws', ticket.ticket);
+            });
         },
 
         reportLaunchError(reason, detail) {

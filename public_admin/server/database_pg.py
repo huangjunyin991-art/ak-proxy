@@ -506,6 +506,27 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         ''')
 
         await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ws_tickets (
+                token_hash TEXT PRIMARY KEY,
+                audience TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                role TEXT DEFAULT '',
+                resource_type TEXT DEFAULT '',
+                resource_id TEXT DEFAULT '',
+                site TEXT DEFAULT '',
+                readonly BOOLEAN DEFAULT FALSE,
+                claims JSONB DEFAULT '{}'::jsonb,
+                issued_at TIMESTAMP NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                consumed_at TIMESTAMP,
+                client_ip TEXT DEFAULT '',
+                user_agent TEXT DEFAULT '',
+                consume_ip TEXT DEFAULT '',
+                consume_user_agent TEXT DEFAULT ''
+            )
+        ''')
+
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS admin_login_ban_levels (
                 ip_address TEXT PRIMARY KEY,
                 level INTEGER NOT NULL DEFAULT 0,
@@ -822,6 +843,9 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_point_stats_quota_admin_used ON admin_point_stats_quota(admin_id, used_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_expires_at ON im_switch_tokens(expires_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_username_used ON im_switch_tokens(username, used_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_tickets_expires_at ON ws_tickets(expires_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_tickets_subject_audience ON ws_tickets(subject, audience)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_tickets_resource ON ws_tickets(audience, resource_type, resource_id)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 

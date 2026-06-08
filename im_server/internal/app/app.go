@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -19,6 +20,7 @@ import (
 	"im_server/internal/config"
 	"im_server/internal/media/taskstore"
 	sessionvisibility "im_server/internal/session_visibility"
+	wsticket "im_server/internal/ws_ticket"
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
@@ -32,14 +34,14 @@ const hubConnWriteBufferSize = 64
 var imBeijingLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
 
 var (
-	errInvalidMessageType = errors.New("invalid message_type")
-	errInvalidEmojiAssetID = errors.New("invalid emoji_asset_id")
-	errInvalidVoicePayload = errors.New("invalid voice payload")
-	errInvalidImagePayload = errors.New("invalid image payload")
-	errInvalidFilePayload = errors.New("invalid file payload")
-	errInvalidVideoPayload = errors.New("invalid video payload")
+	errInvalidMessageType     = errors.New("invalid message_type")
+	errInvalidEmojiAssetID    = errors.New("invalid emoji_asset_id")
+	errInvalidVoicePayload    = errors.New("invalid voice payload")
+	errInvalidImagePayload    = errors.New("invalid image payload")
+	errInvalidFilePayload     = errors.New("invalid file payload")
+	errInvalidVideoPayload    = errors.New("invalid video payload")
 	errInvalidLocationPayload = errors.New("invalid location payload")
-	errEmptyMessageContent = errors.New("empty content")
+	errEmptyMessageContent    = errors.New("empty content")
 )
 
 type App struct {
@@ -53,6 +55,7 @@ type App struct {
 	callSessions      map[string]*imCallSession
 	callSessionsMu    sync.RWMutex
 	messageNotifier   *MessageNotifyPublisher
+	wsTickets         *wsticket.Service
 	server            *http.Server
 	upgrader          websocket.Upgrader
 	imageHEICMu       sync.Mutex
@@ -74,94 +77,94 @@ type HubConn struct {
 }
 
 type BootstrapResponse struct {
-	Enabled           bool   `json:"enabled"`
-	Allowed           bool   `json:"allowed"`
-	Username          string `json:"username"`
-	DisplayName       string `json:"display_name"`
-	HonorName         string `json:"honor_name,omitempty"`
-	CanAddFriend      bool   `json:"can_add_friend"`
-	HideHonor         bool   `json:"hide_honor"`
-	AvatarKind        string `json:"avatar_kind,omitempty"`
-	AvatarStyle       string `json:"avatar_style,omitempty"`
-	AvatarSeed        string `json:"avatar_seed,omitempty"`
-	AvatarURL         string `json:"avatar_url,omitempty"`
-	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
-	RetentionDays     int    `json:"retention_days"`
-	StoreEncoding     string `json:"store_encoding"`
-	CompressMinBytes  int    `json:"compress_min_bytes"`
+	Enabled          bool             `json:"enabled"`
+	Allowed          bool             `json:"allowed"`
+	Username         string           `json:"username"`
+	DisplayName      string           `json:"display_name"`
+	HonorName        string           `json:"honor_name,omitempty"`
+	CanAddFriend     bool             `json:"can_add_friend"`
+	HideHonor        bool             `json:"hide_honor"`
+	AvatarKind       string           `json:"avatar_kind,omitempty"`
+	AvatarStyle      string           `json:"avatar_style,omitempty"`
+	AvatarSeed       string           `json:"avatar_seed,omitempty"`
+	AvatarURL        string           `json:"avatar_url,omitempty"`
+	EmojiAssets      []EmojiAssetItem `json:"emoji_assets,omitempty"`
+	RetentionDays    int              `json:"retention_days"`
+	StoreEncoding    string           `json:"store_encoding"`
+	CompressMinBytes int              `json:"compress_min_bytes"`
 }
 
 type SessionItem struct {
-	ConversationID     int64  `json:"conversation_id"`
-	ConversationType   string `json:"conversation_type"`
-	ConversationTitle  string `json:"conversation_title,omitempty"`
-	AvatarKind         string `json:"avatar_kind,omitempty"`
-	AvatarStyle        string `json:"avatar_style,omitempty"`
-	AvatarSeed         string `json:"avatar_seed,omitempty"`
-	AvatarURL          string `json:"avatar_url,omitempty"`
-	OwnerUsername      string `json:"owner_username,omitempty"`
-	MemberCount        int64  `json:"member_count"`
-	MembersPreview     []SessionMemberItem `json:"members_preview,omitempty"`
-	AllMuted           bool   `json:"all_muted"`
-	AllMutedBy         string `json:"all_muted_by,omitempty"`
-	AllMutedAt         string `json:"all_muted_at,omitempty"`
-	MutedUntil         string `json:"muted_until,omitempty"`
-	MyRole             string `json:"my_role,omitempty"`
-	PeerUsername       string `json:"peer_username,omitempty"`
-	PeerDisplayName    string `json:"peer_display_name,omitempty"`
-	PeerHonorName      string `json:"peer_honor_name,omitempty"`
-	PinType            string `json:"pin_type,omitempty"`
-	PinnedAt           string `json:"pinned_at,omitempty"`
-	IsPinned           bool   `json:"is_pinned"`
-	LastMessageID      int64  `json:"last_message_id,omitempty"`
-	LastMessageType    string `json:"last_message_type,omitempty"`
-	LastMessagePreview string `json:"last_message_preview,omitempty"`
-	LastMessageAt      string `json:"last_message_at,omitempty"`
-	UnreadCount        int64  `json:"unread_count"`
-	MentionUnreadCount int64  `json:"mention_unread_count,omitempty"`
-	MentionMeUnread    bool   `json:"mention_me_unread,omitempty"`
-	MentionAllUnread   bool   `json:"mention_all_unread,omitempty"`
-	CanSend            bool   `json:"can_send"`
-	SendRestriction    string `json:"send_restriction,omitempty"`
-	SendRestrictionHint string `json:"send_restriction_hint,omitempty"`
-	AwaitingPeerReply  bool   `json:"awaiting_peer_reply,omitempty"`
+	ConversationID      int64               `json:"conversation_id"`
+	ConversationType    string              `json:"conversation_type"`
+	ConversationTitle   string              `json:"conversation_title,omitempty"`
+	AvatarKind          string              `json:"avatar_kind,omitempty"`
+	AvatarStyle         string              `json:"avatar_style,omitempty"`
+	AvatarSeed          string              `json:"avatar_seed,omitempty"`
+	AvatarURL           string              `json:"avatar_url,omitempty"`
+	OwnerUsername       string              `json:"owner_username,omitempty"`
+	MemberCount         int64               `json:"member_count"`
+	MembersPreview      []SessionMemberItem `json:"members_preview,omitempty"`
+	AllMuted            bool                `json:"all_muted"`
+	AllMutedBy          string              `json:"all_muted_by,omitempty"`
+	AllMutedAt          string              `json:"all_muted_at,omitempty"`
+	MutedUntil          string              `json:"muted_until,omitempty"`
+	MyRole              string              `json:"my_role,omitempty"`
+	PeerUsername        string              `json:"peer_username,omitempty"`
+	PeerDisplayName     string              `json:"peer_display_name,omitempty"`
+	PeerHonorName       string              `json:"peer_honor_name,omitempty"`
+	PinType             string              `json:"pin_type,omitempty"`
+	PinnedAt            string              `json:"pinned_at,omitempty"`
+	IsPinned            bool                `json:"is_pinned"`
+	LastMessageID       int64               `json:"last_message_id,omitempty"`
+	LastMessageType     string              `json:"last_message_type,omitempty"`
+	LastMessagePreview  string              `json:"last_message_preview,omitempty"`
+	LastMessageAt       string              `json:"last_message_at,omitempty"`
+	UnreadCount         int64               `json:"unread_count"`
+	MentionUnreadCount  int64               `json:"mention_unread_count,omitempty"`
+	MentionMeUnread     bool                `json:"mention_me_unread,omitempty"`
+	MentionAllUnread    bool                `json:"mention_all_unread,omitempty"`
+	CanSend             bool                `json:"can_send"`
+	SendRestriction     string              `json:"send_restriction,omitempty"`
+	SendRestrictionHint string              `json:"send_restriction_hint,omitempty"`
+	AwaitingPeerReply   bool                `json:"awaiting_peer_reply,omitempty"`
 }
 
 type MessageItem struct {
-	ID                int64  `json:"id"`
-	ConversationID    int64  `json:"conversation_id"`
-	SenderUsername    string `json:"sender_username"`
-	SenderDisplayName string `json:"sender_display_name,omitempty"`
-	SenderHonorName   string `json:"sender_honor_name,omitempty"`
-	SenderAvatarKind  string `json:"sender_avatar_kind,omitempty"`
-	SenderAvatarStyle string `json:"sender_avatar_style,omitempty"`
-	SenderAvatarSeed  string `json:"sender_avatar_seed,omitempty"`
-	SenderAvatarURL   string `json:"sender_avatar_url,omitempty"`
-	ClientTempID      string `json:"client_temp_id,omitempty"`
-	SeqNo             int64  `json:"seq_no"`
-	MessageType       string `json:"message_type"`
-	Content           string `json:"content"`
-	ContentPreview    string `json:"content_preview"`
-	Status            string `json:"status"`
-	SentAt            string `json:"sent_at"`
-	Read              bool   `json:"read"`
+	ID                int64                       `json:"id"`
+	ConversationID    int64                       `json:"conversation_id"`
+	SenderUsername    string                      `json:"sender_username"`
+	SenderDisplayName string                      `json:"sender_display_name,omitempty"`
+	SenderHonorName   string                      `json:"sender_honor_name,omitempty"`
+	SenderAvatarKind  string                      `json:"sender_avatar_kind,omitempty"`
+	SenderAvatarStyle string                      `json:"sender_avatar_style,omitempty"`
+	SenderAvatarSeed  string                      `json:"sender_avatar_seed,omitempty"`
+	SenderAvatarURL   string                      `json:"sender_avatar_url,omitempty"`
+	ClientTempID      string                      `json:"client_temp_id,omitempty"`
+	SeqNo             int64                       `json:"seq_no"`
+	MessageType       string                      `json:"message_type"`
+	Content           string                      `json:"content"`
+	ContentPreview    string                      `json:"content_preview"`
+	Status            string                      `json:"status"`
+	SentAt            string                      `json:"sent_at"`
+	Read              bool                        `json:"read"`
 	ReadProgress      *MessageReadProgressSummary `json:"read_progress,omitempty"`
-	MentionUsernames []string `json:"mention_usernames,omitempty"`
-	MentionAll       bool     `json:"mention_all,omitempty"`
+	MentionUsernames  []string                    `json:"mention_usernames,omitempty"`
+	MentionAll        bool                        `json:"mention_all,omitempty"`
 }
 
 type UserProfileItem struct {
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	HonorName   string `json:"honor_name,omitempty"`
-	CanAddFriend bool  `json:"can_add_friend"`
-	HideHonor   bool   `json:"hide_honor"`
-	Nickname    string `json:"nickname,omitempty"`
-	Gender      string `json:"gender,omitempty"`
-	AvatarKind  string `json:"avatar_kind,omitempty"`
-	AvatarStyle string `json:"avatar_style"`
-	AvatarSeed  string `json:"avatar_seed,omitempty"`
-	AvatarURL   string `json:"avatar_url,omitempty"`
+	Username     string `json:"username"`
+	DisplayName  string `json:"display_name"`
+	HonorName    string `json:"honor_name,omitempty"`
+	CanAddFriend bool   `json:"can_add_friend"`
+	HideHonor    bool   `json:"hide_honor"`
+	Nickname     string `json:"nickname,omitempty"`
+	Gender       string `json:"gender,omitempty"`
+	AvatarKind   string `json:"avatar_kind,omitempty"`
+	AvatarStyle  string `json:"avatar_style"`
+	AvatarSeed   string `json:"avatar_seed,omitempty"`
+	AvatarURL    string `json:"avatar_url,omitempty"`
 }
 
 type UserAvatarHistoryItem struct {
@@ -175,25 +178,25 @@ type UserAvatarHistoryItem struct {
 }
 
 type ContactItem struct {
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	HonorName   string `json:"honor_name,omitempty"`
-	AvatarKind  string `json:"avatar_kind,omitempty"`
-	AvatarStyle string `json:"avatar_style,omitempty"`
-	AvatarSeed  string `json:"avatar_seed,omitempty"`
-	AvatarURL   string `json:"avatar_url,omitempty"`
-	Source      string `json:"source,omitempty"`
-	IsContact   bool   `json:"is_contact,omitempty"`
-	IsBlacklisted bool `json:"is_blacklisted,omitempty"`
+	Username             string `json:"username"`
+	DisplayName          string `json:"display_name"`
+	HonorName            string `json:"honor_name,omitempty"`
+	AvatarKind           string `json:"avatar_kind,omitempty"`
+	AvatarStyle          string `json:"avatar_style,omitempty"`
+	AvatarSeed           string `json:"avatar_seed,omitempty"`
+	AvatarURL            string `json:"avatar_url,omitempty"`
+	Source               string `json:"source,omitempty"`
+	IsContact            bool   `json:"is_contact,omitempty"`
+	IsBlacklisted        bool   `json:"is_blacklisted,omitempty"`
 	ActionDisabledReason string `json:"action_disabled_reason,omitempty"`
 }
 
 type sendMessageRequest struct {
-	ConversationID int64  `json:"conversation_id"`
-	Content        string `json:"content"`
-	MessageType    string `json:"message_type"`
-	EmojiAssetID   int64  `json:"emoji_asset_id,omitempty"`
-	ClientTempID   string `json:"client_temp_id,omitempty"`
+	ConversationID   int64    `json:"conversation_id"`
+	Content          string   `json:"content"`
+	MessageType      string   `json:"message_type"`
+	EmojiAssetID     int64    `json:"emoji_asset_id,omitempty"`
+	ClientTempID     string   `json:"client_temp_id,omitempty"`
 	MentionUsernames []string `json:"mention_usernames,omitempty"`
 	MentionAll       bool     `json:"mention_all,omitempty"`
 }
@@ -258,13 +261,14 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	app := &App{
-		cfg:            cfg,
-		db:             pool,
-		hub:            &Hub{conns: map[string]map[*HubConn]struct{}{}},
+		cfg:             cfg,
+		db:              pool,
+		hub:             &Hub{conns: map[string]map[*HubConn]struct{}{}},
 		callHub:         newCallHub(),
 		callSessions:    map[string]*imCallSession{},
 		messageNotifier: NewMessageNotifyPublisher(cfg),
-		fileVideoLocks: map[string]*sync.Mutex{},
+		wsTickets:       wsticket.New(pool, cfg.WsTicketTTLSeconds),
+		fileVideoLocks:  map[string]*sync.Mutex{},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				origin := strings.TrimSpace(r.Header.Get("Origin"))
@@ -308,6 +312,7 @@ func New(cfg config.Config) (*App, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
+	mux.HandleFunc("/im/api/ws-ticket", app.handleWsTicket)
 	mux.HandleFunc("/im/api/contacts", app.handleContacts)
 	mux.HandleFunc("/im/api/social/contacts", app.handleSocialContacts)
 	mux.HandleFunc("/im/api/social/search", app.handleSocialSearch)
@@ -627,6 +632,27 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_meetings_created_at ON im_meetings(created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_meetings_group_key ON im_meetings(group_key)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_meetings_audience_scope_owner ON im_meetings(audience_scope, audience_owner)`,
+		`CREATE TABLE IF NOT EXISTS ws_tickets (
+			token_hash TEXT PRIMARY KEY,
+			audience TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			role TEXT DEFAULT '',
+			resource_type TEXT DEFAULT '',
+			resource_id TEXT DEFAULT '',
+			site TEXT DEFAULT '',
+			readonly BOOLEAN DEFAULT FALSE,
+			claims JSONB DEFAULT '{}'::jsonb,
+			issued_at TIMESTAMP NOT NULL,
+			expires_at TIMESTAMP NOT NULL,
+			consumed_at TIMESTAMP,
+			client_ip TEXT DEFAULT '',
+			user_agent TEXT DEFAULT '',
+			consume_ip TEXT DEFAULT '',
+			consume_user_agent TEXT DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_tickets_expires_at ON ws_tickets(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_tickets_subject_audience ON ws_tickets(subject, audience)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_tickets_resource ON ws_tickets(audience, resource_type, resource_id)`,
 	}
 	statements = append(statements, emojiAssetSchemaStatements()...)
 	for index, stmt := range statements {
@@ -662,24 +688,149 @@ func (a *App) resolveUsername(r *http.Request) string {
 
 func (a *App) requireAllowedUser(r *http.Request) (string, error) {
 	username := a.resolveUsername(r)
+	return a.requireAllowedUsername(r.Context(), username)
+}
+
+func (a *App) requireAllowedUsername(ctx context.Context, username string) (string, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
 	if username == "" {
 		return "", errors.New("missing username cookie")
 	}
 	var exists bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = $1)`, username).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = $1)`, username).Scan(&exists); err != nil {
 		return "", err
 	}
 	if !exists {
 		return "", errors.New("user not found")
 	}
 	var allowed bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, username).Scan(&allowed); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, username).Scan(&allowed); err != nil {
 		return "", err
 	}
 	if !allowed {
 		return "", errors.New("user not in whitelist")
 	}
 	return username, nil
+}
+
+func (a *App) resolveSignedIdentityUsername(r *http.Request) string {
+	if a == nil {
+		return ""
+	}
+	secret := strings.TrimSpace(a.cfg.NotifyCenterIdentitySecret)
+	if secret == "" {
+		return ""
+	}
+	cookieName := strings.TrimSpace(a.cfg.NotifyCenterIdentityCookie)
+	if cookieName == "" {
+		cookieName = "ak_notify_identity"
+	}
+	cookie, err := r.Cookie(cookieName)
+	if err != nil {
+		return ""
+	}
+	return wsticket.VerifyIdentityCookie(cookie.Value, secret, time.Now())
+}
+
+func (a *App) handleWsTicket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"success": false, "code": "method_not_allowed"})
+		return
+	}
+	if a.wsTickets == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"success": false, "code": "ticket_service_unavailable"})
+		return
+	}
+	username := a.resolveSignedIdentityUsername(r)
+	if username == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"success": false, "code": "missing_signed_identity", "message": "missing signed identity"})
+		return
+	}
+	username, err := a.requireAllowedUsername(r.Context(), username)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "code": "forbidden", "message": err.Error()})
+		return
+	}
+	var body struct {
+		Audience string `json:"audience"`
+		Aud      string `json:"aud"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	audience := strings.ToLower(strings.TrimSpace(body.Audience))
+	if audience == "" {
+		audience = strings.ToLower(strings.TrimSpace(body.Aud))
+	}
+	if audience == "" {
+		audience = "im"
+	}
+	if audience != "im" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "code": "unsupported_audience"})
+		return
+	}
+	issue, err := a.wsTickets.Issue(r.Context(), wsticket.IssueRequest{
+		Audience:     "im",
+		Subject:      username,
+		Role:         "user",
+		ResourceType: "im_socket",
+		Site:         "ak_web",
+		ClientIP:     requestClientIP(r),
+		UserAgent:    r.UserAgent(),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "code": "issue_failed", "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":       true,
+		"ticket":        issue.Ticket,
+		"expires_in":    issue.ExpiresIn,
+		"audience":      issue.Claims.Audience,
+		"subject":       issue.Claims.Subject,
+		"role":          issue.Claims.Role,
+		"resource_type": issue.Claims.ResourceType,
+		"site":          issue.Claims.Site,
+	})
+}
+
+func (a *App) consumeWsTicketUsername(r *http.Request) (string, error) {
+	if a == nil || a.wsTickets == nil {
+		return "", errors.New("ws ticket service unavailable")
+	}
+	ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
+	claims, err := a.wsTickets.Consume(r.Context(), ticket, "im", requestClientIP(r), r.UserAgent())
+	if err != nil {
+		return "", err
+	}
+	if claims.Audience != "im" || claims.Subject == "" {
+		return "", errors.New("invalid im ticket claims")
+	}
+	if claims.ResourceType != "" && claims.ResourceType != "im_socket" {
+		return "", errors.New("invalid im ticket resource")
+	}
+	return a.requireAllowedUsername(r.Context(), claims.Subject)
+}
+
+func requestClientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	for _, key := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		value := strings.TrimSpace(r.Header.Get(key))
+		if value == "" {
+			continue
+		}
+		if key == "X-Forwarded-For" {
+			value = strings.TrimSpace(strings.Split(value, ",")[0])
+		}
+		if value != "" {
+			return value
+		}
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }
 
 func (a *App) fetchBaseDisplayName(ctx context.Context, username string) string {
@@ -982,17 +1133,17 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		canAddFriend = canUseAddFriend(honorName)
 	}
 	return UserProfileItem{
-		Username:    normalizedUsername,
-		DisplayName: identity.DisplayName,
-		HonorName:   honorName,
+		Username:     normalizedUsername,
+		DisplayName:  identity.DisplayName,
+		HonorName:    honorName,
 		CanAddFriend: canAddFriend,
-		HideHonor:   profile.HideHonor,
-		Nickname:    strings.TrimSpace(profile.Nickname),
-		Gender:      normalizeProfileGender(profile.Gender),
-		AvatarKind:  avatar.Kind,
-		AvatarStyle: avatar.Style,
-		AvatarSeed:  avatar.Seed,
-		AvatarURL:   avatar.URL,
+		HideHonor:    profile.HideHonor,
+		Nickname:     strings.TrimSpace(profile.Nickname),
+		Gender:       normalizeProfileGender(profile.Gender),
+		AvatarKind:   avatar.Kind,
+		AvatarStyle:  avatar.Style,
+		AvatarSeed:   avatar.Seed,
+		AvatarURL:    avatar.URL,
 	}
 }
 
@@ -2352,7 +2503,7 @@ func (a *App) ensureConversationMember(ctx context.Context, conversationID strin
 }
 
 func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
-	username, err := a.requireAllowedUser(r)
+	username, err := a.consumeWsTicketUsername(r)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -2378,10 +2529,10 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 		if err := client.conn.ReadJSON(&env); err != nil {
 			return
 		}
-			if a.handleCallSignal(username, client, env, r) {
-				continue
-			}
-			switch env.Type {
+		if a.handleCallSignal(username, client, env, r) {
+			continue
+		}
+		switch env.Type {
 		case "im.presence.ping":
 			_ = client.WriteJSON(map[string]any{"type": "im.presence.pong", "payload": map[string]any{"ts": time.Now().Unix()}})
 		case "im.message.send":

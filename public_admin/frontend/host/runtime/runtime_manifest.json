@@ -12,6 +12,11 @@
       "required": true
     },
     {
+      "name": "ws_ticket",
+      "path": "network/ws_ticket.js",
+      "required": true
+    },
+    {
       "name": "core_scheduler",
       "path": "core/scheduler.js",
       "required": false

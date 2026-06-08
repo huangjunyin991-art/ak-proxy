@@ -425,15 +425,16 @@
         return String(value || '').trim().toLowerCase();
     }
 
-    function buildChatWsUrl(nextUsername) {
-        try {
-            const finalUrl = new URL(WS_URL, window.location.href);
-            const normalizedUsername = normalizeChatUsername(nextUsername);
-            if (normalizedUsername) finalUrl.searchParams.set('username', normalizedUsername);
-            return finalUrl.toString();
-        } catch (e) {
-            return WS_URL + '?username=' + encodeURIComponent(normalizeChatUsername(nextUsername));
+    async function buildChatWsUrl(nextUsername) {
+        const ticketRuntime = window.AKWsTicket;
+        if (!ticketRuntime || typeof ticketRuntime.fetchTicket !== 'function' || typeof ticketRuntime.buildWsUrl !== 'function') {
+            throw new Error('WebSocket ticket runtime unavailable');
         }
+        const ticket = await ticketRuntime.fetchTicket('chat', {
+            username: normalizeChatUsername(nextUsername),
+            client_id: getPageClientId()
+        });
+        return ticketRuntime.buildWsUrl('/chat/ws', ticket.ticket);
     }
 
     function updateChatWsDebug(eventName, extra) {
@@ -3435,7 +3436,20 @@
         } catch (e) {}
     }
 
-    function connectAssist(sessionId) {
+    async function buildAssistWsUrl(sessionId) {
+        const ticketRuntime = window.AKWsTicket;
+        if (!ticketRuntime || typeof ticketRuntime.fetchTicket !== 'function' || typeof ticketRuntime.buildWsUrl !== 'function') {
+            throw new Error('WebSocket ticket runtime unavailable');
+        }
+        const ticket = await ticketRuntime.fetchTicket('assist', {
+            session_id: String(sessionId || '').trim(),
+            site: 'ak_web',
+            readonly: false
+        });
+        return ticketRuntime.buildWsUrl('/admin/assist/ws', ticket.ticket);
+    }
+
+    async function connectAssist(sessionId) {
         const wantedSessionId = String(sessionId || '').trim();
         if (!wantedSessionId) return;
         if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING) && assistSessionId === wantedSessionId) {
@@ -3456,7 +3470,7 @@
             wantedSessionId: wantedSessionId
         });
         try {
-            const currentAssistWs = new WebSocket(ASSIST_WS_URL + '?session_id=' + encodeURIComponent(wantedSessionId) + '&role=user&site=ak_web&readonly=0');
+            const currentAssistWs = new WebSocket(await buildAssistWsUrl(wantedSessionId));
             assistWs = currentAssistWs;
             currentAssistWs.onopen = function() {
                 if (assistWs !== currentAssistWs) return;
@@ -3640,7 +3654,7 @@
     }
     
     // 连接WebSocket
-    function connect() {
+    async function connect() {
         const nextUsername = normalizeChatUsername(getUsername());
         if (!nextUsername) return;
         clearReconnectTimer();
@@ -3654,7 +3668,7 @@
         username = nextUsername;
         
         try {
-            const currentUrl = buildChatWsUrl(username);
+            const currentUrl = await buildChatWsUrl(username);
             const currentSeq = wsConnectSeq + 1;
             wsConnectSeq = currentSeq;
             wsCurrentUrl = currentUrl;
