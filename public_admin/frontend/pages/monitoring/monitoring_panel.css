@@ -328,6 +328,12 @@
     border-color: rgba(169, 190, 205, 0.22);
 }
 
+.monitoring-cache-pill-dynamic {
+    border-color: rgba(0, 212, 255, 0.26);
+    color: #8bdff5;
+    background: rgba(0, 212, 255, 0.07);
+}
+
 .monitoring-cache-pill-error {
     border-color: rgba(255, 71, 87, 0.36);
     color: #ff6b7a;

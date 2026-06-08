@@ -649,6 +649,18 @@
         }).join('');
     }
 
+    function requestMetricCacheBadge(row) {
+        var state = String(row && row.cache_state || 'NONE').trim().toUpperCase() || 'NONE';
+        var kind = String(row && row.kind || '').toLowerCase();
+        if (state === 'NONE' && kind === 'rpc') {
+            return { label: '动态请求', className: 'dynamic' };
+        }
+        if (state === 'NONE') {
+            return { label: '无缓存', className: 'none' };
+        }
+        return { label: state, className: state.toLowerCase() };
+    }
+
     function renderRequestMetricRows(item) {
         var rows = Array.isArray(item && item.items) ? item.items : [];
         if (!rows.length) return '<tr><td colspan="10"><div class="monitoring-empty">暂无慢请求或错误请求</div></td></tr>';
@@ -656,6 +668,7 @@
             var path = String(row.path || '-');
             var timing = formatMs(row.rewrite_ms) + ' / ' + formatMs(row.inject_ms);
             var sizeText = formatBytes(row.response_bytes) + '<br><span class="monitoring-meta">' + escapeHtml(row.content_type || '-') + '</span>';
+            var cacheBadge = requestMetricCacheBadge(row);
             return '<tr>' +
                 '<td>' + escapeHtml(formatSampleTime(row.ts)) + '</td>' +
                 '<td>' + escapeHtml(requestMetricLabel(row.kind)) + '</td>' +
@@ -664,7 +677,7 @@
                 '<td><strong>' + escapeHtml(formatMs(row.total_ms)) + '</strong></td>' +
                 '<td>' + escapeHtml(formatMs(row.upstream_ms)) + '</td>' +
                 '<td>' + timing + '</td>' +
-                '<td><span class="monitoring-cache-pill monitoring-cache-pill-' + escapeHtml(String(row.cache_state || 'none').toLowerCase()) + '">' + escapeHtml(row.cache_state || 'NONE') + '</span></td>' +
+                '<td><span class="monitoring-cache-pill monitoring-cache-pill-' + escapeHtml(cacheBadge.className) + '">' + escapeHtml(cacheBadge.label) + '</span></td>' +
                 '<td>' + escapeHtml(row.exit_name || '-') + '</td>' +
                 '<td>' + sizeText + '</td>' +
                 '</tr>';
