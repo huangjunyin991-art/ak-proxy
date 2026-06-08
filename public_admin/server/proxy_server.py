@@ -480,6 +480,13 @@ except Exception as e:
     _MONITORING_IMPORT_ERROR = e
 
 try:
+    from .system_inspection import create_system_inspection_router
+    _SYSTEM_INSPECTION_IMPORT_ERROR = None
+except Exception as e:
+    create_system_inspection_router = None
+    _SYSTEM_INSPECTION_IMPORT_ERROR = e
+
+try:
     from .login_protection import LoginProtectionPolicy, LoginProtectionService
     _LOGIN_PROTECTION_IMPORT_ERROR = None
 except Exception as e:
@@ -5432,6 +5439,25 @@ if create_monitoring_router is not None:
         logger.warning(f"[Monitoring] 性能监控路由注册失败，已跳过: {e}")
 elif _MONITORING_IMPORT_ERROR is not None:
     logger.warning(f"[Monitoring] 性能监控模块不可用，已跳过: {_MONITORING_IMPORT_ERROR}")
+
+if create_system_inspection_router is not None:
+    try:
+        app.include_router(create_system_inspection_router(
+            pool_supplier=db._get_pool,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            super_admin_role=ROLE_SUPER_ADMIN,
+            im_server_internal_url=IM_SERVER_INTERNAL_URL,
+            static_cache_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
+            request_metrics_supplier=lambda: globals().get("_request_metrics_service"),
+            ws_ticket_supplier=lambda: globals().get("ws_ticket_service"),
+            notify_center_supplier=lambda: globals().get("notify_center_service"),
+            notify_worker_supplier=lambda: globals().get("notify_center_worker"),
+        ))
+    except Exception as e:
+        logger.warning(f"[SystemInspection] 系统巡检路由注册失败，已跳过: {e}")
+elif _SYSTEM_INSPECTION_IMPORT_ERROR is not None:
+    logger.warning(f"[SystemInspection] 系统巡检模块不可用，已跳过: {_SYSTEM_INSPECTION_IMPORT_ERROR}")
 
 if active_defense_config_service is not None and create_active_defense_router is not None:
     try:
@@ -12801,6 +12827,12 @@ async def risk_isolation_panel_js(request: Request):
 @app.get("/admin/api/monitoring-panel.js")
 async def monitoring_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js")
+    return await _serve_text_asset(request, js_path, "application/javascript")
+
+
+@app.get("/admin/api/system-inspection-panel.js")
+async def system_inspection_panel_js(request: Request):
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "system_inspection_panel.js")
     return await _serve_text_asset(request, js_path, "application/javascript")
 
 
