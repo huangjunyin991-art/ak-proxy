@@ -253,6 +253,9 @@ func formatIMTimestamp(value time.Time) string {
 }
 
 func New(cfg config.Config) (*App, error) {
+	if err := validateIdentityBoundaryConfig(cfg); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
@@ -398,6 +401,17 @@ func New(cfg config.Config) (*App, error) {
 		Handler: app.withCommonHeaders(mux),
 	}
 	return app, nil
+}
+
+func validateIdentityBoundaryConfig(cfg config.Config) error {
+	if strings.TrimSpace(cfg.NotifyCenterIdentitySecret) != "" {
+		return nil
+	}
+	if cfg.AllowUnsignedIdentity {
+		log.Printf("WARNING: IM unsigned identity fallback is enabled; use IM_ALLOW_UNSIGNED_IDENTITY=1 only for local development")
+		return nil
+	}
+	return errors.New("missing signed identity secret; set NOTIFY_CENTER_IDENTITY_SECRET or IM_NOTIFY_CENTER_WEBHOOK_SECRET, or set IM_ALLOW_UNSIGNED_IDENTITY=1 only for local development")
 }
 
 func (a *App) Run() error {
@@ -726,8 +740,12 @@ func (a *App) resolveUsername(r *http.Request) (string, error) {
 	if signedUsername != "" {
 		return signedUsername, nil
 	}
-	if strings.TrimSpace(a.cfg.NotifyCenterIdentitySecret) != "" {
+	hasIdentitySecret := strings.TrimSpace(a.cfg.NotifyCenterIdentitySecret) != ""
+	if hasIdentitySecret && !a.cfg.AllowUnsignedIdentity {
 		return "", errors.New("missing signed identity")
+	}
+	if !hasIdentitySecret && !a.cfg.AllowUnsignedIdentity {
+		return "", errors.New("missing signed identity configuration")
 	}
 	username := a.resolvePlainCookieUsername(r)
 	if username == "" {

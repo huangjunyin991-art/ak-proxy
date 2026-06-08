@@ -74,6 +74,7 @@
 ### S3. IM 身份在签名密钥缺失时回退可伪造明文 Cookie
 
 级别：P1，需验证生产环境密钥是否强制配置
+状态：已处理。IM 服务默认要求签名身份密钥，缺失时启动失败；明文 `ak_username` / `ak_im_username` Cookie 仅在显式 `IM_ALLOW_UNSIGNED_IDENTITY=1` 开发开关下作为回退，不再成为生产默认身份事实。
 位置：
 
 - `im_server/internal/app/app.go:703`

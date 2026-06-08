@@ -23,6 +23,7 @@ type Config struct {
 	NotifyCenterTimeoutMS      int
 	NotifyCenterIdentitySecret string
 	NotifyCenterIdentityCookie string
+	AllowUnsignedIdentity      bool
 	WsTicketTTLSeconds         int
 }
 
@@ -47,6 +48,7 @@ func Load() Config {
 		NotifyCenterTimeoutMS:      getEnvInt("IM_NOTIFY_CENTER_TIMEOUT_MS", 1500),
 		NotifyCenterIdentitySecret: identitySecret,
 		NotifyCenterIdentityCookie: getEnv("NOTIFY_CENTER_IDENTITY_COOKIE", "ak_notify_identity"),
+		AllowUnsignedIdentity:      getEnvBool("IM_ALLOW_UNSIGNED_IDENTITY", false),
 		WsTicketTTLSeconds:         getEnvInt("WS_TICKET_TTL_SECONDS", 45),
 	}
 }
