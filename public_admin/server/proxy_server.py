@@ -435,6 +435,7 @@ try:
     from plugins.notify_center.server.identity import (
         attach_identity_cookie as attach_notify_identity_cookie,
         get_identity_cookie_username as get_notify_identity_cookie_username,
+        verify_identity_cookie_value as verify_notify_identity_cookie_value,
     )
     from plugins.notify_center.server.outbox_worker import NotifyCenterOutboxWorker
     from plugins.notify_center.server.repository import NotifyCenterRepository
@@ -446,6 +447,7 @@ except Exception as e:
     NotifyCenterConfig = None
     attach_notify_identity_cookie = None
     get_notify_identity_cookie_username = None
+    verify_notify_identity_cookie_value = None
     NotifyCenterOutboxWorker = None
     NotifyCenterRepository = None
     NotifyCenterService = None
@@ -4475,6 +4477,10 @@ class OnlineUserManager:
     def normalize_username(self, username):
         return (str(username or '').strip().lower())
 
+    def is_guest_username(self, username):
+        normalized = self.normalize_username(username)
+        return bool(normalized == 'visitor' or normalized.startswith('guest_'))
+
     def get_websocket_id(self, websocket):
         if not websocket:
             return ''
@@ -4912,6 +4918,22 @@ def _get_chat_ws_cookie_username(websocket: WebSocket) -> str:
             value = online_manager.normalize_username(cookies.get(key) or '')
             if _is_real_chat_username(value):
                 return value
+    except Exception:
+        return ''
+    return ''
+
+def _get_chat_ws_signed_username(websocket: WebSocket) -> str:
+    if verify_notify_identity_cookie_value is None:
+        return ''
+    cookie_name, secret = _get_notify_identity_settings()
+    if not secret:
+        return ''
+    try:
+        cookies = getattr(websocket, 'cookies', {}) or {}
+        value = str(cookies.get(cookie_name) or '').strip()
+        username = online_manager.normalize_username(verify_notify_identity_cookie_value(value, secret))
+        if _is_real_chat_username(username):
+            return username
     except Exception:
         return ''
     return ''
@@ -11430,11 +11452,15 @@ async def chat_websocket(websocket: WebSocket):
     if not ticket_claims:
         return
 
-    username = online_manager.normalize_username(ticket_claims.subject) or 'visitor'
+    ticket_subject = online_manager.normalize_username(ticket_claims.subject) or 'visitor'
+    username = ticket_subject
+    signed_ws_username = _get_chat_ws_signed_username(websocket)
+    if online_manager.is_guest_username(username) and signed_ws_username:
+        username = signed_ws_username
 
     await websocket.accept()
 
-    raw_query_username = username
+    raw_query_username = ticket_subject
 
     cookie_username = _get_chat_ws_cookie_username(websocket)
 
@@ -11445,7 +11471,7 @@ async def chat_websocket(websocket: WebSocket):
     logger.warning(
 
         f"[ChatWS] accepted ticket_subject={raw_query_username or '-'} resolved_username={username or '-'} "
-        f"cookie_username={cookie_username or '-'} client={client}"
+        f"cookie_username={cookie_username or '-'} signed_ws_username={signed_ws_username or '-'} client={client}"
 
     )
 
@@ -11455,7 +11481,8 @@ async def chat_websocket(websocket: WebSocket):
 
             username, websocket,
 
-            '', websocket.headers.get('user-agent', ''), '')
+            '', websocket.headers.get('user-agent', ''), ''
+        )
 
         username = (current_user or {}).get('username') or str(username or '').strip()
 
@@ -11512,7 +11539,8 @@ async def chat_websocket(websocket: WebSocket):
 
                     incoming_username, websocket,
 
-                    incoming_page, data.get('userAgent', ''), incoming_page_client_id)
+                    incoming_page, data.get('userAgent', ''), incoming_page_client_id
+                )
 
                 username = (current_user or {}).get('username') or str(incoming_username or '').strip()
                 should_process_rebind = prev_ws_id != current_ws_id or (current_ws_was_query_seeded and bool(incoming_page or incoming_page_client_id))
