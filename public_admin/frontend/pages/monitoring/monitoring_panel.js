@@ -34,7 +34,8 @@
         loadingStaticCachePrewarm: false,
         loadingRuntimeHygiene: false,
         loadingRuntimePerformance: false,
-        loadingIndexPlan: false
+        loadingIndexPlan: false,
+        loadingCollapsible: {}
     };
     var MONITORING_POLL_OWNER = 'panel:monitoring';
     var monitoringPollingRegistered = false;
@@ -81,6 +82,44 @@
             }
         });
         return registry;
+    }
+
+    function collapsibleSection(key) {
+        if (!key || !document.querySelector) return null;
+        return document.querySelector('[data-monitoring-section="' + key + '"]');
+    }
+
+    function isCollapsibleSectionOpen(key) {
+        var section = collapsibleSection(key);
+        return !!(section && section.open === true);
+    }
+
+    function isAnyCollapsibleSectionOpen(keys) {
+        for (var i = 0; i < keys.length; i++) {
+            if (isCollapsibleSectionOpen(keys[i])) return true;
+        }
+        return false;
+    }
+
+    function shouldLoadCollapsibleSection(key) {
+        return state.active && isCollapsibleSectionOpen(key);
+    }
+
+    function shouldLoadRuntimeHygiene() {
+        return state.active && isAnyCollapsibleSectionOpen(['runtimeHygiene', 'staticCache']);
+    }
+
+    function loadCollapsibleSection(key, force) {
+        if (key === 'chat') return loadChatSummary(force);
+        if (key === 'database') return loadDatabaseStats(force);
+        if (key === 'groups') return loadGroupStorage(force);
+        if (key === 'fileAssets') return loadFileAssets(force);
+        if (key === 'indexPlan') return loadIndexPlan(force);
+        if (key === 'runtimeHygiene') return loadRuntimeHygiene(force);
+        if (key === 'staticCache') {
+            return Promise.allSettled([loadStaticCachePolicy(force), loadRuntimeHygiene(force)]);
+        }
+        return Promise.resolve();
     }
 
     function token() {
@@ -325,19 +364,19 @@
             '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
             '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
             '</div>' +
-            '<details class="monitoring-section monitoring-chat-section monitoring-collapsible-section">' +
+            '<details class="monitoring-section monitoring-chat-section monitoring-collapsible-section" data-monitoring-section="chat">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></summary>' +
             '<div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div>' +
             '</details>' +
-            '<details class="monitoring-section monitoring-db-section monitoring-collapsible-section"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></summary><div class="monitoring-bars" id="monitoringDbBars"></div></details>' +
-            '<details class="monitoring-section monitoring-index-panel monitoring-collapsible-section"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>索引优化计划</h4><span class="monitoring-meta" id="monitoringIndexPlanMeta">读取中...</span></summary>' +
+            '<details class="monitoring-section monitoring-db-section monitoring-collapsible-section" data-monitoring-section="database"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></summary><div class="monitoring-bars" id="monitoringDbBars"></div></details>' +
+            '<details class="monitoring-section monitoring-index-panel monitoring-collapsible-section" data-monitoring-section="indexPlan"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>索引优化计划</h4><span class="monitoring-meta" id="monitoringIndexPlanMeta">读取中...</span></summary>' +
             '<div class="monitoring-grid monitoring-index-cards" id="monitoringIndexPlanCards"></div>' +
             '<div class="monitoring-cache-actions"><button class="monitoring-btn" data-monitoring-action="refresh-index-plan">刷新索引状态</button><button class="monitoring-btn primary" data-monitoring-action="run-index-plan">执行 1 个缺失索引</button><span class="monitoring-meta">使用 CONCURRENTLY 小批量执行，避免长时间锁表；大表仍建议低峰操作。</span></div>' +
             '<div class="monitoring-table-wrap monitoring-index-table-wrap"><table class="monitoring-table monitoring-index-table"><thead><tr><th>索引</th><th>状态</th><th>表</th><th>用途</th><th>风险</th><th>说明</th></tr></thead><tbody id="monitoringIndexPlanRows"></tbody></table></div>' +
             '<div class="monitoring-table-wrap monitoring-index-result-wrap"><table class="monitoring-table monitoring-index-result-table"><thead><tr><th>最近执行</th><th>结果</th><th>耗时</th><th>时间</th><th>信息</th></tr></thead><tbody id="monitoringIndexRunRows"></tbody></table></div></details>' +
-            '<details class="monitoring-section monitoring-file-assets-section monitoring-collapsible-section"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></summary><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></details>' +
-            '<details class="monitoring-section monitoring-group-storage-section monitoring-collapsible-section"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></summary><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>纯文本</th><th>消息载荷</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></details>' +
-            '<details class="monitoring-section monitoring-runtime-section monitoring-collapsible-section">' +
+            '<details class="monitoring-section monitoring-file-assets-section monitoring-collapsible-section" data-monitoring-section="fileAssets"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></summary><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></details>' +
+            '<details class="monitoring-section monitoring-group-storage-section monitoring-collapsible-section" data-monitoring-section="groups"><summary class="monitoring-section-header monitoring-collapsible-summary"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></summary><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>纯文本</th><th>消息载荷</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></details>' +
+            '<details class="monitoring-section monitoring-runtime-section monitoring-collapsible-section" data-monitoring-section="runtimeHygiene">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>运行时维护</h4><span class="monitoring-meta" id="monitoringRuntimeMeta">读取中...</span></summary>' +
             '<div class="monitoring-grid" id="monitoringRuntimeCards"></div>' +
             '<div class="monitoring-cache-grid monitoring-runtime-policy-grid">' +
@@ -361,7 +400,7 @@
             '</div>' +
             '<div class="monitoring-table-wrap monitoring-runtime-table-wrap"><table class="monitoring-table"><thead><tr><th>连接池</th><th>节点</th><th>状态</th><th>年龄</th><th>空闲</th><th>请求</th><th>换新次数</th><th>最近原因</th></tr></thead><tbody id="monitoringRuntimeClientRows"></tbody></table></div>' +
             '</details>' +
-            '<details class="monitoring-section monitoring-cache-section monitoring-collapsible-section">' +
+            '<details class="monitoring-section monitoring-cache-section monitoring-collapsible-section" data-monitoring-section="staticCache">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>K937 静态资源缓存策略</h4><span class="monitoring-meta" id="monitoringStaticCacheMeta">读取中...</span></summary>' +
             '<div class="monitoring-grid" id="monitoringStaticCacheRuntimeCards"></div>' +
             '<div class="monitoring-cache-grid">' +
@@ -443,6 +482,16 @@
                 renderStaticCacheEntries();
             });
         }
+        Array.prototype.forEach.call(el.querySelectorAll('details[data-monitoring-section]'), function(section) {
+            section.addEventListener('toggle', function() {
+                var key = section.getAttribute('data-monitoring-section') || '';
+                if (!section.open) {
+                    if (key === 'indexPlan') clearIndexPlanTimer();
+                    return;
+                }
+                loadCollapsibleSection(key, false);
+            });
+        });
     }
 
     function renderCardSub(sub) {
@@ -1339,8 +1388,59 @@
         renderStaticCachePrewarm();
     }
 
+    function loadCollapsibleRequest(key, force, requestFactory, applyResult, renderAfter, errorMessage) {
+        if (!shouldLoadCollapsibleSection(key) || state.loadingCollapsible[key]) return Promise.resolve();
+        state.loadingCollapsible[key] = true;
+        return requestFactory().then(function(body) {
+            applyResult(body || {});
+            if (typeof renderAfter === 'function') renderAfter();
+        }).catch(function(err) {
+            if (force) notify(err && err.message || errorMessage || '监控数据刷新失败', 'error');
+        }).finally(function() {
+            state.loadingCollapsible[key] = false;
+        });
+    }
+
+    function loadDatabaseStats(force) {
+        return loadCollapsibleRequest('database', force, function() {
+            return api('/database', force ? { force: '1' } : {});
+        }, function(body) {
+            state.data.database = body.item;
+        }, render, '数据库表占用刷新失败');
+    }
+
+    function loadChatSummary(force) {
+        var params = { range: state.range };
+        var forceParams = { range: state.range, force: force ? '1' : '' };
+        return loadCollapsibleRequest('chat', force, function() {
+            return api('/chat/summary', force ? forceParams : params);
+        }, function(body) {
+            state.data.chat = body.item;
+        }, render, '聊天统计刷新失败');
+    }
+
+    function loadGroupStorage(force) {
+        var params = { range: state.range, limit: '100' };
+        var forceParams = { range: state.range, limit: '100', force: '1' };
+        return loadCollapsibleRequest('groups', force, function() {
+            return api('/chat/groups', force ? forceParams : params);
+        }, function(body) {
+            state.data.groups = body.item;
+        }, render, '群组存储排行刷新失败');
+    }
+
+    function loadFileAssets(force) {
+        var params = { status: 'active', limit: '50' };
+        var forceParams = { status: 'active', limit: '50', force: '1' };
+        return loadCollapsibleRequest('fileAssets', force, function() {
+            return api('/chat/file-assets', force ? forceParams : params);
+        }, function(body) {
+            state.data.fileAssets = body.item;
+        }, render, '文件资源 Top 刷新失败');
+    }
+
     function loadStaticCachePolicy() {
-        if (!state.active || state.loadingStaticCache) return Promise.resolve();
+        if (!shouldLoadCollapsibleSection('staticCache') || state.loadingStaticCache) return Promise.resolve();
         state.loadingStaticCache = true;
         return api('/static-cache/policy', {}).then(function(body) {
             state.data.staticCache = body.item || {};
@@ -1354,7 +1454,7 @@
     }
 
     function loadStaticCacheEntries(force) {
-        if (!state.active || state.loadingStaticCacheEntries) return Promise.resolve();
+        if (!shouldLoadCollapsibleSection('staticCache') || state.loadingStaticCacheEntries) return Promise.resolve();
         state.loadingStaticCacheEntries = true;
         return api('/static-cache/entries', { limit: 80 }).then(function(body) {
             state.data.staticCacheEntries = body.item || {};
@@ -1368,7 +1468,7 @@
     }
 
     function loadRuntimeHygiene(force) {
-        if (!state.active || state.loadingRuntimeHygiene) return Promise.resolve();
+        if (!shouldLoadRuntimeHygiene() || state.loadingRuntimeHygiene) return Promise.resolve();
         state.loadingRuntimeHygiene = true;
         return api('/runtime-hygiene', force ? { force: '1' } : {}).then(function(body) {
             state.data.runtimeHygiene = body.item || {};
@@ -1423,14 +1523,14 @@
     function scheduleIndexPlanFollowup() {
         clearIndexPlanTimer();
         var runner = state.data.indexPlan && state.data.indexPlan.runner || {};
-        if (!state.active || !runner.running) return;
+        if (!shouldLoadCollapsibleSection('indexPlan') || !runner.running) return;
         state.indexPlanTimer = setTimeout(function() {
             loadIndexPlan(false);
         }, 5000);
     }
 
     function loadIndexPlan(force) {
-        if (!state.active || state.loadingIndexPlan) return Promise.resolve();
+        if (!shouldLoadCollapsibleSection('indexPlan') || state.loadingIndexPlan) return Promise.resolve();
         state.loadingIndexPlan = true;
         return performanceApi('/index-plan', force ? { force: '1' } : {}).then(function(body) {
             state.data.indexPlan = body || {};
@@ -1598,13 +1698,11 @@
     function loadHeavy(force) {
         if (!state.active || state.loadingHeavy) return Promise.resolve();
         state.loadingHeavy = true;
-        var params = { range: state.range };
-        var forceParams = { range: state.range, force: force ? '1' : '' };
         return Promise.allSettled([
-            api('/database', force ? { force: '1' } : {}).then(function(body) { state.data.database = body.item; }),
-            api('/chat/summary', force ? forceParams : params).then(function(body) { state.data.chat = body.item; }),
-            api('/chat/groups', force ? { range: state.range, limit: '100', force: '1' } : { range: state.range, limit: '100' }).then(function(body) { state.data.groups = body.item; }),
-            api('/chat/file-assets', force ? { status: 'active', limit: '50', force: '1' } : { status: 'active', limit: '50' }).then(function(body) { state.data.fileAssets = body.item; })
+            loadDatabaseStats(force),
+            loadChatSummary(force),
+            loadGroupStorage(force),
+            loadFileAssets(force)
         ]).then(function(results) {
             results.forEach(function(result) {
                 if (result.status === 'rejected') notify(result.reason && result.reason.message || '监控统计刷新失败', 'error');
@@ -1616,40 +1714,11 @@
     }
 
     function loadOverview(force) {
-        if (!state.active || state.loadingHeavy || state.loadingLight) return Promise.resolve();
-        state.loadingHeavy = true;
-        state.loadingLight = true;
-        var overviewParams = force ? { range: state.range, force: '1' } : { range: state.range };
         return Promise.allSettled([
-            api('/overview', overviewParams).then(function(body) {
-                state.data.system = body.system;
-                state.data.health = body.health;
-                state.data.database = body.database;
-                state.data.chat = body.chat;
-                if (Array.isArray(body.partial_errors) && body.partial_errors.length) {
-                    notify(body.partial_errors.map(function(item) { return item.message; }).filter(Boolean).join('；') || '监控概览存在部分加载失败', 'warning');
-                }
-            }),
-            api('/chat/groups', force ? { range: state.range, limit: '100', force: '1' } : { range: state.range, limit: '100' }).then(function(body) { state.data.groups = body.item; }),
-            api('/chat/file-assets', force ? { status: 'active', limit: '50', force: '1' } : { status: 'active', limit: '50' }).then(function(body) { state.data.fileAssets = body.item; })
-        ]).then(function(results) {
-            var overviewFailed = false;
-            results.forEach(function(result, index) {
-                if (result.status === 'rejected') {
-                    if (index === 0) overviewFailed = true;
-                    notify(result.reason && result.reason.message || '监控概览刷新失败', 'error');
-                }
-            });
+            loadLight(force),
+            loadHeavy(force)
+        ]).then(function() {
             render();
-            if (overviewFailed) {
-                state.loadingHeavy = false;
-                state.loadingLight = false;
-                return Promise.all([loadLight(force), loadHeavy(force)]);
-            }
-            return undefined;
-        }).finally(function() {
-            state.loadingHeavy = false;
-            state.loadingLight = false;
         });
     }
 
