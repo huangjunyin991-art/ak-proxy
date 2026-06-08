@@ -4935,6 +4935,24 @@ async def _validate_ws_ticket_issue(request: Request, data: dict, audience: str,
                                     subject: str, role: str, auth_context: dict) -> dict:
     normalized_subject = online_manager.normalize_username(subject)
     normalized_role = 'admin' if str(role or '').strip().lower() == 'admin' else 'user'
+    if audience == 'admin':
+        admin_role = str((auth_context or {}).get('admin_role') or '').strip()
+        admin_name = str((auth_context or {}).get('admin_name') or '').strip()
+        if normalized_role != 'admin' or admin_role not in {ROLE_SUPER_ADMIN, ROLE_SUB_ADMIN}:
+            return {'ok': False, 'status': 403, 'code': 'admin_forbidden', 'message': 'admin websocket forbidden'}
+        if admin_role == ROLE_SUB_ADMIN and not admin_name:
+            return {'ok': False, 'status': 403, 'code': 'admin_identity_missing', 'message': 'admin identity missing'}
+        return {
+            'ok': True,
+            'resource_type': 'admin_ws',
+            'resource_id': admin_name or admin_role,
+            'site': 'admin_panel',
+            'readonly': False,
+            'claims': {
+                'admin_role': admin_role,
+                'admin_name': admin_name,
+            },
+        }
     if audience == 'chat':
         return {
             'ok': True,
@@ -9312,6 +9330,24 @@ async def _resolve_admin_ws_auth(websocket: WebSocket) -> tuple[str, str] | None
     return None
 
 
+def _resolve_admin_ws_ticket_auth(ticket_claims) -> tuple[str, str] | None:
+    if (
+        not ticket_claims
+        or getattr(ticket_claims, 'audience', '') != 'admin'
+        or getattr(ticket_claims, 'role', '') != 'admin'
+        or getattr(ticket_claims, 'resource_type', '') != 'admin_ws'
+    ):
+        return None
+    ticket_claim_map = getattr(ticket_claims, 'claims', None) or {}
+    admin_role = str(ticket_claim_map.get('admin_role') or '').strip()
+    admin_name = str(ticket_claim_map.get('admin_name') or '').strip()
+    if admin_role == ROLE_SUPER_ADMIN:
+        return admin_role, '__super__'
+    if admin_role == ROLE_SUB_ADMIN and admin_name:
+        return admin_role, admin_name
+    return None
+
+
 async def _reject_admin_ws_auth(websocket: WebSocket) -> None:
     try:
         await websocket.send_json({'type': 'auth_error'})
@@ -9329,13 +9365,30 @@ async def admin_websocket(websocket: WebSocket):
 
     logger.info(f"[WebSocket] 新连接建立: {websocket.client}")
     
+    ticket_auth = None
+    if str(websocket.query_params.get('ticket') or '').strip():
+        ticket_claims = await _consume_ws_ticket_from_websocket(websocket, 'admin')
+        if not ticket_claims:
+            return
+        ticket_auth = _resolve_admin_ws_ticket_auth(ticket_claims)
+        if not ticket_auth:
+            logger.warning(
+                f"[AdminWS] reject_ticket_claims subject={getattr(ticket_claims, 'subject', '') or '-'} "
+                f"role={getattr(ticket_claims, 'role', '') or '-'} resource={getattr(ticket_claims, 'resource_type', '') or '-'}"
+            )
+            try:
+                await websocket.close(code=1008)
+            except Exception:
+                pass
+            return
+
     await ws_manager.connect(websocket)
 
     sub_name = None
 
     try:
 
-        auth = await _resolve_admin_ws_auth(websocket)
+        auth = ticket_auth or await _resolve_admin_ws_auth(websocket)
         if not auth:
             await _reject_admin_ws_auth(websocket)
             return

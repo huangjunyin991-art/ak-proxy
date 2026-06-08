@@ -48,7 +48,7 @@ def create_ws_ticket_router(
     async def issue_admin_ws_ticket(request: Request):
         data = await _read_json(request)
         audience = _normalize_audience(data.get("audience") or data.get("aud") or "")
-        if audience not in {"assist", "voice"}:
+        if audience not in {"admin", "assist", "voice"}:
             await _record_issue_reject(service, request, data, audience, "unsupported_audience", role="admin")
             return _error("unsupported_audience", "unsupported admin websocket audience", 400)
         identity = await _maybe_await(resolve_admin_identity(request, data, audience))

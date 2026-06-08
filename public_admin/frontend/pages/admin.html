@@ -5816,7 +5816,38 @@
         }
         
         // 初始化WebSocket
-        function initWebSocket() {
+        async function fetchAdminWsTicket() {
+            const response = await fetch(`${API_BASE}/admin/api/ws-ticket`, withAdminAuthHeaders({
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({audience: 'admin'})
+            }));
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (e) {
+                data = {};
+            }
+            if (!response.ok || !data || !data.ticket) {
+                const error = new Error((data && data.message) || `WebSocket ticket failed: ${response.status}`);
+                error.status = response.status;
+                error.code = data && data.code;
+                throw error;
+            }
+            return data.ticket;
+        }
+
+        function buildAdminWsUrl(ticket) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = new URL('/admin/ws', window.location.origin);
+            url.protocol = protocol;
+            if (ticket) {
+                url.searchParams.set('ticket', String(ticket));
+            }
+            return url.toString();
+        }
+
+        async function initWebSocket() {
             // 先废弃已存在的连接
             if (ws) {
                 ws.onopen = null;
@@ -5830,8 +5861,14 @@
                 ws = null;
             }
             
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/admin/ws`;
+            let adminWsTicket = '';
+            try {
+                adminWsTicket = await fetchAdminWsTicket();
+            } catch (e) {
+                console.warn('[AdminWS] ticket fetch failed, fallback to auth frame', e);
+            }
+            const wsUrl = buildAdminWsUrl(adminWsTicket);
+            const useTicketAuth = !!adminWsTicket;
             ws = new WebSocket(wsUrl);
             
             ws.onopen = () => {
@@ -5839,7 +5876,7 @@
                 document.getElementById('statusText').textContent = '已连接';
                 // 发送身份认证
                 const token = sessionStorage.getItem('admin_token');
-                if (token) {
+                if (!useTicketAuth && token) {
                     ws.send(JSON.stringify({ type: 'auth', token: token }));
                 }
                 if (window.AKPollingRegistry) {
