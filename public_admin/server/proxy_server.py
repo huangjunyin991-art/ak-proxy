@@ -197,6 +197,7 @@ from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes import get_admin_index_plan_status, start_admin_index_plan_run
 from .performance.dispatcher_status.service import DispatcherStatusService
 from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
+from .performance.request_metrics import RequestMetricsService
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .db.bulk_writer import get_bulk_writer_snapshot
 from .static_resource_cache import (
@@ -2059,6 +2060,9 @@ async def proxy_login(request: Request):
 
     """拦截登录请求：记录 → 转发(用户自己的IP) → 处理结果 → 上报"""
 
+    request_started_at = time.perf_counter()
+    upstream_ms = 0
+
     stats.total_requests += 1
 
     stats.login_requests += 1
@@ -2246,6 +2250,7 @@ async def proxy_login(request: Request):
                 logger.info(f"[Login] userKey快速通道命中: {account}")
             else:
 
+                upstream_started_at = time.perf_counter()
                 response = await forward_request(
 
                     request.method, "Login", content_type, params, raw_body, dict(request.headers),
@@ -2253,6 +2258,7 @@ async def proxy_login(request: Request):
                     client_ip=client_ip, is_login=True
 
                 )
+                upstream_ms = _elapsed_ms(upstream_started_at)
 
                 result = response.json()
 
@@ -2261,6 +2267,16 @@ async def proxy_login(request: Request):
         stats.errors += 1
 
         logger.error(f"[Login] 转发失败: {e}")
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/RPC/Login",
+            status_code=500,
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=upstream_ms,
+            content_type="application/json",
+            error=type(e).__name__,
+        )
 
         return JSONResponse({"Error": True, "Msg": f"API连接失败: {str(e)}"})
 
@@ -2505,6 +2521,18 @@ async def proxy_login(request: Request):
         resp.set_cookie(key="ak_im_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
         _attach_notify_center_identity_cookie(resp, request, login_identity_username or account)
 
+    _record_request_metric(
+        kind="rpc",
+        method=request.method,
+        path="/RPC/Login",
+        status_code=200 if is_success else 401,
+        total_ms=_elapsed_ms(request_started_at),
+        upstream_ms=upstream_ms,
+        cache_state="FASTPATH" if fastpath_result is not None and fastpath_result.success else "NONE",
+        content_type="application/json",
+        response_bytes=len(json.dumps(result, ensure_ascii=False).encode("utf-8")),
+    )
+
     return resp
 
 
@@ -2518,6 +2546,9 @@ async def proxy_login(request: Request):
 async def proxy_index_data(request: Request):
 
     """拦截资产数据请求：转发 → 提取数据 → 上报"""
+
+    request_started_at = time.perf_counter()
+    upstream_ms = 0
 
     stats.total_requests += 1
 
@@ -2548,6 +2579,7 @@ async def proxy_index_data(request: Request):
 
     try:
 
+        upstream_started_at = time.perf_counter()
         response = await forward_request(
 
             request.method, "public_IndexData", content_type, params, raw_body, dict(request.headers),
@@ -2555,6 +2587,7 @@ async def proxy_index_data(request: Request):
             client_ip=client_ip
 
         )
+        upstream_ms = _elapsed_ms(upstream_started_at)
 
         result = response.json()
 
@@ -2563,6 +2596,16 @@ async def proxy_index_data(request: Request):
         stats.errors += 1
 
         logger.error(f"[IndexData] 转发失败: {e}")
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/RPC/public_IndexData",
+            status_code=500,
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=upstream_ms,
+            content_type="application/json",
+            error=type(e).__name__,
+        )
 
         return JSONResponse({"Error": True, "Msg": f"API连接失败: {str(e)}"})
 
@@ -2657,6 +2700,17 @@ async def proxy_index_data(request: Request):
             logger.info(f"[IndexData] 资产更新: {username}")
 
     
+
+    _record_request_metric(
+        kind="rpc",
+        method=request.method,
+        path="/RPC/public_IndexData",
+        status_code=response.status_code,
+        total_ms=_elapsed_ms(request_started_at),
+        upstream_ms=upstream_ms,
+        content_type=response.headers.get("content-type", ""),
+        response_bytes=len(response.content or b""),
+    )
 
     return _build_proxy_passthrough_response(response)
 
@@ -2753,6 +2807,7 @@ async def proxy_rpc(path: str, request: Request):
 
         selected_exit = _select_forward_exit(path)
 
+        upstream_started_at = time.perf_counter()
         response = await forward_request(
 
             request.method, path, content_type, params, raw_body, dict(request.headers),
@@ -2762,6 +2817,7 @@ async def proxy_rpc(path: str, request: Request):
             selected_exit=selected_exit
 
         )
+        upstream_ms = _elapsed_ms(upstream_started_at)
         if _is_login_forget_rpc(path):
             try:
                 result = response.json()
@@ -2781,6 +2837,17 @@ async def proxy_rpc(path: str, request: Request):
                 pass
 
         total_ms = _elapsed_ms(request_started_at)
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/RPC/" + path,
+            status_code=response.status_code,
+            total_ms=total_ms,
+            upstream_ms=upstream_ms,
+            exit_name=selected_exit.name,
+            content_type=response.headers.get("content-type", ""),
+            response_bytes=len(response.content or b""),
+        )
 
         _log_user_rpc_slow_request(
 
@@ -2809,6 +2876,16 @@ async def proxy_rpc(path: str, request: Request):
         stats.errors += 1
 
         logger.error(f"[RPC/{path}] 转发失败: {e}")
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/RPC/" + path,
+            status_code=500,
+            total_ms=_elapsed_ms(request_started_at),
+            exit_name=getattr(locals().get("selected_exit"), "name", ""),
+            content_type="application/json",
+            error=type(e).__name__,
+        )
 
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
@@ -5300,6 +5377,7 @@ if create_monitoring_router is not None:
             im_server_internal_url=IM_SERVER_INTERNAL_URL,
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
             static_cache_warmup_supplier=lambda: globals().get("_AK_STATIC_WARMUP_SERVICE"),
+            request_metrics_supplier=lambda: globals().get("_request_metrics_service"),
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 性能监控路由注册失败，已跳过: {e}")
@@ -13129,6 +13207,35 @@ def _log_user_rpc_slow_request(path: str, total_ms: int, status_code: int,
     )
 
 
+def _record_request_metric(kind: str, method: str, path: str, status_code: int = 0,
+                           total_ms: int = 0, upstream_ms: int = 0,
+                           rewrite_ms: int = 0, inject_ms: int = 0,
+                           cache_state: str = "NONE", exit_name: str = "",
+                           content_type: str = "", response_bytes: int = 0,
+                           error: str = "") -> None:
+    service = globals().get("_request_metrics_service")
+    if service is None or not service.is_enabled():
+        return
+    try:
+        service.record({
+            "kind": kind,
+            "method": method,
+            "path": path,
+            "status_code": status_code,
+            "total_ms": total_ms,
+            "upstream_ms": upstream_ms,
+            "rewrite_ms": rewrite_ms,
+            "inject_ms": inject_ms,
+            "cache_state": cache_state or "NONE",
+            "exit_name": exit_name or "",
+            "content_type": content_type or "",
+            "response_bytes": response_bytes or 0,
+            "error": error or "",
+        })
+    except Exception as exc:
+        logger.debug(f"[RequestMetrics] record failed: {exc}")
+
+
 class AkWebClientPool:
     def __init__(self):
         self._clients: dict[str, httpx.AsyncClient] = {}
@@ -13433,6 +13540,7 @@ _login_event_worker = LoginEventWorker(
     pool_supplier=db._get_pool,
     logger=logger,
 )
+_request_metrics_service = RequestMetricsService()
 _runtime_hygiene_service: RuntimeHygieneService | None = None
 _runtime_hygiene_config_service: RuntimeHygieneConfigService | None = None
 
@@ -15365,6 +15473,16 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
         if cache_request:
             cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
             if cached_static:
+                _record_request_metric(
+                    kind="static_asset",
+                    method=request.method,
+                    path="/" + normalized_path,
+                    status_code=cached_static.status_code,
+                    total_ms=_elapsed_ms(request_started_at),
+                    cache_state="HIT",
+                    content_type=cached_static.content_type,
+                    response_bytes=len(cached_static.body or b""),
+                )
                 return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
             static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(cache_request)
             await static_cache_lock.acquire()
@@ -15372,6 +15490,16 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
             if cached_static:
                 _AK_WEB_STATIC_CACHE_SERVICE.release_lock(cache_request, static_cache_lock)
                 static_cache_lock = None
+                _record_request_metric(
+                    kind="static_asset",
+                    method=request.method,
+                    path="/" + normalized_path,
+                    status_code=cached_static.status_code,
+                    total_ms=_elapsed_ms(request_started_at),
+                    cache_state="HIT",
+                    content_type=cached_static.content_type,
+                    response_bytes=len(cached_static.body or b""),
+                )
                 return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
 
         fwd_headers = _build_ak_site_forward_headers(request)
@@ -15413,19 +15541,33 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
                     body=content,
                 ),
             )
+            static_cache_state = "MISS" if stored_static else "BYPASS"
             _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
                 response,
-                "MISS" if stored_static else "BYPASS",
+                static_cache_state,
                 cache_request.path,
                 content_type or "application/octet-stream",
             )
         else:
+            static_cache_state = "BYPASS"
             _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
                 response,
                 "BYPASS",
                 normalized_path,
                 content_type or "application/octet-stream",
             )
+        _record_request_metric(
+            kind="static_asset",
+            method=request.method,
+            path="/" + normalized_path,
+            status_code=resp.status_code,
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=upstream_ms,
+            cache_state=static_cache_state,
+            exit_name=selected_exit.name if selected_exit else "",
+            content_type=content_type or "application/octet-stream",
+            response_bytes=len(content or b""),
+        )
         _admin_ak_trace(lambda: (
             f"[AkPublicStatic/{normalized_path}] status={resp.status_code} upstream_ms={upstream_ms} "
             f"total_ms={_elapsed_ms(request_started_at)} cacheable={int(bool(cache_request))} "
@@ -15434,6 +15576,15 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
         return response
     except Exception as e:
         logger.error(f"[AkPublicStatic] {normalized_path or prefix + '/' + asset_path}: {e}")
+        _record_request_metric(
+            kind="static_asset",
+            method=request.method,
+            path="/" + (normalized_path or prefix + "/" + asset_path),
+            status_code=502,
+            total_ms=_elapsed_ms(request_started_at),
+            cache_state="ERROR",
+            error=type(e).__name__,
+        )
         return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
     finally:
         if static_cache_lock:
@@ -15550,6 +15701,17 @@ async def ak_web_proxy(request: Request, path: str):
     if static_cache_request:
         cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(static_cache_request)
         if cached_static:
+            _record_request_metric(
+                kind="ak_web",
+                method=request.method,
+                path=request_path,
+                status_code=cached_static.status_code,
+                total_ms=_elapsed_ms(request_started_at),
+                cache_state="HIT",
+                exit_name=selected_exit.name if selected_exit else "",
+                content_type=cached_static.content_type,
+                response_bytes=len(cached_static.body or b""),
+            )
             return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
         static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(static_cache_request)
         await static_cache_lock.acquire()
@@ -15557,6 +15719,17 @@ async def ak_web_proxy(request: Request, path: str):
         if cached_static:
             _AK_WEB_STATIC_CACHE_SERVICE.release_lock(static_cache_request, static_cache_lock)
             static_cache_lock = None
+            _record_request_metric(
+                kind="ak_web",
+                method=request.method,
+                path=request_path,
+                status_code=cached_static.status_code,
+                total_ms=_elapsed_ms(request_started_at),
+                cache_state="HIT",
+                exit_name=selected_exit.name if selected_exit else "",
+                content_type=cached_static.content_type,
+                response_bytes=len(cached_static.body or b""),
+            )
             return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
@@ -15751,6 +15924,7 @@ async def ak_web_proxy(request: Request, path: str):
                             headers=resp_headers, media_type=content_type or "application/octet-stream")
         if "text/html" in content_type and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
             _apply_no_store_headers(response)
+        static_cache_state = "NONE"
         if is_static_asset:
             stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
                 static_cache_request,
@@ -15762,9 +15936,10 @@ async def ak_web_proxy(request: Request, path: str):
                     body=content,
                 ),
             )
+            static_cache_state = "MISS" if stored_static else "BYPASS"
             _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
                 response,
-                "MISS" if stored_static else "BYPASS",
+                static_cache_state,
                 static_cache_request.path,
                 content_type or "application/octet-stream",
             )
@@ -15786,6 +15961,20 @@ async def ak_web_proxy(request: Request, path: str):
             status_code=resp.status_code,
             bs_id=bs_id,
             content_type=content_type,
+        )
+        _record_request_metric(
+            kind="ak_web",
+            method=request.method,
+            path=request_path,
+            status_code=resp.status_code,
+            total_ms=total_ms,
+            upstream_ms=upstream_ms,
+            rewrite_ms=rewrite_ms,
+            inject_ms=inject_ms,
+            cache_state=static_cache_state,
+            exit_name=selected_exit.name if selected_exit else "",
+            content_type=content_type or "application/octet-stream",
+            response_bytes=len(content or b""),
         )
         _log_user_ak_web_document_hit(
             path=path,
@@ -15838,6 +16027,19 @@ async def ak_web_proxy(request: Request, path: str):
         if static_cache_lock:
             _AK_WEB_STATIC_CACHE_SERVICE.release_lock(static_cache_request, static_cache_lock)
         logger.error(f"[AkWebProxy] {path}: {e}")
+        _record_request_metric(
+            kind="ak_web",
+            method=request.method,
+            path=request_path,
+            status_code=502,
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=upstream_ms,
+            rewrite_ms=rewrite_ms,
+            inject_ms=inject_ms,
+            cache_state="ERROR",
+            exit_name=getattr(locals().get("selected_exit"), "name", ""),
+            error=type(e).__name__,
+        )
         return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
 
 

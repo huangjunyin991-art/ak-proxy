@@ -26,7 +26,8 @@
             staticCachePrewarm: null,
             runtimeHygiene: null,
             runtimePerformance: null,
-            indexPlan: null
+            indexPlan: null,
+            requestMetrics: null
         },
         loadingWsTickets: false,
         loadingStaticCache: false,
@@ -35,6 +36,7 @@
         loadingRuntimeHygiene: false,
         loadingRuntimePerformance: false,
         loadingIndexPlan: false,
+        loadingRequestMetrics: false,
         loadingCollapsible: {}
     };
     var MONITORING_POLL_OWNER = 'panel:monitoring';
@@ -65,7 +67,8 @@
                     loadLight(false),
                     loadWsTickets(false),
                     loadRuntimeHygiene(false),
-                    loadRuntimePerformance(false)
+                    loadRuntimePerformance(false),
+                    loadRequestMetrics(false)
                 ]);
             }
         });
@@ -115,6 +118,7 @@
         if (key === 'groups') return loadGroupStorage(force);
         if (key === 'fileAssets') return loadFileAssets(force);
         if (key === 'indexPlan') return loadIndexPlan(force);
+        if (key === 'requestMetrics') return loadRequestMetrics(force);
         if (key === 'runtimeHygiene') return loadRuntimeHygiene(force);
         if (key === 'staticCache') {
             return Promise.allSettled([loadStaticCachePolicy(force), loadRuntimeHygiene(force)]);
@@ -364,6 +368,18 @@
             '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
             '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
             '</div>' +
+            '<details class="monitoring-section monitoring-request-metrics-section monitoring-collapsible-section" data-monitoring-section="requestMetrics">' +
+            '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>慢请求与上游耗时</h4><span class="monitoring-meta" id="monitoringRequestMetricsMeta">默认关闭，仅调试时开启</span></summary>' +
+            '<div class="monitoring-cache-grid monitoring-request-metrics-policy-grid">' +
+            '<label class="monitoring-switch-card"><input id="requestMetricsEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用慢请求采集</strong><small>关闭后代理链路只保留一次轻量判断</small></span></label>' +
+            '<label><span>慢请求阈值（ms）</span><input class="monitoring-input" id="requestMetricsSlowThreshold" type="number" min="50" max="60000" step="50"></label>' +
+            '<label><span>最大保留条数</span><input class="monitoring-input" id="requestMetricsMaxRecords" type="number" min="20" max="2000" step="20"></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions monitoring-request-metrics-actions"><button class="monitoring-btn primary" data-monitoring-action="save-request-metrics-policy">保存采集策略</button><button class="monitoring-btn" data-monitoring-action="refresh-request-metrics">刷新慢请求</button><button class="monitoring-btn danger" data-monitoring-action="clear-request-metrics">清空记录</button><span class="monitoring-meta" id="monitoringRequestMetricsPolicyMeta">采集默认关闭</span></div>' +
+            '<div class="monitoring-grid" id="monitoringRequestMetricsCards"></div>' +
+            '<div class="monitoring-bars" id="monitoringRequestMetricsBars"></div>' +
+            '<div class="monitoring-table-wrap monitoring-request-metrics-table-wrap"><table class="monitoring-table monitoring-request-metrics-table"><thead><tr><th>时间</th><th>类型</th><th>路径</th><th>状态</th><th>总耗时</th><th>上游</th><th>重写/注入</th><th>缓存</th><th>出口</th><th>大小/类型</th></tr></thead><tbody id="monitoringRequestMetricsRows"></tbody></table></div>' +
+            '</details>' +
             '<details class="monitoring-section monitoring-chat-section monitoring-collapsible-section" data-monitoring-section="chat">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></summary>' +
             '<div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div>' +
@@ -456,6 +472,12 @@
                 loadRuntimeHygiene(true);
             } else if (action === 'save-ws-ticket-policy') {
                 saveWsTicketPolicy();
+            } else if (action === 'save-request-metrics-policy') {
+                saveRequestMetricsPolicy();
+            } else if (action === 'refresh-request-metrics') {
+                loadRequestMetrics(true);
+            } else if (action === 'clear-request-metrics') {
+                clearRequestMetrics();
             } else if (action === 'refresh-index-plan') {
                 loadIndexPlan(true);
             } else if (action === 'run-index-plan') {
@@ -472,6 +494,7 @@
             loadStaticCachePolicy();
             loadRuntimeHygiene(true);
             loadRuntimePerformance(true);
+            loadRequestMetrics(true);
             loadIndexPlan(true);
         });
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
@@ -601,6 +624,105 @@
         var t = Number(threshold || 1);
         if (!isFinite(n) || !isFinite(t) || t <= 0) return 0;
         return Math.max(0, Math.min(100, n / t * 100));
+    }
+
+    function requestMetricLabel(kind) {
+        var value = String(kind || '').toLowerCase();
+        if (value === 'rpc') return 'RPC';
+        if (value === 'ak_web') return 'AK Web';
+        if (value === 'static_asset') return '静态资源';
+        return value || '-';
+    }
+
+    function renderRequestMetricDistribution(title, counts) {
+        var entries = Object.keys(counts || {}).map(function(key) {
+            return { key: key, value: Number((counts || {})[key] || 0) };
+        }).filter(function(item) {
+            return item.value > 0;
+        }).sort(function(a, b) {
+            return b.value - a.value;
+        });
+        if (!entries.length) return '';
+        var max = entries.reduce(function(acc, item) { return Math.max(acc, item.value); }, 1);
+        return entries.slice(0, 6).map(function(item) {
+            return renderProgress(title + ' ' + item.key, item.value / max * 100, formatNumber(item.value));
+        }).join('');
+    }
+
+    function renderRequestMetricRows(item) {
+        var rows = Array.isArray(item && item.items) ? item.items : [];
+        if (!rows.length) return '<tr><td colspan="10"><div class="monitoring-empty">暂无慢请求或错误请求</div></td></tr>';
+        return rows.map(function(row) {
+            var path = String(row.path || '-');
+            var timing = formatMs(row.rewrite_ms) + ' / ' + formatMs(row.inject_ms);
+            var sizeText = formatBytes(row.response_bytes) + '<br><span class="monitoring-meta">' + escapeHtml(row.content_type || '-') + '</span>';
+            return '<tr>' +
+                '<td>' + escapeHtml(formatSampleTime(row.ts)) + '</td>' +
+                '<td>' + escapeHtml(requestMetricLabel(row.kind)) + '</td>' +
+                '<td><code>' + escapeHtml(row.method || '-') + ' ' + escapeHtml(path) + '</code>' + (row.error ? '<div class="monitoring-status-bad">' + escapeHtml(row.error) + '</div>' : '') + '</td>' +
+                '<td>' + escapeHtml(row.status_code || '-') + '</td>' +
+                '<td><strong>' + escapeHtml(formatMs(row.total_ms)) + '</strong></td>' +
+                '<td>' + escapeHtml(formatMs(row.upstream_ms)) + '</td>' +
+                '<td>' + timing + '</td>' +
+                '<td><span class="monitoring-cache-pill monitoring-cache-pill-' + escapeHtml(String(row.cache_state || 'none').toLowerCase()) + '">' + escapeHtml(row.cache_state || 'NONE') + '</span></td>' +
+                '<td>' + escapeHtml(row.exit_name || '-') + '</td>' +
+                '<td>' + sizeText + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderRequestMetrics() {
+        var item = state.data.requestMetrics || {};
+        var summary = item.summary || {};
+        var policy = item.policy || {};
+        var cards = document.getElementById('monitoringRequestMetricsCards');
+        var bars = document.getElementById('monitoringRequestMetricsBars');
+        var rows = document.getElementById('monitoringRequestMetricsRows');
+        var meta = document.getElementById('monitoringRequestMetricsMeta');
+        var policyMeta = document.getElementById('monitoringRequestMetricsPolicyMeta');
+        setChecked('requestMetricsEnabled', !!policy.enabled);
+        setInputValue('requestMetricsSlowThreshold', policy.slow_threshold_ms || 800);
+        setInputValue('requestMetricsMaxRecords', policy.max_records || 200);
+        if (!item || (!item.policy && !item.summary && !item.items && !item.error)) {
+            if (cards) setHtmlIfChanged(cards, renderCard('慢请求采集', '读取中', '展开后读取采集策略'));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (rows) setHtmlIfChanged(rows, '<tr><td colspan="10"><div class="monitoring-empty">等待首次采样</div></td></tr>');
+            if (meta) setTextIfChanged(meta, '读取中...');
+            if (policyMeta) setTextIfChanged(policyMeta, '采集默认关闭');
+            return;
+        }
+        if (item.error || item.available === false) {
+            var message = item.error || item.message || '慢请求采集服务不可用';
+            if (cards) setHtmlIfChanged(cards, renderCard('慢请求采集', '不可用', message));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (rows) setHtmlIfChanged(rows, renderRequestMetricRows(item));
+            if (meta) setTextIfChanged(meta, message);
+            if (policyMeta) setTextIfChanged(policyMeta, message);
+            return;
+        }
+        var enabledText = policy.enabled ? '已开启' : '已关闭';
+        if (cards) {
+            setHtmlIfChanged(cards,
+                renderCard('采集状态', enabledText, '阈值 ' + formatMs(policy.slow_threshold_ms) + '；保留 ' + formatNumber(policy.max_records)) +
+                renderCard('观测请求', formatNumber(summary.observed_count), '慢请求 ' + formatNumber(summary.slow_count) + '；错误 ' + formatNumber(summary.error_count)) +
+                renderCard('最慢请求', formatMs(summary.max_total_ms), summary.max_path || '-') +
+                renderCard('平均耗时', formatMs(summary.avg_total_ms), '已存 ' + formatNumber(summary.stored_count) + ' 条慢/错样本')
+            );
+        }
+        if (bars) {
+            setHtmlIfChanged(bars,
+                renderRequestMetricDistribution('类型', summary.by_kind || {}) +
+                renderRequestMetricDistribution('缓存', summary.by_cache_state || {}) +
+                renderRequestMetricDistribution('状态', summary.by_status_class || {})
+            );
+        }
+        if (rows) setHtmlIfChanged(rows, renderRequestMetricRows(item));
+        if (meta) setTextIfChanged(meta, enabledText + ' · 更新于 ' + formatSampleTime(item.generated_at));
+        if (policyMeta) {
+            setTextIfChanged(policyMeta, policy.enabled
+                ? ('正在采集：慢请求 >= ' + formatMs(policy.slow_threshold_ms) + '，最多保留 ' + formatNumber(policy.max_records) + ' 条')
+                : '已关闭：代理链路不记录慢请求明细');
+        }
     }
 
     function renderRuntimePerformanceRows(item) {
@@ -1068,6 +1190,7 @@
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
         renderWsTickets();
         renderRuntimePerformance();
+        renderRequestMetrics();
         renderRuntimeHygiene();
         renderStaticCachePolicy();
         renderAlert();
@@ -1498,6 +1621,22 @@
         });
     }
 
+    function loadRequestMetrics(force) {
+        if (!shouldLoadCollapsibleSection('requestMetrics') || state.loadingRequestMetrics) return Promise.resolve();
+        state.loadingRequestMetrics = true;
+        return api('/request-metrics', { limit: '80' }).then(function(body) {
+            state.data.requestMetrics = body.item || {};
+            renderRequestMetrics();
+            if (force) notify('慢请求采集状态已刷新', 'success');
+        }).catch(function(err) {
+            state.data.requestMetrics = { error: err && err.message || '慢请求采集状态读取失败' };
+            renderRequestMetrics();
+            if (force) notify(state.data.requestMetrics.error, 'error');
+        }).finally(function() {
+            state.loadingRequestMetrics = false;
+        });
+    }
+
     function loadWsTickets(force) {
         if (!state.active || state.loadingWsTickets) return Promise.resolve();
         state.loadingWsTickets = true;
@@ -1592,6 +1731,14 @@
         };
     }
 
+    function collectRequestMetricsPolicy() {
+        return {
+            enabled: inputChecked('requestMetricsEnabled'),
+            slow_threshold_ms: inputNumber('requestMetricsSlowThreshold'),
+            max_records: inputNumber('requestMetricsMaxRecords')
+        };
+    }
+
     function saveWsTicketPolicy() {
         apiPost('/ws-tickets/policy', collectWsTicketPolicy()).then(function(body) {
             state.data.wsTickets = body.item || {};
@@ -1599,6 +1746,26 @@
             notify('WebSocket 短票诊断策略已保存', 'success');
         }).catch(function(err) {
             notify(err && err.message || 'WebSocket 短票诊断策略保存失败', 'error');
+        });
+    }
+
+    function saveRequestMetricsPolicy() {
+        apiPost('/request-metrics/policy', collectRequestMetricsPolicy()).then(function(body) {
+            state.data.requestMetrics = body.item || {};
+            renderRequestMetrics();
+            notify('慢请求采集策略已保存', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '慢请求采集策略保存失败', 'error');
+        });
+    }
+
+    function clearRequestMetrics() {
+        apiPost('/request-metrics/clear', {}).then(function(body) {
+            state.data.requestMetrics = body.item || {};
+            renderRequestMetrics();
+            notify('慢请求记录已清空', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '慢请求记录清空失败', 'error');
         });
     }
 
@@ -1766,6 +1933,7 @@
         loadStaticCachePolicy();
         loadRuntimeHygiene(false);
         loadRuntimePerformance(false);
+        loadRequestMetrics(false);
         loadIndexPlan(false);
         var registry = setupMonitoringPollingRegistry();
         if (registry) {
@@ -1777,6 +1945,7 @@
             loadWsTickets(false);
             loadRuntimeHygiene(false);
             loadRuntimePerformance(false);
+            loadRequestMetrics(false);
         }, 5000);
         state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
     }
@@ -1807,7 +1976,7 @@
         init: init,
         start: start,
         stop: stop,
-        refreshLight: function() { return Promise.all([loadLight(true), loadWsTickets(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadIndexPlan(true)]); },
+        refreshLight: function() { return Promise.all([loadLight(true), loadWsTickets(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadRequestMetrics(true), loadIndexPlan(true)]); },
         refreshHeavy: function() { return loadHeavy(true); }
     };
 

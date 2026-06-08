@@ -215,6 +215,11 @@
     background: linear-gradient(135deg, rgba(0, 255, 136, 0.07), rgba(245, 205, 96, 0.035)), var(--bg-card);
 }
 
+.monitoring-request-metrics-section {
+    border-color: rgba(255, 159, 67, 0.28);
+    background: linear-gradient(135deg, rgba(255, 159, 67, 0.07), rgba(0, 212, 255, 0.035)), var(--bg-card);
+}
+
 .monitoring-ws-ticket-section {
     border-color: rgba(245, 205, 96, 0.3);
     background: linear-gradient(135deg, rgba(245, 205, 96, 0.07), rgba(0, 212, 255, 0.035)), var(--bg-card);
@@ -235,6 +240,19 @@
 
 .monitoring-runtime-performance-section .monitoring-grid,
 .monitoring-runtime-performance-section .monitoring-bars {
+    margin-bottom: 14px;
+}
+
+.monitoring-request-metrics-section .monitoring-grid,
+.monitoring-request-metrics-section .monitoring-bars {
+    margin-bottom: 14px;
+}
+
+.monitoring-request-metrics-policy-grid {
+    margin-bottom: 12px;
+}
+
+.monitoring-request-metrics-actions {
     margin-bottom: 14px;
 }
 
@@ -273,6 +291,47 @@
 
 .monitoring-runtime-performance-table {
     min-width: 780px;
+}
+
+.monitoring-request-metrics-table {
+    min-width: 1180px;
+}
+
+.monitoring-cache-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.monitoring-cache-pill-hit,
+.monitoring-cache-pill-fastpath {
+    border-color: rgba(0, 255, 136, 0.32);
+    color: #00ff88;
+    background: rgba(0, 255, 136, 0.08);
+}
+
+.monitoring-cache-pill-miss {
+    border-color: rgba(245, 205, 96, 0.34);
+    color: #f5cd60;
+    background: rgba(245, 205, 96, 0.08);
+}
+
+.monitoring-cache-pill-bypass,
+.monitoring-cache-pill-none {
+    border-color: rgba(169, 190, 205, 0.22);
+}
+
+.monitoring-cache-pill-error {
+    border-color: rgba(255, 71, 87, 0.36);
+    color: #ff6b7a;
+    background: rgba(255, 71, 87, 0.08);
 }
 
 .monitoring-index-panel {

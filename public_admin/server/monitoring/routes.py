@@ -25,6 +25,7 @@ def create_monitoring_router(
     im_server_internal_url: str = "",
     static_cache_service_supplier: Callable[[], object] = None,
     static_cache_warmup_supplier: Callable[[], object] = None,
+    request_metrics_supplier: Callable[[], object] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/monitoring")
     service = MonitoringService(pool_supplier=pool_supplier, im_server_internal_url=im_server_internal_url)
@@ -42,6 +43,9 @@ def create_monitoring_router(
 
     def static_cache_warmup():
         return static_cache_warmup_supplier() if static_cache_warmup_supplier else None
+
+    def request_metrics():
+        return request_metrics_supplier() if request_metrics_supplier else None
 
     @router.get("/overview")
     async def monitoring_overview(request: Request, range: str = "7d", force: str = ""):
@@ -228,6 +232,46 @@ def create_monitoring_router(
             if pages is not None and not isinstance(pages, (list, tuple)):
                 pages = None
             return {"success": True, "item": await warmup.prewarm_default(pages=pages, max_assets=max_assets)}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.get("/request-metrics")
+    async def monitoring_request_metrics(request: Request, limit: int = 80):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        metrics = request_metrics()
+        if metrics is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "慢请求采集服务不可用"})
+        try:
+            return {"success": True, "item": metrics.snapshot(limit=limit)}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/request-metrics/policy")
+    async def monitoring_update_request_metrics_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        metrics = request_metrics()
+        if metrics is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "慢请求采集服务不可用"})
+        try:
+            payload = await request.json()
+            return {"success": True, "item": metrics.update_policy(payload or {})}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/request-metrics/clear")
+    async def monitoring_clear_request_metrics(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        metrics = request_metrics()
+        if metrics is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "慢请求采集服务不可用"})
+        try:
+            return {"success": True, "item": metrics.clear()}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
