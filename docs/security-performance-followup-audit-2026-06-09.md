@@ -162,6 +162,7 @@
 ### S7. AK 账号与子管理员凭据存在明文存储/客户端注入风险
 
 级别：P2
+状态：已处理低侵入收口版。未改变当前 AK 动态密码可重放的业务模型，也未做数据库结构迁移；后台接口输出统一走凭据脱敏 helper，子管理员列表不再返回密码前缀，仅返回 `has_password` 与固定“已设置”提示。AK browse session 仅在首次自动登录前短暂保留密码，登录成功后立即清空；`_ak_auth_cache` 与 browse session 持久化队列不再携带 password 字段。
 位置：
 
 - `public_admin/server/database_pg.py:1013`

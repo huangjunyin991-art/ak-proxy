@@ -49,6 +49,7 @@ from .performance.dashboard_stats import build_traffic_dashboard, build_user_gro
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 from .db.sql_policy import classify_admin_sql
+from .security.credentials import has_credential, is_credential_key, mask_credential
 
 logger = logging.getLogger("TransparentProxy.DB")
 
@@ -114,15 +115,15 @@ def _admin_token_hash(token: str) -> str:
 
 
 def _mask_sensitive_value(value: Any) -> str:
-    return '***' if value not in (None, '') else ''
+    return mask_credential(value)
 
 
 def _sanitize_output_row(row: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(row)
     for key in list(sanitized.keys()):
         normalized = str(key or '').lower()
-        if normalized in SENSITIVE_OUTPUT_FIELDS or 'password' in normalized or 'token' in normalized or 'cookie' in normalized or 'payload' in normalized or 'secret' in normalized:
-            sanitized[f'has_{normalized}'] = sanitized.get(key) not in (None, '')
+        if normalized in SENSITIVE_OUTPUT_FIELDS or 'payload' in normalized or is_credential_key(normalized):
+            sanitized[f'has_{normalized}'] = has_credential(sanitized.get(key))
             sanitized[key] = _mask_sensitive_value(sanitized.get(key))
     return sanitized
 

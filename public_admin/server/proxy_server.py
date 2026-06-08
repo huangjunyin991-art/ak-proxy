@@ -574,6 +574,7 @@ from .security.operation_auth_failsafe import (
     env_flag as operation_auth_env_flag,
     run_operation_auth_self_check,
 )
+from .security.credentials import credential_hint, has_credential
 from .security.risk import LockoutStore
 
 # ===== 日志配置 =====
@@ -7081,7 +7082,7 @@ async def admin_sub_admin_list(request: Request):
 
         sub_admin_list.append({
 
-            "name": name, "password_hint": pwd[:2] + "***" if pwd and len(pwd) > 2 else "***",
+            "name": name, "has_password": has_credential(pwd), "password_hint": credential_hint(pwd),
 
             "is_online": name in online_subs, "login_time": login_times.get(name), "permissions": perms,
 
@@ -13672,7 +13673,6 @@ class BrowseSessionPersistQueue:
             "cookies": dict(cached.get("cookies", {})),
             "userkey": cached.get("userkey", ""),
             "login_result": login_result,
-            "password": cached.get("password", ""),
             "expires": cached.get("expires", time.time() + _BROWSE_SESSION_TTL),
             "auth_ticket_validated": cached.get("auth_ticket_validated", False),
         }
@@ -14099,7 +14099,6 @@ def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
         "cookies": _extract_cookie_map(headers),
         "userkey": _extract_login_result_userkey(result),
         "login_result": result,
-        "password": password,
         "expires": time.time() + _BROWSE_SESSION_TTL,
     }
     _ak_auth_cache[username] = cached
@@ -14111,11 +14110,18 @@ def _cache_ak_auth_from_fastpath(username: str, password: str, fastpath_result) 
         "cookies": dict(fastpath_result.cookies or {}),
         "userkey": fastpath_result.userkey,
         "login_result": fastpath_result.login_payload,
-        "password": password,
         "expires": time.time() + _BROWSE_SESSION_TTL,
     }
     _ak_auth_cache[username] = cached
     return cached
+
+
+def _clear_browse_session_password(session: Optional[dict]) -> bool:
+    if not isinstance(session, dict) or not session.get("password"):
+        return False
+    session["password"] = ""
+    session["password_cleared_at"] = time.time()
+    return True
 
 
 async def _try_ak_userkey_login_fastpath(username: str, password: str, headers: dict,
@@ -14145,7 +14151,6 @@ def _build_browse_session_persist_payload(session: dict) -> tuple[str, Optional[
         "cookies": dict(session.get("cookies", {})),
         "userkey": session.get("userkey", ""),
         "login_result": session.get("login_result", {}),
-        "password": session.get("password", ""),
         "expires": time.time() + _BROWSE_SESSION_TTL,
         "auth_ticket_validated": session.get("auth_ticket_validated", False),
     }
@@ -14156,13 +14161,12 @@ async def _apply_cached_auth_to_browse_session(session: dict, cached: dict, resu
                                                username: str = "", password: str = ""):
     if username:
         session["username"] = username
-    if password:
-        session["password"] = password
     session["cookies"].update(cached.get("cookies", {}))
     session["login_result"] = result
     if cached.get("userkey"):
         session["userkey"] = cached.get("userkey", "")
     session["auth_ticket_validated"] = True
+    _clear_browse_session_password(session)
     await _persist_browse_session_auth(session)
 
 
@@ -14450,8 +14454,6 @@ async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
         return {}
     cached = _ak_auth_cache.get(username)
     if cached and time.time() < cached.get("expires", 0):
-        if password and not cached.get("password"):
-            cached["password"] = password
         return cached
     _ak_auth_cache.pop(username, None)
     persisted = None
@@ -14466,7 +14468,6 @@ async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
         "cookies": dict(persisted.get("cookies", {})),
         "userkey": persisted.get("userkey", ""),
         "login_result": persisted.get("login_result", {}),
-        "password": password,
         "expires": time.time() + _BROWSE_SESSION_TTL,
     }
     _ak_auth_cache[username] = cached
