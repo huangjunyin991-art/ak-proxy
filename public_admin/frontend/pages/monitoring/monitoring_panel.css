@@ -49,6 +49,12 @@
     border-radius: 10px;
     padding: 9px 12px;
     font-size: 13px;
+    outline: none;
+}
+
+.monitoring-select:focus {
+    border-color: rgba(0, 212, 255, 0.65);
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12);
 }
 
 .monitoring-btn {
@@ -270,17 +276,8 @@
 }
 
 .monitoring-index-panel {
-    margin-top: 18px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-}
-
-.monitoring-subsection-header {
-    margin-bottom: 10px;
-}
-
-.monitoring-subsection-header h4 {
-    font-size: 15px;
+    margin-top: 0;
+    border-color: rgba(125, 211, 252, 0.22);
 }
 
 .monitoring-index-cards {
@@ -452,6 +449,58 @@
     gap: 10px;
     flex-wrap: wrap;
     margin-top: 14px;
+}
+
+.monitoring-static-cache-entry-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(0, 212, 255, 0.16);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.monitoring-static-cache-entry-toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.monitoring-static-cache-entry-toolbar label span {
+    flex: 0 0 auto;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.monitoring-static-cache-type-select {
+    width: min(360px, 52vw);
+    min-width: 220px;
+    min-height: 36px;
+    border-radius: 10px;
+    padding: 7px 34px 7px 11px;
+    border-color: rgba(0, 212, 255, 0.28);
+    background-color: rgba(2, 12, 22, 0.82);
+    color: var(--text-primary);
+}
+
+.monitoring-static-cache-type-select:hover {
+    border-color: rgba(0, 212, 255, 0.55);
+}
+
+.monitoring-static-cache-type-select:focus {
+    border-color: rgba(0, 212, 255, 0.78);
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12);
+}
+
+.monitoring-static-cache-entry-toolbar .monitoring-meta {
+    color: rgba(169, 190, 205, 0.78);
 }
 
 .monitoring-bars {
@@ -666,6 +715,29 @@
     .monitoring-section-header {
         gap: 6px;
         margin-bottom: 10px;
+    }
+
+    .monitoring-static-cache-entry-toolbar {
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px;
+    }
+
+    .monitoring-static-cache-entry-toolbar label {
+        width: 100%;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .monitoring-static-cache-type-select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .monitoring-static-cache-entry-toolbar .monitoring-meta {
+        width: 100%;
+        line-height: 1.45;
     }
 
     .monitoring-donuts {
