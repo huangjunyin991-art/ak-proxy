@@ -12,18 +12,30 @@ from .collectors.postgres_collector import collect_database_snapshot
 from .collectors.system_collector import collect_system_snapshot
 from .guard import GuardError, validate_limit, validate_range
 from .schemas import error_item, unavailable
+from .snapshot_policy import MonitoringSnapshotPolicy, MonitoringSnapshotPolicyStore
 from ..ws_ticket import WsTicketDiagnosticsPolicyStore, collect_ws_ticket_diagnostics
 
 
 class MonitoringService:
-    def __init__(self, pool_supplier: Callable[[], object], im_server_internal_url: str = ""):
+    def __init__(self, pool_supplier: Callable[[], object], im_server_internal_url: str = "", system_config=None, logger=None):
         self.pool_supplier = pool_supplier
         self.im_server_internal_url = str(im_server_internal_url or "").rstrip("/")
         self._cache = {}
         self._locks = {}
         self.ws_ticket_policy = WsTicketDiagnosticsPolicyStore(pool_supplier)
-        self.light_ttl_seconds = 5
-        self.heavy_ttl_seconds = 3600
+        self._logger = logger
+        self._snapshot_policy_store = MonitoringSnapshotPolicyStore(system_config, logger=logger)
+        self._snapshot_policy = MonitoringSnapshotPolicy()
+        self.light_ttl_seconds = self._snapshot_policy.light_ttl_seconds
+        self.heavy_ttl_seconds = self._snapshot_policy.heavy_ttl_seconds
+        self.high_load_skip = self._snapshot_policy.high_load_skip
+        self._background_task = None
+        self._background_started_at = 0.0
+        self._background_last_run_at = 0.0
+        self._background_next_run_at = 0.0
+        self._background_last_duration_ms = 0
+        self._background_last_error = ""
+        self._background_last_items = []
 
     def _pool(self):
         return self.pool_supplier()
@@ -71,6 +83,7 @@ class MonitoringService:
                 self._cache.pop(key, None)
 
     async def _cached(self, key: str, ttl_seconds: int, collector: Callable[[], Awaitable[dict]], force: bool = False) -> dict:
+        await self.refresh_snapshot_policy()
         if not force:
             cached = self._cache_get(key, ttl_seconds)
             if cached is not None:
@@ -93,13 +106,119 @@ class MonitoringService:
         return result
 
     async def _heavy_guard(self, cache_key: str, system_snapshot: dict) -> Optional[dict]:
-        if not bool((system_snapshot or {}).get("high_load")):
+        if not self.high_load_skip or not bool((system_snapshot or {}).get("high_load")):
             return None
         cached = self._cache_any(cache_key)
         if cached is not None:
             return self._mark_delayed(cached, system_snapshot)
         payload = unavailable("monitoring", "系统负载较高，监控统计已延迟执行，暂无缓存数据")
         return self._mark_delayed(payload, system_snapshot)
+
+    async def refresh_snapshot_policy(self, force: bool = False) -> dict:
+        payload = await self._snapshot_policy_store.refresh_policy(force=force)
+        await self._apply_snapshot_policy(MonitoringSnapshotPolicy.from_mapping(payload))
+        return self._snapshot_policy.to_dict()
+
+    async def update_snapshot_policy(self, payload: dict) -> dict:
+        saved = await self._snapshot_policy_store.set_policy_payload(payload or {})
+        await self._apply_snapshot_policy(MonitoringSnapshotPolicy.from_mapping(saved))
+        return await self.get_snapshot_policy(force=True)
+
+    async def get_snapshot_policy(self, force: bool = False) -> dict:
+        await self.refresh_snapshot_policy(force=force)
+        return {
+            "policy": self._snapshot_policy.to_dict(),
+            "runtime": self._snapshot_runtime(),
+        }
+
+    async def _apply_snapshot_policy(self, policy: MonitoringSnapshotPolicy) -> None:
+        changed = policy != self._snapshot_policy
+        self._snapshot_policy = policy
+        self.light_ttl_seconds = policy.light_ttl_seconds
+        self.heavy_ttl_seconds = policy.heavy_ttl_seconds
+        self.high_load_skip = policy.high_load_skip
+        if policy.background_enabled:
+            self._ensure_background_task()
+        elif changed:
+            self._stop_background_task()
+
+    def _ensure_background_task(self) -> None:
+        if self._background_task is not None and not self._background_task.done():
+            return
+        try:
+            self._background_started_at = time.time()
+            self._background_task = asyncio.create_task(self._background_loop(), name="ak-monitoring-snapshot-refresh")
+        except RuntimeError:
+            self._background_task = None
+
+    def _stop_background_task(self) -> None:
+        task = self._background_task
+        self._background_task = None
+        self._background_next_run_at = 0.0
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _snapshot_runtime(self) -> dict:
+        task = self._background_task
+        return {
+            "cache_keys": len(self._cache),
+            "background_running": bool(task is not None and not task.done()),
+            "background_started_at": self._iso_from_ts(self._background_started_at),
+            "last_background_run_at": self._iso_from_ts(self._background_last_run_at),
+            "next_background_run_at": self._iso_from_ts(self._background_next_run_at),
+            "last_background_duration_ms": int(self._background_last_duration_ms or 0),
+            "last_background_error": self._background_last_error,
+            "last_background_items": list(self._background_last_items or []),
+        }
+
+    async def _background_loop(self) -> None:
+        try:
+            while True:
+                await self.refresh_snapshot_policy()
+                if not self._snapshot_policy.background_enabled:
+                    return
+                started = time.perf_counter()
+                self._background_last_error = ""
+                self._background_last_items = []
+                try:
+                    items = await self.refresh_heavy_snapshots(force=True)
+                    self._background_last_items = list(items)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._background_last_error = str(exc)[:300]
+                    if self._logger:
+                        self._logger.warning("[MonitoringSnapshot] background refresh failed: %s", exc)
+                self._background_last_run_at = time.time()
+                self._background_last_duration_ms = int(max(0, (time.perf_counter() - started) * 1000))
+                sleep_seconds = max(60, int(self.heavy_ttl_seconds or 3600))
+                self._background_next_run_at = time.time() + sleep_seconds
+                await asyncio.sleep(sleep_seconds)
+        except asyncio.CancelledError:
+            return
+
+    async def refresh_heavy_snapshots(self, force: bool = False) -> list[str]:
+        await self.refresh_snapshot_policy()
+        refreshed = []
+        tasks = [("database", self.get_database(force=force))]
+        for range_name in ("24h", "7d", "30d"):
+            tasks.append((f"chat_summary:{range_name}", self.get_chat_summary(range_name, force=force)))
+            tasks.append((f"chat_groups:{range_name}:100", self.get_chat_groups(range_name, 100, force=force)))
+        tasks.append(("file_assets:active:50", self.get_file_assets("active", 50, force=force)))
+        for name, task in tasks:
+            try:
+                await task
+                refreshed.append(name)
+            except Exception as exc:
+                if self._logger:
+                    self._logger.warning("[MonitoringSnapshot] refresh %s failed: %s", name, exc)
+        return refreshed
+
+    @staticmethod
+    def _iso_from_ts(value: float) -> str:
+        if not value:
+            return ""
+        return datetime.fromtimestamp(float(value), timezone.utc).isoformat()
 
     async def get_system(self, force: bool = False) -> dict:
         return await self._cached("system", self.light_ttl_seconds, collect_system_snapshot, force=force)
@@ -230,6 +349,9 @@ class MonitoringService:
             "policy": {
                 "light_refresh_seconds": self.light_ttl_seconds,
                 "heavy_refresh_seconds": self.heavy_ttl_seconds,
+                "heavy_refresh_minutes": int(self.heavy_ttl_seconds / 60),
+                "background_enabled": self._snapshot_policy.background_enabled,
+                "high_load_skip": self.high_load_skip,
                 "business_priority": True,
             },
         }

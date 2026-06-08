@@ -23,13 +23,20 @@ def create_monitoring_router(
     get_token_role: Callable[[str], str],
     super_admin_role: str,
     im_server_internal_url: str = "",
+    system_config=None,
     static_cache_service_supplier: Callable[[], object] = None,
     static_cache_warmup_supplier: Callable[[], object] = None,
     request_metrics_supplier: Callable[[], object] = None,
     request_metrics_config_supplier: Callable[[], object] = None,
+    logger=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/monitoring")
-    service = MonitoringService(pool_supplier=pool_supplier, im_server_internal_url=im_server_internal_url)
+    service = MonitoringService(
+        pool_supplier=pool_supplier,
+        im_server_internal_url=im_server_internal_url,
+        system_config=system_config,
+        logger=logger,
+    )
 
     async def require_super_admin(request: Request):
         token = _extract_bearer_token(request)
@@ -50,6 +57,27 @@ def create_monitoring_router(
 
     def request_metrics_config():
         return request_metrics_config_supplier() if request_metrics_config_supplier else None
+
+    @router.get("/snapshot-policy")
+    async def monitoring_snapshot_policy(request: Request, force: str = ""):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return {"success": True, "item": await service.get_snapshot_policy(force=_parse_force(force))}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/snapshot-policy")
+    async def monitoring_update_snapshot_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            payload = await request.json()
+            return {"success": True, "item": await service.update_snapshot_policy(payload or {})}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
     @router.get("/overview")
     async def monitoring_overview(request: Request, range: str = "7d", force: str = ""):

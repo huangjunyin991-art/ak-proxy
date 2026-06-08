@@ -27,7 +27,8 @@
             runtimeHygiene: null,
             runtimePerformance: null,
             indexPlan: null,
-            requestMetrics: null
+            requestMetrics: null,
+            snapshotPolicy: null
         },
         loadingWsTickets: false,
         loadingStaticCache: false,
@@ -42,6 +43,47 @@
     var MONITORING_POLL_OWNER = 'panel:monitoring';
     var monitoringPollingRegistered = false;
 
+    function defaultSnapshotPolicy() {
+        return {
+            policy: {
+                light_refresh_seconds: 5,
+                heavy_refresh_minutes: 60,
+                background_enabled: false,
+                high_load_skip: true
+            },
+            runtime: {}
+        };
+    }
+
+    function normalizeSnapshotPolicy(item) {
+        var fallback = defaultSnapshotPolicy();
+        var source = item || {};
+        var policy = source.policy || source || {};
+        var light = Number(policy.light_refresh_seconds || fallback.policy.light_refresh_seconds);
+        var heavy = Number(policy.heavy_refresh_minutes || fallback.policy.heavy_refresh_minutes);
+        return {
+            policy: {
+                light_refresh_seconds: Math.max(2, Math.min(300, Math.floor(light || fallback.policy.light_refresh_seconds))),
+                heavy_refresh_minutes: Math.max(1, Math.min(1440, Math.floor(heavy || fallback.policy.heavy_refresh_minutes))),
+                background_enabled: !!policy.background_enabled,
+                high_load_skip: policy.high_load_skip !== false
+            },
+            runtime: source.runtime || {}
+        };
+    }
+
+    function snapshotPolicy() {
+        return normalizeSnapshotPolicy(state.data.snapshotPolicy || defaultSnapshotPolicy()).policy;
+    }
+
+    function lightIntervalMs() {
+        return Math.max(2000, snapshotPolicy().light_refresh_seconds * 1000);
+    }
+
+    function heavyIntervalMs() {
+        return Math.max(60000, snapshotPolicy().heavy_refresh_minutes * 60 * 1000);
+    }
+
     function shouldRunMonitoringPoll() {
         if (!state.active) return false;
         if (typeof window.shouldRunAdminPanelPoll === 'function') {
@@ -52,12 +94,12 @@
 
     function setupMonitoringPollingRegistry() {
         var registry = window.AKPollingRegistry;
-        if (!registry || monitoringPollingRegistered) return registry || null;
+        if (!registry) return null;
         monitoringPollingRegistered = true;
         registry.register({
             id: 'monitoring.light',
             owner: MONITORING_POLL_OWNER,
-            intervalMs: 5000,
+            intervalMs: lightIntervalMs(),
             jitterMs: 700,
             immediate: false,
             dedupeKey: 'monitoring.light',
@@ -75,7 +117,7 @@
         registry.register({
             id: 'monitoring.heavy',
             owner: MONITORING_POLL_OWNER,
-            intervalMs: 3600000,
+            intervalMs: heavyIntervalMs(),
             jitterMs: 10000,
             immediate: false,
             dedupeKey: 'monitoring.heavy',
@@ -85,6 +127,23 @@
             }
         });
         return registry;
+    }
+
+    function restartMonitoringPolling() {
+        stopTimers();
+        var registry = setupMonitoringPollingRegistry();
+        if (registry) {
+            registry.startOwner(MONITORING_POLL_OWNER);
+        } else {
+            state.lightTimer = setInterval(function() {
+                loadLight(false);
+                loadWsTickets(false);
+                loadRuntimeHygiene(false);
+                loadRuntimePerformance(false);
+                loadRequestMetrics(false);
+            }, lightIntervalMs());
+            state.heavyTimer = setInterval(function() { loadHeavy(false); }, heavyIntervalMs());
+        }
     }
 
     function collapsibleSection(key) {
@@ -362,7 +421,7 @@
         if (!el) return;
         el.innerHTML = '<div class="monitoring-root">' +
             '<div class="monitoring-header">' +
-            '<div class="monitoring-title"><h3>性能监控</h3><p>低成本健康状态 5 秒刷新，高成本统计 1 小时刷新；高负载时优先保护正常业务。</p></div>' +
+            '<div class="monitoring-title"><h3>性能监控</h3><p id="monitoringSnapshotPolicySummary">轻量状态 5 秒刷新，重统计 60 分钟快照；高负载时优先保护正常业务。</p></div>' +
             '<div class="monitoring-actions">' +
             '<select class="monitoring-select" id="monitoringRange"><option value="24h">24小时</option><option value="7d" selected>7天</option><option value="30d">30天</option></select>' +
             '<button class="monitoring-btn" id="monitoringRefreshLight">刷新状态</button>' +
@@ -370,6 +429,16 @@
             '</div>' +
             '</div>' +
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
+            '<div class="monitoring-section monitoring-snapshot-policy-section">' +
+            '<div class="monitoring-section-header"><h4>快照策略</h4><span class="monitoring-meta" id="monitoringSnapshotPolicyMeta">读取中...</span></div>' +
+            '<div class="monitoring-cache-grid monitoring-snapshot-policy-grid">' +
+            '<label><span>轻量刷新（秒）</span><input class="monitoring-input" id="monitoringLightRefreshSeconds" type="number" min="2" max="300" step="1"></label>' +
+            '<label><span>重统计快照（分钟）</span><input class="monitoring-input" id="monitoringHeavyRefreshMinutes" type="number" min="1" max="1440" step="1"></label>' +
+            '<label class="monitoring-switch-card"><input id="monitoringSnapshotBackgroundEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>后台预生成</strong><small>关闭时只在打开监控且缓存过期后生成</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="monitoringSnapshotHighLoadSkip" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>高负载跳过</strong><small>负载偏高时返回旧快照，避免监控拖慢业务</small></span></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions"><button class="monitoring-btn primary" data-monitoring-action="save-snapshot-policy">保存快照策略</button><button class="monitoring-btn" data-monitoring-action="refresh-snapshot-policy">刷新策略</button><span class="monitoring-meta" id="monitoringSnapshotRuntimeMeta">-</span></div>' +
+            '</div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
             '<div class="monitoring-section monitoring-ws-ticket-section">' +
@@ -482,6 +551,10 @@
                 expireFileAsset(storageName, originalName, referencedMessages);
             } else if (action === 'save-static-cache-policy') {
                 saveStaticCachePolicy();
+            } else if (action === 'save-snapshot-policy') {
+                saveSnapshotPolicy();
+            } else if (action === 'refresh-snapshot-policy') {
+                loadSnapshotPolicy(true);
             } else if (action === 'refresh-static-cache-upstream') {
                 refreshStaticCacheUpstream();
             } else if (action === 'prewarm-static-cache') {
@@ -1339,6 +1412,7 @@
         renderWsTickets();
         renderRuntimePerformance();
         renderRequestMetrics();
+        renderSnapshotPolicy();
         renderRuntimeHygiene();
         renderStaticCachePolicy();
         renderAlert();
@@ -1362,6 +1436,66 @@
     function setChecked(id, value) {
         var el = document.getElementById(id);
         if (el && document.activeElement !== el) el.checked = !!value;
+    }
+
+    function renderSnapshotPolicy() {
+        var item = normalizeSnapshotPolicy(state.data.snapshotPolicy || defaultSnapshotPolicy());
+        var policy = item.policy;
+        var runtime = item.runtime || {};
+        setInputValue('monitoringLightRefreshSeconds', policy.light_refresh_seconds);
+        setInputValue('monitoringHeavyRefreshMinutes', policy.heavy_refresh_minutes);
+        setChecked('monitoringSnapshotBackgroundEnabled', policy.background_enabled);
+        setChecked('monitoringSnapshotHighLoadSkip', policy.high_load_skip);
+        var summary = document.getElementById('monitoringSnapshotPolicySummary');
+        if (summary) {
+            setTextIfChanged(summary, '轻量状态 ' + policy.light_refresh_seconds + ' 秒刷新，重统计 ' + policy.heavy_refresh_minutes + ' 分钟快照；' + (policy.high_load_skip ? '高负载时优先保护正常业务。' : '高负载时仍允许重统计刷新。'));
+        }
+        var meta = document.getElementById('monitoringSnapshotPolicyMeta');
+        if (meta) {
+            var bg = policy.background_enabled ? '后台预生成开启' : '后台预生成关闭';
+            var load = policy.high_load_skip ? '高负载跳过' : '高负载不跳过';
+            setTextIfChanged(meta, bg + ' · ' + load);
+        }
+        var runtimeMeta = document.getElementById('monitoringSnapshotRuntimeMeta');
+        if (runtimeMeta) {
+            var pieces = ['缓存键 ' + formatNumber(runtime.cache_keys || 0)];
+            if (runtime.background_running) pieces.push('后台运行中');
+            if (runtime.last_background_run_at) pieces.push('上次 ' + formatTime(runtime.last_background_run_at));
+            if (runtime.next_background_run_at) pieces.push('下次 ' + formatTime(runtime.next_background_run_at));
+            if (runtime.last_background_error) pieces.push('最近错误 ' + runtime.last_background_error);
+            setTextIfChanged(runtimeMeta, pieces.join(' · '));
+        }
+    }
+
+    function collectSnapshotPolicy() {
+        return {
+            light_refresh_seconds: inputNumber('monitoringLightRefreshSeconds'),
+            heavy_refresh_minutes: inputNumber('monitoringHeavyRefreshMinutes'),
+            background_enabled: inputChecked('monitoringSnapshotBackgroundEnabled'),
+            high_load_skip: inputChecked('monitoringSnapshotHighLoadSkip')
+        };
+    }
+
+    function loadSnapshotPolicy(force) {
+        return api('/snapshot-policy', force ? { force: '1' } : {}).then(function(body) {
+            state.data.snapshotPolicy = normalizeSnapshotPolicy(body.item || {});
+            renderSnapshotPolicy();
+        }).catch(function(err) {
+            if (force) notify(err && err.message || '快照策略刷新失败', 'error');
+            state.data.snapshotPolicy = state.data.snapshotPolicy || defaultSnapshotPolicy();
+            renderSnapshotPolicy();
+        });
+    }
+
+    function saveSnapshotPolicy() {
+        apiPost('/snapshot-policy', collectSnapshotPolicy()).then(function(body) {
+            state.data.snapshotPolicy = normalizeSnapshotPolicy(body.item || {});
+            renderSnapshotPolicy();
+            if (state.active) restartMonitoringPolling();
+            notify('快照策略已保存并应用', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '快照策略保存失败', 'error');
+        });
     }
 
     function runtimePolicyEditing() {
@@ -2079,25 +2213,16 @@
         state.active = true;
         if (!state.initialized) init();
         stopTimers();
-        loadInitialMonitoringData();
-        loadStaticCachePolicy();
-        loadRuntimeHygiene(false);
-        loadRuntimePerformance(false);
-        loadRequestMetrics(false);
-        loadIndexPlan(false);
-        var registry = setupMonitoringPollingRegistry();
-        if (registry) {
-            registry.startOwner(MONITORING_POLL_OWNER);
-            return;
-        }
-        state.lightTimer = setInterval(function() {
-            loadLight(false);
-            loadWsTickets(false);
+        loadSnapshotPolicy(false).finally(function() {
+            if (!state.active) return;
+            loadInitialMonitoringData();
+            loadStaticCachePolicy();
             loadRuntimeHygiene(false);
             loadRuntimePerformance(false);
             loadRequestMetrics(false);
-        }, 5000);
-        state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
+            loadIndexPlan(false);
+            restartMonitoringPolling();
+        });
     }
 
     function stopTimers() {

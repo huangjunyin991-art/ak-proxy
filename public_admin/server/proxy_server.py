@@ -5421,10 +5421,12 @@ if create_monitoring_router is not None:
             get_token_role=get_token_role,
             super_admin_role=ROLE_SUPER_ADMIN,
             im_server_internal_url=IM_SERVER_INTERNAL_URL,
+            system_config=db.system_config,
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
             static_cache_warmup_supplier=lambda: globals().get("_AK_STATIC_WARMUP_SERVICE"),
             request_metrics_supplier=lambda: globals().get("_request_metrics_service"),
             request_metrics_config_supplier=lambda: globals().get("_request_metrics_config_service"),
+            logger=logger,
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 性能监控路由注册失败，已跳过: {e}")
