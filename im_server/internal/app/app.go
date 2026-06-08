@@ -687,27 +687,50 @@ func (a *App) ensureSchema(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) resolveUsername(r *http.Request) string {
-	headerUsername := strings.ToLower(strings.TrimSpace(r.Header.Get("X-AK-Username")))
-	if headerUsername != "" {
-		return headerUsername
-	}
-	queryUsername := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("username")))
-	if queryUsername != "" {
-		return queryUsername
-	}
+func normalizeRequestUsername(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func (a *App) resolvePlainCookieUsername(r *http.Request) string {
 	cookie, err := r.Cookie(a.cfg.CookieName)
 	if err == nil {
-		username := strings.ToLower(strings.TrimSpace(cookie.Value))
+		username := normalizeRequestUsername(cookie.Value)
 		if username != "" {
 			return username
+		}
+	}
+	if a.cfg.CookieName != "ak_im_username" {
+		cookie, err = r.Cookie("ak_im_username")
+		if err == nil {
+			username := normalizeRequestUsername(cookie.Value)
+			if username != "" {
+				return username
+			}
 		}
 	}
 	return ""
 }
 
+func (a *App) resolveUsername(r *http.Request) (string, error) {
+	signedUsername := normalizeRequestUsername(a.resolveSignedIdentityUsername(r))
+	if signedUsername != "" {
+		return signedUsername, nil
+	}
+	if strings.TrimSpace(a.cfg.NotifyCenterIdentitySecret) != "" {
+		return "", errors.New("missing signed identity")
+	}
+	username := a.resolvePlainCookieUsername(r)
+	if username == "" {
+		return "", errors.New("missing username cookie")
+	}
+	return username, nil
+}
+
 func (a *App) requireAllowedUser(r *http.Request) (string, error) {
-	username := a.resolveUsername(r)
+	username, err := a.resolveUsername(r)
+	if err != nil {
+		return "", err
+	}
 	return a.requireAllowedUsername(r.Context(), username)
 }
 
@@ -2520,6 +2543,76 @@ func (a *App) ensureConversationMember(ctx context.Context, conversationID strin
 				)
 		)`, conversationID, username).Scan(&exists)
 	return exists
+}
+
+func normalizeMessageAssetPayloadFields(fields ...string) []string {
+	allowed := map[string]struct{}{
+		"storage_name":          {},
+		"original_storage_name": {},
+		"preview_storage_name":  {},
+		"poster_name":           {},
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(fields)+1)
+	for _, field := range fields {
+		normalized := strings.ToLower(strings.TrimSpace(field))
+		if _, ok := allowed[normalized]; !ok {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	if len(result) == 0 {
+		result = append(result, "storage_name")
+	}
+	return result
+}
+
+func (a *App) canAccessMessageAsset(ctx context.Context, storageName string, username string, fields ...string) bool {
+	normalizedStorageName := strings.TrimSpace(storageName)
+	normalizedUsername := normalizeRequestUsername(username)
+	if a == nil || normalizedStorageName == "" || normalizedUsername == "" {
+		return false
+	}
+	payloadFields := normalizeMessageAssetPayloadFields(fields...)
+	conditions := make([]string, 0, len(payloadFields))
+	for _, field := range payloadFields {
+		conditions = append(conditions, fmt.Sprintf("(m.content_payload::jsonb ->> '%s') = $1", field))
+	}
+	query := `
+		SELECT EXISTS(
+			SELECT 1
+			FROM im_message m
+			JOIN im_conversation_member cm ON cm.conversation_id = m.conversation_id
+				AND cm.username = $2
+				AND cm.left_at IS NULL
+			JOIN im_conversation c ON c.id = m.conversation_id
+				AND c.deleted_at IS NULL
+			WHERE m.deleted_at IS NULL
+				AND m.message_type IN ('image', 'file', 'voice', 'video')
+				AND (` + strings.Join(conditions, " OR ") + `)
+		)`
+	var exists bool
+	if err := a.db.QueryRow(ctx, query, normalizedStorageName, normalizedUsername).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
+}
+
+func (a *App) authorizeMessageAssetRequest(w http.ResponseWriter, r *http.Request, storageName string, fields ...string) bool {
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		return false
+	}
+	if !a.canAccessMessageAsset(r.Context(), storageName, username, fields...) {
+		w.WriteHeader(http.StatusNotFound)
+		return false
+	}
+	return true
 }
 
 func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {

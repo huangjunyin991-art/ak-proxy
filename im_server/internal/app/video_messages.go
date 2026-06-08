@@ -29,25 +29,25 @@ var supportedVideoInputExts = map[string]string{
 }
 
 type videoMessageStoragePayload struct {
-	StorageName     string `json:"storage_name"`
-	VideoURL        string `json:"video_url,omitempty"`
-	PosterName      string `json:"poster_name,omitempty"`
-	PosterURL       string `json:"poster_url,omitempty"`
-	FileName        string `json:"file_name"`
-	MimeType        string `json:"mime_type"`
-	FileSize        int    `json:"file_size"`
+	StorageName      string `json:"storage_name"`
+	VideoURL         string `json:"video_url,omitempty"`
+	PosterName       string `json:"poster_name,omitempty"`
+	PosterURL        string `json:"poster_url,omitempty"`
+	FileName         string `json:"file_name"`
+	MimeType         string `json:"mime_type"`
+	FileSize         int    `json:"file_size"`
 	OriginalMimeType string `json:"original_mime_type,omitempty"`
-	Width           int    `json:"width,omitempty"`
-	Height          int    `json:"height,omitempty"`
-	DurationMs      int    `json:"duration_ms,omitempty"`
+	Width            int    `json:"width,omitempty"`
+	Height           int    `json:"height,omitempty"`
+	DurationMs       int    `json:"duration_ms,omitempty"`
 }
 
 type persistedVideoAsset struct {
-	StorageName     string
-	PosterName      string
-	FileName        string
-	MimeType        string
-	FileSize        int
+	StorageName      string
+	PosterName       string
+	FileName         string
+	MimeType         string
+	FileSize         int
 	OriginalMimeType string
 }
 
@@ -136,17 +136,17 @@ func normalizeVideoMessagePayload(rawContent string) (videoMessageStoragePayload
 		posterName = ""
 	}
 	return videoMessageStoragePayload{
-		StorageName:     normalizedStorageName,
-		VideoURL:        buildVideoAssetURL(normalizedStorageName),
-		PosterName:      posterName,
-		PosterURL:       buildVideoPosterAssetURL(posterName),
-		FileName:        fileName,
-		MimeType:        "video/mp4",
-		FileSize:        fileSize,
+		StorageName:      normalizedStorageName,
+		VideoURL:         buildVideoAssetURL(normalizedStorageName),
+		PosterName:       posterName,
+		PosterURL:        buildVideoPosterAssetURL(posterName),
+		FileName:         fileName,
+		MimeType:         "video/mp4",
+		FileSize:         fileSize,
 		OriginalMimeType: normalizeVideoMimeType(payload.OriginalMimeType),
-		Width:           payload.Width,
-		Height:          payload.Height,
-		DurationMs:      payload.DurationMs,
+		Width:            payload.Width,
+		Height:           payload.Height,
+		DurationMs:       payload.DurationMs,
 	}, nil
 }
 
@@ -195,11 +195,11 @@ func (a *App) persistVideoAsset(inputPath string, fileName string, originalMimeT
 		posterName = ""
 	}
 	return persistedVideoAsset{
-		StorageName:     storageName,
-		PosterName:      posterName,
-		FileName:        buildStoredVideoFileName(fileName),
-		MimeType:        "video/mp4",
-		FileSize:        int(info.Size()),
+		StorageName:      storageName,
+		PosterName:       posterName,
+		FileName:         buildStoredVideoFileName(fileName),
+		MimeType:         "video/mp4",
+		FileSize:         int(info.Size()),
 		OriginalMimeType: normalizeVideoMimeType(originalMimeType),
 	}, nil
 }
@@ -360,11 +360,11 @@ func (a *App) handleSendVideoMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payloadBytes, err := json.Marshal(videoMessageStoragePayload{
-		StorageName:     asset.StorageName,
-		PosterName:      asset.PosterName,
-		FileName:        asset.FileName,
-		MimeType:        asset.MimeType,
-		FileSize:        asset.FileSize,
+		StorageName:      asset.StorageName,
+		PosterName:       asset.PosterName,
+		FileName:         asset.FileName,
+		MimeType:         asset.MimeType,
+		FileSize:         asset.FileSize,
 		OriginalMimeType: asset.OriginalMimeType,
 	})
 	if err != nil {
@@ -406,6 +406,9 @@ func (a *App) handleVideoAssetFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name") {
+		return
+	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.VideoStoreDir), storageName)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -423,7 +426,7 @@ func (a *App) handleVideoAssetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, storageName, info.ModTime(), file)
 }
 
@@ -435,6 +438,9 @@ func (a *App) handleVideoPosterAssetFile(w http.ResponseWriter, r *http.Request)
 	storageName := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/video-poster/"))
 	if !ensureVideoPosterStorageName(storageName) {
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "poster_name") {
 		return
 	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.VideoStoreDir), storageName)
@@ -454,6 +460,6 @@ func (a *App) handleVideoPosterAssetFile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, storageName, info.ModTime(), file)
 }

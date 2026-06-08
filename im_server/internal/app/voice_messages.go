@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	voiceMessageMaxBytes     = 320 * 1024
+	voiceMessageMaxBytes      = 320 * 1024
 	voiceMessageMaxDurationMs = 60 * 1000
 )
 
@@ -263,6 +263,9 @@ func (a *App) handleVoiceAssetFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name") {
+		return
+	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.VoiceStoreDir), storageName)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -284,6 +287,6 @@ func (a *App) handleVoiceAssetFile(w http.ResponseWriter, r *http.Request) {
 		mimeType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, storageName, info.ModTime(), file)
 }

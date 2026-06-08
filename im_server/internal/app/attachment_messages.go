@@ -23,19 +23,19 @@ import (
 )
 
 const (
-	imageMessageMaxBytes             = 20 * 1024 * 1024
-	heicImageMessageMaxBytes         = 8 * 1024 * 1024
+	imageMessageMaxBytes            = 20 * 1024 * 1024
+	heicImageMessageMaxBytes        = 8 * 1024 * 1024
 	imageUploadMultipartMemoryBytes = 512 * 1024
-	fileMessageMaxBytes              = 200 * 1024 * 1024
-	defaultFileAssetRetentionDays     = 30
-	defaultImageCompressAboveKB       = 512
-	defaultImageMaxLongEdgePx         = 1920
-	defaultImageQuality               = 82
-	defaultImageTargetSizeKB          = 1024
-	fileAssetCleanupBatchSize         = 24
-	fileAssetCleanupInterval          = time.Hour
-	imFileAssetConfigKey              = "file_asset_config"
-	imImageUploadConfigKey            = "image_upload_config"
+	fileMessageMaxBytes             = 200 * 1024 * 1024
+	defaultFileAssetRetentionDays   = 30
+	defaultImageCompressAboveKB     = 512
+	defaultImageMaxLongEdgePx       = 1920
+	defaultImageQuality             = 82
+	defaultImageTargetSizeKB        = 1024
+	fileAssetCleanupBatchSize       = 24
+	fileAssetCleanupInterval        = time.Hour
+	imFileAssetConfigKey            = "file_asset_config"
+	imImageUploadConfigKey          = "image_upload_config"
 )
 
 var supportedImageAssetExts = map[string]string{
@@ -55,12 +55,12 @@ var supportedImagePreviewAssetExts = map[string]string{
 }
 
 type imageMessageStoragePayload struct {
-	StorageName        string `json:"storage_name"`
-	FileURL            string `json:"file_url,omitempty"`
-	FileName           string `json:"file_name,omitempty"`
-	MimeType           string `json:"mime_type"`
-	FileSize           int    `json:"file_size"`
-	Source             string `json:"source,omitempty"`
+	StorageName         string `json:"storage_name"`
+	FileURL             string `json:"file_url,omitempty"`
+	FileName            string `json:"file_name,omitempty"`
+	MimeType            string `json:"mime_type"`
+	FileSize            int    `json:"file_size"`
+	Source              string `json:"source,omitempty"`
 	OriginalStorageName string `json:"original_storage_name,omitempty"`
 	OriginalURL         string `json:"original_url,omitempty"`
 	PreviewStorageName  string `json:"preview_storage_name,omitempty"`
@@ -83,14 +83,14 @@ type fileAssetConfigSnapshot struct {
 }
 
 type imageUploadConfigSnapshot struct {
-	Enabled           bool   `json:"enabled"`
-	CompressAboveKB   int    `json:"compress_above_kb"`
-	MaxLongEdgePx     int    `json:"max_long_edge_px"`
-	OutputFormat      string `json:"output_format"`
-	Quality           int    `json:"quality"`
-	TargetSizeKB      int    `json:"target_size_kb"`
-	KeepPNGWithAlpha  bool   `json:"keep_png_with_alpha"`
-	SkipAnimatedGIF   bool   `json:"skip_animated_gif"`
+	Enabled          bool   `json:"enabled"`
+	CompressAboveKB  int    `json:"compress_above_kb"`
+	MaxLongEdgePx    int    `json:"max_long_edge_px"`
+	OutputFormat     string `json:"output_format"`
+	Quality          int    `json:"quality"`
+	TargetSizeKB     int    `json:"target_size_kb"`
+	KeepPNGWithAlpha bool   `json:"keep_png_with_alpha"`
+	SkipAnimatedGIF  bool   `json:"skip_animated_gif"`
 }
 
 type storedFileAssetRecord struct {
@@ -338,12 +338,12 @@ func normalizeImageMessagePayload(rawContent string) (imageMessageStoragePayload
 		originalURL = buildImageAssetURL(originalStorageName)
 	}
 	return imageMessageStoragePayload{
-		StorageName:        normalizedStorageName,
-		FileURL:            fileURL,
-		FileName:           fileName,
-		MimeType:           normalizedMimeType,
-		FileSize:           fileSize,
-		Source:             sanitizeImageSource(payload.Source),
+		StorageName:         normalizedStorageName,
+		FileURL:             fileURL,
+		FileName:            fileName,
+		MimeType:            normalizedMimeType,
+		FileSize:            fileSize,
+		Source:              sanitizeImageSource(payload.Source),
 		OriginalStorageName: originalStorageName,
 		OriginalURL:         originalURL,
 		PreviewStorageName:  previewStorageName,
@@ -1102,11 +1102,11 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		fileName = sanitizeAttachmentFileName(asset.FileName, fileName)
 	}
 	payloadBytes, err := json.Marshal(imageMessageStoragePayload{
-		StorageName:        storageName,
-		FileName:           fileName,
-		MimeType:           normalizedMimeType,
-		FileSize:           fileSize,
-		Source:             sanitizeImageSource(r.FormValue("source")),
+		StorageName: storageName,
+		FileName:    fileName,
+		MimeType:    normalizedMimeType,
+		FileSize:    fileSize,
+		Source:      sanitizeImageSource(r.FormValue("source")),
 		OriginalStorageName: func() string {
 			if isHEICUpload {
 				return storageName
@@ -1274,6 +1274,9 @@ func (a *App) handleImageAssetFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name", "original_storage_name") {
+		return
+	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -1295,7 +1298,7 @@ func (a *App) handleImageAssetFile(w http.ResponseWriter, r *http.Request) {
 		mimeType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, storageName, info.ModTime(), file)
 }
 
@@ -1307,6 +1310,9 @@ func (a *App) handleImagePreviewAssetFile(w http.ResponseWriter, r *http.Request
 	storageName := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/image-preview/"))
 	if !ensureImagePreviewStorageName(storageName) {
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "preview_storage_name") {
 		return
 	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
@@ -1330,7 +1336,7 @@ func (a *App) handleImagePreviewAssetFile(w http.ResponseWriter, r *http.Request
 		mimeType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, storageName, info.ModTime(), file)
 }
 
@@ -1342,6 +1348,9 @@ func (a *App) handleFileAssetFile(w http.ResponseWriter, r *http.Request) {
 	storageName := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/file/"))
 	if !ensureFileStorageName(storageName) {
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name") {
 		return
 	}
 	record, err := a.loadFileAssetRecord(r.Context(), storageName)
@@ -1410,6 +1419,9 @@ func (a *App) handleFileVideoPosterAssetFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	storageName := strings.TrimSuffix(posterName, ".video.poster.jpg")
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name") {
+		return
+	}
 	record, err := a.loadFileAssetRecord(r.Context(), storageName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1469,7 +1481,7 @@ func (a *App) handleFileVideoPosterAssetFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, posterName, info.ModTime(), posterFile)
 }
 
@@ -1479,6 +1491,14 @@ func (a *App) handleFileVideoAssetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assetName := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/file-video/"))
+	if !ensureFileVideoAssetStorageName(assetName) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	storageName := strings.TrimSuffix(assetName, ".video.mp4")
+	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name") {
+		return
+	}
 	assetPath, record, err := a.prepareFileVideoAsset(r, assetName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
@@ -1509,7 +1529,7 @@ func (a *App) handleFileVideoAssetFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Content-Disposition", buildInlineContentDisposition(record.FileName))
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, record.FileName, info.ModTime(), file)
 }
 
@@ -1582,11 +1602,11 @@ func (a *App) handleInternalFileAssetExpire(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"storage_name": storageName,
+		"success":       true,
+		"storage_name":  storageName,
 		"original_name": record.FileName,
-		"file_size": record.FileSize,
-		"status": "expired",
+		"file_size":     record.FileSize,
+		"status":        "expired",
 	})
 }
 
@@ -1605,15 +1625,15 @@ func (a *App) handleImageUploadConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"enabled": snapshot.Enabled,
-		"compress_above_kb": snapshot.CompressAboveKB,
-		"max_long_edge_px": snapshot.MaxLongEdgePx,
-		"output_format": snapshot.OutputFormat,
-		"quality": snapshot.Quality,
-		"target_size_kb": snapshot.TargetSizeKB,
+		"success":             true,
+		"enabled":             snapshot.Enabled,
+		"compress_above_kb":   snapshot.CompressAboveKB,
+		"max_long_edge_px":    snapshot.MaxLongEdgePx,
+		"output_format":       snapshot.OutputFormat,
+		"quality":             snapshot.Quality,
+		"target_size_kb":      snapshot.TargetSizeKB,
 		"keep_png_with_alpha": snapshot.KeepPNGWithAlpha,
-		"skip_animated_gif": snapshot.SkipAnimatedGIF,
+		"skip_animated_gif":   snapshot.SkipAnimatedGIF,
 	})
 }
 
@@ -1630,15 +1650,15 @@ func (a *App) handleInternalImageUploadConfig(w http.ResponseWriter, r *http.Req
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success": true,
-			"enabled": snapshot.Enabled,
-			"compress_above_kb": snapshot.CompressAboveKB,
-			"max_long_edge_px": snapshot.MaxLongEdgePx,
-			"output_format": snapshot.OutputFormat,
-			"quality": snapshot.Quality,
-			"target_size_kb": snapshot.TargetSizeKB,
+			"success":             true,
+			"enabled":             snapshot.Enabled,
+			"compress_above_kb":   snapshot.CompressAboveKB,
+			"max_long_edge_px":    snapshot.MaxLongEdgePx,
+			"output_format":       snapshot.OutputFormat,
+			"quality":             snapshot.Quality,
+			"target_size_kb":      snapshot.TargetSizeKB,
 			"keep_png_with_alpha": snapshot.KeepPNGWithAlpha,
-			"skip_animated_gif": snapshot.SkipAnimatedGIF,
+			"skip_animated_gif":   snapshot.SkipAnimatedGIF,
 		})
 	case http.MethodPost:
 		req := defaultImageUploadConfigSnapshot()
@@ -1652,15 +1672,15 @@ func (a *App) handleInternalImageUploadConfig(w http.ResponseWriter, r *http.Req
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success": true,
-			"enabled": snapshot.Enabled,
-			"compress_above_kb": snapshot.CompressAboveKB,
-			"max_long_edge_px": snapshot.MaxLongEdgePx,
-			"output_format": snapshot.OutputFormat,
-			"quality": snapshot.Quality,
-			"target_size_kb": snapshot.TargetSizeKB,
+			"success":             true,
+			"enabled":             snapshot.Enabled,
+			"compress_above_kb":   snapshot.CompressAboveKB,
+			"max_long_edge_px":    snapshot.MaxLongEdgePx,
+			"output_format":       snapshot.OutputFormat,
+			"quality":             snapshot.Quality,
+			"target_size_kb":      snapshot.TargetSizeKB,
 			"keep_png_with_alpha": snapshot.KeepPNGWithAlpha,
-			"skip_animated_gif": snapshot.SkipAnimatedGIF,
+			"skip_animated_gif":   snapshot.SkipAnimatedGIF,
 		})
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})

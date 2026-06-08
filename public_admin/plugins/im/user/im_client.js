@@ -3290,10 +3290,7 @@
     }
 
     function buildAuthHeaders() {
-        const headers = {};
-        const username = getActiveRuntimeUsername() || getCanonicalUsername();
-        if (username) headers['X-AK-Username'] = username;
-        return headers;
+        return {};
     }
 
     function isMobileBrowser() {
