@@ -13276,6 +13276,8 @@ async def pwa_icon(request: Request, size: int):
 
 @app.api_route("/cdn-cgi/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def cdn_cgi_proxy(path: str, request: Request):
+    if request.method == "OPTIONS":
+        return Response(status_code=204)
     if path == "rum":
         return Response(status_code=204)
     return await ak_web_proxy(request, f"cdn-cgi/{path}")
@@ -13302,6 +13304,59 @@ _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER = StaticResourceResponseAdapter(
     _AK_WEB_STATIC_CACHE_CONFIG,
     _AK_WEB_STATIC_CACHE_SERVICE.browser_policy,
 )
+_AK_PROXY_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _request_public_origin(request: Request) -> str:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip()
+    scheme = forwarded_proto or str(request.url.scheme or "https")
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").split(",", 1)[0].strip()
+    host = forwarded_host or str(request.headers.get("host") or "").strip()
+    if not scheme or not host:
+        return ""
+    return f"{scheme.lower()}://{host.lower()}"
+
+
+def _header_origin(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parts = urlsplit(text)
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+
+
+def _validate_ak_proxy_write_origin(request: Request) -> Optional[JSONResponse]:
+    if request.method not in _AK_PROXY_UNSAFE_METHODS:
+        return None
+    expected_origin = _request_public_origin(request)
+    if not expected_origin:
+        return None
+    for header_name in ("origin", "referer"):
+        header_value = request.headers.get(header_name)
+        if not header_value:
+            continue
+        actual_origin = _header_origin(header_value)
+        if actual_origin != expected_origin:
+            logger.warning(
+                "[AkProxyOriginGuard] reject method=%s path=%s header=%s actual=%s expected=%s",
+                request.method,
+                request.url.path,
+                header_name,
+                actual_origin or "-",
+                expected_origin,
+            )
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "Error": True,
+                    "success": False,
+                    "code": "AK_PROXY_ORIGIN_DENIED",
+                    "Msg": "cross-origin proxy write rejected",
+                },
+            )
+    return None
 
 
 def _lazy_warning(enabled: bool, message_or_factory):
@@ -14996,6 +15051,9 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
 
 @app.api_route("/admin/ak-rpc/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def admin_ak_rpc(path: str, request: Request):
+    origin_error = _validate_ak_proxy_write_origin(request)
+    if origin_error is not None:
+        return origin_error
     referer = request.headers.get("referer", "")
     fetch_dest = request.headers.get("sec-fetch-dest", "")
     accept = request.headers.get("accept", "")
@@ -15849,6 +15907,11 @@ async def ak_web_proxy(request: Request, path: str):
     rewrite_ms = 0
     inject_ms = 0
     request_path = request.url.path
+    if request.method == "OPTIONS":
+        return Response(status_code=204)
+    origin_error = _validate_ak_proxy_write_origin(request)
+    if origin_error is not None:
+        return origin_error
     if request_path.startswith(_AK_SITE_PREFIX):
         site_prefix = _AK_SITE_PREFIX
     elif request_path.startswith(_AK_NATIVE_WEB_PREFIX):

@@ -52,6 +52,7 @@
 ### S2. AK 内嵌浏览代理存在操作租约覆盖缺口
 
 级别：P1，需结合上游副作用接口验证
+状态：已处理。后台内嵌浏览代理 `/admin/ak-rpc/`、`/admin/ak-site/`、`/admin/ak-web/` 的非安全方法统一纳入 OperationAuth `dispatcher_ops`；`/cdn-cgi/` 写类代理同步覆盖，`OPTIONS` 预检直接 204 不再转发上游。公网/通知侧 `/ak-web/` 保持不绑定管理员租约，避免误伤用户打开聊天页；写类请求补 Origin/Referer 同源校验作为 cookie 代理的额外边界。
 位置：
 
 - `public_admin/server/security/operation_auth/middleware.py:19`

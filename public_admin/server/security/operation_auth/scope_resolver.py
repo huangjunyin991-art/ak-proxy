@@ -1,3 +1,12 @@
+UNSAFE_PROXY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+ADMIN_EMBEDDED_AK_PROXY_PREFIXES = (
+    "/admin/ak-rpc",
+    "/admin/ak-site",
+    "/admin/ak-web",
+)
+CDN_CGI_PROXY_PREFIX = "/cdn-cgi"
+
+
 class OperationScopeResolver:
     def __init__(self):
         self.exact = {
@@ -102,9 +111,6 @@ class OperationScopeResolver:
             ('DELETE', '/admin/api/subscription_groups/', 'dispatcher_ops'),
             ('POST', '/admin/api/subscription_groups/', 'dispatcher_ops'),
             ('PATCH', '/admin/api/subscription_groups/', 'dispatcher_ops'),
-            ('POST', '/admin/ak-rpc/', 'dispatcher_ops'),
-            ('POST', '/admin/ak-site/', 'dispatcher_ops'),
-            ('POST', '/admin/ak-web/', 'dispatcher_ops'),
             ('POST', '/admin/api/monitoring/chat/file-assets/', 'im_admin_ops'),
             ('GET', '/admin/api/recommend-tree/', 'recommend_tree_ops'),
             ('POST', '/admin/api/recommend-tree/', 'recommend_tree_ops'),
@@ -116,6 +122,8 @@ class OperationScopeResolver:
         scope = self.exact.get((normalized_method, normalized_path))
         if scope:
             return scope
+        if self._is_unsafe_ak_proxy_write(normalized_method, normalized_path):
+            return 'dispatcher_ops'
         for prefix_method, prefix, prefix_scope in self.prefixes:
             if normalized_method == prefix_method and normalized_path.startswith(prefix):
                 return prefix_scope
@@ -129,3 +137,14 @@ class OperationScopeResolver:
         if len(normalized) > 1:
             normalized = normalized.rstrip('/')
         return normalized or '/'
+
+    def _is_unsafe_ak_proxy_write(self, method: str, path: str) -> bool:
+        if method not in UNSAFE_PROXY_METHODS:
+            return False
+        if any(self._path_is_under(path, prefix) for prefix in ADMIN_EMBEDDED_AK_PROXY_PREFIXES):
+            return True
+        return self._path_is_under(path, CDN_CGI_PROXY_PREFIX)
+
+    def _path_is_under(self, path: str, prefix: str) -> bool:
+        base = str(prefix or '').rstrip('/') or '/'
+        return path == base or path.startswith(base + '/')

@@ -9,6 +9,13 @@ from starlette.responses import JSONResponse
 
 TRUTHY_VALUES = {"1", "true", "yes", "on", "enabled"}
 OPERATION_AUTH_DISABLE_ENV = "ADMIN_ALLOW_OPERATION_AUTH_DISABLED"
+UNSAFE_PROXY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+ADMIN_EMBEDDED_AK_PROXY_PREFIXES = (
+    "/admin/ak-rpc",
+    "/admin/ak-site",
+    "/admin/ak-web",
+)
+CDN_CGI_PROXY_PREFIX = "/cdn-cgi"
 
 
 def env_flag(value: Any, default: bool = False) -> bool:
@@ -41,7 +48,11 @@ REQUIRED_SCOPE_PROBES = (
     OperationAuthProbe("POST", "/admin/api/db/insert/user_stats", "db_write_ops"),
     OperationAuthProbe("POST", "/admin/api/monitoring/static-cache/policy", "dispatcher_ops"),
     OperationAuthProbe("POST", "/admin/ak-rpc/Login", "dispatcher_ops"),
+    OperationAuthProbe("PUT", "/admin/ak-rpc/Login", "dispatcher_ops"),
     OperationAuthProbe("POST", "/admin/ak-web/RPC/Login", "dispatcher_ops"),
+    OperationAuthProbe("DELETE", "/admin/ak-web/RPC/Login", "dispatcher_ops"),
+    OperationAuthProbe("PUT", "/admin/ak-site/RPC/Login", "dispatcher_ops"),
+    OperationAuthProbe("POST", "/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1", "dispatcher_ops"),
     OperationAuthProbe("GET", "/admin/api/operation_auth/secrets", "totp_secret_ops"),
 )
 
@@ -146,9 +157,6 @@ class FallbackOperationScopeResolver:
             ("DELETE", "/admin/api/subscription_groups/", "dispatcher_ops"),
             ("POST", "/admin/api/subscription_groups/", "dispatcher_ops"),
             ("PATCH", "/admin/api/subscription_groups/", "dispatcher_ops"),
-            ("POST", "/admin/ak-rpc/", "dispatcher_ops"),
-            ("POST", "/admin/ak-site/", "dispatcher_ops"),
-            ("POST", "/admin/ak-web/", "dispatcher_ops"),
             ("POST", "/admin/api/monitoring/chat/file-assets/", "im_admin_ops"),
             ("GET", "/admin/api/recommend-tree/", "recommend_tree_ops"),
             ("POST", "/admin/api/recommend-tree/", "recommend_tree_ops"),
@@ -160,6 +168,8 @@ class FallbackOperationScopeResolver:
         scope = self.exact.get((normalized_method, normalized_path))
         if scope:
             return scope
+        if self._is_unsafe_ak_proxy_write(normalized_method, normalized_path):
+            return "dispatcher_ops"
         for prefix_method, prefix, prefix_scope in self.prefixes:
             if normalized_method == prefix_method and normalized_path.startswith(prefix):
                 return prefix_scope
@@ -173,6 +183,17 @@ class FallbackOperationScopeResolver:
         if len(normalized) > 1:
             normalized = normalized.rstrip("/")
         return normalized or "/"
+
+    def _is_unsafe_ak_proxy_write(self, method: str, path: str) -> bool:
+        if method not in UNSAFE_PROXY_METHODS:
+            return False
+        if any(self._path_is_under(path, prefix) for prefix in ADMIN_EMBEDDED_AK_PROXY_PREFIXES):
+            return True
+        return self._path_is_under(path, CDN_CGI_PROXY_PREFIX)
+
+    def _path_is_under(self, path: str, prefix: str) -> bool:
+        base = str(prefix or "").rstrip("/") or "/"
+        return path == base or path.startswith(base + "/")
 
 
 class OperationAuthUnavailableMiddleware(BaseHTTPMiddleware):

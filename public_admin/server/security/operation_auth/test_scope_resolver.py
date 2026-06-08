@@ -14,8 +14,37 @@ def test_admin_raw_sql_always_uses_write_scope():
     assert resolver.resolve("POST", "/admin/api/db/sql", body=b'{"sql":"delete from user_stats"}') == "db_write_ops"
 
 
+def test_admin_embedded_ak_proxy_unsafe_methods_require_dispatcher_scope():
+    resolver = OperationScopeResolver()
+
+    assert resolver.resolve("POST", "/admin/ak-rpc/Login") == "dispatcher_ops"
+    assert resolver.resolve("PUT", "/admin/ak-rpc/Login") == "dispatcher_ops"
+    assert resolver.resolve("DELETE", "/admin/ak-web/RPC/Login") == "dispatcher_ops"
+    assert resolver.resolve("PUT", "/admin/ak-site/RPC/Login") == "dispatcher_ops"
+    assert resolver.resolve("POST", "/admin/ak-web") == "dispatcher_ops"
+
+
+def test_ak_proxy_safe_and_native_paths_do_not_require_admin_scope():
+    resolver = OperationScopeResolver()
+
+    assert resolver.resolve("GET", "/admin/ak-web/RPC/Login") == ""
+    assert resolver.resolve("OPTIONS", "/admin/ak-web/RPC/Login") == ""
+    assert resolver.resolve("POST", "/ak-web/RPC/Login") == ""
+
+
+def test_cdn_cgi_unsafe_methods_require_dispatcher_scope():
+    resolver = OperationScopeResolver()
+
+    assert resolver.resolve("POST", "/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1") == "dispatcher_ops"
+    assert resolver.resolve("GET", "/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1") == ""
+    assert resolver.resolve("OPTIONS", "/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1") == ""
+
+
 def main():
     test_admin_raw_sql_always_uses_write_scope()
+    test_admin_embedded_ak_proxy_unsafe_methods_require_dispatcher_scope()
+    test_ak_proxy_safe_and_native_paths_do_not_require_admin_scope()
+    test_cdn_cgi_unsafe_methods_require_dispatcher_scope()
 
 
 if __name__ == "__main__":
