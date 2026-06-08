@@ -21,12 +21,16 @@
             fileAssets: null,
             wsTickets: null,
             staticCache: null,
+            staticCacheEntries: null,
+            staticCachePrewarm: null,
             runtimeHygiene: null,
             runtimePerformance: null,
             indexPlan: null
         },
         loadingWsTickets: false,
         loadingStaticCache: false,
+        loadingStaticCacheEntries: false,
+        loadingStaticCachePrewarm: false,
         loadingRuntimeHygiene: false,
         loadingRuntimePerformance: false,
         loadingIndexPlan: false
@@ -373,8 +377,13 @@
             '<div class="monitoring-cache-actions">' +
             '<button class="monitoring-btn primary" data-monitoring-action="save-static-cache-policy">保存缓存时间</button>' +
             '<button class="monitoring-btn danger" data-monitoring-action="refresh-static-cache-upstream">立即启用上游新资源</button>' +
+            '<button class="monitoring-btn primary" data-monitoring-action="prewarm-static-cache">预热常用页面资源</button>' +
+            '<button class="monitoring-btn" data-monitoring-action="refresh-static-cache-entries">刷新缓存条目</button>' +
             '<span class="monitoring-meta">HTML 继续 no-store；点击启用新资源会清空服务端静态缓存并切换全局资源版本。</span>' +
             '</div>' +
+            '<div class="monitoring-grid" id="monitoringStaticCachePrewarmCards"></div>' +
+            '<div class="monitoring-table-wrap monitoring-static-cache-prewarm-table-wrap"><table class="monitoring-table monitoring-static-cache-prewarm-table"><thead><tr><th>页面</th><th>状态</th><th>发现资源</th><th>耗时</th><th>错误</th></tr></thead><tbody id="monitoringStaticCachePrewarmRows"></tbody></table></div>' +
+            '<div class="monitoring-table-wrap monitoring-static-cache-entry-table-wrap"><table class="monitoring-table monitoring-static-cache-entry-table"><thead><tr><th>资源</th><th>L1</th><th>磁盘</th><th>大小</th><th>类型</th><th>过期</th><th>写入时间</th></tr></thead><tbody id="monitoringStaticCacheEntryRows"></tbody></table></div>' +
             '</details>' +
             '</div>';
         el.addEventListener('click', function(event) {
@@ -391,6 +400,10 @@
                 saveStaticCachePolicy();
             } else if (action === 'refresh-static-cache-upstream') {
                 refreshStaticCacheUpstream();
+            } else if (action === 'prewarm-static-cache') {
+                prewarmStaticCache();
+            } else if (action === 'refresh-static-cache-entries') {
+                loadStaticCacheEntries(true);
             } else if (action === 'save-runtime-hygiene') {
                 saveRuntimeHygienePolicy();
             } else if (action === 'run-runtime-hygiene-once') {
@@ -1148,6 +1161,64 @@
         );
     }
 
+    function renderStaticCacheEntries() {
+        var rows = document.getElementById('monitoringStaticCacheEntryRows');
+        if (!rows) return;
+        var payload = state.data.staticCacheEntries || {};
+        var items = payload.items || [];
+        if (!items.length) {
+            setHtmlIfChanged(rows, '<tr><td colspan="7"><div class="monitoring-empty">暂无缓存条目，点击预热或访问 K937 页面后会出现</div></td></tr>');
+            return;
+        }
+        setHtmlIfChanged(rows, items.map(function(item) {
+            var path = item.path || '-';
+            var fresh = item.fresh !== false;
+            return '<tr>' +
+                '<td><code>' + escapeHtml(path) + '</code></td>' +
+                '<td>' + escapeHtml(item.memory ? '命中' : '-') + '</td>' +
+                '<td>' + escapeHtml(fresh ? '有效' : '过期') + '</td>' +
+                '<td>' + escapeHtml(formatBytes(item.body_size)) + '</td>' +
+                '<td>' + escapeHtml(item.content_type || '-') + '</td>' +
+                '<td>' + escapeHtml(formatSeconds(item.ttl_seconds || 0)) + '</td>' +
+                '<td>' + escapeHtml(formatTime(item.created_at ? item.created_at * 1000 : '')) + '</td>' +
+                '</tr>';
+        }).join(''));
+    }
+
+    function renderStaticCachePrewarm() {
+        var cards = document.getElementById('monitoringStaticCachePrewarmCards');
+        var rows = document.getElementById('monitoringStaticCachePrewarmRows');
+        var item = state.data.staticCachePrewarm || {};
+        var summary = item.summary || {};
+        var pages = item.pages || [];
+        if (cards) {
+            if (!item.summary) {
+                setHtmlIfChanged(cards, renderCard('资源预热', '未执行', '覆盖首页、中心页、EP/ACE、安全设置和财务管理'));
+            } else {
+                setHtmlIfChanged(cards,
+                    renderCard('预热页面', formatNumber(summary.pages), '发现 ' + formatNumber(summary.discovered) + ' 个资源') +
+                    renderCard('预热请求', formatNumber(summary.attempted), '耗时 ' + formatMs(summary.elapsed_ms)) +
+                    renderCard('命中/新写入', formatNumber(summary.hit || 0) + ' / ' + formatNumber(summary.miss || 0), '绕过 ' + formatNumber(summary.bypass || 0) + '；失败 ' + formatNumber(summary.error || 0))
+                );
+            }
+        }
+        if (rows) {
+            if (!pages.length) {
+                setHtmlIfChanged(rows, '<tr><td colspan="5"><div class="monitoring-empty">尚未执行预热</div></td></tr>');
+            } else {
+                setHtmlIfChanged(rows, pages.map(function(page) {
+                    return '<tr>' +
+                        '<td><code>' + escapeHtml(page.path || '-') + '</code></td>' +
+                        '<td>' + escapeHtml(page.status_code || '-') + '</td>' +
+                        '<td>' + escapeHtml(formatNumber(page.asset_count || 0)) + '</td>' +
+                        '<td>' + escapeHtml(formatMs(page.elapsed_ms || 0)) + '</td>' +
+                        '<td>' + escapeHtml(page.error || '-') + '</td>' +
+                        '</tr>';
+                }).join(''));
+            }
+        }
+    }
+
     function renderStaticCachePolicy() {
         var item = state.data.staticCache || {};
         var runtime = staticCacheRuntimeSnapshot();
@@ -1170,6 +1241,8 @@
             setTextIfChanged(meta, version + ' · 更新于 ' + formatTime(item.updated_at ? item.updated_at * 1000 : ''));
         }
         renderStaticCacheRuntimeCards();
+        renderStaticCacheEntries();
+        renderStaticCachePrewarm();
     }
 
     function loadStaticCachePolicy() {
@@ -1178,10 +1251,25 @@
         return api('/static-cache/policy', {}).then(function(body) {
             state.data.staticCache = body.item || {};
             renderStaticCachePolicy();
+            return loadStaticCacheEntries(false);
         }).catch(function(err) {
             notify(err && err.message || '静态资源缓存策略读取失败', 'error');
         }).finally(function() {
             state.loadingStaticCache = false;
+        });
+    }
+
+    function loadStaticCacheEntries(force) {
+        if (!state.active || state.loadingStaticCacheEntries) return Promise.resolve();
+        state.loadingStaticCacheEntries = true;
+        return api('/static-cache/entries', { limit: 80 }).then(function(body) {
+            state.data.staticCacheEntries = body.item || {};
+            renderStaticCacheEntries();
+            if (force) notify('缓存条目已刷新', 'success');
+        }).catch(function(err) {
+            if (force) notify(err && err.message || '缓存条目读取失败', 'error');
+        }).finally(function() {
+            state.loadingStaticCacheEntries = false;
         });
     }
 
@@ -1371,9 +1459,29 @@
             state.data.staticCache = body.item || {};
             renderStaticCachePolicy();
             notify('已切换上游资源版本，清理缓存分片 ' + formatNumber((body.item && body.item.removed_entries) || 0) + ' 个', 'success');
-            return loadRuntimeHygiene(true);
+            return Promise.allSettled([loadStaticCacheEntries(false), loadRuntimeHygiene(true)]);
         }).catch(function(err) {
             notify(err && err.message || '启用上游新资源失败', 'error');
+        });
+    }
+
+    function prewarmStaticCache() {
+        if (state.loadingStaticCachePrewarm) {
+            notify('静态资源预热正在执行，请稍候', 'warning');
+            return;
+        }
+        if (!window.confirm('确认预热 K937 常用页面资源？\n将覆盖首页、中心页、EP/ACE 列表、安全设置和财务管理页面。')) return;
+        state.loadingStaticCachePrewarm = true;
+        apiPost('/static-cache/prewarm', { max_assets: 180 }).then(function(body) {
+            state.data.staticCachePrewarm = body.item || {};
+            renderStaticCachePrewarm();
+            var summary = (body.item && body.item.summary) || {};
+            notify('预热完成：新写入 ' + formatNumber(summary.miss || 0) + '，命中 ' + formatNumber(summary.hit || 0) + '，失败 ' + formatNumber(summary.error || 0), summary.error ? 'warning' : 'success');
+            return Promise.allSettled([loadStaticCacheEntries(false), loadRuntimeHygiene(true)]);
+        }).catch(function(err) {
+            notify(err && err.message || '静态资源预热失败', 'error');
+        }).finally(function() {
+            state.loadingStaticCachePrewarm = false;
         });
     }
 

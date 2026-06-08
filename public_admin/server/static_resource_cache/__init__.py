@@ -5,6 +5,7 @@ from .memory_policy import StaticResourceMemoryPolicy, StaticResourceMemoryPolic
 from .models import CachedStaticResource, StaticResourcePayload, StaticResourceRequest
 from .response_adapter import StaticResourceResponseAdapter
 from .service import StaticResourceCacheService, create_static_resource_cache_service
+from .warmup import StaticResourceWarmupService, WarmupAssetResult, WarmupFetchResult
 
 __all__ = [
     'CachedStaticResource',
@@ -17,5 +18,8 @@ __all__ = [
     'StaticResourcePayload',
     'StaticResourceRequest',
     'StaticResourceResponseAdapter',
+    'StaticResourceWarmupService',
+    'WarmupAssetResult',
+    'WarmupFetchResult',
     'create_static_resource_cache_service',
 ]

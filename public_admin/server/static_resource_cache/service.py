@@ -149,6 +149,44 @@ class StaticResourceCacheService:
         except Exception:
             return 0
 
+    async def describe_entries(self, limit: int = 80) -> dict:
+        now = time.time()
+        try:
+            entries = await self.store.list_entries(limit)
+        except Exception:
+            entries = []
+        fresh = 0
+        expired = 0
+        total_bytes = 0
+        items = []
+        for entry in entries:
+            cache_key = str(entry.get('cache_key') or '')
+            expires_at = float(entry.get('expires_at') or 0)
+            is_fresh = expires_at > now
+            if is_fresh:
+                fresh += 1
+            else:
+                expired += 1
+            body_size = int(entry.get('body_size') or 0)
+            total_bytes += max(0, body_size)
+            items.append({
+                **entry,
+                'fresh': is_fresh,
+                'memory': self.memory_cache.contains(cache_key) if cache_key else False,
+                'ttl_seconds': max(0, int(expires_at - now)) if is_fresh else 0,
+            })
+        return {
+            'items': items,
+            'summary': {
+                'count': len(items),
+                'fresh': fresh,
+                'expired': expired,
+                'bytes': total_bytes,
+                'limit': max(1, min(int(limit or 80), 500)),
+                'generated_at': now,
+            },
+        }
+
     def snapshot(self) -> dict:
         return {
             "lock_count": len(self._locks),

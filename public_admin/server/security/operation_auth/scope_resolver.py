@@ -82,6 +82,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/monitoring/ws-tickets/policy'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/static-cache/policy'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/static-cache/refresh-upstream'): 'dispatcher_ops',
+            ('POST', '/admin/api/monitoring/static-cache/prewarm'): 'dispatcher_ops',
             ('POST', '/admin/api/active-defense/policy'): 'ban_ops',
             ('POST', '/admin/api/active-defense/runtime/clear'): 'ban_ops',
             ('POST', '/admin/api/rate-ban/policy'): 'ban_ops',

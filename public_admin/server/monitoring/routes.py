@@ -24,6 +24,7 @@ def create_monitoring_router(
     super_admin_role: str,
     im_server_internal_url: str = "",
     static_cache_service_supplier: Callable[[], object] = None,
+    static_cache_warmup_supplier: Callable[[], object] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/monitoring")
     service = MonitoringService(pool_supplier=pool_supplier, im_server_internal_url=im_server_internal_url)
@@ -38,6 +39,9 @@ def create_monitoring_router(
 
     def static_cache_service():
         return static_cache_service_supplier() if static_cache_service_supplier else None
+
+    def static_cache_warmup():
+        return static_cache_warmup_supplier() if static_cache_warmup_supplier else None
 
     @router.get("/overview")
     async def monitoring_overview(request: Request, range: str = "7d", force: str = ""):
@@ -190,6 +194,40 @@ def create_monitoring_router(
             return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
         try:
             return {"success": True, "item": cache_service.refresh_upstream_version()}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.get("/static-cache/entries")
+    async def monitoring_static_cache_entries(request: Request, limit: int = 80):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        cache_service = static_cache_service()
+        if cache_service is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
+        try:
+            return {"success": True, "item": await cache_service.describe_entries(limit=limit)}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/static-cache/prewarm")
+    async def monitoring_static_cache_prewarm(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        warmup = static_cache_warmup()
+        if warmup is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源预热服务不可用"})
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        try:
+            pages = payload.get("pages") if isinstance(payload, dict) else None
+            max_assets = payload.get("max_assets") if isinstance(payload, dict) else 180
+            if pages is not None and not isinstance(pages, (list, tuple)):
+                pages = None
+            return {"success": True, "item": await warmup.prewarm_default(pages=pages, max_assets=max_assets)}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 

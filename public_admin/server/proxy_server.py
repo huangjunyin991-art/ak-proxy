@@ -204,6 +204,9 @@ from .static_resource_cache import (
     StaticResourcePayload,
     StaticResourceRequest,
     StaticResourceResponseAdapter,
+    StaticResourceWarmupService,
+    WarmupAssetResult,
+    WarmupFetchResult,
     create_static_resource_cache_service,
 )
 
@@ -5296,6 +5299,7 @@ if create_monitoring_router is not None:
             super_admin_role=ROLE_SUPER_ADMIN,
             im_server_internal_url=IM_SERVER_INTERNAL_URL,
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
+            static_cache_warmup_supplier=lambda: globals().get("_AK_STATIC_WARMUP_SERVICE"),
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 性能监控路由注册失败，已跳过: {e}")
@@ -15176,6 +15180,172 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         text, _ = _inject_base_js_no_login_probe(text)
         return text.encode("utf-8")
     return content
+
+
+def _filter_ak_static_query(query: str) -> str:
+    query_parts = [
+        p for p in str(query or "").split("&")
+        if p and not p.startswith("bs=") and not p.startswith("ak_static_v=")
+    ]
+    return "&".join(query_parts)
+
+
+def _normalize_ak_static_resource_reference(raw_path: str) -> tuple[str, str]:
+    parsed = urlsplit(str(raw_path or "").strip())
+    path_value = str(parsed.path or "").strip("/")
+    if path_value.startswith("admin/ak-web/"):
+        path_value = path_value[len("admin/ak-web/"):]
+    elif path_value.startswith("ak-web/"):
+        path_value = path_value[len("ak-web/"):]
+    if "/" not in path_value:
+        return "", ""
+    prefix, asset_path = path_value.split("/", 1)
+    normalized_path = _normalize_ak_public_static_path(prefix, asset_path)
+    if not normalized_path:
+        return "", ""
+    return normalized_path, _filter_ak_static_query(parsed.query)
+
+
+def _build_ak_static_target_url(normalized_path: str, query: str = "") -> str:
+    target_url = f"{_AK_BASE}/{str(normalized_path or '').strip('/')}"
+    cleaned_query = _filter_ak_static_query(query)
+    if cleaned_query:
+        target_url += "?" + cleaned_query
+    return target_url
+
+
+def _build_ak_static_warmup_headers() -> dict:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+    }
+
+
+async def _get_ak_web_static_client(normalized_path: str):
+    proxy_url = None
+    selected_exit = _get_direct_exit() if _should_force_direct_ak_web(_AK_WEB_PREFIX) else _select_forward_exit(normalized_path or "static")
+    if selected_exit and selected_exit.proxy_url:
+        proxy_url = selected_exit.proxy_url
+    return await _ak_web_client_pool.get_client(proxy_url=proxy_url), proxy_url
+
+
+async def _fetch_ak_static_warmup_page(page_path: str) -> WarmupFetchResult:
+    started_at = time.perf_counter()
+    parsed = urlsplit(str(page_path or "").strip())
+    path_value = parsed.path or "/"
+    if not path_value.startswith("/pages/") or ".." in path_value.split("/"):
+        return WarmupFetchResult(page_path, 0, "", "", error="invalid_page")
+    target_url = f"{_AK_BASE}{path_value}"
+    if parsed.query:
+        target_url += "?" + parsed.query
+    client, proxy_url = await _get_ak_web_static_client(path_value.lstrip("/"))
+    try:
+        resp = await client.get(target_url, headers=_build_ak_static_warmup_headers())
+    except Exception:
+        await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="static_warmup_page_error")
+        raise
+    content_type = resp.headers.get("content-type", "")
+    text = resp.content.decode("utf-8", errors="replace") if "text" in content_type.lower() or resp.status_code == 200 else ""
+    return WarmupFetchResult(
+        path=page_path,
+        status_code=resp.status_code,
+        content_type=content_type,
+        text=text,
+        elapsed_ms=_elapsed_ms(started_at),
+    )
+
+
+async def _fetch_and_cache_ak_static_warmup_asset(asset_path: str) -> WarmupAssetResult:
+    started_at = time.perf_counter()
+    normalized_path, query = _normalize_ak_static_resource_reference(asset_path)
+    if not normalized_path:
+        return WarmupAssetResult(asset_path, "BYPASS", error="unsupported_path")
+    target_url = _build_ak_static_target_url(normalized_path, query)
+    cache_request = _build_ak_web_static_cache_request("GET", _AK_WEB_PREFIX, target_url, normalized_path)
+    if not cache_request:
+        return WarmupAssetResult(normalized_path, "BYPASS", error="not_cacheable")
+    static_cache_lock = None
+    try:
+        cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
+        if cached_static:
+            cached_text = ""
+            content_type = cached_static.content_type or ""
+            if any(t in content_type.lower() for t in ("text/css", "javascript", "ecmascript")):
+                cached_text = (cached_static.body or b"").decode("utf-8", errors="replace")
+            return WarmupAssetResult(
+                path=normalized_path,
+                state="HIT",
+                status_code=cached_static.status_code,
+                content_type=content_type,
+                body_size=len(cached_static.body or b""),
+                elapsed_ms=_elapsed_ms(started_at),
+                text=cached_text,
+            )
+        static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(cache_request)
+        await static_cache_lock.acquire()
+        cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
+        if cached_static:
+            cached_text = ""
+            content_type = cached_static.content_type or ""
+            if any(t in content_type.lower() for t in ("text/css", "javascript", "ecmascript")):
+                cached_text = (cached_static.body or b"").decode("utf-8", errors="replace")
+            return WarmupAssetResult(
+                path=normalized_path,
+                state="HIT",
+                status_code=cached_static.status_code,
+                content_type=content_type,
+                body_size=len(cached_static.body or b""),
+                elapsed_ms=_elapsed_ms(started_at),
+                text=cached_text,
+            )
+
+        client, proxy_url = await _get_ak_web_static_client(normalized_path)
+        try:
+            resp = await client.get(target_url, headers=_build_ak_static_warmup_headers())
+        except Exception:
+            await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="static_warmup_asset_error")
+            raise
+        content_type = resp.headers.get("content-type", "")
+        content = _transform_ak_public_static_content(normalized_path, content_type, resp.content)
+        stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
+            cache_request,
+            StaticResourcePayload(
+                status_code=resp.status_code,
+                headers={k: v for k, v in resp.headers.items() if k.lower() not in {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}},
+                policy_headers=dict(resp.headers),
+                content_type=content_type or "application/octet-stream",
+                body=content,
+            ),
+        )
+        text = ""
+        if any(t in content_type.lower() for t in ("text/css", "javascript", "ecmascript")):
+            text = content.decode("utf-8", errors="replace")
+        return WarmupAssetResult(
+            path=normalized_path,
+            state="MISS" if stored_static else "BYPASS",
+            status_code=resp.status_code,
+            content_type=content_type or "application/octet-stream",
+            body_size=len(content or b""),
+            elapsed_ms=_elapsed_ms(started_at),
+            text=text,
+            error="" if stored_static else "store_rejected",
+        )
+    except Exception as e:
+        logger.warning(f"[AkStaticWarmupAsset] {normalized_path or asset_path}: {e}")
+        return WarmupAssetResult(normalized_path or asset_path, "ERROR", elapsed_ms=_elapsed_ms(started_at), error=str(e)[:220])
+    finally:
+        if static_cache_lock:
+            _AK_WEB_STATIC_CACHE_SERVICE.release_lock(cache_request, static_cache_lock)
+
+
+_AK_STATIC_WARMUP_SERVICE = StaticResourceWarmupService(
+    fetch_page=_fetch_ak_static_warmup_page,
+    cache_asset=_fetch_and_cache_ak_static_warmup_asset,
+)
 
 
 async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_path: str):

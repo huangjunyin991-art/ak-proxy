@@ -78,6 +78,15 @@ class StaticResourceMemoryCache:
     def delete(self, cache_key: str) -> bool:
         return self._drop(cache_key)
 
+    def contains(self, cache_key: str) -> bool:
+        resource = self._items.get(cache_key)
+        if resource is None:
+            return False
+        if time.time() >= float(resource.expires_at or 0):
+            self._drop(cache_key)
+            return False
+        return True
+
     def clear(self) -> int:
         removed = len(self._items)
         self._items.clear()
