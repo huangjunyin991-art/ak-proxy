@@ -6,6 +6,7 @@
         initialized: false,
         active: false,
         range: '7d',
+        staticCacheEntryFilter: 'all',
         lightTimer: null,
         heavyTimer: null,
         startupHeavyTimer: null,
@@ -324,13 +325,16 @@
             '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
             '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
             '</div>' +
-            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
+            '<details class="monitoring-section monitoring-chat-section monitoring-collapsible-section">' +
+            '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></summary>' +
+            '<div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div>' +
+            '</details>' +
             '<div class="monitoring-section monitoring-db-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div>' +
-            '<div class="monitoring-index-panel"><div class="monitoring-section-header monitoring-subsection-header"><h4>索引优化计划</h4><span class="monitoring-meta" id="monitoringIndexPlanMeta">读取中...</span></div>' +
+            '<details class="monitoring-index-panel monitoring-collapsible-section"><summary class="monitoring-section-header monitoring-subsection-header monitoring-collapsible-summary"><h4>索引优化计划</h4><span class="monitoring-meta" id="monitoringIndexPlanMeta">读取中...</span></summary>' +
             '<div class="monitoring-grid monitoring-index-cards" id="monitoringIndexPlanCards"></div>' +
             '<div class="monitoring-cache-actions"><button class="monitoring-btn" data-monitoring-action="refresh-index-plan">刷新索引状态</button><button class="monitoring-btn primary" data-monitoring-action="run-index-plan">执行 1 个缺失索引</button><span class="monitoring-meta">使用 CONCURRENTLY 小批量执行，避免长时间锁表；大表仍建议低峰操作。</span></div>' +
             '<div class="monitoring-table-wrap monitoring-index-table-wrap"><table class="monitoring-table monitoring-index-table"><thead><tr><th>索引</th><th>状态</th><th>表</th><th>用途</th><th>风险</th><th>说明</th></tr></thead><tbody id="monitoringIndexPlanRows"></tbody></table></div>' +
-            '<div class="monitoring-table-wrap monitoring-index-result-wrap"><table class="monitoring-table monitoring-index-result-table"><thead><tr><th>最近执行</th><th>结果</th><th>耗时</th><th>时间</th><th>信息</th></tr></thead><tbody id="monitoringIndexRunRows"></tbody></table></div></div></div>' +
+            '<div class="monitoring-table-wrap monitoring-index-result-wrap"><table class="monitoring-table monitoring-index-result-table"><thead><tr><th>最近执行</th><th>结果</th><th>耗时</th><th>时间</th><th>信息</th></tr></thead><tbody id="monitoringIndexRunRows"></tbody></table></div></details></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>纯文本</th><th>消息载荷</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></div>' +
             '<details class="monitoring-section monitoring-runtime-section monitoring-collapsible-section">' +
@@ -383,6 +387,7 @@
             '</div>' +
             '<div class="monitoring-grid" id="monitoringStaticCachePrewarmCards"></div>' +
             '<div class="monitoring-table-wrap monitoring-static-cache-prewarm-table-wrap"><table class="monitoring-table monitoring-static-cache-prewarm-table"><thead><tr><th>页面</th><th>状态</th><th>发现资源</th><th>耗时</th><th>错误</th></tr></thead><tbody id="monitoringStaticCachePrewarmRows"></tbody></table></div>' +
+            '<div class="monitoring-cache-actions monitoring-static-cache-entry-filter"><label><span>文件类型</span><select class="monitoring-select" id="monitoringStaticCacheEntryTypeFilter"><option value="all">全部</option></select></label><span class="monitoring-meta" id="monitoringStaticCacheEntryMeta">-</span></div>' +
             '<div class="monitoring-table-wrap monitoring-static-cache-entry-table-wrap"><table class="monitoring-table monitoring-static-cache-entry-table"><thead><tr><th>资源</th><th>L1</th><th>磁盘</th><th>大小</th><th>类型</th><th>过期</th><th>写入时间</th></tr></thead><tbody id="monitoringStaticCacheEntryRows"></tbody></table></div>' +
             '</details>' +
             '</div>';
@@ -431,6 +436,13 @@
             loadIndexPlan(true);
         });
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
+        var staticCacheEntryFilter = document.getElementById('monitoringStaticCacheEntryTypeFilter');
+        if (staticCacheEntryFilter) {
+            staticCacheEntryFilter.addEventListener('change', function() {
+                state.staticCacheEntryFilter = this.value || 'all';
+                renderStaticCacheEntries();
+            });
+        }
     }
 
     function renderCardSub(sub) {
@@ -1161,16 +1173,98 @@
         );
     }
 
+    function staticCacheEntryExtension(path) {
+        var clean = String(path || '').split('?', 1)[0].toLowerCase();
+        var slash = clean.lastIndexOf('/');
+        var dot = clean.lastIndexOf('.');
+        if (dot <= slash) return '';
+        return clean.slice(dot);
+    }
+
+    function staticCacheEntryContentType(item) {
+        return String((item && item.content_type) || '').split(';', 1)[0].trim().toLowerCase();
+    }
+
+    function staticCacheEntryTypeInfo(item) {
+        var contentType = staticCacheEntryContentType(item);
+        var ext = staticCacheEntryExtension(item && item.path);
+        var key = (contentType || '-') + '|' + (ext || '-');
+        var label = '';
+        if (contentType && ext) {
+            label = contentType + ' · ' + ext;
+        } else if (contentType) {
+            label = contentType;
+        } else if (ext) {
+            label = ext;
+        } else {
+            label = '未识别类型';
+        }
+        return { key: key, label: label };
+    }
+
+    function buildStaticCacheEntryTypeGroups(items) {
+        var groups = {};
+        (items || []).forEach(function(item) {
+            var info = staticCacheEntryTypeInfo(item);
+            if (!groups[info.key]) groups[info.key] = { key: info.key, label: info.label, count: 0 };
+            groups[info.key].count += 1;
+        });
+        return Object.keys(groups).map(function(key) { return groups[key]; }).sort(function(a, b) {
+            if (b.count !== a.count) return b.count - a.count;
+            return a.label.localeCompare(b.label, 'zh-CN');
+        });
+    }
+
+    function renderStaticCacheEntryTypeFilter(items) {
+        var select = document.getElementById('monitoringStaticCacheEntryTypeFilter');
+        var meta = document.getElementById('monitoringStaticCacheEntryMeta');
+        var groups = buildStaticCacheEntryTypeGroups(items);
+        var selected = state.staticCacheEntryFilter || 'all';
+        var valid = selected === 'all' || groups.some(function(group) { return group.key === selected; });
+        if (!valid) {
+            selected = 'all';
+            state.staticCacheEntryFilter = 'all';
+        }
+        if (select) {
+            var options = '<option value="all">全部（' + formatNumber((items || []).length) + '）</option>' +
+                groups.map(function(group) {
+                    return '<option value="' + escapeHtml(group.key) + '">' + escapeHtml(group.label + '（' + formatNumber(group.count) + '）') + '</option>';
+                }).join('');
+            setHtmlIfChanged(select, options);
+            if (select.value !== selected) select.value = selected;
+        }
+        if (meta) {
+            var selectedGroup = null;
+            for (var i = 0; i < groups.length; i++) {
+                if (groups[i].key === selected) {
+                    selectedGroup = groups[i];
+                    break;
+                }
+            }
+            var label = selectedGroup ? selectedGroup.label : '全部';
+            setTextIfChanged(meta, '当前显示 ' + label + ' · 类型 ' + formatNumber(groups.length));
+        }
+        return selected;
+    }
+
     function renderStaticCacheEntries() {
         var rows = document.getElementById('monitoringStaticCacheEntryRows');
         if (!rows) return;
         var payload = state.data.staticCacheEntries || {};
         var items = payload.items || [];
+        var selected = renderStaticCacheEntryTypeFilter(items);
         if (!items.length) {
             setHtmlIfChanged(rows, '<tr><td colspan="7"><div class="monitoring-empty">暂无缓存条目，点击预热或访问 K937 页面后会出现</div></td></tr>');
             return;
         }
-        setHtmlIfChanged(rows, items.map(function(item) {
+        var visibleItems = selected === 'all' ? items : items.filter(function(item) {
+            return staticCacheEntryTypeInfo(item).key === selected;
+        });
+        if (!visibleItems.length) {
+            setHtmlIfChanged(rows, '<tr><td colspan="7"><div class="monitoring-empty">当前类型暂无缓存条目</div></td></tr>');
+            return;
+        }
+        setHtmlIfChanged(rows, visibleItems.map(function(item) {
             var path = item.path || '-';
             var fresh = item.fresh !== false;
             return '<tr>' +
