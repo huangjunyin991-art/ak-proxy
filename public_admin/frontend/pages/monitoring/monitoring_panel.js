@@ -692,31 +692,46 @@
         return '暂无明确诊断结论。';
     }
 
+    function requestMetricSeverityLabel(severity) {
+        var normalized = String(severity || 'info').toLowerCase();
+        if (normalized === 'danger') return '高';
+        if (normalized === 'warning' || normalized === 'warn') return '中';
+        return '提示';
+    }
+
     function renderRequestMetricAdvice(advice) {
         var list = Array.isArray(advice) ? advice : [];
         if (!list.length) list = [{ code: 'no_samples', severity: 'info' }];
         return list.map(function(item) {
             var severity = String(item.severity || 'info').toLowerCase();
-            return '<div class="monitoring-diagnosis-advice monitoring-diagnosis-advice-' + escapeHtml(severity) + '">' + escapeHtml(requestMetricAdviceText(item)) + '</div>';
+            return '<div class="monitoring-request-advice-item monitoring-request-advice-' + escapeHtml(severity) + '">' +
+                '<span class="monitoring-request-advice-badge">' + escapeHtml(requestMetricSeverityLabel(severity)) + '</span>' +
+                '<span class="monitoring-request-advice-text">' + escapeHtml(requestMetricAdviceText(item)) + '</span>' +
+                '</div>';
         }).join('');
     }
 
     function renderRequestMetricTopList(items, emptyText) {
         var list = Array.isArray(items) ? items.slice(0, 5) : [];
         if (!list.length) return '<div class="monitoring-empty">' + escapeHtml(emptyText || '暂无样本') + '</div>';
-        return list.map(function(item) {
-            return '<div class="monitoring-diagnosis-row">' +
-                '<div class="monitoring-diagnosis-key">' + escapeHtml(item.key || '-') + '</div>' +
-                '<div class="monitoring-diagnosis-value">' + escapeHtml(formatNumber(item.count) + ' 条 / 平均 ' + formatMs(item.avg_total_ms) + ' / 最大 ' + formatMs(item.max_total_ms)) + '</div>' +
+        return '<div class="monitoring-request-top-list">' + list.map(function(item, index) {
+            return '<div class="monitoring-request-top-row">' +
+                '<span class="monitoring-request-top-rank">' + escapeHtml(String(index + 1)) + '</span>' +
+                '<span class="monitoring-request-top-main">' +
+                    '<span class="monitoring-request-top-key">' + escapeHtml(item.key || '-') + '</span>' +
+                    '<span class="monitoring-request-top-value">' + escapeHtml(formatNumber(item.count) + ' 条 / 平均 ' + formatMs(item.avg_total_ms) + ' / 最大 ' + formatMs(item.max_total_ms)) + '</span>' +
+                '</span>' +
                 '</div>';
-        }).join('');
+        }).join('') + '</div>';
     }
 
     function renderRequestMetricTiming(diagnostics) {
         var timing = diagnostics && diagnostics.timing || {};
-        return renderProgress('上游占比', Number(timing.upstream_ratio || 0) * 100, requestMetricRatioText(timing.upstream_ratio) + ' / 平均 ' + formatMs(timing.avg_upstream_ms)) +
+        return '<div class="monitoring-request-timing-bars">' +
+            renderProgress('上游占比', Number(timing.upstream_ratio || 0) * 100, requestMetricRatioText(timing.upstream_ratio) + ' / 平均 ' + formatMs(timing.avg_upstream_ms)) +
             renderProgress('重写占比', Number(timing.rewrite_ratio || 0) * 100, requestMetricRatioText(timing.rewrite_ratio) + ' / 平均 ' + formatMs(timing.avg_rewrite_ms)) +
-            renderProgress('注入占比', Number(timing.inject_ratio || 0) * 100, requestMetricRatioText(timing.inject_ratio) + ' / 平均 ' + formatMs(timing.avg_inject_ms));
+            renderProgress('注入占比', Number(timing.inject_ratio || 0) * 100, requestMetricRatioText(timing.inject_ratio) + ' / 平均 ' + formatMs(timing.avg_inject_ms)) +
+            '</div>';
     }
 
     function renderRequestMetricDiagnostics(diagnostics) {
@@ -724,11 +739,11 @@
         if (!Number(item.sample_count || 0)) {
             return '<div class="monitoring-diagnosis-empty">暂无慢请求诊断样本</div>';
         }
-        return '<div class="monitoring-diagnosis-grid">' +
-            '<div class="monitoring-diagnosis-panel monitoring-diagnosis-panel-wide"><h5>诊断建议</h5>' + renderRequestMetricAdvice(item.advice) + '</div>' +
-            '<div class="monitoring-diagnosis-panel"><h5>接口 Top</h5>' + renderRequestMetricTopList(item.top_paths, '暂无接口样本') + '</div>' +
-            '<div class="monitoring-diagnosis-panel"><h5>出口 Top</h5>' + renderRequestMetricTopList(item.top_exits, '暂无出口样本') + '</div>' +
-            '<div class="monitoring-diagnosis-panel"><h5>耗时构成</h5>' + renderRequestMetricTiming(item) + '</div>' +
+        return '<div class="monitoring-request-diagnosis-grid">' +
+            '<div class="monitoring-request-diagnosis-card is-wide"><div class="monitoring-request-diagnosis-title">诊断建议</div><div class="monitoring-request-advice-list">' + renderRequestMetricAdvice(item.advice) + '</div></div>' +
+            '<div class="monitoring-request-diagnosis-card"><div class="monitoring-request-diagnosis-title">接口 Top</div>' + renderRequestMetricTopList(item.top_paths, '暂无接口样本') + '</div>' +
+            '<div class="monitoring-request-diagnosis-card"><div class="monitoring-request-diagnosis-title">出口 Top</div>' + renderRequestMetricTopList(item.top_exits, '暂无出口样本') + '</div>' +
+            '<div class="monitoring-request-diagnosis-card"><div class="monitoring-request-diagnosis-title">耗时构成</div>' + renderRequestMetricTiming(item) + '</div>' +
             '</div>';
     }
 

@@ -260,6 +260,149 @@
     margin: 14px 0;
 }
 
+.monitoring-request-diagnosis-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.monitoring-request-diagnosis-card {
+    min-width: 0;
+    border: 1px solid rgba(0, 212, 255, 0.16);
+    border-radius: 14px;
+    background: rgba(2, 16, 28, 0.46);
+    padding: 12px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.monitoring-request-diagnosis-card.is-wide {
+    grid-column: 1 / -1;
+}
+
+.monitoring-request-diagnosis-title {
+    margin: 0 0 10px;
+    color: #8bdff5;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.monitoring-request-advice-list {
+    display: grid;
+    gap: 8px;
+}
+
+.monitoring-request-advice-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 9px 10px;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.monitoring-request-advice-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    min-height: 20px;
+    border-radius: 999px;
+    padding: 0 7px;
+    color: #8bdff5;
+    background: rgba(0, 212, 255, 0.1);
+    border: 1px solid rgba(0, 212, 255, 0.22);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.monitoring-request-advice-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.monitoring-request-advice-warning .monitoring-request-advice-badge,
+.monitoring-request-advice-warn .monitoring-request-advice-badge {
+    color: #f5cd60;
+    background: rgba(245, 205, 96, 0.1);
+    border-color: rgba(245, 205, 96, 0.34);
+}
+
+.monitoring-request-advice-danger .monitoring-request-advice-badge {
+    color: #ff8a96;
+    background: rgba(255, 71, 87, 0.1);
+    border-color: rgba(255, 71, 87, 0.34);
+}
+
+.monitoring-request-top-list {
+    display: grid;
+    gap: 8px;
+}
+
+.monitoring-request-top-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.monitoring-request-top-row:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.monitoring-request-top-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    color: #00d4ff;
+    background: rgba(0, 212, 255, 0.08);
+    border: 1px solid rgba(0, 212, 255, 0.18);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.monitoring-request-top-main {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.monitoring-request-top-key {
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.monitoring-request-top-value {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.monitoring-request-timing-bars {
+    display: grid;
+    gap: 8px;
+}
+
+.monitoring-request-timing-bars .monitoring-bar-row {
+    grid-template-columns: 72px minmax(0, 1fr) minmax(108px, auto);
+    gap: 8px;
+}
+
 .monitoring-diagnosis-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -931,6 +1074,32 @@
 
     .monitoring-diagnosis-grid {
         grid-template-columns: 1fr;
+    }
+
+    .monitoring-request-diagnosis-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .monitoring-request-diagnosis-card {
+        padding: 10px;
+    }
+
+    .monitoring-request-advice-item {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .monitoring-request-advice-badge {
+        justify-self: flex-start;
+    }
+
+    .monitoring-request-timing-bars .monitoring-bar-row {
+        grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .monitoring-request-timing-bars .monitoring-bar-row > div:last-child {
+        grid-column: 2;
+        justify-self: end;
     }
 
     .monitoring-bar-row {
