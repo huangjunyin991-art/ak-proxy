@@ -13,14 +13,33 @@ from .service import NotifyCenterService
 
 
 VerifyAdminTokenCallable = Callable[[str], Awaitable[bool]]
+AdminRequestGuardCallable = Callable[[Request], Awaitable[JSONResponse | None]]
+AdminUserGuardCallable = Callable[[Request, str], Awaitable[JSONResponse | None]]
 
 
 def create_notify_center_router(
     *,
     service: NotifyCenterService,
     verify_admin_token: VerifyAdminTokenCallable | None = None,
+    require_admin_request: AdminRequestGuardCallable | None = None,
+    require_admin_user_scope: AdminUserGuardCallable | None = None,
 ) -> APIRouter:
     router = APIRouter()
+
+    async def _require_admin_request(request: Request) -> JSONResponse | None:
+        if require_admin_request is not None:
+            return await require_admin_request(request)
+        if verify_admin_token is None:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '鏈巿鏉?'})
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token or not await verify_admin_token(token):
+            return JSONResponse(status_code=401, content={'success': False, 'message': '鏈巿鏉?'})
+        return None
+
+    async def _require_admin_user_scope(request: Request, username: str) -> JSONResponse | None:
+        if require_admin_user_scope is not None:
+            return await require_admin_user_scope(request, username)
+        return await _require_admin_request(request)
 
     @router.get('/api/notify-center/status')
     async def status():
@@ -137,6 +156,9 @@ def create_notify_center_router(
         username = normalize_username(request.query_params.get('im_username'))
         if not username:
             return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        auth_error = await _require_admin_user_scope(request, username)
+        if auth_error is not None:
+            return auth_error
         try:
             data = await service.get_ntfy_binding(username)
         except ValueError as exc:
@@ -155,6 +177,9 @@ def create_notify_center_router(
         username = normalize_username(payload.get('im_username') if isinstance(payload, dict) else '')
         if not username:
             return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        auth_error = await _require_admin_user_scope(request, username)
+        if auth_error is not None:
+            return auth_error
         try:
             data = await service.upsert_ntfy_binding(
                 username=username,
@@ -179,6 +204,9 @@ def create_notify_center_router(
         username = normalize_username(payload.get('im_username') if isinstance(payload, dict) else '')
         if not username:
             return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        auth_error = await _require_admin_user_scope(request, username)
+        if auth_error is not None:
+            return auth_error
         try:
             data = await service.delete_ntfy_binding(username=username)
         except ValueError as exc:
@@ -197,6 +225,9 @@ def create_notify_center_router(
         username = normalize_username(payload.get('im_username') if isinstance(payload, dict) else '')
         if not username:
             return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        auth_error = await _require_admin_user_scope(request, username)
+        if auth_error is not None:
+            return auth_error
         try:
             data = await service.test_ntfy_binding(username=username)
         except ValueError as exc:
@@ -245,6 +276,9 @@ def create_notify_center_router(
 
     @router.post('/admin/api/notify-center/outbox/flush')
     async def flush_outbox(request: Request):
+        auth_error = await _require_admin_request(request)
+        if auth_error is not None:
+            return auth_error
         if verify_admin_token is not None:
             token = request.headers.get('Authorization', '').replace('Bearer ', '')
             if not token or not await verify_admin_token(token):

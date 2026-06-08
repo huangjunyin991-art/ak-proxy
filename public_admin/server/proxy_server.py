@@ -1351,7 +1351,21 @@ async def _find_im_group_conversation(conversation_id: int = 0, owner_username: 
 
 def _can_manage_im_group_conversation(role: str, identity: str, group_row: dict) -> bool:
 
-    return _is_im_admin_role(role)
+    if role == ROLE_SUPER_ADMIN:
+
+        return True
+
+    if role != ROLE_SUB_ADMIN:
+
+        return False
+
+    allowed_owners = set(_im_group_owner_usernames_for_identity(role, identity))
+
+    if not allowed_owners:
+
+        return False
+
+    return bool(allowed_owners.intersection(_im_group_owner_usernames_from_row(group_row)))
 
 
 
@@ -1372,6 +1386,27 @@ def _extract_im_whitelist_group_admin_key(conversation_key: str) -> str:
         return ''
 
     return normalized_key[len(prefix):].strip()
+
+
+
+def _im_group_owner_usernames_from_row(group_row: dict) -> list[str]:
+
+    if not isinstance(group_row, dict):
+
+        return []
+
+    owners = []
+
+    for item in (
+        _normalize_im_group_owner_username(group_row.get('owner_username', '')),
+        _extract_im_whitelist_group_admin_key(group_row.get('conversation_key', '')),
+    ):
+
+        if item and item not in owners:
+
+            owners.append(item)
+
+    return owners
 
 
 
@@ -1456,6 +1491,25 @@ def _list_im_group_owner_candidates() -> list[dict]:
         items.append({"username": normalized, "display_name": display_name})
 
     return items
+
+
+
+def _list_im_group_owner_candidates_for_identity(role: str, identity: str) -> list[dict]:
+
+    if role == ROLE_SUPER_ADMIN:
+
+        return _list_im_group_owner_candidates()
+
+    allowed_owners = set(_im_group_owner_usernames_for_identity(role, identity))
+
+    if not allowed_owners:
+
+        return []
+
+    return [
+        item for item in _list_im_group_owner_candidates()
+        if _normalize_im_group_owner_username(item.get('username', '')) in allowed_owners
+    ]
 
 
 
@@ -4915,6 +4969,78 @@ def _ws_ticket_resource_id(data: dict, *names: str) -> str:
     return ''
 
 
+
+def _normalize_admin_scope_username(value: str) -> str:
+
+    return str(value or '').strip().lower()
+
+
+
+def _sub_admin_owns_authorized_account(role: str, sub_name: str, account: dict) -> bool:
+
+    if role == ROLE_SUPER_ADMIN:
+
+        return True
+
+    if role != ROLE_SUB_ADMIN or not sub_name or not isinstance(account, dict):
+
+        return False
+
+    return str(account.get('added_by') or '').strip().lower() == str(sub_name or '').strip().lower()
+
+
+
+async def _require_admin_account_scope(token: str, username: str) -> tuple[Optional[dict], Optional[JSONResponse]]:
+
+    normalized_username = _normalize_admin_scope_username(username)
+
+    if not normalized_username:
+
+        return None, JSONResponse(status_code=400, content={"error": True, "success": False, "message": "missing username"})
+
+    account = await db.get_authorized_account(normalized_username)
+
+    role = get_token_role(token)
+
+    sub_name = get_token_sub_name(token)
+
+    if not account:
+
+        if role == ROLE_SUPER_ADMIN:
+
+            return None, None
+
+        return None, JSONResponse(status_code=404, content={"error": True, "success": False, "message": "account not found"})
+
+    if not _sub_admin_owns_authorized_account(role, sub_name, account):
+
+        return account, JSONResponse(status_code=403, content={"error": True, "success": False, "message": "account scope denied"})
+
+    return account, None
+
+
+
+async def _require_notify_center_admin_user_scope(request: Request, username: str) -> Optional[JSONResponse]:
+
+    token, error_response = await _require_admin_token(request)
+
+    if error_response is not None:
+
+        return error_response
+
+    _, scope_error = await _require_admin_account_scope(token, username)
+
+    return scope_error
+
+
+
+async def _require_notify_center_admin_request(request: Request) -> Optional[JSONResponse]:
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+
+    return error_response
+
+
 def _admin_can_access_assist_session(session, auth_context: dict) -> bool:
     admin_role = str((auth_context or {}).get('admin_role') or '').strip()
     admin_name = str((auth_context or {}).get('admin_name') or '').strip()
@@ -5142,6 +5268,8 @@ if notify_center_service is not None and create_notify_center_router is not None
         app.include_router(create_notify_center_router(
             service=notify_center_service,
             verify_admin_token=verify_admin_token,
+            require_admin_request=_require_notify_center_admin_request,
+            require_admin_user_scope=_require_notify_center_admin_user_scope,
         ))
     except Exception as e:
         logger.warning(f"[NotifyCenter] 路由注册失败，已跳过: {e}")
@@ -6294,7 +6422,7 @@ async def admin_user_detail(username: str, request: Request):
 
 async def admin_user_real_name(request: Request):
 
-    _, error_response = await _require_admin_token(request, 'users')
+    token, error_response = await _require_admin_token(request, 'users')
     if error_response is not None:
         return error_response
 
@@ -6317,6 +6445,12 @@ async def admin_user_real_name(request: Request):
     if not real_name:
 
         return {"success": False, "message": "姓名不能为空"}
+
+    _, scope_error = await _require_admin_account_scope(token, username)
+
+    if scope_error is not None:
+
+        return scope_error
 
     ok = await db.upsert_user_real_name(username, real_name)
 
@@ -7776,7 +7910,11 @@ async def admin_whitelist_renew(request: Request):
 
         return {"success": False, "message": "账号不能为空"}
 
-    existing_account = await db.get_authorized_account(username)
+    existing_account, scope_error = await _require_admin_account_scope(token, username)
+
+    if scope_error is not None:
+
+        return scope_error
 
 
 
@@ -7846,7 +7984,7 @@ async def admin_whitelist_renew(request: Request):
 
 async def admin_whitelist_delete(request: Request):
 
-    _, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request)
     if error_response is not None:
         return error_response
 
@@ -7858,7 +7996,11 @@ async def admin_whitelist_delete(request: Request):
 
         return {"success": False, "message": "账号不能为空"}
 
-    existing_account = await db.get_authorized_account(username)
+    existing_account, scope_error = await _require_admin_account_scope(token, username)
+
+    if scope_error is not None:
+
+        return scope_error
 
     ok = await db.delete_authorized_account(username)
 
@@ -8217,13 +8359,17 @@ async def admin_im_groups(request: Request, search: str = ''):
             LIMIT 200
         ''', *query_params)
 
-    items = [_serialize_im_group_summary(dict(row)) for row in rows]
+    items = [
+        _serialize_im_group_summary(dict(row))
+        for row in rows
+        if _can_manage_im_group_conversation(role, identity, dict(row))
+    ]
 
     return {
         "success": True,
         "total": len(items),
         "items": items,
-        "owner_candidates": _list_im_group_owner_candidates(),
+        "owner_candidates": _list_im_group_owner_candidates_for_identity(role, identity),
     }
 
 
@@ -8269,7 +8415,7 @@ async def admin_im_group_detail(request: Request, conversation_id: int = 0, owne
 
     item['conversation_title'] = str(item.get('conversation_title') or '').strip() or '玩家主群'
 
-    item['owner_candidates'] = _list_im_group_owner_candidates()
+    item['owner_candidates'] = _list_im_group_owner_candidates_for_identity(role, identity)
 
     return {"success": True, "item": item}
 
@@ -8324,6 +8470,10 @@ async def admin_im_group_owner_transfer(request: Request):
 
         return JSONResponse(status_code=403, content={"error": True, "message": "无权操作 IM 群聊"})
 
+    if role != ROLE_SUPER_ADMIN:
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "only super admin can transfer IM group owner"})
+
     transferred_by = _primary_im_group_owner_username_for_identity(role, identity) if role == ROLE_SUB_ADMIN else 'super_admin'
 
     status_code, body = await _post_im_internal_json("/im/internal/group_owner/transfer", {
@@ -8354,7 +8504,7 @@ async def admin_im_group_owner_transfer(request: Request):
 
     item['conversation_title'] = str(item.get('conversation_title') or '').strip() or '玩家主群'
 
-    item['owner_candidates'] = _list_im_group_owner_candidates()
+    item['owner_candidates'] = _list_im_group_owner_candidates_for_identity(role, identity)
 
     return {"success": True, "message": "群主已迁移", "item": item}
 
@@ -8534,7 +8684,7 @@ async def admin_im_emoji_assets_import(request: Request):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if not _is_im_admin_role(role):
+    if role != ROLE_SUPER_ADMIN:
 
         return JSONResponse(status_code=403, content={"error": True, "message": "无权导入自定义表情"})
 
@@ -8590,7 +8740,7 @@ async def admin_im_emoji_assets_upload(request: Request, files: Optional[list[Up
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if not _is_im_admin_role(role):
+    if role != ROLE_SUPER_ADMIN:
 
         return JSONResponse(status_code=403, content={"error": True, "message": "无权上传自定义表情"})
 
@@ -8696,7 +8846,7 @@ async def admin_im_file_assets_config_update(request: Request):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if not _is_im_admin_role(role):
+    if role != ROLE_SUPER_ADMIN:
 
         return JSONResponse(status_code=403, content={"error": True, "message": "无权修改文件保存天数"})
 
@@ -8834,7 +8984,7 @@ async def admin_im_image_upload_config_update(request: Request):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if not _is_im_admin_role(role):
+    if role != ROLE_SUPER_ADMIN:
 
         return JSONResponse(status_code=403, content={"error": True, "message": "无权修改图片压缩配置"})
 
@@ -13933,7 +14083,7 @@ async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
 
 @app.post("/admin/api/ak_auth/clear")
 async def admin_clear_ak_auth(request: Request):
-    _, error_response = await _require_admin_token(request, 'users')
+    token, error_response = await _require_admin_token(request, 'users')
     if error_response is not None:
         return error_response
 
@@ -13941,6 +14091,9 @@ async def admin_clear_ak_auth(request: Request):
     username = (data.get("username") or "").strip().lower()
     if not username:
         return JSONResponse({"success": False, "message": "缺少用户名"})
+    _, scope_error = await _require_admin_account_scope(token, username)
+    if scope_error is not None:
+        return scope_error
     _ak_auth_cache.pop(username, None)
     try:
         await db.clear_ak_auth_state(username)
@@ -14551,6 +14704,9 @@ async def admin_browse_login(request: Request):
 
     data = await request.json()
     username = data.get("username", "").strip()
+    _, scope_error = await _require_admin_account_scope(_extract_admin_bearer_token(request), username)
+    if scope_error is not None:
+        return scope_error
     if not username:
         return JSONResponse({"success": False, "message": "缺少用户名"})
     password = await db.get_user_password(username)
@@ -14571,12 +14727,18 @@ async def admin_remote_assist_start(request: Request):
     token, role, admin_name = await _resolve_admin_identity(request)
     if not token or not role:
         return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    _, permission_error = await _require_admin_token(request, 'online')
+    if permission_error is not None:
+        return permission_error
     if not remote_assist.is_enabled() or not remote_assist.supports_site("ak_web"):
         return JSONResponse({"success": False, "message": "远程指导未启用"}, status_code=503)
     data = await request.json()
     username = (data.get("username") or "").strip()
     if not username:
         return JSONResponse({"success": False, "message": "缺少用户名"})
+    _, scope_error = await _require_admin_account_scope(token, username)
+    if scope_error is not None:
+        return scope_error
     session = remote_assist.find_session_by_target_username(username)
     if session and not _assist_session_has_connected_admin(session):
         _cancel_remote_assist_auto_unbind(session.session_id)

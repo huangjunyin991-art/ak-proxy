@@ -75,6 +75,7 @@ class OperationAuthService:
     async def issue_lease(self, admin_token: str, role: str, sub_name: str, scope: str,
                           code: str, duration_seconds: int | None = None,
                           client_ip: str = '', user_agent: str = ''):
+        requested_scope = str(scope or '').strip()
         code_result = await self.verify_code(role, sub_name, code)
         if not code_result.get('success'):
             return code_result
@@ -86,7 +87,7 @@ class OperationAuthService:
             admin_token=admin_token,
             role=role,
             sub_name=sub_name or '',
-            scope=self.GLOBAL_SCOPE,
+            scope=requested_scope,
             expire=expire,
             client_ip=client_ip,
             user_agent=user_agent,
@@ -94,8 +95,8 @@ class OperationAuthService:
         return {
             'success': True,
             'lease_token': lease_token,
-            'scope': self.GLOBAL_SCOPE,
-            'requested_scope': scope,
+            'scope': requested_scope,
+            'requested_scope': requested_scope,
             'expires_in': ttl,
             'expire': row.get('expire'),
         }
