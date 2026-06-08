@@ -33,8 +33,8 @@ const (
 )
 
 var (
-	tencentMeetingShortIDRegex   = regexp.MustCompile(`^https?://meeting\.tencent\.com/(?:dm|dw|p)/([A-Za-z0-9_\-]+)`)
-	tencentMeetingNextDataRegex  = regexp.MustCompile(`(?s)<script id="__NEXT_DATA__" type="application/json">(.*?)</script>`)
+	tencentMeetingShortIDRegex  = regexp.MustCompile(`^https?://meeting\.tencent\.com/(?:dm|dw|p)/([A-Za-z0-9_\-]+)`)
+	tencentMeetingNextDataRegex = regexp.MustCompile(`(?s)<script id="__NEXT_DATA__" type="application/json">(.*?)</script>`)
 )
 
 // MeetingItem 是对外暴露的会议卡片对象（用于列表 / 发布响应 / WebSocket payload）
@@ -97,9 +97,9 @@ type tencentMeetingNextData struct {
 		PageProps struct {
 			MeetingInfo struct {
 				MeetingCode     string `json:"meeting_code"`
-				Subject         string `json:"subject"`          // Base64
-				BeginTime       string `json:"begin_time"`       // Unix seconds (string)
-				EndTime         string `json:"end_time"`         // Unix seconds (string)
+				Subject         string `json:"subject"`    // Base64
+				BeginTime       string `json:"begin_time"` // Unix seconds (string)
+				EndTime         string `json:"end_time"`   // Unix seconds (string)
 				HasPassword     bool   `json:"has_password"`
 				CreatorNickname string `json:"creator_nickname"` // Base64
 			} `json:"meetingInfo"`
@@ -228,7 +228,8 @@ func parseTencentMeetingShare(ctx context.Context, rawURL string) (*MeetingParse
 // ============================ 权限 & 可见性 ============================
 
 // canPublishMeeting 是否有资格发布会议
-//   条件（任一）：当前用户是某白名单主群 owner_username；或是其 admin 且未撤销
+//
+//	条件（任一）：当前用户是某白名单主群 owner_username；或是其 admin 且未撤销
 func (a *App) canPublishMeeting(ctx context.Context, username string) (bool, error) {
 	normalized := strings.ToLower(strings.TrimSpace(username))
 	if normalized == "" {
@@ -955,6 +956,50 @@ func (a *App) dbMeetingMarkRead(ctx context.Context, meetingID int64, username s
 	return err
 }
 
+func (a *App) dbMeetingMarkReadIfVisible(ctx context.Context, meetingID int64, username string) error {
+	normalized := strings.ToLower(strings.TrimSpace(username))
+	if normalized == "" || meetingID <= 0 {
+		return errors.New("invalid read params")
+	}
+	var visible bool
+	if err := a.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM im_meetings m
+			WHERE m.id = $1
+			  AND (
+				(COALESCE(m.audience_scope, 'group') = 'group' AND (
+					m.group_key = '' OR LOWER(m.group_key) IN (
+						SELECT DISTINCT LOWER(c.conversation_key)
+						FROM im_conversation c
+						JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
+						WHERE c.conversation_type = 'group'
+						  AND c.conversation_key LIKE 'group:admin_whitelist:%'
+						  AND c.deleted_at IS NULL
+						  AND LOWER(cm.username) = $2
+					)
+				))
+				OR (COALESCE(m.audience_scope, 'group') = 'owned' AND EXISTS (
+					SELECT 1 FROM authorized_accounts aa
+					WHERE LOWER(aa.username) = $2
+					  AND aa.status = 'active'
+					  AND aa.added_by = COALESCE(m.audience_owner, '')
+				))
+				OR (COALESCE(m.audience_scope, 'group') = 'all' AND EXISTS (
+					SELECT 1 FROM authorized_accounts aa
+					WHERE LOWER(aa.username) = $2
+					  AND aa.status = 'active'
+				))
+			  )
+		)`, meetingID, normalized).Scan(&visible); err != nil {
+		return err
+	}
+	if !visible {
+		return pgx.ErrNoRows
+	}
+	return a.dbMeetingMarkRead(ctx, meetingID, normalized)
+}
+
 func (a *App) dbMeetingMarkAllRead(ctx context.Context, username string) error {
 	normalized := strings.ToLower(strings.TrimSpace(username))
 	if normalized == "" {
@@ -1045,11 +1090,11 @@ func (a *App) handleMeetingPreview(w http.ResponseWriter, r *http.Request) {
 		// 解析失败：返回 parsed:false + 原 URL 校验态，允许前端降级手填
 		normalizedURL := normalizeTencentMeetingURL(req.URL)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success":   true,
-			"parsed":    false,
-			"url":       normalizedURL,
-			"short_id":  extractTencentMeetingShortID(normalizedURL),
-			"error":     perr.Error(),
+			"success":  true,
+			"parsed":   false,
+			"url":      normalizedURL,
+			"short_id": extractTencentMeetingShortID(normalizedURL),
+			"error":    perr.Error(),
 		})
 		return
 	}
@@ -1110,9 +1155,9 @@ func (a *App) handleMeetingList(w http.ResponseWriter, r *http.Request, username
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success":      true,
-		"items":        publicMeetingItems(items),
-		"unread_count": unread,
+		"success":           true,
+		"items":             publicMeetingItems(items),
+		"unread_count":      unread,
 		"can_publish":       canPublish,
 		"can_publish_owned": canPublishOwned,
 		"can_publish_all":   canPublishAll,
@@ -1396,7 +1441,11 @@ func (a *App) handleMeetingRead(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if req.MeetingID > 0 {
-		if err := a.dbMeetingMarkRead(r.Context(), req.MeetingID, username); err != nil {
+		if err := a.dbMeetingMarkReadIfVisible(r.Context(), req.MeetingID, username); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "会议不存在"})
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}

@@ -261,6 +261,7 @@
 ### S12. 单个会议标记已读未校验可见性
 
 级别：P3
+状态：已处理。单个会议标记已读现在先校验当前用户对会议是否可见，不可见时返回 404 且不写入 `im_meeting_reads`；批量已读继续沿用可见范围 SQL。
 位置：
 
 - `im_server/internal/app/meeting_features.go:1378`
