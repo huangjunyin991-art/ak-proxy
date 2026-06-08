@@ -26,12 +26,17 @@ def _read_bool_env(name: str) -> bool | None:
     return None
 
 
-@lru_cache(maxsize=64)
-def resolve_upstream_tls_verify(service_name: str = "upstream", env_var: str | None = None):
+@lru_cache(maxsize=128)
+def resolve_upstream_tls_verify(
+    service_name: str = "upstream",
+    env_var: str | None = None,
+    default: bool = True,
+):
     """Return the httpx verify value for fixed upstream calls.
 
-    TLS verification is enabled by default. A deployment that truly needs
-    legacy insecure TLS must opt in explicitly through an environment variable.
+    TLS verification is enabled by default. Legacy AK upstream callers may pass
+    default=False as a compatibility exception while keeping the decision visible
+    in one place and overrideable by environment variables.
     """
 
     ca_bundle = str(os.environ.get("AK_UPSTREAM_CA_BUNDLE") or "").strip()
@@ -53,6 +58,9 @@ def resolve_upstream_tls_verify(service_name: str = "upstream", env_var: str | N
         if not parsed:
             _warn_insecure_tls(service, candidate)
         return parsed
+    if not bool(default):
+        _warn_insecure_tls(service, "compatibility_default")
+        return False
     return True
 
 

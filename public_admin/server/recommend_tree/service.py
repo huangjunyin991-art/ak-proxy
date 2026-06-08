@@ -54,7 +54,7 @@ class RecommendTreeService:
             raise RuntimeError("该账号没有可用登录态或已保存密码，请先让该账号登录一次，或在账号管理中补齐密码")
         async with httpx.AsyncClient(
             headers=make_headers(),
-            verify=resolve_upstream_tls_verify("recommend_tree"),
+            verify=resolve_upstream_tls_verify("recommend_tree", default=False),
             follow_redirects=True,
             trust_env=False,
             timeout=25.0,

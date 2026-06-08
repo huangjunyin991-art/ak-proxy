@@ -6122,7 +6122,7 @@ async def _ensure_point_stats_auth(username: str) -> dict:
         raise RuntimeError("该账号没有可用登录态，且账号管理表中没有保存密码，请先让该账号登录一次或在账号管理中补齐密码")
     async with httpx.AsyncClient(
         headers=_POINT_STATS_LOGIN_HEADERS,
-        verify=resolve_upstream_tls_verify("point_stats"),
+        verify=resolve_upstream_tls_verify("point_stats", default=False),
         follow_redirects=True,
         trust_env=False,
         timeout=25.0,
@@ -13295,7 +13295,7 @@ class AkWebClientPool:
                 keepalive_expiry=120,
             )
             client = httpx.AsyncClient(
-                verify=resolve_upstream_tls_verify("ak_web"),
+                verify=resolve_upstream_tls_verify("ak_web", default=False),
                 proxy=proxy_url,
                 timeout=httpx.Timeout(20, connect=10),
                 follow_redirects=True,
@@ -14547,7 +14547,7 @@ async def admin_ak_test(request: Request):
     # 方式A：c.get() + follow_redirects在构造函数
     try:
         async with httpx.AsyncClient(
-            verify=resolve_upstream_tls_verify("ak_test"),
+            verify=resolve_upstream_tls_verify("ak_test", default=False),
             follow_redirects=True,
             timeout=15,
         ) as c:
@@ -14562,7 +14562,7 @@ async def admin_ak_test(request: Request):
     # 方式B：client.request() + follow_redirects在request()参数（同ak_web_proxy当前代码）
     try:
         async with httpx.AsyncClient(
-            verify=resolve_upstream_tls_verify("ak_test"),
+            verify=resolve_upstream_tls_verify("ak_test", default=False),
             timeout=15,
             cookies={},
         ) as c:

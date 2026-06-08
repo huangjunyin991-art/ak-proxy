@@ -128,7 +128,7 @@ class RecommendTreeProvider:
         root_id = root_rid or auth.get("user_id")
         async with httpx.AsyncClient(
             headers=make_headers(),
-            verify=resolve_upstream_tls_verify("recommend_tree"),
+            verify=resolve_upstream_tls_verify("recommend_tree", default=False),
             follow_redirects=True,
             trust_env=False,
             timeout=25.0,
