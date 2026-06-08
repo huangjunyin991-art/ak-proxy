@@ -13,7 +13,7 @@ DEFAULT_AUTO_CLOSE_MINUTES = 30
 
 
 class WsTicketDiagnosticsPolicyStore:
-    def __init__(self, pool_supplier: Callable[[], Any], *, cache_ttl_seconds: int = 5, logger: Any = None):
+    def __init__(self, pool_supplier: Callable[[], Any] | Any, *, cache_ttl_seconds: int = 5, logger: Any = None):
         self._pool_supplier = pool_supplier
         self._cache_ttl_seconds = max(1, min(60, int(cache_ttl_seconds or 5)))
         self._logger = logger
@@ -35,7 +35,7 @@ class WsTicketDiagnosticsPolicyStore:
     async def set_policy(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         policy = normalize_ws_ticket_diagnostics_policy(payload or {})
         await self._ensure_table()
-        pool = self._pool_supplier()
+        pool = self._pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
@@ -71,7 +71,7 @@ class WsTicketDiagnosticsPolicyStore:
     async def prune_events(self, retention_days: int) -> dict[str, Any]:
         days = max(1, min(30, int(retention_days or DEFAULT_RETENTION_DAYS)))
         try:
-            pool = self._pool_supplier()
+            pool = self._pool()
             async with pool.acquire() as conn:
                 has_events = bool(await conn.fetchval("SELECT to_regclass($1)", "public.ws_ticket_events"))
                 if not has_events:
@@ -88,7 +88,7 @@ class WsTicketDiagnosticsPolicyStore:
     async def _read_policy(self) -> dict[str, Any]:
         try:
             await self._ensure_table()
-            pool = self._pool_supplier()
+            pool = self._pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow("SELECT value FROM system_config WHERE key = $1", CONFIG_KEY)
             if not row:
@@ -111,7 +111,7 @@ class WsTicketDiagnosticsPolicyStore:
             return normalize_ws_ticket_diagnostics_policy({})
 
     async def _ensure_table(self) -> None:
-        pool = self._pool_supplier()
+        pool = self._pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
@@ -124,6 +124,9 @@ class WsTicketDiagnosticsPolicyStore:
                 """
             )
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_system_config_key ON system_config(key)")
+
+    def _pool(self) -> Any:
+        return self._pool_supplier() if callable(self._pool_supplier) else self._pool_supplier
 
 
 def normalize_ws_ticket_diagnostics_policy(payload: dict[str, Any] | None, *, now: datetime | None = None) -> dict[str, Any]:

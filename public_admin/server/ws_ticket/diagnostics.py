@@ -13,10 +13,10 @@ WINDOWS = (
 )
 
 
-async def collect_ws_ticket_diagnostics(pool_supplier: Callable[[], Any], policy_store: Any = None) -> dict[str, Any]:
+async def collect_ws_ticket_diagnostics(pool_supplier: Callable[[], Any] | Any, policy_store: Any = None) -> dict[str, Any]:
     policy_service = policy_store or WsTicketDiagnosticsPolicyStore(pool_supplier)
     policy = await policy_service.get_policy()
-    pool = pool_supplier()
+    pool = _resolve_pool(pool_supplier)
     async with pool.acquire() as conn:
         has_events = await _table_exists(conn, "ws_ticket_events")
         has_tickets = await _table_exists(conn, "ws_tickets")
@@ -48,6 +48,10 @@ async def collect_ws_ticket_diagnostics(pool_supplier: Callable[[], Any], policy
             "ticket_state": ticket_state,
             "recent_failures": recent_failures,
         }
+
+
+def _resolve_pool(pool_supplier: Callable[[], Any] | Any) -> Any:
+    return pool_supplier() if callable(pool_supplier) else pool_supplier
 
 
 async def _table_exists(conn, table_name: str) -> bool:

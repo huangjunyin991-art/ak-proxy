@@ -111,7 +111,7 @@ class MonitoringService:
 
     async def get_ws_tickets(self, force: bool = False) -> dict:
         async def collector():
-            return await collect_ws_ticket_diagnostics(self._pool(), self.ws_ticket_policy)
+            return await collect_ws_ticket_diagnostics(self._pool, self.ws_ticket_policy)
         return await self._cached("ws_tickets", self.light_ttl_seconds, collector, force=force)
 
     async def get_ws_ticket_policy(self) -> dict:
