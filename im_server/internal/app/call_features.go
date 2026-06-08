@@ -95,11 +95,10 @@ func (a *App) deleteCallSession(callID string) {
 	a.callSessionsMu.Unlock()
 }
 
-func (a *App) broadcastCallSessionEvent(session *imCallSession, eventType string, exclude *callHubConn, extra map[string]any) {
+func (a *App) broadcastCallSessionEvent(session *imCallSession, eventType string, extra map[string]any) {
 	if a == nil || session == nil {
 		return
 	}
-	_ = exclude
 	if strings.TrimSpace(eventType) == "" {
 		eventType = "im.call.updated"
 	}
@@ -213,7 +212,7 @@ func (a *App) watchCallInvitationTimeout(callID string) {
 	session.Status = IMCallStatusTimeout
 	session.EndedAt = time.Now()
 	session.touch()
-	a.broadcastCallSessionEvent(session, "im.call.failed", nil, map[string]any{
+	a.broadcastCallSessionEvent(session, "im.call.failed", map[string]any{
 		"reason": "timeout",
 	})
 	a.deleteCallSession(session.CallID)
@@ -454,57 +453,26 @@ func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action st
 	session.touch()
 	switch action {
 	case "accept":
-		a.broadcastCallSessionEvent(session, "im.call.accepted", nil, nil)
-		a.broadcastCallSessionEvent(session, "im.call.connected", nil, nil)
+		a.broadcastCallSessionEvent(session, "im.call.accepted", nil)
+		a.broadcastCallSessionEvent(session, "im.call.connected", nil)
 	case "reject":
-		a.broadcastCallSessionEvent(session, "im.call.failed", nil, map[string]any{
+		a.broadcastCallSessionEvent(session, "im.call.failed", map[string]any{
 			"reason":     "rejected",
 			"actor":      normalizeCallUsername(username),
 			"actor_role": role,
 		})
 		defer a.deleteCallSession(session.CallID)
 	case "hangup":
-		a.broadcastCallSessionEvent(session, "im.call.ended", nil, map[string]any{
+		a.broadcastCallSessionEvent(session, "im.call.ended", map[string]any{
 			"reason":     "hangup",
 			"actor":      normalizeCallUsername(username),
 			"actor_role": role,
 		})
 		defer a.deleteCallSession(session.CallID)
 	case "mute", "unmute":
-		a.broadcastCallSessionEvent(session, "im.call.updated", nil, map[string]any{"muted_by": role})
+		a.broadcastCallSessionEvent(session, "im.call.updated", map[string]any{"muted_by": role})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "session": session.toMap()})
-}
-
-func (a *App) handleCallHub(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
-		return
-	}
-	username, err := a.requireAllowedUser(r)
-	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	callID := strings.TrimSpace(r.URL.Query().Get("call_id"))
-	role := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("role")))
-	if callID == "" || role == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "missing call_id or role"})
-		return
-	}
-	session := a.getCallSession(callID)
-	if session == nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "call not found"})
-		return
-	}
-	if !strings.EqualFold(session.CallerUsername, username) && !strings.EqualFold(session.CalleeUsername, username) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
-		return
-	}
-	conn := a.callHub.connect(callID, role, r.URL.Query().Get("ws_id"), r.URL.Query().Get("page_id"))
-	defer a.callHub.disconnect(callID, conn)
-	_ = conn
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 func (a *App) handleCallRoutes(w http.ResponseWriter, r *http.Request) {

@@ -51,7 +51,6 @@ type App struct {
 	sessionVisibility *sessionvisibility.Service
 	mediaTasks        *taskstore.Store
 	hub               *Hub
-	callHub           *callHub
 	callSessions      map[string]*imCallSession
 	callSessionsMu    sync.RWMutex
 	messageNotifier   *MessageNotifyPublisher
@@ -264,7 +263,6 @@ func New(cfg config.Config) (*App, error) {
 		cfg:             cfg,
 		db:              pool,
 		hub:             &Hub{conns: map[string]map[*HubConn]struct{}{}},
-		callHub:         newCallHub(),
 		callSessions:    map[string]*imCallSession{},
 		messageNotifier: NewMessageNotifyPublisher(cfg),
 		wsTickets:       wsticket.New(pool, cfg.WsTicketTTLSeconds),
@@ -371,8 +369,6 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/call/accept", app.handleCallRoutes)
 	mux.HandleFunc("/im/api/call/reject", app.handleCallRoutes)
 	mux.HandleFunc("/im/api/call/hangup", app.handleCallRoutes)
-	mux.HandleFunc("/im/api/call/ws", app.handleCallHub)
-	mux.HandleFunc("/im/api/call/hub", app.handleCallHub)
 
 	mux.HandleFunc("/im/internal/meetings/publish", app.handleInternalMeetingPublish)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)

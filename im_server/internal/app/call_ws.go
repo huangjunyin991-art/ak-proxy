@@ -95,8 +95,8 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		session.CalleeWSID = strings.TrimSpace(payload.WSID)
 		session.CalleePageID = strings.TrimSpace(payload.PageID)
 		session.touch()
-		a.broadcastCallSessionEvent(session, "im.call.accepted", nil, nil)
-		a.broadcastCallSessionEvent(session, "im.call.connected", nil, nil)
+		a.broadcastCallSessionEvent(session, "im.call.accepted", nil)
+		a.broadcastCallSessionEvent(session, "im.call.connected", nil)
 		return true
 	case "im.call.reject":
 		session := a.getCallSession(payload.CallID)
@@ -110,10 +110,10 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		session.Status = IMCallStatusFailed
 		session.EndedAt = time.Now()
 		session.touch()
-		a.broadcastCallSessionEvent(session, "im.call.failed", nil, map[string]any{
-			"reason":       "rejected",
-			"actor":        normalizeCallUsername(username),
-			"actor_role":   a.callUserRole(session, username),
+		a.broadcastCallSessionEvent(session, "im.call.failed", map[string]any{
+			"reason":     "rejected",
+			"actor":      normalizeCallUsername(username),
+			"actor_role": a.callUserRole(session, username),
 		})
 		a.deleteCallSession(session.CallID)
 		return true
@@ -129,7 +129,7 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		session.Status = IMCallStatusEnded
 		session.EndedAt = time.Now()
 		session.touch()
-		a.broadcastCallSessionEvent(session, "im.call.ended", nil, map[string]any{
+		a.broadcastCallSessionEvent(session, "im.call.ended", map[string]any{
 			"reason":     "hangup",
 			"actor":      normalizeCallUsername(username),
 			"actor_role": a.callUserRole(session, username),
@@ -152,7 +152,7 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 			session.CalleeMuted = payload.Muted
 		}
 		session.touch()
-		a.broadcastCallSessionEvent(session, "im.call.updated", nil, map[string]any{"muted_by": role})
+		a.broadcastCallSessionEvent(session, "im.call.updated", map[string]any{"muted_by": role})
 		return true
 	case "im.call.offer", "im.call.answer", "im.call.ice":
 		session := a.getCallSession(payload.CallID)
