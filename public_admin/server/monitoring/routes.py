@@ -69,6 +69,37 @@ def create_monitoring_router(
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
+    @router.get("/ws-tickets")
+    async def monitoring_ws_tickets(request: Request, force: str = ""):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return {"success": True, "item": await service.get_ws_tickets(force=_parse_force(force))}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.get("/ws-tickets/policy")
+    async def monitoring_ws_ticket_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return {"success": True, "item": await service.get_ws_ticket_policy()}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/ws-tickets/policy")
+    async def monitoring_update_ws_ticket_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            payload = await request.json()
+            return {"success": True, "item": await service.update_ws_ticket_policy(payload or {})}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
     @router.get("/database")
     async def monitoring_database(request: Request, force: str = ""):
         _, error_response = await require_super_admin(request)

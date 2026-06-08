@@ -12,6 +12,7 @@ from .collectors.postgres_collector import collect_database_snapshot
 from .collectors.system_collector import collect_system_snapshot
 from .guard import GuardError, validate_limit, validate_range
 from .schemas import error_item, unavailable
+from ..ws_ticket import WsTicketDiagnosticsPolicyStore, collect_ws_ticket_diagnostics
 
 
 class MonitoringService:
@@ -20,6 +21,7 @@ class MonitoringService:
         self.im_server_internal_url = str(im_server_internal_url or "").rstrip("/")
         self._cache = {}
         self._locks = {}
+        self.ws_ticket_policy = WsTicketDiagnosticsPolicyStore(pool_supplier)
         self.light_ttl_seconds = 5
         self.heavy_ttl_seconds = 3600
 
@@ -106,6 +108,19 @@ class MonitoringService:
         async def collector():
             return await collect_health_snapshot(self._pool(), self.im_server_internal_url)
         return await self._cached("health", self.light_ttl_seconds, collector, force=force)
+
+    async def get_ws_tickets(self, force: bool = False) -> dict:
+        async def collector():
+            return await collect_ws_ticket_diagnostics(self._pool(), self.ws_ticket_policy)
+        return await self._cached("ws_tickets", self.light_ttl_seconds, collector, force=force)
+
+    async def get_ws_ticket_policy(self) -> dict:
+        return await self.ws_ticket_policy.get_policy(force=True)
+
+    async def update_ws_ticket_policy(self, payload: dict) -> dict:
+        await self.ws_ticket_policy.set_policy(payload or {})
+        self._cache.pop("ws_tickets", None)
+        return await self.get_ws_tickets(force=True)
 
     async def get_database(self, force: bool = False) -> dict:
         system_snapshot = await self.get_system(force=False)

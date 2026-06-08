@@ -167,7 +167,7 @@ from .security.audit import (
 from .security.context import build_security_context
 from .security.result import SecurityResult
 from .ak_auth import AkUserKeyLoginFastPath
-from .ws_ticket import WsTicketRepository, WsTicketService, create_ws_ticket_router
+from .ws_ticket import WsTicketDiagnosticsPolicyStore, WsTicketRepository, WsTicketService, create_ws_ticket_router
 from .ws_ticket.service import WsTicketError
 
 from plugins.remote_assist.server import remote_assist
@@ -4856,10 +4856,13 @@ def _get_ws_ticket_ttl_seconds() -> int:
         return 45
 
 
+ws_ticket_diagnostics_policy = WsTicketDiagnosticsPolicyStore(db._get_pool, logger=logger)
+
 ws_ticket_service = WsTicketService(
     WsTicketRepository(db._get_pool),
     ttl_seconds=_get_ws_ticket_ttl_seconds(),
     logger=logger,
+    diagnostics_policy=ws_ticket_diagnostics_policy,
 )
 
 

@@ -19,11 +19,13 @@
             chat: null,
             groups: null,
             fileAssets: null,
+            wsTickets: null,
             staticCache: null,
             runtimeHygiene: null,
             runtimePerformance: null,
             indexPlan: null
         },
+        loadingWsTickets: false,
         loadingStaticCache: false,
         loadingRuntimeHygiene: false,
         loadingRuntimePerformance: false,
@@ -55,6 +57,7 @@
             task: function() {
                 return Promise.all([
                     loadLight(false),
+                    loadWsTickets(false),
                     loadRuntimeHygiene(false),
                     loadRuntimePerformance(false)
                 ]);
@@ -255,7 +258,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260608-02';
+        link.href = '/admin/api/monitoring-panel.css?v=20260608-05';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -298,6 +301,19 @@
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
+            '<div class="monitoring-section monitoring-ws-ticket-section">' +
+            '<div class="monitoring-section-header"><h4>WebSocket 短票握手</h4><span class="monitoring-meta" id="monitoringWsTicketMeta">读取中...</span></div>' +
+            '<div class="monitoring-cache-grid monitoring-ws-ticket-policy-grid">' +
+            '<label class="monitoring-switch-card"><input id="wsTicketDiagnosticsEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用诊断写入</strong><small>关闭后短票安全仍生效，但不写入事件表</small></span></label>' +
+            '<label><span>自动关闭（分钟）</span><input class="monitoring-input" id="wsTicketDiagnosticsMinutes" type="number" min="5" max="1440" step="5"></label>' +
+            '<label><span>事件保留（天）</span><input class="monitoring-input" id="wsTicketDiagnosticsRetentionDays" type="number" min="1" max="30" step="1"></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions monitoring-ws-ticket-actions"><button class="monitoring-btn primary" data-monitoring-action="save-ws-ticket-policy">保存诊断策略</button><span class="monitoring-meta" id="monitoringWsTicketPolicyMeta">默认关闭，仅调试时开启</span></div>' +
+            '<div class="monitoring-grid" id="monitoringWsTicketCards"></div>' +
+            '<div class="monitoring-bars" id="monitoringWsTicketBars"></div>' +
+            '<div class="monitoring-table-wrap monitoring-ws-ticket-table-wrap"><table class="monitoring-table monitoring-ws-ticket-table"><thead><tr><th>Audience</th><th>签发</th><th>消费</th><th>拒绝</th><th>待消费</th><th>过期未用</th><th>最近事件</th></tr></thead><tbody id="monitoringWsTicketAudienceRows"></tbody></table></div>' +
+            '<div class="monitoring-table-wrap monitoring-ws-ticket-failure-wrap"><table class="monitoring-table monitoring-ws-ticket-failure-table"><thead><tr><th>时间</th><th>Audience</th><th>原因</th><th>角色</th><th>资源</th><th>账号</th><th>IP</th></tr></thead><tbody id="monitoringWsTicketFailureRows"></tbody></table></div>' +
+            '</div>' +
             '<div class="monitoring-section monitoring-runtime-performance-section">' +
             '<div class="monitoring-section-header"><h4>运行时性能</h4><span class="monitoring-meta" id="monitoringRuntimePerformanceMeta">读取中...</span></div>' +
             '<div class="monitoring-grid" id="monitoringRuntimePerformanceCards"></div>' +
@@ -381,6 +397,8 @@
                 runRuntimeHygieneOnce();
             } else if (action === 'refresh-runtime-hygiene') {
                 loadRuntimeHygiene(true);
+            } else if (action === 'save-ws-ticket-policy') {
+                saveWsTicketPolicy();
             } else if (action === 'refresh-index-plan') {
                 loadIndexPlan(true);
             } else if (action === 'run-index-plan') {
@@ -393,6 +411,7 @@
         });
         document.getElementById('monitoringRefreshLight').addEventListener('click', function() {
             loadLight(true);
+            loadWsTickets(true);
             loadStaticCachePolicy();
             loadRuntimeHygiene(true);
             loadRuntimePerformance(true);
@@ -656,6 +675,127 @@
         }
     }
 
+    function wsTicketWindow(item, key) {
+        var windows = item && item.windows || {};
+        return windows[key] || {};
+    }
+
+    function renderWsTicketAudienceRows(item) {
+        if (!item || item.error || item.available === false) return '<tr><td colspan="7"><div class="monitoring-empty">短票诊断暂不可用</div></td></tr>';
+        var ticketState = item.ticket_state || {};
+        var stateByAudience = {};
+        (ticketState.by_audience || []).forEach(function(row) {
+            stateByAudience[String(row.audience || '-')] = row;
+        });
+        var rows = Array.isArray(item.audiences) ? item.audiences.slice() : [];
+        Object.keys(stateByAudience).forEach(function(audience) {
+            if (!rows.some(function(row) { return String(row.audience || '-') === audience; })) {
+                rows.push({ audience: audience, issued: 0, consumed: 0, rejected: 0, last_event_at: '' });
+            }
+        });
+        if (!rows.length) return '<tr><td colspan="7"><div class="monitoring-empty">暂无短票事件</div></td></tr>';
+        return rows.map(function(row) {
+            var audience = String(row.audience || '-');
+            var stateRow = stateByAudience[audience] || {};
+            return '<tr>' +
+                '<td><code>' + escapeHtml(audience) + '</code></td>' +
+                '<td>' + formatNumber(row.issued) + '</td>' +
+                '<td>' + formatNumber(row.consumed) + '</td>' +
+                '<td>' + formatNumber(row.rejected) + '</td>' +
+                '<td>' + formatNumber(stateRow.pending) + '</td>' +
+                '<td>' + formatNumber(stateRow.expired_unconsumed) + '</td>' +
+                '<td>' + escapeHtml(formatTime(row.last_event_at)) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderWsTicketFailureRows(item) {
+        if (!item || item.error || item.available === false) return '<tr><td colspan="7"><div class="monitoring-empty">短票失败样本暂不可用</div></td></tr>';
+        var rows = Array.isArray(item.recent_failures) ? item.recent_failures : [];
+        if (!rows.length) return '<tr><td colspan="7"><div class="monitoring-empty">最近没有短票拒绝事件</div></td></tr>';
+        return rows.map(function(row) {
+            var resource = [row.resource_type || '', row.resource_id || ''].filter(Boolean).join(':') || '-';
+            return '<tr>' +
+                '<td>' + escapeHtml(formatTime(row.created_at)) + '</td>' +
+                '<td><code>' + escapeHtml(row.audience || '-') + '</code></td>' +
+                '<td>' + escapeHtml(row.code || '-') + '</td>' +
+                '<td>' + escapeHtml(row.role || '-') + '</td>' +
+                '<td>' + escapeHtml(resource) + '</td>' +
+                '<td>' + escapeHtml(row.subject || '-') + '</td>' +
+                '<td>' + escapeHtml(row.client_ip || '-') + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderWsTickets() {
+        var item = state.data.wsTickets || {};
+        var cards = document.getElementById('monitoringWsTicketCards');
+        var bars = document.getElementById('monitoringWsTicketBars');
+        var audienceRows = document.getElementById('monitoringWsTicketAudienceRows');
+        var failureRows = document.getElementById('monitoringWsTicketFailureRows');
+        var meta = document.getElementById('monitoringWsTicketMeta');
+        var policyMeta = document.getElementById('monitoringWsTicketPolicyMeta');
+        var policy = item.policy || {};
+        if (!wsTicketPolicyEditing()) {
+            setChecked('wsTicketDiagnosticsEnabled', !!policy.enabled && policy.expired !== true);
+            setInputValue('wsTicketDiagnosticsMinutes', policy.effective_enabled && policy.remaining_seconds ? Math.max(1, Math.ceil(Number(policy.remaining_seconds || 0) / 60)) : (policy.default_auto_close_minutes || 30));
+            setInputValue('wsTicketDiagnosticsRetentionDays', policy.retention_days || 3);
+        }
+        if (policyMeta) {
+            var policyText = policy.effective_enabled
+                ? ('已开启，' + (policy.remaining_seconds ? Math.ceil(Number(policy.remaining_seconds || 0) / 60) + ' 分钟后自动关闭' : '未设置自动关闭'))
+                : (policy.expired ? '已到期：诊断写入已自动停止' : '已关闭：不写入诊断事件');
+            setTextIfChanged(policyMeta, policyText);
+        }
+        if (!item || (!item.windows && item.available !== false && !item.error)) {
+            if (cards) setHtmlIfChanged(cards, renderCard('短票握手', '读取中', '等待首次轻量刷新'));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (audienceRows) setHtmlIfChanged(audienceRows, '<tr><td colspan="7"><div class="monitoring-empty">等待首次采样</div></td></tr>');
+            if (failureRows) setHtmlIfChanged(failureRows, '<tr><td colspan="7"><div class="monitoring-empty">等待首次采样</div></td></tr>');
+            if (meta) setTextIfChanged(meta, '读取中...');
+            return;
+        }
+        if (item.error || item.available === false) {
+            var message = item.error || item.message || '短票诊断不可用';
+            if (cards) setHtmlIfChanged(cards, renderCard('短票握手', '不可用', message));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (audienceRows) setHtmlIfChanged(audienceRows, renderWsTicketAudienceRows(item));
+            if (failureRows) setHtmlIfChanged(failureRows, renderWsTicketFailureRows(item));
+            if (meta) setTextIfChanged(meta, message);
+            return;
+        }
+        var w15 = wsTicketWindow(item, '15m');
+        var w1h = wsTicketWindow(item, '1h');
+        var w24 = wsTicketWindow(item, '24h');
+        var ticketState = item.ticket_state || {};
+        var topReject = (w1h.reject_codes || [])[0] || {};
+        var eventTableText = item.event_table_available === false ? '事件表未初始化' : '事件表正常';
+        var recordingText = item.recording_enabled ? '已开启' : '已关闭';
+        var recordingSub = item.recording_enabled ? '正在记录签发/消费/拒绝摘要' : '短票安全生效，诊断写入停止';
+        if (cards) {
+            setHtmlIfChanged(cards,
+                renderCard('诊断写入', recordingText, recordingSub) +
+                renderCard('15分钟签发', formatNumber(w15.issued), item.recording_enabled ? ('消费 ' + formatNumber(w15.consumed) + '；拒绝 ' + formatNumber(w15.rejected)) : '关闭期间不新增事件') +
+                renderCard('1小时消费率', formatPercent(w1h.consume_rate_pct), '签发 ' + formatNumber(w1h.issued) + '；消费 ' + formatNumber(w1h.consumed)) +
+                renderCard('1小时拒绝率', formatPercent(w1h.reject_rate_pct), topReject.code ? ('主要原因 ' + topReject.code + ' × ' + formatNumber(topReject.count)) : '无拒绝事件') +
+                renderCard('待消费短票', formatNumber(ticketState.pending), '过期未用 ' + formatNumber(ticketState.expired_unconsumed) + '；库存 ' + formatNumber(ticketState.stored_total)) +
+                renderCard('24小时签发', formatNumber(w24.issued), '消费 ' + formatNumber(w24.consumed) + '；拒绝 ' + formatNumber(w24.rejected)) +
+                renderCard('诊断状态', eventTableText, '只记录事件摘要，不记录明文 ticket')
+            );
+        }
+        if (bars) {
+            setHtmlIfChanged(bars,
+                renderProgress('15分钟消费率', w15.consume_rate_pct, formatPercent(w15.consume_rate_pct)) +
+                renderProgress('1小时消费率', w1h.consume_rate_pct, formatPercent(w1h.consume_rate_pct)) +
+                renderProgress('1小时拒绝率', w1h.reject_rate_pct, formatPercent(w1h.reject_rate_pct)) +
+                renderProgress('待消费占库存', Number(ticketState.stored_total || 0) > 0 ? Number(ticketState.pending || 0) / Number(ticketState.stored_total || 1) * 100 : 0, formatNumber(ticketState.pending) + ' / ' + formatNumber(ticketState.stored_total))
+            );
+        }
+        if (audienceRows) setHtmlIfChanged(audienceRows, renderWsTicketAudienceRows(item));
+        if (failureRows) setHtmlIfChanged(failureRows, renderWsTicketFailureRows(item));
+        if (meta) setTextIfChanged(meta, '轻量指标 5 秒刷新 · 更新于 ' + formatTime(item.generated_at));
+    }
+
     function indexStatusLabel(status) {
         var value = String(status || '').toLowerCase();
         if (value === 'exists') return '已存在';
@@ -852,6 +992,7 @@
         }
         var groupMeta = document.getElementById('monitoringGroupMeta');
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
+        renderWsTickets();
         renderRuntimePerformance();
         renderRuntimeHygiene();
         renderStaticCachePolicy();
@@ -880,6 +1021,11 @@
 
     function runtimePolicyEditing() {
         var grid = document.querySelector('.monitoring-runtime-policy-grid');
+        return !!(grid && document.activeElement && grid.contains(document.activeElement));
+    }
+
+    function wsTicketPolicyEditing() {
+        var grid = document.querySelector('.monitoring-ws-ticket-policy-grid');
         return !!(grid && document.activeElement && grid.contains(document.activeElement));
     }
 
@@ -1070,6 +1216,23 @@
         });
     }
 
+    function loadWsTickets(force) {
+        if (!state.active || state.loadingWsTickets) return Promise.resolve();
+        state.loadingWsTickets = true;
+        return api('/ws-tickets', force ? { force: '1' } : {}).then(function(body) {
+            state.data.wsTickets = body.item || {};
+            renderWsTickets();
+            renderAlert();
+        }).catch(function(err) {
+            state.data.wsTickets = { error: err && err.message || '短票诊断数据读取失败' };
+            renderWsTickets();
+            renderAlert();
+            if (force) notify(state.data.wsTickets.error, 'error');
+        }).finally(function() {
+            state.loadingWsTickets = false;
+        });
+    }
+
     function clearIndexPlanTimer() {
         if (state.indexPlanTimer) clearTimeout(state.indexPlanTimer);
         state.indexPlanTimer = null;
@@ -1137,6 +1300,24 @@
             outbound_client_max_requests: inputNumber('runtimeOutboundClientMaxRequests'),
             outbound_client_idle_seconds: inputNumber('runtimeOutboundClientIdle')
         };
+    }
+
+    function collectWsTicketPolicy() {
+        return {
+            enabled: inputChecked('wsTicketDiagnosticsEnabled'),
+            auto_close_minutes: inputNumber('wsTicketDiagnosticsMinutes'),
+            retention_days: inputNumber('wsTicketDiagnosticsRetentionDays')
+        };
+    }
+
+    function saveWsTicketPolicy() {
+        apiPost('/ws-tickets/policy', collectWsTicketPolicy()).then(function(body) {
+            state.data.wsTickets = body.item || {};
+            renderWsTickets();
+            notify('WebSocket 短票诊断策略已保存', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || 'WebSocket 短票诊断策略保存失败', 'error');
+        });
     }
 
     function saveRuntimeHygienePolicy() {
@@ -1286,7 +1467,7 @@
     }
 
     function loadInitialMonitoringData() {
-        return loadLight(false).finally(function() {
+        return Promise.all([loadLight(false), loadWsTickets(false)]).finally(function() {
             if (state.active) scheduleStartupHeavyLoad();
         });
     }
@@ -1322,6 +1503,7 @@
         }
         state.lightTimer = setInterval(function() {
             loadLight(false);
+            loadWsTickets(false);
             loadRuntimeHygiene(false);
             loadRuntimePerformance(false);
         }, 5000);
@@ -1354,7 +1536,7 @@
         init: init,
         start: start,
         stop: stop,
-        refreshLight: function() { return Promise.all([loadLight(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadIndexPlan(true)]); },
+        refreshLight: function() { return Promise.all([loadLight(true), loadWsTickets(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadIndexPlan(true)]); },
         refreshHeavy: function() { return loadHeavy(true); }
     };
 

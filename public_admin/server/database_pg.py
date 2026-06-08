@@ -527,6 +527,23 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         ''')
 
         await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ws_ticket_events (
+                id BIGSERIAL PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                code TEXT DEFAULT '',
+                audience TEXT DEFAULT '',
+                subject TEXT DEFAULT '',
+                role TEXT DEFAULT '',
+                resource_type TEXT DEFAULT '',
+                resource_id TEXT DEFAULT '',
+                site TEXT DEFAULT '',
+                client_ip TEXT DEFAULT '',
+                user_agent TEXT DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS admin_login_ban_levels (
                 ip_address TEXT PRIMARY KEY,
                 level INTEGER NOT NULL DEFAULT 0,
@@ -846,6 +863,9 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_tickets_expires_at ON ws_tickets(expires_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_tickets_subject_audience ON ws_tickets(subject, audience)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_tickets_resource ON ws_tickets(audience, resource_type, resource_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_created_at ON ws_ticket_events(created_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_type_audience_created_at ON ws_ticket_events(event_type, audience, created_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_code_created_at ON ws_ticket_events(code, created_at DESC)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 

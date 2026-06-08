@@ -653,6 +653,30 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_ws_tickets_expires_at ON ws_tickets(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_ws_tickets_subject_audience ON ws_tickets(subject, audience)`,
 		`CREATE INDEX IF NOT EXISTS idx_ws_tickets_resource ON ws_tickets(audience, resource_type, resource_id)`,
+		`CREATE TABLE IF NOT EXISTS ws_ticket_events (
+			id BIGSERIAL PRIMARY KEY,
+			event_type TEXT NOT NULL,
+			code TEXT DEFAULT '',
+			audience TEXT DEFAULT '',
+			subject TEXT DEFAULT '',
+			role TEXT DEFAULT '',
+			resource_type TEXT DEFAULT '',
+			resource_id TEXT DEFAULT '',
+			site TEXT DEFAULT '',
+			client_ip TEXT DEFAULT '',
+			user_agent TEXT DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_created_at ON ws_ticket_events(created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_type_audience_created_at ON ws_ticket_events(event_type, audience, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_code_created_at ON ws_ticket_events(code, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS system_config (
+			key VARCHAR(100) PRIMARY KEY,
+			value JSONB NOT NULL,
+			description TEXT,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_system_config_key ON system_config(key)`,
 	}
 	statements = append(statements, emojiAssetSchemaStatements()...)
 	for index, stmt := range statements {

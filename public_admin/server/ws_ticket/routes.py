@@ -25,9 +25,11 @@ def create_ws_ticket_router(
         data = await _read_json(request)
         audience = _normalize_audience(data.get("audience") or data.get("aud") or "chat")
         if audience not in {"chat", "assist", "voice"}:
+            await _record_issue_reject(service, request, data, audience, "unsupported_audience", role="user")
             return _error("unsupported_audience", "unsupported websocket audience", 400)
         subject = await _maybe_await(resolve_user_subject(request, data, audience))
         if not subject and audience != "chat":
+            await _record_issue_reject(service, request, data, audience, "missing_subject", role="user")
             return _error("missing_subject", "missing signed user identity", 401)
         subject = subject or _build_guest_subject(request, data)
         return await _issue(
@@ -47,9 +49,18 @@ def create_ws_ticket_router(
         data = await _read_json(request)
         audience = _normalize_audience(data.get("audience") or data.get("aud") or "")
         if audience not in {"assist", "voice"}:
+            await _record_issue_reject(service, request, data, audience, "unsupported_audience", role="admin")
             return _error("unsupported_audience", "unsupported admin websocket audience", 400)
         identity = await _maybe_await(resolve_admin_identity(request, data, audience))
         if not isinstance(identity, dict) or not identity.get("ok"):
+            await _record_issue_reject(
+                service,
+                request,
+                data,
+                audience,
+                str((identity or {}).get("code") or "unauthorized"),
+                role="admin",
+            )
             return _error(
                 str((identity or {}).get("code") or "unauthorized"),
                 str((identity or {}).get("message") or "unauthorized"),
@@ -78,8 +89,21 @@ async def _issue(*, service, request: Request, data: dict[str, Any], audience: s
             validate_issue(request, data, audience, subject, role, auth_context)
         )
         if not isinstance(validation, dict):
+            await _record_issue_reject(service, request, data, audience, "validation_failed", subject=subject, role=role)
             return _error("validation_failed", "websocket ticket validation failed", 403)
         if not validation.get("ok"):
+            await _record_issue_reject(
+                service,
+                request,
+                data,
+                audience,
+                str(validation.get("code") or "forbidden"),
+                subject=subject,
+                role=role,
+                resource_type=str(validation.get("resource_type") or ""),
+                resource_id=str(validation.get("resource_id") or ""),
+                site=str(validation.get("site") or ""),
+            )
             return _error(
                 str(validation.get("code") or "forbidden"),
                 str(validation.get("message") or "forbidden"),
@@ -101,6 +125,7 @@ async def _issue(*, service, request: Request, data: dict[str, Any], audience: s
         response.headers["Cache-Control"] = "no-store"
         return response
     except WsTicketError as exc:
+        await _record_issue_reject(service, request, data, audience, exc.code, subject=subject, role=role)
         return _error(exc.code, exc.message, 400)
     except Exception as exc:
         if logger is not None:
@@ -109,6 +134,46 @@ async def _issue(*, service, request: Request, data: dict[str, Any], audience: s
             except Exception:
                 pass
         return _error("issue_failed", "websocket ticket issue failed", 500)
+
+
+async def _record_issue_reject(
+    service,
+    request: Request,
+    data: dict[str, Any],
+    audience: str,
+    code: str,
+    *,
+    subject: str = "",
+    role: str = "",
+    resource_type: str = "",
+    resource_id: str = "",
+    site: str = "",
+) -> None:
+    if not service or not hasattr(service, "record_event"):
+        return
+    if not resource_id:
+        resource_id = str(
+            (data or {}).get("resource_id")
+            or (data or {}).get("session_id")
+            or (data or {}).get("assist_session_id")
+            or (data or {}).get("voice_session_id")
+            or ""
+        ).strip()
+    try:
+        await service.record_event(
+            event_type="reject",
+            code=code,
+            audience=audience,
+            subject=subject,
+            role=role,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            site=site or str((data or {}).get("site") or "").strip(),
+            consume_ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except Exception:
+        pass
 
 
 async def _read_json(request: Request) -> dict[str, Any]:

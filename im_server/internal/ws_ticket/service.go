@@ -48,10 +48,11 @@ type IssueResult struct {
 }
 
 type Service struct {
-	db        *pgxpool.Pool
-	ttl       time.Duration
-	now       func() time.Time
-	tokenSize int
+	db          *pgxpool.Pool
+	ttl         time.Duration
+	now         func() time.Time
+	tokenSize   int
+	diagnostics *DiagnosticsPolicyCache
 }
 
 func New(db *pgxpool.Pool, ttlSeconds int) *Service {
@@ -62,10 +63,11 @@ func New(db *pgxpool.Pool, ttlSeconds int) *Service {
 		ttlSeconds = 300
 	}
 	return &Service{
-		db:        db,
-		ttl:       time.Duration(ttlSeconds) * time.Second,
-		now:       time.Now,
-		tokenSize: 32,
+		db:          db,
+		ttl:         time.Duration(ttlSeconds) * time.Second,
+		now:         time.Now,
+		tokenSize:   32,
+		diagnostics: NewDiagnosticsPolicyCache(db, 5*time.Second),
 	}
 }
 
@@ -115,6 +117,7 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	if err != nil {
 		return IssueResult{}, err
 	}
+	s.recordEvent(ctx, "issue", "ok", claims, req.ClientIP, req.UserAgent)
 	return IssueResult{
 		Ticket:    token,
 		TokenHash: tokenHash,
@@ -130,6 +133,7 @@ func (s *Service) Consume(ctx context.Context, ticket string, audience string, c
 	normalizedTicket := strings.TrimSpace(ticket)
 	normalizedAudience := normalizeRequired(audience)
 	if normalizedTicket == "" || normalizedAudience == "" {
+		s.recordReject(ctx, normalizedAudience, "missing_ticket", clientIP, userAgent)
 		return Claims{}, errors.New("missing websocket ticket")
 	}
 	now := s.now().Truncate(time.Second)
@@ -158,6 +162,7 @@ func (s *Service) Consume(ctx context.Context, ticket string, audience string, c
 		&claims.ExpiresAt,
 	)
 	if err != nil {
+		s.recordReject(ctx, normalizedAudience, "invalid_ticket", clientIP, userAgent)
 		return Claims{}, fmt.Errorf("invalid websocket ticket: %w", err)
 	}
 	if len(extraJSON) > 0 {
@@ -169,7 +174,40 @@ func (s *Service) Consume(ctx context.Context, ticket string, audience string, c
 	claims.Audience = strings.TrimSpace(claims.Audience)
 	claims.Subject = strings.ToLower(strings.TrimSpace(claims.Subject))
 	claims.Role = strings.ToLower(strings.TrimSpace(claims.Role))
+	s.recordEvent(ctx, "consume", "ok", claims, clientIP, userAgent)
 	return claims, nil
+}
+
+func (s *Service) recordReject(ctx context.Context, audience string, code string, clientIP string, userAgent string) {
+	s.recordEvent(ctx, "reject", code, Claims{Audience: strings.TrimSpace(audience)}, clientIP, userAgent)
+}
+
+func (s *Service) recordEvent(ctx context.Context, eventType string, code string, claims Claims, clientIP string, userAgent string) {
+	if s == nil || s.db == nil {
+		return
+	}
+	if s.diagnostics == nil || !s.diagnostics.Enabled(ctx) {
+		return
+	}
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO ws_ticket_events (
+			event_type, code, audience, subject, role, resource_type,
+			resource_id, site, client_ip, user_agent, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`,
+		trimForStorage(eventType, 40),
+		trimForStorage(code, 80),
+		trimForStorage(claims.Audience, 40),
+		trimForStorage(claims.Subject, 120),
+		trimForStorage(claims.Role, 40),
+		trimForStorage(claims.ResourceType, 80),
+		trimForStorage(claims.ResourceID, 160),
+		trimForStorage(claims.Site, 80),
+		trimForStorage(clientIP, 120),
+		trimForStorage(userAgent, 300),
+		s.now().Truncate(time.Second),
+	)
 }
 
 func HashToken(token string) string {

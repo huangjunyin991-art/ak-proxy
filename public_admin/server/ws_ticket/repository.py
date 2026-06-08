@@ -35,6 +35,25 @@ class WsTicketRepository:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_tickets_expires_at ON ws_tickets(expires_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_tickets_subject_audience ON ws_tickets(subject, audience)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_tickets_resource ON ws_tickets(audience, resource_type, resource_id)")
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS ws_ticket_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    code TEXT DEFAULT '',
+                    audience TEXT DEFAULT '',
+                    subject TEXT DEFAULT '',
+                    role TEXT DEFAULT '',
+                    resource_type TEXT DEFAULT '',
+                    resource_id TEXT DEFAULT '',
+                    site TEXT DEFAULT '',
+                    client_ip TEXT DEFAULT '',
+                    user_agent TEXT DEFAULT '',
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_created_at ON ws_ticket_events(created_at DESC)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_type_audience_created_at ON ws_ticket_events(event_type, audience, created_at DESC)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_ticket_events_code_created_at ON ws_ticket_events(code, created_at DESC)")
 
     async def insert_ticket(
         self,
@@ -115,4 +134,42 @@ class WsTicketRepository:
                 str(consume_ip or "")[:120],
                 str(consume_user_agent or "")[:300],
                 audience,
+            )
+
+    async def record_event(
+        self,
+        *,
+        event_type: str,
+        code: str = "",
+        audience: str = "",
+        subject: str = "",
+        role: str = "",
+        resource_type: str = "",
+        resource_id: str = "",
+        site: str = "",
+        client_ip: str = "",
+        user_agent: str = "",
+        created_at: datetime | None = None,
+    ) -> None:
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ws_ticket_events (
+                    event_type, code, audience, subject, role, resource_type,
+                    resource_id, site, client_ip, user_agent, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                """,
+                str(event_type or "")[:40],
+                str(code or "")[:80],
+                str(audience or "")[:40],
+                str(subject or "")[:120],
+                str(role or "")[:40],
+                str(resource_type or "")[:80],
+                str(resource_id or "")[:160],
+                str(site or "")[:80],
+                str(client_ip or "")[:120],
+                str(user_agent or "")[:300],
+                (created_at or datetime.now()).replace(microsecond=0),
             )
