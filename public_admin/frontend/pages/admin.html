@@ -5840,6 +5840,9 @@
                 const error = new Error((data && data.message) || `WebSocket ticket failed: ${response.status}`);
                 error.status = response.status;
                 error.code = data && data.code;
+                if (response.status === 401) {
+                    handleKickedOut(getSessionExpiredMessage(data));
+                }
                 throw error;
             }
             return data.ticket;
@@ -5849,9 +5852,7 @@
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const url = new URL('/admin/ws', window.location.origin);
             url.protocol = protocol;
-            if (ticket) {
-                url.searchParams.set('ticket', String(ticket));
-            }
+            url.searchParams.set('ticket', String(ticket || ''));
             return url.toString();
         }
 
@@ -5873,20 +5874,19 @@
             try {
                 adminWsTicket = await fetchAdminWsTicket();
             } catch (e) {
-                console.warn('[AdminWS] ticket fetch failed, fallback to auth frame', e);
+                console.warn('[AdminWS] ticket fetch failed', e);
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('statusText').textContent = '短票获取失败';
+                if (e && e.status === 401) return;
+                setTimeout(initWebSocket, 3000);
+                return;
             }
             const wsUrl = buildAdminWsUrl(adminWsTicket);
-            const useTicketAuth = !!adminWsTicket;
             ws = new WebSocket(wsUrl);
             
             ws.onopen = () => {
                 document.getElementById('statusDot').classList.add('connected');
                 document.getElementById('statusText').textContent = '已连接';
-                // 发送身份认证
-                const token = sessionStorage.getItem('admin_token');
-                if (!useTicketAuth && token) {
-                    ws.send(JSON.stringify({ type: 'auth', token: token }));
-                }
                 if (window.AKPollingRegistry) {
                     window.AKPollingRegistry.resumeOwners();
                 }

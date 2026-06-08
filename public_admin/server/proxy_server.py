@@ -9627,38 +9627,6 @@ async def admin_toggle_server(group_id: str, request: Request):
 
 # --- WebSocket ---
 
-ADMIN_WS_AUTH_TIMEOUT_SECONDS = 10
-
-
-async def _resolve_admin_ws_auth(websocket: WebSocket) -> tuple[str, str] | None:
-    try:
-        data = await asyncio.wait_for(
-            websocket.receive_text(),
-            timeout=ADMIN_WS_AUTH_TIMEOUT_SECONDS,
-        )
-        msg = json.loads(data)
-    except WebSocketDisconnect:
-        raise
-    except Exception:
-        return None
-
-    if not isinstance(msg, dict) or msg.get('type') != 'auth':
-        return None
-
-    token = str(msg.get('token') or '')
-    if not token or not await verify_admin_token(token):
-        return None
-
-    role = get_token_role(token)
-    if role == ROLE_SUPER_ADMIN:
-        return role, '__super__'
-    if role == ROLE_SUB_ADMIN:
-        sub_name = get_token_sub_name(token)
-        if sub_name:
-            return role, sub_name
-    return None
-
-
 def _resolve_admin_ws_ticket_auth(ticket_claims) -> tuple[str, str] | None:
     if (
         not ticket_claims
@@ -9677,39 +9645,26 @@ def _resolve_admin_ws_ticket_auth(ticket_claims) -> tuple[str, str] | None:
     return None
 
 
-async def _reject_admin_ws_auth(websocket: WebSocket) -> None:
-    try:
-        await websocket.send_json({'type': 'auth_error'})
-    except Exception:
-        pass
-    try:
-        await websocket.close(code=1008)
-    except Exception:
-        pass
-
-
 @app.websocket("/admin/ws")
 
 async def admin_websocket(websocket: WebSocket):
 
     logger.info(f"[WebSocket] 新连接建立: {websocket.client}")
-    
-    ticket_auth = None
-    if str(websocket.query_params.get('ticket') or '').strip():
-        ticket_claims = await _consume_ws_ticket_from_websocket(websocket, 'admin')
-        if not ticket_claims:
-            return
-        ticket_auth = _resolve_admin_ws_ticket_auth(ticket_claims)
-        if not ticket_auth:
-            logger.warning(
-                f"[AdminWS] reject_ticket_claims subject={getattr(ticket_claims, 'subject', '') or '-'} "
-                f"role={getattr(ticket_claims, 'role', '') or '-'} resource={getattr(ticket_claims, 'resource_type', '') or '-'}"
-            )
-            try:
-                await websocket.close(code=1008)
-            except Exception:
-                pass
-            return
+
+    ticket_claims = await _consume_ws_ticket_from_websocket(websocket, 'admin')
+    if not ticket_claims:
+        return
+    ticket_auth = _resolve_admin_ws_ticket_auth(ticket_claims)
+    if not ticket_auth:
+        logger.warning(
+            f"[AdminWS] reject_ticket_claims subject={getattr(ticket_claims, 'subject', '') or '-'} "
+            f"role={getattr(ticket_claims, 'role', '') or '-'} resource={getattr(ticket_claims, 'resource_type', '') or '-'}"
+        )
+        try:
+            await websocket.close(code=1008)
+        except Exception:
+            pass
+        return
 
     await ws_manager.connect(websocket)
 
@@ -9717,12 +9672,7 @@ async def admin_websocket(websocket: WebSocket):
 
     try:
 
-        auth = ticket_auth or await _resolve_admin_ws_auth(websocket)
-        if not auth:
-            await _reject_admin_ws_auth(websocket)
-            return
-
-        role, auth_sub_name = auth
+        role, auth_sub_name = ticket_auth
 
         if role == ROLE_SUB_ADMIN:
 

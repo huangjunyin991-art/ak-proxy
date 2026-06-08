@@ -281,6 +281,7 @@
 ### S13. `/admin/ws` 仍保留无 ticket 的旧式 token 认证路径
 
 级别：P3
+状态：已处理。`/admin/ws` 现在强制消费 `audience=admin` 的一次性 WS ticket，不再接受连接后发送 `{type:"auth", token}` 的旧式长期 token 认证；管理前端拿不到短票时不再回退旧路径。
 位置：
 
 - `public_admin/server/proxy_server.py:9604`
