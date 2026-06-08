@@ -28,7 +28,6 @@
         sig: true
     };
     var NTFY_OPEN_QUERY_CLEANUP_KEYS = {
-        ak_im_open: true,
         im_switch_ts: true,
         im_switch_nonce: true,
         im_switch_sig: true
