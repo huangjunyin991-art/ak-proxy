@@ -190,6 +190,7 @@ from .runtime_performance import (
     get_event_loop_probe_snapshot,
     resolve_worker_policy,
     run_blocking,
+    run_blocking_asset_file,
     start_event_loop_probe,
     stop_event_loop_probe,
 )
@@ -11930,13 +11931,13 @@ async def _serve_text_asset(
     cache_control: str = "no-cache, must-revalidate",
 ) -> Response:
     try:
-        stat_result = await run_blocking(os.stat, path)
+        stat_result = await run_blocking_asset_file(os.stat, path)
     except OSError:
         return Response(content=not_found_content, media_type=media_type)
     headers = _asset_headers_from_stat(stat_result, cache_control)
     if request.headers.get("if-none-match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
-    content = await run_blocking(_read_text_file_sync, path)
+    content = await run_blocking_asset_file(_read_text_file_sync, path)
     return Response(content=content, media_type=media_type, headers=headers)
 
 
@@ -11947,13 +11948,13 @@ async def _serve_binary_asset(
     cache_control: str = "public, max-age=3600, must-revalidate",
 ) -> Response | None:
     try:
-        stat_result = await run_blocking(os.stat, path)
+        stat_result = await run_blocking_asset_file(os.stat, path)
     except OSError:
         return None
     headers = _asset_headers_from_stat(stat_result, cache_control)
     if request.headers.get("if-none-match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
-    content = await run_blocking(_read_bytes_file_sync, path)
+    content = await run_blocking_asset_file(_read_bytes_file_sync, path)
     return Response(content=content, media_type=media_type, headers=headers)
 
 
@@ -11978,7 +11979,7 @@ async def admin_page(request: Request):
         panel_versions.get('remoteAssist', 0.0),
     )
     if _ADMIN_HTML_CACHE["key"] != cache_key:
-        content = await run_blocking(_read_text_file_sync, html_path)
+        content = await run_blocking_asset_file(_read_text_file_sync, html_path)
         content = _inject_admin_panel_versions(content, panel_versions)
         content_bytes = content.encode("utf-8")
         _ADMIN_HTML_CACHE["key"] = cache_key
@@ -12253,7 +12254,7 @@ def _refresh_widget_bootstrap_content_cache(asset_version: str) -> str:
 async def _get_widget_bootstrap_content(asset_version: str) -> str:
     if _WIDGET_BOOTSTRAP_CONTENT_CACHE.get("asset_version") == asset_version:
         return str(_WIDGET_BOOTSTRAP_CONTENT_CACHE.get("content") or "")
-    return await run_blocking(_refresh_widget_bootstrap_content_cache, asset_version)
+    return await run_blocking_asset_file(_refresh_widget_bootstrap_content_cache, asset_version)
 
 
 def _refresh_widget_ntfy_prelude_cache(asset_version: str) -> str:
@@ -12266,7 +12267,7 @@ def _refresh_widget_ntfy_prelude_cache(asset_version: str) -> str:
 async def _get_widget_ntfy_prelude(asset_version: str) -> str:
     if _WIDGET_NTFY_PRELUDE_CACHE.get("asset_version") == asset_version:
         return str(_WIDGET_NTFY_PRELUDE_CACHE.get("content") or "")
-    return await run_blocking(_refresh_widget_ntfy_prelude_cache, asset_version)
+    return await run_blocking_asset_file(_refresh_widget_ntfy_prelude_cache, asset_version)
 
 
 def _refresh_client_runtime_content_cache(asset_version: str) -> tuple[str, list[str]]:
@@ -12283,7 +12284,7 @@ async def _get_client_runtime_content(asset_version: str) -> tuple[str, list[str
             str(_WIDGET_RUNTIME_CONTENT_CACHE.get("content") or ""),
             list(_WIDGET_RUNTIME_CONTENT_CACHE.get("missing_required") or []),
         )
-    return await run_blocking(_refresh_client_runtime_content_cache, asset_version)
+    return await run_blocking_asset_file(_refresh_client_runtime_content_cache, asset_version)
 
 
 def _build_ntfy_loader_context_prelude(request: Request | None = None) -> str:
@@ -12359,7 +12360,7 @@ async def _build_widget_script_response(request: Request, js_path: str, extra_pr
     headers = _build_widget_cache_headers(request, asset_version)
     if request.headers.get("if-none-match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
-    content = await run_blocking(_read_text_file_sync, js_path)
+    content = await run_blocking_asset_file(_read_text_file_sync, js_path)
     prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
     if extra_prelude:
         prelude += extra_prelude
@@ -13111,7 +13112,7 @@ async def pwa_sw():
     headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
     if os.path.exists(path):
-        content = await run_blocking(_read_text_file_sync, path)
+        content = await run_blocking_asset_file(_read_text_file_sync, path)
         return Response(content=_build_notify_center_sw_content(content), media_type="application/javascript",
                         headers=headers)
 
@@ -13137,7 +13138,7 @@ async def pwa_sw_api():
     headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
     if os.path.exists(path):
-        content = await run_blocking(_read_text_file_sync, path)
+        content = await run_blocking_asset_file(_read_text_file_sync, path)
         return Response(content=_build_notify_center_sw_content(content), media_type="application/javascript",
                         headers=headers)
 
@@ -13165,7 +13166,7 @@ async def pwa_manifest_api():
 
         import json
 
-        content = await run_blocking(_read_text_file_sync, path)
+        content = await run_blocking_asset_file(_read_text_file_sync, path)
 
         data = json.loads(content)
 

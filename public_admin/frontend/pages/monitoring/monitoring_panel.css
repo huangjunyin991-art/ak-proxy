@@ -215,6 +215,11 @@
     background: linear-gradient(135deg, rgba(0, 255, 136, 0.07), rgba(245, 205, 96, 0.035)), var(--bg-card);
 }
 
+.monitoring-blocking-pools-section {
+    border-color: rgba(125, 211, 252, 0.28);
+    background: linear-gradient(135deg, rgba(125, 211, 252, 0.07), rgba(102, 126, 234, 0.035)), var(--bg-card);
+}
+
 .monitoring-request-metrics-section {
     border-color: rgba(255, 159, 67, 0.28);
     background: linear-gradient(135deg, rgba(255, 159, 67, 0.07), rgba(0, 212, 255, 0.035)), var(--bg-card);
@@ -245,6 +250,12 @@
 
 .monitoring-runtime-performance-section .monitoring-grid,
 .monitoring-runtime-performance-section .monitoring-bars {
+    margin-bottom: 14px;
+}
+
+.monitoring-blocking-pools-section .monitoring-grid,
+.monitoring-blocking-pools-section .monitoring-bars,
+.monitoring-blocking-pool-actions {
     margin-bottom: 14px;
 }
 
@@ -638,6 +649,18 @@
 
 .monitoring-runtime-performance-table {
     min-width: 780px;
+}
+
+.monitoring-blocking-pool-table {
+    min-width: 920px;
+}
+
+.monitoring-blocking-pool-slow-table {
+    min-width: 820px;
+}
+
+.monitoring-blocking-pool-slow-wrap {
+    margin-top: 14px;
 }
 
 .monitoring-request-metrics-table {
@@ -1044,6 +1067,10 @@
 
 .monitoring-status-bad {
     color: #ff4757;
+}
+
+.monitoring-status-warn {
+    color: #f5cd60;
 }
 
 @media (max-width: 768px) {

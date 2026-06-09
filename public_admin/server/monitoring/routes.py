@@ -3,6 +3,7 @@ from typing import Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from ..runtime_performance import get_blocking_pools_snapshot
 from .service import MonitoringService
 
 
@@ -283,6 +284,16 @@ def create_monitoring_router(
             return JSONResponse(status_code=503, content={"error": True, "message": "慢请求采集服务不可用"})
         try:
             return {"success": True, "item": metrics.snapshot(limit=limit)}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.get("/blocking-pools")
+    async def monitoring_blocking_pools(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return {"success": True, "item": get_blocking_pools_snapshot()}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 

@@ -3,7 +3,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..runtime_performance import run_blocking
+from ..runtime_performance import (
+    run_blocking_diagnostics,
+    run_blocking_maintenance,
+    run_blocking_static_cache,
+)
 from .config import StaticResourceCacheConfig
 from .key_builder import StaticResourceCacheKeyBuilder
 from .models import CachedStaticResource
@@ -15,19 +19,19 @@ class DiskStaticResourceCacheStore:
         self.key_builder = key_builder
 
     async def get(self, cache_key: str) -> Optional[CachedStaticResource]:
-        return await run_blocking(self._get_sync, cache_key)
+        return await run_blocking_static_cache(self._get_sync, cache_key)
 
     async def set(self, cache_key: str, resource: CachedStaticResource) -> None:
-        await run_blocking(self._set_sync, cache_key, resource)
+        await run_blocking_static_cache(self._set_sync, cache_key, resource)
 
     async def delete(self, cache_key: str) -> None:
-        await run_blocking(self._delete_sync, cache_key)
+        await run_blocking_static_cache(self._delete_sync, cache_key)
 
     async def cleanup_expired(self) -> int:
-        return await run_blocking(self._cleanup_expired_sync)
+        return await run_blocking_maintenance(self._cleanup_expired_sync)
 
     async def list_entries(self, limit: int = 80) -> list[dict]:
-        return await run_blocking(self._list_entries_sync, limit)
+        return await run_blocking_diagnostics(self._list_entries_sync, limit)
 
     def _paths(self, cache_key: str) -> tuple[Path, Path, Path]:
         shard_dir = self.config.root_dir / self.key_builder.shard(cache_key)

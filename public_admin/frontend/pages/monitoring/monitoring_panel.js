@@ -28,6 +28,7 @@
             runtimePerformance: null,
             indexPlan: null,
             requestMetrics: null,
+            blockingPools: null,
             snapshotPolicy: null
         },
         loadingWsTickets: false,
@@ -38,6 +39,7 @@
         loadingRuntimePerformance: false,
         loadingIndexPlan: false,
         loadingRequestMetrics: false,
+        loadingBlockingPools: false,
         loadingCollapsible: {}
     };
     var MONITORING_POLL_OWNER = 'panel:monitoring';
@@ -110,7 +112,8 @@
                     loadWsTickets(false),
                     loadRuntimeHygiene(false),
                     loadRuntimePerformance(false),
-                    loadRequestMetrics(false)
+                    loadRequestMetrics(false),
+                    loadBlockingPools(false)
                 ]);
             }
         });
@@ -141,6 +144,7 @@
                 loadRuntimeHygiene(false);
                 loadRuntimePerformance(false);
                 loadRequestMetrics(false);
+                loadBlockingPools(false);
             }, lightIntervalMs());
             state.heavyTimer = setInterval(function() { loadHeavy(false); }, heavyIntervalMs());
         }
@@ -178,6 +182,7 @@
         if (key === 'fileAssets') return loadFileAssets(force);
         if (key === 'indexPlan') return loadIndexPlan(force);
         if (key === 'requestMetrics') return loadRequestMetrics(force);
+        if (key === 'blockingPools') return loadBlockingPools(force);
         if (key === 'runtimeHygiene') return loadRuntimeHygiene(force);
         if (key === 'staticCache') {
             return Promise.allSettled([loadStaticCachePolicy(force), loadRuntimeHygiene(force)]);
@@ -450,6 +455,14 @@
             '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
             '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
             '</div>' +
+            '<details class="monitoring-section monitoring-blocking-pools-section monitoring-collapsible-section" data-monitoring-section="blockingPools">' +
+            '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>阻塞 IO 池</h4><span class="monitoring-meta" id="monitoringBlockingPoolsMeta">默认收起，展开后读取</span></summary>' +
+            '<div class="monitoring-grid" id="monitoringBlockingPoolCards"></div>' +
+            '<div class="monitoring-bars" id="monitoringBlockingPoolBars"></div>' +
+            '<div class="monitoring-cache-actions monitoring-blocking-pool-actions"><button class="monitoring-btn" data-monitoring-action="refresh-blocking-pools">刷新阻塞池</button><span class="monitoring-meta">按任务类型隔离本地文件、静态缓存、诊断扫描和后台维护。</span></div>' +
+            '<div class="monitoring-table-wrap monitoring-blocking-pool-table-wrap"><table class="monitoring-table monitoring-blocking-pool-table"><thead><tr><th>池</th><th>状态</th><th>并发</th><th>等待</th><th>完成/失败</th><th>排队</th><th>运行</th><th>慢调用</th></tr></thead><tbody id="monitoringBlockingPoolRows"></tbody></table></div>' +
+            '<div class="monitoring-table-wrap monitoring-blocking-pool-slow-wrap"><table class="monitoring-table monitoring-blocking-pool-slow-table"><thead><tr><th>时间</th><th>池</th><th>函数</th><th>排队</th><th>运行</th></tr></thead><tbody id="monitoringBlockingPoolSlowRows"></tbody></table></div>' +
+            '</details>' +
             '<div class="monitoring-section monitoring-snapshot-policy-section">' +
             '<div class="monitoring-section-header"><h4>快照策略</h4><span class="monitoring-meta" id="monitoringSnapshotPolicyMeta">读取中...</span></div>' +
             '<div class="monitoring-cache-grid monitoring-snapshot-policy-grid">' +
@@ -575,6 +588,8 @@
                 loadRequestMetrics(true);
             } else if (action === 'clear-request-metrics') {
                 clearRequestMetrics();
+            } else if (action === 'refresh-blocking-pools') {
+                loadBlockingPools(true);
             } else if (action === 'refresh-index-plan') {
                 loadIndexPlan(true);
             } else if (action === 'run-index-plan') {
@@ -592,6 +607,7 @@
             loadRuntimeHygiene(true);
             loadRuntimePerformance(true);
             loadRequestMetrics(true);
+            loadBlockingPools(true);
             loadIndexPlan(true);
         });
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
@@ -756,6 +772,113 @@
             return { label: '无缓存', className: 'none' };
         }
         return { label: state, className: state.toLowerCase() };
+    }
+
+    function blockingPoolStatusLabel(status) {
+        var value = String(status || '').toLowerCase();
+        if (value === 'saturated') return '饱和';
+        if (value === 'queued') return '排队';
+        if (value === 'busy') return '满载';
+        if (value === 'active') return '运行中';
+        return '空闲';
+    }
+
+    function blockingPoolStatusClass(status) {
+        var value = String(status || '').toLowerCase();
+        if (value === 'saturated' || value === 'busy') return 'monitoring-status-bad';
+        if (value === 'queued' || value === 'active') return 'monitoring-status-warn';
+        return 'monitoring-status-ok';
+    }
+
+    function renderBlockingPoolRows(item) {
+        var pools = Array.isArray(item && item.pools) ? item.pools : [];
+        if (!pools.length) return '<tr><td colspan="8"><div class="monitoring-empty">暂无阻塞池快照</div></td></tr>';
+        return pools.map(function(pool) {
+            var label = pool.label || pool.name || '-';
+            var status = pool.status || 'idle';
+            return '<tr>' +
+                '<td><strong>' + escapeHtml(label) + '</strong><br><span class="monitoring-meta">' + escapeHtml(pool.description || pool.name || '-') + '</span></td>' +
+                '<td><span class="' + blockingPoolStatusClass(status) + '">' + escapeHtml(blockingPoolStatusLabel(status)) + '</span></td>' +
+                '<td>' + formatNumber(pool.in_flight) + ' / ' + formatNumber(pool.max_concurrency) + '</td>' +
+                '<td>' + formatNumber(pool.waiting) + '</td>' +
+                '<td>' + formatNumber(pool.completed) + ' / ' + formatNumber(pool.failed) + '</td>' +
+                '<td>avg ' + escapeHtml(formatMs(pool.avg_queue_ms)) + '<br><span class="monitoring-meta">max ' + escapeHtml(formatMs(pool.max_queue_ms)) + '</span></td>' +
+                '<td>avg ' + escapeHtml(formatMs(pool.avg_run_ms)) + '<br><span class="monitoring-meta">max ' + escapeHtml(formatMs(pool.max_run_ms)) + '</span></td>' +
+                '<td>' + formatNumber(pool.slow_count) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderBlockingPoolSlowRows(item) {
+        var pools = Array.isArray(item && item.pools) ? item.pools : [];
+        var rows = [];
+        pools.forEach(function(pool) {
+            (pool.recent_slow || []).forEach(function(sample) {
+                rows.push({
+                    pool: pool.label || sample.pool || pool.name || '-',
+                    func: sample.func || '-',
+                    queue_ms: sample.queue_ms,
+                    run_ms: sample.run_ms,
+                    ts: sample.ts
+                });
+            });
+        });
+        rows.sort(function(a, b) { return Number(b.ts || 0) - Number(a.ts || 0); });
+        if (!rows.length) return '<tr><td colspan="5"><div class="monitoring-empty">暂无慢阻塞调用样本</div></td></tr>';
+        return rows.slice(0, 20).map(function(row) {
+            return '<tr>' +
+                '<td>' + escapeHtml(formatSampleTime(row.ts)) + '</td>' +
+                '<td>' + escapeHtml(row.pool) + '</td>' +
+                '<td><code>' + escapeHtml(row.func) + '</code></td>' +
+                '<td>' + escapeHtml(formatMs(row.queue_ms)) + '</td>' +
+                '<td>' + escapeHtml(formatMs(row.run_ms)) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderBlockingPools() {
+        var item = state.data.blockingPools || {};
+        var cards = document.getElementById('monitoringBlockingPoolCards');
+        var bars = document.getElementById('monitoringBlockingPoolBars');
+        var rows = document.getElementById('monitoringBlockingPoolRows');
+        var slowRows = document.getElementById('monitoringBlockingPoolSlowRows');
+        var meta = document.getElementById('monitoringBlockingPoolsMeta');
+        if (!item || (!item.summary && !item.pools && !item.error)) {
+            if (cards) setHtmlIfChanged(cards, renderCard('阻塞 IO 池', '未读取', '展开后读取，不展开不请求'));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (rows) setHtmlIfChanged(rows, '<tr><td colspan="8"><div class="monitoring-empty">展开后读取阻塞池快照</div></td></tr>');
+            if (slowRows) setHtmlIfChanged(slowRows, '<tr><td colspan="5"><div class="monitoring-empty">展开后读取慢调用样本</div></td></tr>');
+            if (meta) setTextIfChanged(meta, '默认收起，展开后读取');
+            return;
+        }
+        if (item.error) {
+            if (cards) setHtmlIfChanged(cards, renderCard('阻塞 IO 池', '不可用', item.error));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (rows) setHtmlIfChanged(rows, renderBlockingPoolRows(item));
+            if (slowRows) setHtmlIfChanged(slowRows, renderBlockingPoolSlowRows(item));
+            if (meta) setTextIfChanged(meta, item.error);
+            return;
+        }
+        var summary = item.summary || {};
+        var pools = Array.isArray(item.pools) ? item.pools : [];
+        if (cards) {
+            setHtmlIfChanged(cards,
+                renderCard('池总并发', formatNumber(summary.in_flight) + ' / ' + formatNumber(summary.max_concurrency), '等待 ' + formatNumber(summary.waiting) + '；池 ' + formatNumber(summary.pool_count)) +
+                renderCard('饱和池', formatNumber(summary.saturated_pools), '状态为饱和时说明已有任务排队') +
+                renderCard('完成任务', formatNumber(summary.completed), '失败 ' + formatNumber(summary.failed)) +
+                renderCard('慢阻塞调用', formatNumber(summary.slow_count), '慢阈值 ' + formatMs(item.slow_ms))
+            );
+        }
+        if (bars) {
+            setHtmlIfChanged(bars, pools.map(function(pool) {
+                return renderProgress(pool.label || pool.name || '-', pool.saturation_pct || 0, formatNumber(pool.in_flight) + ' / ' + formatNumber(pool.max_concurrency) + (Number(pool.waiting || 0) ? ' · 等待 ' + formatNumber(pool.waiting) : ''));
+            }).join(''));
+        }
+        if (rows) setHtmlIfChanged(rows, renderBlockingPoolRows(item));
+        if (slowRows) setHtmlIfChanged(slowRows, renderBlockingPoolSlowRows(item));
+        if (meta) {
+            setTextIfChanged(meta, '更新于 ' + formatSampleTime(item.generated_at) + ' · 总等待 ' + formatNumber(summary.waiting) + ' · 慢阈值 ' + formatMs(item.slow_ms));
+        }
     }
 
     function requestMetricRatioText(value) {
@@ -1411,6 +1534,7 @@
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
         renderWsTickets();
         renderRuntimePerformance();
+        renderBlockingPools();
         renderRequestMetrics();
         renderSnapshotPolicy();
         renderRuntimeHygiene();
@@ -1921,6 +2045,22 @@
         });
     }
 
+    function loadBlockingPools(force) {
+        if (!shouldLoadCollapsibleSection('blockingPools') || state.loadingBlockingPools) return Promise.resolve();
+        state.loadingBlockingPools = true;
+        return api('/blocking-pools', force ? { force: '1' } : {}).then(function(body) {
+            state.data.blockingPools = body.item || {};
+            renderBlockingPools();
+            if (force) notify('阻塞 IO 池状态已刷新', 'success');
+        }).catch(function(err) {
+            state.data.blockingPools = { error: err && err.message || '阻塞 IO 池状态读取失败' };
+            renderBlockingPools();
+            if (force) notify(state.data.blockingPools.error, 'error');
+        }).finally(function() {
+            state.loadingBlockingPools = false;
+        });
+    }
+
     function loadWsTickets(force) {
         if (!state.active || state.loadingWsTickets) return Promise.resolve();
         state.loadingWsTickets = true;
@@ -2251,7 +2391,7 @@
         init: init,
         start: start,
         stop: stop,
-        refreshLight: function() { return Promise.all([loadLight(true), loadWsTickets(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadRequestMetrics(true), loadIndexPlan(true)]); },
+        refreshLight: function() { return Promise.all([loadLight(true), loadWsTickets(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadRequestMetrics(true), loadBlockingPools(true), loadIndexPlan(true)]); },
         refreshHeavy: function() { return loadHeavy(true); }
     };
 
