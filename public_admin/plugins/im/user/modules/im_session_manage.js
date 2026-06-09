@@ -1,6 +1,11 @@
 (function(global) {
     'use strict';
 
+    const AI_ASSISTANT_USERNAME = 'ak_ai_assistant';
+    const AI_ASSISTANT_TITLE = '\u0041\u004b\u52a9\u624b';
+    const AI_ASSISTANT_PREVIEW = '\u5c0f\u0041 \u00b7 \u70b9\u51fb\u5f00\u59cb\u5bf9\u8bdd';
+    const AI_ASSISTANT_OPENING = '\u6253\u5f00\u4e2d';
+
     const sessionManageModule = {
         ctx: null,
 
@@ -150,22 +155,81 @@
             return Number(item && (item.unread_count || item.unread || 0) || 0);
         },
 
+        isAIAssistantSession(item) {
+            return String(item && item.peer_username || '').trim().toLowerCase() === AI_ASSISTANT_USERNAME;
+        },
+
+        getAIAssistantSession(sessions) {
+            const items = Array.isArray(sessions) ? sessions : [];
+            for (let i = 0; i < items.length; i += 1) {
+                if (this.isAIAssistantSession(items[i])) return items[i];
+            }
+            return null;
+        },
+
+        buildAIAssistantSessionItem(source) {
+            const item = Object.assign({}, source || {});
+            item.conversation_type = 'direct';
+            item.peer_username = AI_ASSISTANT_USERNAME;
+            item.peer_display_name = AI_ASSISTANT_TITLE;
+            item.avatar_kind = item.avatar_kind || 'generated';
+            item.avatar_style = item.avatar_style || 'thumbs';
+            item.avatar_seed = item.avatar_seed || 'ak-ai-assistant';
+            return item;
+        },
+
+        renderAIAssistantEntry(sessionList, source) {
+            if (!sessionList || !this.ctx || typeof this.ctx.openAIAssistant !== 'function') return;
+            const state = this.ctx.state || {};
+            const item = this.buildAIAssistantSessionItem(source);
+            const conversationId = Number(item.conversation_id || 0);
+            const unreadCount = this.getUnreadCount(item);
+            const isOpening = !!(state.aiAssistant && state.aiAssistant.opening);
+            const preview = conversationId ? this.getSessionPreview(source || item) : (state.aiAssistant && state.aiAssistant.message ? state.aiAssistant.message : AI_ASSISTANT_PREVIEW);
+            const timeText = conversationId ? this.ctx.formatSessionTime(item.last_message_at || item.updated_at || item.created_at) : (isOpening ? AI_ASSISTANT_OPENING : 'AI');
+            const node = document.createElement('div');
+            node.className = 'ak-im-session-item is-ai-assistant' + (conversationId && conversationId === state.activeConversationId ? ' ak-active' : '') + (isOpening ? ' is-opening' : '');
+            node.innerHTML = this.buildSessionAvatarMarkup(item) +
+                '<div class="ak-im-session-body">' +
+                    '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + this.ctx.escapeHtml(AI_ASSISTANT_TITLE) + '</span><span class="ak-im-session-pin-tag visible is-system">AI</span></div>' +
+                    '<div class="ak-im-session-time">' + this.ctx.escapeHtml(timeText) + '</div>' +
+                    '<div class="ak-im-session-preview">' + this.ctx.escapeHtml(preview) + '</div>' +
+                    '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + this.ctx.escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +
+                '</div>';
+            node.addEventListener('click', () => {
+                if (typeof this.ctx.closeActionSheet === 'function') this.ctx.closeActionSheet();
+                if (typeof this.ctx.closeReadProgressPanel === 'function') this.ctx.closeReadProgressPanel();
+                if (typeof this.ctx.closeEmojiPicker === 'function') this.ctx.closeEmojiPicker({ silent: true });
+                if (typeof this.ctx.closeMemberPanel === 'function') this.ctx.closeMemberPanel();
+                this.ctx.openAIAssistant();
+            });
+            sessionList.appendChild(node);
+        },
+
         renderSessionList() {
             if (!this.ctx || !this.ctx.state || typeof this.ctx.escapeHtml !== 'function' || typeof this.ctx.formatSessionTime !== 'function') return;
             const state = this.ctx.state;
             const elements = this.getElements();
             const sessionList = elements.sessionList;
             if (!sessionList) return;
+            const sessions = Array.isArray(state.sessions) ? state.sessions : [];
+            const self = this;
+            const assistantSession = this.getAIAssistantSession(sessions);
+            const canShowAssistant = !!(state.allowed && typeof this.ctx.openAIAssistant === 'function');
+            const visibleSessions = sessions.filter(function(item) {
+                return !self.isAIAssistantSession(item);
+            });
             sessionList.innerHTML = '';
-            if (!state.sessions.length) {
+            if (canShowAssistant) this.renderAIAssistantEntry(sessionList, assistantSession);
+            if (!visibleSessions.length) {
+                if (canShowAssistant) return;
                 const empty = document.createElement('div');
                 empty.className = 'ak-im-empty';
                 empty.textContent = state.allowed ? '暂无会话\n点击右上角搜索联系人开始聊天' : '当前账号未开通聊天';
                 sessionList.appendChild(empty);
                 return;
             }
-            const self = this;
-            state.sessions.forEach(function(item) {
+            visibleSessions.forEach(function(item) {
                 const node = document.createElement('div');
                 const unreadCount = self.getUnreadCount(item);
                 const subtitle = self.getSessionSubtitle(item);

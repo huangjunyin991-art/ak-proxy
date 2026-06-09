@@ -3,6 +3,7 @@
 
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
+    const MAX_TASK_POLL_MS = 130000;
 
     const aiManageModule = {
         ctx: null,
@@ -214,6 +215,17 @@
             return String(task && task.message || '').trim() || 'AI 正在处理...';
         },
 
+        resolveTaskPollDelay(task) {
+            const status = String(task && task.status || '').trim().toLowerCase();
+            if (status === 'queued') return 1800;
+            const startedAt = Date.parse(task && (task.started_at || task.created_at) || '');
+            const elapsedMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+            if (elapsedMs > 60000) return 5000;
+            if (elapsedMs > 30000) return 3500;
+            if (elapsedMs > 12000) return 2400;
+            return 1400;
+        },
+
         setActiveTask(task, options) {
             const state = this.ctx && this.ctx.state;
             if (!state || !task || !task.task_id) return;
@@ -240,7 +252,7 @@
                     setTimeout(() => this.ctx.loadMessages(state.activeConversationId), 350);
                 }
             } else if (!(options && options.skipPoll)) {
-                this.scheduleTaskPoll(task.task_id, status === 'queued' ? 1400 : 1100);
+                this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(state.aiAssistant.activeTask));
             }
             if (typeof this.ctx.render === 'function') this.ctx.render();
         },
@@ -261,11 +273,20 @@
             if (!normalizedTaskId || !state || !state.aiAssistant || !state.aiAssistant.activeTask || state.aiAssistant.activeTask.task_id !== normalizedTaskId) {
                 return Promise.resolve(null);
             }
+            const activeTask = state.aiAssistant.activeTask;
+            const startedAt = Date.parse(activeTask.started_at || activeTask.created_at || '');
+            if (startedAt && Date.now() - startedAt > MAX_TASK_POLL_MS) {
+                this.setActiveTask(Object.assign({}, activeTask, {
+                    status: 'failed',
+                    message: '\u0041\u0049 \u54cd\u5e94\u8d85\u65f6\uff0c\u672c\u6b21\u672a\u6d88\u8017\u989d\u5ea6\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5'
+                }), { skipPoll: true });
+                return Promise.resolve(null);
+            }
             return this.ctx.request(this.ctx.httpRoot + '/ai/tasks/' + encodeURIComponent(normalizedTaskId)).then((task) => {
                 if (!task || !task.task_id) return null;
                 this.setActiveTask(task, { skipPoll: true });
                 if (!this.isTerminalTaskStatus(task.status)) {
-                    this.scheduleTaskPoll(task.task_id, String(task.status || '').toLowerCase() === 'queued' ? 1500 : 1200);
+                    this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(task));
                 }
                 return task;
             }).catch(() => {

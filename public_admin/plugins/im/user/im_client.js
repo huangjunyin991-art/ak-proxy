@@ -1731,6 +1731,7 @@
             closeMemberPanel: closeMemberPanel,
             closeSettingsPanel: closeSettingsPanel,
             openSessionActionSheet: openSessionActionSheet,
+            openAIAssistant: openAIAssistant,
             loadMessages: loadMessages,
             restorePersistedConversationMessages: applyPersistedConversationMessages,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
@@ -2986,6 +2987,24 @@
         composerOutsideDismissBound = true;
     }
 
+    function openAIAssistant() {
+        state.plusPanelOpen = false;
+        if (typeof closeActionSheet === 'function') closeActionSheet();
+        if (typeof closeReadProgressPanel === 'function') closeReadProgressPanel();
+        if (typeof closeEmojiPicker === 'function') closeEmojiPicker({ silent: true });
+        if (typeof closeMemberPanel === 'function') closeMemberPanel();
+        render();
+        return ensureLazyModule('aiManage').then(function(aiManageModule) {
+            if (!aiManageModule || typeof aiManageModule.openAssistant !== 'function') {
+                throw new Error('\u0041\u0049\u52a9\u624b\u6a21\u5757\u6682\u4e0d\u53ef\u7528');
+            }
+            return aiManageModule.openAssistant();
+        }).catch(function(error) {
+            window.alert(error && error.message ? error.message : '\u0041\u0049\u52a9\u624b\u6682\u4e0d\u53ef\u7528');
+            return null;
+        });
+    }
+
     function handlePlusPanelAction(action) {
         const actionKey = String(action || '').trim().toLowerCase();
         const actionLabelMap = {
@@ -3008,16 +3027,7 @@
             return;
         }
         if (actionKey === 'ai-assistant') {
-            state.plusPanelOpen = false;
-            render();
-            ensureLazyModule('aiManage').then(function(aiManageModule) {
-                if (!aiManageModule || typeof aiManageModule.openAssistant !== 'function') {
-                    throw new Error('AI助手模块暂不可用');
-                }
-                return aiManageModule.openAssistant();
-            }).catch(function(error) {
-                window.alert(error && error.message ? error.message : 'AI助手暂不可用');
-            });
+            openAIAssistant();
             return;
         }
         if (actionLabelMap[actionKey]) {
