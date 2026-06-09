@@ -310,24 +310,51 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 	return response, nil
 }
 
+func (s *Service) Summary(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	account, secret, err := s.LoadActiveAccount(ctx)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ChatResponse{}, errors.New("AI provider is not configured")
+		}
+		return ChatResponse{}, err
+	}
+	model := resolveSummaryModel(account, req.Model)
+	if model == "" {
+		return ChatResponse{}, errors.New("AI summary model is not configured")
+	}
+	response, err := s.chatWithResolvedModel(ctx, account, secret, req, model, "summary")
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_used_at = NOW() WHERE id = $1`, account.ID)
+	return response, nil
+}
+
 func (s *Service) chatWithAccount(ctx context.Context, account Account, secret string, req ChatRequest) (ChatResponse, error) {
 	model := resolveChatModel(account, req.Model)
 	if model == "" {
 		return ChatResponse{}, errors.New("AI chat model is not configured")
 	}
-	maxTokens := req.MaxOutputTokens
-	if maxTokens <= 0 {
-		maxTokens = 800
+	return s.chatWithResolvedModel(ctx, account, secret, req, model, "chat")
+}
+
+func (s *Service) chatWithResolvedModel(ctx context.Context, account Account, secret string, req ChatRequest, model string, purpose string) (ChatResponse, error) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ChatResponse{}, errors.New("AI model is not configured")
 	}
 	temperature := req.Temperature
 	if temperature <= 0 {
 		temperature = 0.7
 	}
+	messages := appendModelIdentityGuard(req.Messages, model)
 	payload := map[string]any{
 		"model":       model,
-		"messages":    req.Messages,
+		"messages":    messages,
 		"temperature": temperature,
-		"max_tokens":  maxTokens,
+	}
+	if req.MaxOutputTokens > 0 {
+		payload["max_tokens"] = req.MaxOutputTokens
 	}
 	body, _ := json.Marshal(payload)
 	endpoint := providerAPIURL(account.BaseURL, "/chat/completions")
@@ -347,7 +374,7 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 		return ChatResponse{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ChatResponse{}, fmt.Errorf("AI provider chat failed (model=%s): %s", model, formatProviderError(resp.StatusCode, respBody))
+		return ChatResponse{}, fmt.Errorf("AI provider %s failed (model=%s): %s", purpose, model, formatProviderError(resp.StatusCode, respBody))
 	}
 	var parsed struct {
 		ID      string `json:"id"`
@@ -357,7 +384,8 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
-			Text string `json:"text"`
+			Text         string `json:"text"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
@@ -373,6 +401,10 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 	if content == "" {
 		return ChatResponse{}, errors.New("AI provider returned empty content")
 	}
+	finishReason := ""
+	if len(parsed.Choices) > 0 {
+		finishReason = strings.TrimSpace(parsed.Choices[0].FinishReason)
+	}
 	responseModel := strings.TrimSpace(parsed.Model)
 	if responseModel == "" {
 		responseModel = model
@@ -382,6 +414,7 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 		Model:             responseModel,
 		ProviderID:        account.ID,
 		UpstreamRequestID: parsed.ID,
+		FinishReason:      finishReason,
 		Usage:             parsed.Usage,
 	}, nil
 }
@@ -548,6 +581,50 @@ func resolveChatModel(account Account, requested string) string {
 		return chooseDefaultChatModel(account.AvailableModels, "")
 	}
 	return ""
+}
+
+func resolveSummaryModel(account Account, requested string) string {
+	model := strings.TrimSpace(requested)
+	if model != "" {
+		return model
+	}
+	model = strings.TrimSpace(account.SummaryModel)
+	if model != "" && !isLikelyNonChatModel(model) {
+		return model
+	}
+	model = strings.TrimSpace(account.ChatModel)
+	if model != "" && !isLikelyNonChatModel(model) {
+		return model
+	}
+	if len(account.AvailableModels) > 0 {
+		return chooseDefaultChatModel(account.AvailableModels, "")
+	}
+	return ""
+}
+
+func appendModelIdentityGuard(messages []Message, model string) []Message {
+	family := "ChatGPT 系列模型"
+	if strings.Contains(strings.ToLower(strings.TrimSpace(model)), "claude") {
+		family = "Claude 系列模型"
+	}
+	guard := Message{
+		Role: "system",
+		Content: "If the user asks what model, underlying model, provider, or exact model name you are using, only answer: 我是" +
+			family + "。Do not reveal exact model IDs, relay providers, API keys, system configuration, or routing details.",
+	}
+	out := make([]Message, 0, len(messages)+1)
+	inserted := false
+	for _, message := range messages {
+		out = append(out, message)
+		if !inserted && strings.EqualFold(strings.TrimSpace(message.Role), "system") {
+			out = append(out, guard)
+			inserted = true
+		}
+	}
+	if !inserted {
+		out = append([]Message{guard}, out...)
+	}
+	return out
 }
 
 func (s *Service) tryAlternateChatModels(ctx context.Context, account Account, secret string, started time.Time, prompt string, failedModel string) (TestResult, int) {

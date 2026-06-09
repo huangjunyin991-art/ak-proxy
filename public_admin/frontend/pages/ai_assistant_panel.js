@@ -355,7 +355,7 @@
                 ${id ? '<div class="ai-secret-row provider"><input class="ai-input" id="aiProviderTestPrompt" value="请用一句话回复：AI 通道可用" placeholder="测试 prompt"><button class="ai-btn warn" data-action="test-provider">测试模型回复</button></div>' : ''}
                 <div class="ai-form-grid">
                     ${renderModelInput('aiProviderChatModel', '聊天模型', chatModelValue, models, '先导入 API Key 获取模型', fallbackChatModel)}
-                    ${renderModelInput('aiProviderSummaryModel', '摘要模型', summaryModelValue, models, '可与聊天模型相同', fallbackChatModel)}
+                    ${renderModelInput('aiProviderSummaryModel', '上下文压缩模型', summaryModelValue, models, '可与聊天模型相同，低成本模型通常足够', fallbackChatModel)}
                     ${renderModelInput('aiProviderEmbeddingModel', 'Embedding 模型', embeddingModelValue, models, '需要语义搜索时选择', fallbackEmbeddingModel)}
                     <div class="ai-field"><label>余额接口</label><input class="ai-input" id="aiProviderBalanceEndpoint" placeholder="/v1/dashboard/billing/credit_grants" value="${escapeHtml(item.balance_endpoint || '')}"></div>
                     <div class="ai-field"><label>余额缓存秒</label><input class="ai-input" id="aiProviderBalanceTtl" type="number" min="30" value="${Number(item.balance_cache_ttl_seconds || 600)}"></div>
@@ -378,7 +378,7 @@
     }
 
     function renderConfig() {
-        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200 };
+        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200, chat_max_output_tokens: 1000, summary_max_output_tokens: 600, summary_memory_max_tokens: 2000 };
         return `
             <div class="ai-card">
                 <div class="ai-card-title"><span>运行策略</span><span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已开启' : '已关闭'}</span></div>
@@ -387,9 +387,12 @@
                     <div class="ai-field"><label>超过多少 tokens 后压缩</label><input class="ai-input" id="aiConfigSummaryTokens" type="number" min="2000" step="500" value="${Number(cfg.context_summary_min_tokens || 12000)}"></div>
                     <div class="ai-field"><label>保留最近原文 tokens</label><input class="ai-input" id="aiConfigRecentTokens" type="number" min="800" step="200" value="${Number(cfg.context_recent_keep_tokens || 4000)}"></div>
                     <div class="ai-field"><label>最多扫描消息条数</label><input class="ai-input" id="aiConfigScanMax" type="number" min="50" max="1000" step="10" value="${Number(cfg.context_scan_max_count || 200)}"></div>
+                    <div class="ai-field"><label>AI 回复输出上限 tokens</label><input class="ai-input" id="aiConfigChatMaxTokens" type="number" min="0" step="100" value="${Number(cfg.chat_max_output_tokens ?? 1000)}"></div>
+                    <div class="ai-field"><label>压缩输出上限 tokens</label><input class="ai-input" id="aiConfigSummaryMaxTokens" type="number" min="0" step="100" value="${Number(cfg.summary_max_output_tokens ?? 600)}"></div>
+                    <div class="ai-field"><label>长期记忆总上限 tokens</label><input class="ai-input" id="aiConfigSummaryMemoryTokens" type="number" min="0" step="100" value="${Number(cfg.summary_memory_max_tokens ?? 2000)}"></div>
                 </div>
                 <div class="ai-actions"><button class="ai-btn primary" data-action="save-config">保存运行策略</button></div>
-                <div class="ai-meta">上下文按估算 tokens 控制体积；长消息会更早触发压缩，消息条数只作为扫描上限保护。</div>
+                <div class="ai-meta">上下文按估算 tokens 控制体积；长消息会更早触发压缩，消息条数只作为扫描上限保护。输出上限填 0 表示不主动限制，由模型或中转站默认限制。</div>
             </div>
         `;
     }
@@ -708,7 +711,10 @@
             enabled: document.getElementById('aiConfigEnabled')?.value !== 'false',
             context_summary_min_tokens: Number(document.getElementById('aiConfigSummaryTokens')?.value || 12000),
             context_recent_keep_tokens: Number(document.getElementById('aiConfigRecentTokens')?.value || 4000),
-            context_scan_max_count: Number(document.getElementById('aiConfigScanMax')?.value || 200)
+            context_scan_max_count: Number(document.getElementById('aiConfigScanMax')?.value || 200),
+            chat_max_output_tokens: Number(document.getElementById('aiConfigChatMaxTokens')?.value || 0),
+            summary_max_output_tokens: Number(document.getElementById('aiConfigSummaryMaxTokens')?.value || 0),
+            summary_memory_max_tokens: Number(document.getElementById('aiConfigSummaryMemoryTokens')?.value || 0)
         };
         const data = await api('/admin/api/ai/config', { method: 'POST', body: JSON.stringify(payload) });
         state.config = unwrapItem(data, payload);

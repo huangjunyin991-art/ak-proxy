@@ -59,6 +59,7 @@ type ChatResponse struct {
 	Model             string `json:"model"`
 	ProviderID        int64  `json:"provider_id"`
 	UpstreamRequestID string `json:"upstream_request_id,omitempty"`
+	FinishReason      string `json:"finish_reason,omitempty"`
 	Usage             Usage  `json:"usage"`
 }
 

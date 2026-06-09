@@ -38,6 +38,9 @@ type RuntimeConfig struct {
 	ContextSummaryMinTokens int  `json:"context_summary_min_tokens"`
 	ContextRecentKeepTokens int  `json:"context_recent_keep_tokens"`
 	ContextScanMaxCount     int  `json:"context_scan_max_count"`
+	ChatMaxOutputTokens     int  `json:"chat_max_output_tokens"`
+	SummaryMaxOutputTokens  int  `json:"summary_max_output_tokens"`
+	SummaryMemoryMaxTokens  int  `json:"summary_memory_max_tokens"`
 }
 
 type Task struct {
