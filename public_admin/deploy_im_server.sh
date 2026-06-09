@@ -8,14 +8,39 @@ IM_BIN="$IM_BIN_DIR/im-server"
 SERVICE_NAME="${IM_SERVER_SERVICE_NAME:-im-server}"
 SERVICE_USER="${IM_SERVER_SERVICE_USER:?请设置 IM_SERVER_SERVICE_USER}"
 GO_BIN="${GO_BIN:-/usr/local/go/bin/go}"
-DB_URL="${IM_DATABASE_URL:?请设置 IM_DATABASE_URL}"
-ALLOWED_ORIGIN="${IM_ALLOWED_ORIGIN:?请设置 IM_ALLOWED_ORIGIN}"
 AK_PROXY_ENV_FILE="${AK_PROXY_ENV_FILE:-/etc/ak-proxy/ak-proxy.env}"
+ENSURE_ENV_SCRIPT="$REPO_DIR/public_admin/deploy/env/ensure_env.sh"
+
+append_env_if_missing() {
+    local key="$1"
+    local value="$2"
+    if [ -z "$value" ]; then
+        return
+    fi
+    sudo mkdir -p "$(dirname "$AK_PROXY_ENV_FILE")"
+    sudo touch "$AK_PROXY_ENV_FILE"
+    sudo chmod 600 "$AK_PROXY_ENV_FILE"
+    if ! sudo grep -qE "^${key}=" "$AK_PROXY_ENV_FILE"; then
+        printf '%s=%s\n' "$key" "$value" | sudo tee -a "$AK_PROXY_ENV_FILE" >/dev/null
+    fi
+}
+
+if [ -f "$ENSURE_ENV_SCRIPT" ]; then
+    sudo -E bash "$ENSURE_ENV_SCRIPT" --env-file "$AK_PROXY_ENV_FILE"
+else
+    echo "[WARN] ensure_env.sh not found, skipping auto env generation"
+fi
+
+append_env_if_missing "IM_DATABASE_URL" "${IM_DATABASE_URL:-}"
+append_env_if_missing "IM_ALLOWED_ORIGIN" "${IM_ALLOWED_ORIGIN:-}"
+
 if [ -f "$AK_PROXY_ENV_FILE" ]; then
     set -a
     . "$AK_PROXY_ENV_FILE"
     set +a
 fi
+DB_URL="${IM_DATABASE_URL:?请在 $AK_PROXY_ENV_FILE 中配置 IM_DATABASE_URL}"
+ALLOWED_ORIGIN="${IM_ALLOWED_ORIGIN:?请在 $AK_PROXY_ENV_FILE 中配置 IM_ALLOWED_ORIGIN}"
 NOTIFY_CENTER_WEBHOOK_URL="${IM_NOTIFY_CENTER_WEBHOOK_URL:-http://127.0.0.1:8080/internal/notify-center/im-message}"
 NOTIFY_CENTER_WEBHOOK_SECRET="${IM_NOTIFY_CENTER_WEBHOOK_SECRET:-${NOTIFY_CENTER_INTERNAL_SECRET:-}}"
 NOTIFY_CENTER_IDENTITY_SECRET="${NOTIFY_CENTER_IDENTITY_SECRET:-${NOTIFY_CENTER_INTERNAL_SECRET:-${NOTIFY_CENTER_WEBHOOK_SECRET:-}}}"
@@ -127,15 +152,9 @@ After=network.target
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${IM_DIR}
+EnvironmentFile=-${AK_PROXY_ENV_FILE}
 Environment="IM_ADDR=127.0.0.1:18081"
-Environment="IM_DATABASE_URL=${DB_URL}"
-Environment="IM_ALLOWED_ORIGIN=${ALLOWED_ORIGIN}"
 Environment="IM_AUTH_COOKIE=ak_username"
-Environment="IM_NOTIFY_CENTER_ENABLED=${NOTIFY_CENTER_ENABLED}"
-Environment="IM_NOTIFY_CENTER_WEBHOOK_URL=${NOTIFY_CENTER_WEBHOOK_URL}"
-Environment="IM_NOTIFY_CENTER_WEBHOOK_SECRET=${NOTIFY_CENTER_WEBHOOK_SECRET}"
-Environment="NOTIFY_CENTER_IDENTITY_SECRET=${NOTIFY_CENTER_IDENTITY_SECRET}"
-Environment="NOTIFY_CENTER_IDENTITY_COOKIE=${NOTIFY_CENTER_IDENTITY_COOKIE}"
 Environment="IM_ALLOW_UNSIGNED_IDENTITY=${IM_ALLOW_UNSIGNED_IDENTITY}"
 ExecStart=${IM_BIN}
 Restart=always

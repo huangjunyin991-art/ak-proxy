@@ -146,7 +146,12 @@ func (s *Service) SetCredentials(ctx context.Context, req CredentialsRequest) (S
 	}
 	ciphertext, err := encryptSecret(s.masterSecret, password)
 	if err != nil {
-		return Status{}, err
+		message := err.Error()
+		if strings.Contains(message, "IM_AI_SECRET_KEY") {
+			message = "服务器缺少 IM_AI_SECRET_KEY，无法加密保存 FluAPI 密码"
+		}
+		_ = s.setError(ctx, message)
+		return Status{}, errors.New(message)
 	}
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO im_ai_fluapi_config (id, enabled, username, password_ciphertext, updated_at)
@@ -170,10 +175,19 @@ func (s *Service) Login(ctx context.Context) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if strings.TrimSpace(cfg.passwordCiphertext) == "" {
+		message := "请先导入 FluAPI 控制台账号和密码"
+		_ = s.setError(ctx, message)
+		return Config{}, errors.New(message)
+	}
 	password, err := decryptSecret(s.masterSecret, cfg.passwordCiphertext)
 	if err != nil {
-		_ = s.setError(ctx, "FluAPI password is not configured")
-		return Config{}, err
+		message := err.Error()
+		if strings.Contains(message, "IM_AI_SECRET_KEY") {
+			message = "服务器缺少 IM_AI_SECRET_KEY，无法解密 FluAPI 密码"
+		}
+		_ = s.setError(ctx, message)
+		return Config{}, errors.New(message)
 	}
 	session, userID, err := s.loginWithPassword(ctx, cfg.Config, password)
 	if err != nil {

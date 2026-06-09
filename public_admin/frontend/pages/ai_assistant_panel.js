@@ -145,6 +145,7 @@
             #aiAssistant .ai-switch-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
             #aiAssistant .ai-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
             #aiAssistant .ai-btn{height:36px;border:0;border-radius:9px;padding:0 13px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-weight:700}
+            #aiAssistant .ai-btn:disabled{opacity:.5;cursor:not-allowed;filter:grayscale(.25)}
             #aiAssistant .ai-btn.primary{background:linear-gradient(135deg,var(--accent),#008ed0);color:#fff}
             #aiAssistant .ai-btn.success{background:linear-gradient(135deg,#00ff88,#00b96b);color:#052d1b}
             #aiAssistant .ai-btn.warn{background:linear-gradient(135deg,#ffa502,#e67e22);color:#1f1300}
@@ -317,8 +318,8 @@
                 </div>
                 <div class="ai-actions">
                     <button class="ai-btn primary" data-action="save-fluapi-config">保存上游配置</button>
-                    <button class="ai-btn" data-action="fluapi-login">重新登录</button>
-                    <button class="ai-btn warn" data-action="fluapi-sync">同步余额</button>
+                    <button class="ai-btn" data-action="fluapi-login" ${cfg.has_password ? '' : 'disabled title="请先导入并登录"'}>重新登录</button>
+                    <button class="ai-btn warn" data-action="fluapi-sync" ${cfg.has_password ? '' : 'disabled title="请先导入并登录"'}>同步余额</button>
                 </div>
                 <div class="ai-meta">状态：密码 ${cfg.has_password ? '已加密保存' : '未保存'} · session ${cfg.has_session ? '已保存' : '未保存'} · 最近登录 ${escapeHtml(fmtTime(cfg.last_login_at))} · 最近同步 ${escapeHtml(fmtTime(cfg.last_sync_at))}</div>
                 <div class="ai-meta">这里用于登录中转站控制台同步余额；实际模型调用使用下方 Provider 的 Base URL 和 API Key。</div>
@@ -658,14 +659,18 @@
     }
 
     async function fluAPILogin() {
+        const cfg = (state.fluapiStatus && state.fluapiStatus.config) || {};
+        if (!cfg.has_password) throw new Error('请先填写中转站控制台账号密码，并点击“导入并登录”');
         const data = await api('/admin/api/ai/fluapi/login', { method: 'POST', body: '{}' });
-        const cfg = unwrapItem(data, {});
-        state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { config: cfg });
+        const nextCfg = unwrapItem(data, {});
+        state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { config: nextCfg });
         showToast('FluAPI 重新登录成功');
         render();
     }
 
     async function fluAPISync() {
+        const cfg = (state.fluapiStatus && state.fluapiStatus.config) || {};
+        if (!cfg.has_password) throw new Error('请先填写中转站控制台账号密码，并点击“导入并登录”');
         const data = await api('/admin/api/ai/fluapi/sync', { method: 'POST', body: '{}' });
         const balance = unwrapItem(data, {});
         state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { latest_balance: balance });

@@ -31,7 +31,8 @@ type Config struct {
 }
 
 func Load() Config {
-	notifySecret := getEnv("IM_NOTIFY_CENTER_WEBHOOK_SECRET", "")
+	notifyEnabled := getEnvBool("IM_NOTIFY_CENTER_ENABLED", getEnvBool("NOTIFY_CENTER_ENABLED", false))
+	notifySecret := getEnv("IM_NOTIFY_CENTER_WEBHOOK_SECRET", getEnv("NOTIFY_CENTER_INTERNAL_SECRET", ""))
 	identitySecret := getEnv("NOTIFY_CENTER_IDENTITY_SECRET", getEnv("NOTIFY_CENTER_INTERNAL_SECRET", notifySecret))
 	return Config{
 		Addr:                       getEnv("IM_ADDR", "127.0.0.1:18081"),
@@ -45,8 +46,8 @@ func Load() Config {
 		ImageStoreDir:              getEnv("IM_IMAGE_STORE_DIR", "./data/im/image_assets"),
 		FileStoreDir:               getEnv("IM_FILE_STORE_DIR", "./data/im/file_assets"),
 		VideoStoreDir:              getEnv("IM_VIDEO_STORE_DIR", "./data/im/video_assets"),
-		NotifyCenterEnabled:        getEnvBool("IM_NOTIFY_CENTER_ENABLED", false),
-		NotifyCenterWebhookURL:     getEnv("IM_NOTIFY_CENTER_WEBHOOK_URL", ""),
+		NotifyCenterEnabled:        notifyEnabled,
+		NotifyCenterWebhookURL:     getEnv("IM_NOTIFY_CENTER_WEBHOOK_URL", getEnv("NOTIFY_CENTER_WEBHOOK_URL", "http://127.0.0.1:8080/internal/notify-center/im-message")),
 		NotifyCenterWebhookSecret:  notifySecret,
 		NotifyCenterTimeoutMS:      getEnvInt("IM_NOTIFY_CENTER_TIMEOUT_MS", 1500),
 		NotifyCenterIdentitySecret: identitySecret,

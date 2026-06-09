@@ -235,7 +235,11 @@ func (s *Service) SetSecret(ctx context.Context, providerID int64, secret string
 	}
 	ciphertext, err := encryptSecret(s.masterSecret, secret)
 	if err != nil {
-		return Account{}, err
+		message := err.Error()
+		if strings.Contains(message, "IM_AI_SECRET_KEY") {
+			message = "服务器缺少 IM_AI_SECRET_KEY，无法加密保存 Provider API Key"
+		}
+		return Account{}, errors.New(message)
 	}
 	fingerprint := fingerprintSecret(secret)
 	row := s.db.QueryRow(ctx, `

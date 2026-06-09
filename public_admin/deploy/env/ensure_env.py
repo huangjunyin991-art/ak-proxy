@@ -173,6 +173,12 @@ def _gen_nothing() -> str:
 
 
 VARS: list[tuple[str, callable, str]] = [
+    # Shared AI encryption key. Do not rotate after credentials have been saved.
+    (
+        "IM_AI_SECRET_KEY",
+        lambda: generate_secret(32),
+        CATEGORY_SECRET,
+    ),
     # Notify Center
     (
         "NOTIFY_CENTER_ENABLED",
@@ -233,7 +239,7 @@ def ensure_env(env_path: str, dry_run: bool = False) -> None:
     os.makedirs(os.path.dirname(env_path), exist_ok=True)
 
     # Ensure file exists (empty is fine, we only append)
-    if not os.path.exists(env_path):
+    if not dry_run and not os.path.exists(env_path):
         open(env_path, "a", encoding="utf-8").close()
         os.chmod(env_path, stat.S_IRUSR | stat.S_IWUSR)
 
@@ -250,6 +256,7 @@ def ensure_env(env_path: str, dry_run: bool = False) -> None:
 
         if dry_run:
             print(f"[dry-run] would add   {key}  ({category})")
+            added.append((key, value, category))
         else:
             env.upsert(key, value)
             added.append((key, value, category))
@@ -273,8 +280,8 @@ def ensure_env(env_path: str, dry_run: bool = False) -> None:
     for cat in sorted(by_category):
         print(f"[ensure_env] added ({cat}): {', '.join(sorted(by_category[cat]))}")
 
-    print("[ensure_env] Done. Restart ak-proxy.service to load new variables:")
-    print(f"            sudo systemctl restart ak-proxy")
+    print("[ensure_env] Done. Restart services that read this env file:")
+    print(f"            sudo systemctl restart ak-proxy im-server")
 
 
 # ---------------------------------------------------------------------------
