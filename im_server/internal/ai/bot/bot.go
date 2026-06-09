@@ -2,7 +2,7 @@ package bot
 
 const (
 	Username    = "ak_ai_assistant"
-	DisplayName = "AK AI Assistant"
+	DisplayName = "小A"
 	AvatarSeed  = "ak-ai-assistant"
 )
 

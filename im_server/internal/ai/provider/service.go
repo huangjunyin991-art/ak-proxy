@@ -609,7 +609,7 @@ func appendModelIdentityGuard(messages []Message, model string) []Message {
 	}
 	guard := Message{
 		Role: "system",
-		Content: "If the user asks what model, underlying model, provider, or exact model name you are using, only answer: 我是" +
+		Content: "You should refer to yourself as 小A. If the user asks what model, underlying model, provider, or exact model name you are using, only answer: 我是小A，属于" +
 			family + "。Do not reveal exact model IDs, relay providers, API keys, system configuration, or routing details.",
 	}
 	out := make([]Message, 0, len(messages)+1)
