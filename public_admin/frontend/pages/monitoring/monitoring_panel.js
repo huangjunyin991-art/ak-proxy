@@ -457,9 +457,17 @@
             '</div>' +
             '<details class="monitoring-section monitoring-blocking-pools-section monitoring-collapsible-section" data-monitoring-section="blockingPools">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>阻塞 IO 池</h4><span class="monitoring-meta" id="monitoringBlockingPoolsMeta">默认收起，展开后读取</span></summary>' +
+            '<div class="monitoring-cache-grid monitoring-blocking-pool-policy-grid">' +
+            '<label><span>慢调用阈值（ms）</span><input class="monitoring-input" id="blockingPoolSlowMs" type="number" min="20" max="10000" step="10"></label>' +
+            '<label><span>默认池并发</span><input class="monitoring-input" id="blockingPoolConcurrencyDefault" type="number" min="1" max="64" step="1"></label>' +
+            '<label><span>资源读取并发</span><input class="monitoring-input" id="blockingPoolConcurrencyAssetFile" type="number" min="1" max="64" step="1"></label>' +
+            '<label><span>静态缓存并发</span><input class="monitoring-input" id="blockingPoolConcurrencyStaticCache" type="number" min="1" max="32" step="1"></label>' +
+            '<label><span>诊断扫描并发</span><input class="monitoring-input" id="blockingPoolConcurrencyDiagnostics" type="number" min="1" max="8" step="1"></label>' +
+            '<label><span>后台维护并发</span><input class="monitoring-input" id="blockingPoolConcurrencyMaintenance" type="number" min="1" max="4" step="1"></label>' +
+            '</div>' +
             '<div class="monitoring-grid" id="monitoringBlockingPoolCards"></div>' +
             '<div class="monitoring-bars" id="monitoringBlockingPoolBars"></div>' +
-            '<div class="monitoring-cache-actions monitoring-blocking-pool-actions"><button class="monitoring-btn" data-monitoring-action="refresh-blocking-pools">刷新阻塞池</button><span class="monitoring-meta">按任务类型隔离本地文件、静态缓存、诊断扫描和后台维护。</span></div>' +
+            '<div class="monitoring-cache-actions monitoring-blocking-pool-actions"><button class="monitoring-btn primary" data-monitoring-action="save-blocking-pools-policy">保存阻塞池配置</button><button class="monitoring-btn" data-monitoring-action="refresh-blocking-pools">刷新阻塞池</button><span class="monitoring-meta" id="monitoringBlockingPoolPolicyMeta">保存后立即应用到当前进程。</span></div>' +
             '<div class="monitoring-table-wrap monitoring-blocking-pool-table-wrap"><table class="monitoring-table monitoring-blocking-pool-table"><thead><tr><th>池</th><th>状态</th><th>并发</th><th>等待</th><th>完成/失败</th><th>排队</th><th>运行</th><th>慢调用</th></tr></thead><tbody id="monitoringBlockingPoolRows"></tbody></table></div>' +
             '<div class="monitoring-table-wrap monitoring-blocking-pool-slow-wrap"><table class="monitoring-table monitoring-blocking-pool-slow-table"><thead><tr><th>时间</th><th>池</th><th>函数</th><th>排队</th><th>运行</th></tr></thead><tbody id="monitoringBlockingPoolSlowRows"></tbody></table></div>' +
             '</details>' +
@@ -588,6 +596,8 @@
                 loadRequestMetrics(true);
             } else if (action === 'clear-request-metrics') {
                 clearRequestMetrics();
+            } else if (action === 'save-blocking-pools-policy') {
+                saveBlockingPoolPolicy();
             } else if (action === 'refresh-blocking-pools') {
                 loadBlockingPools(true);
             } else if (action === 'refresh-index-plan') {
@@ -790,14 +800,59 @@
         return 'monitoring-status-ok';
     }
 
+    function blockingPoolInputId(name) {
+        var map = {
+            'default': 'blockingPoolConcurrencyDefault',
+            'asset_file': 'blockingPoolConcurrencyAssetFile',
+            'static_cache': 'blockingPoolConcurrencyStaticCache',
+            'diagnostics': 'blockingPoolConcurrencyDiagnostics',
+            'maintenance': 'blockingPoolConcurrencyMaintenance'
+        };
+        return map[name] || '';
+    }
+
+    function blockingPoolNames() {
+        return ['default', 'asset_file', 'static_cache', 'diagnostics', 'maintenance'];
+    }
+
+    function setBlockingPoolPolicyInputs(item) {
+        var policy = item && item.policy || {};
+        var pools = policy.pools || {};
+        setInputValue('blockingPoolSlowMs', policy.slow_ms || item.slow_ms || 250);
+        blockingPoolNames().forEach(function(name) {
+            var inputId = blockingPoolInputId(name);
+            var poolPolicy = pools[name] || {};
+            var poolRuntime = (item.pools || []).find(function(pool) { return pool.name === name; }) || {};
+            setInputValue(inputId, poolPolicy.max_concurrency || poolRuntime.max_concurrency || '');
+        });
+    }
+
+    function collectBlockingPoolPolicy() {
+        function optionalNumber(id) {
+            var el = document.getElementById(id);
+            if (!el || String(el.value || '').trim() === '') return null;
+            return Number(el.value || 0);
+        }
+        var pools = {};
+        blockingPoolNames().forEach(function(name) {
+            pools[name] = { max_concurrency: optionalNumber(blockingPoolInputId(name)) };
+        });
+        return {
+            slow_ms: optionalNumber('blockingPoolSlowMs'),
+            pools: pools
+        };
+    }
+
     function renderBlockingPoolRows(item) {
         var pools = Array.isArray(item && item.pools) ? item.pools : [];
         if (!pools.length) return '<tr><td colspan="8"><div class="monitoring-empty">暂无阻塞池快照</div></td></tr>';
         return pools.map(function(pool) {
             var label = pool.label || pool.name || '-';
             var status = pool.status || 'idle';
+            var recommendation = pool.recommendation || {};
+            var description = (pool.description || pool.name || '-') + (recommendation.message ? ' · ' + recommendation.message : '');
             return '<tr>' +
-                '<td><strong>' + escapeHtml(label) + '</strong><br><span class="monitoring-meta">' + escapeHtml(pool.description || pool.name || '-') + '</span></td>' +
+                '<td><strong>' + escapeHtml(label) + '</strong><br><span class="monitoring-meta">' + escapeHtml(description) + '</span></td>' +
                 '<td><span class="' + blockingPoolStatusClass(status) + '">' + escapeHtml(blockingPoolStatusLabel(status)) + '</span></td>' +
                 '<td>' + formatNumber(pool.in_flight) + ' / ' + formatNumber(pool.max_concurrency) + '</td>' +
                 '<td>' + formatNumber(pool.waiting) + '</td>' +
@@ -843,12 +898,14 @@
         var rows = document.getElementById('monitoringBlockingPoolRows');
         var slowRows = document.getElementById('monitoringBlockingPoolSlowRows');
         var meta = document.getElementById('monitoringBlockingPoolsMeta');
+        var policyMeta = document.getElementById('monitoringBlockingPoolPolicyMeta');
         if (!item || (!item.summary && !item.pools && !item.error)) {
             if (cards) setHtmlIfChanged(cards, renderCard('阻塞 IO 池', '未读取', '展开后读取，不展开不请求'));
             if (bars) setHtmlIfChanged(bars, '');
             if (rows) setHtmlIfChanged(rows, '<tr><td colspan="8"><div class="monitoring-empty">展开后读取阻塞池快照</div></td></tr>');
             if (slowRows) setHtmlIfChanged(slowRows, '<tr><td colspan="5"><div class="monitoring-empty">展开后读取慢调用样本</div></td></tr>');
             if (meta) setTextIfChanged(meta, '默认收起，展开后读取');
+            if (policyMeta) setTextIfChanged(policyMeta, '保存后立即应用到当前进程。');
             return;
         }
         if (item.error) {
@@ -857,8 +914,10 @@
             if (rows) setHtmlIfChanged(rows, renderBlockingPoolRows(item));
             if (slowRows) setHtmlIfChanged(slowRows, renderBlockingPoolSlowRows(item));
             if (meta) setTextIfChanged(meta, item.error);
+            if (policyMeta) setTextIfChanged(policyMeta, item.error);
             return;
         }
+        setBlockingPoolPolicyInputs(item);
         var summary = item.summary || {};
         var pools = Array.isArray(item.pools) ? item.pools : [];
         if (cards) {
@@ -878,6 +937,9 @@
         if (slowRows) setHtmlIfChanged(slowRows, renderBlockingPoolSlowRows(item));
         if (meta) {
             setTextIfChanged(meta, '更新于 ' + formatSampleTime(item.generated_at) + ' · 总等待 ' + formatNumber(summary.waiting) + ' · 慢阈值 ' + formatMs(item.slow_ms));
+        }
+        if (policyMeta) {
+            setTextIfChanged(policyMeta, '保存后立即生效；每个池有独立安全上限，资源读取最高 64，后台维护最高 4。');
         }
     }
 
@@ -2190,6 +2252,16 @@
             notify('慢请求记录已清空', 'success');
         }).catch(function(err) {
             notify(err && err.message || '慢请求记录清空失败', 'error');
+        });
+    }
+
+    function saveBlockingPoolPolicy() {
+        apiPost('/blocking-pools/policy', collectBlockingPoolPolicy()).then(function(body) {
+            state.data.blockingPools = body.item || {};
+            renderBlockingPools();
+            notify('阻塞 IO 池配置已保存并应用', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '阻塞 IO 池配置保存失败', 'error');
         });
     }
 

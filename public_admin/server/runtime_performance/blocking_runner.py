@@ -28,6 +28,7 @@ class BlockingRunner:
         self._semaphore = asyncio.BoundedSemaphore(self._max_concurrency)
         self._slow_ms = float(slow_ms if slow_ms is not None else os.environ.get('AK_BLOCKING_IO_SLOW_MS', '250'))
         self._lock = Lock()
+        self._configured_at = time.time()
         self._waiting = 0
         self._in_flight = 0
         self._submitted = 0
@@ -45,11 +46,12 @@ class BlockingRunner:
         queued_at = time.perf_counter()
         func_name = getattr(func, '__qualname__', getattr(func, '__name__', 'blocking_call'))
         acquired = False
+        semaphore = self._semaphore
         with self._lock:
             self._submitted += 1
             self._waiting += 1
         try:
-            await self._semaphore.acquire()
+            await semaphore.acquire()
             acquired = True
         except asyncio.CancelledError:
             with self._lock:
@@ -94,7 +96,18 @@ class BlockingRunner:
                         'ts': time.time(),
                     })
             if acquired:
-                self._semaphore.release()
+                semaphore.release()
+
+    def configure(self, max_concurrency: int | None = None, slow_ms: float | None = None) -> None:
+        with self._lock:
+            if max_concurrency is not None:
+                next_max = max(1, int(max_concurrency or 1))
+                if next_max != self._max_concurrency:
+                    self._max_concurrency = next_max
+                    self._semaphore = asyncio.BoundedSemaphore(self._max_concurrency)
+            if slow_ms is not None:
+                self._slow_ms = max(1.0, float(slow_ms or 1.0))
+            self._configured_at = time.time()
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -124,6 +137,7 @@ class BlockingRunner:
                 'cancelled': self._cancelled,
                 'slow_count': self._slow_count,
                 'slow_ms': round(self._slow_ms, 2),
+                'configured_at': self._configured_at,
                 'saturation_pct': round((in_flight / self._max_concurrency) * 100.0, 2),
                 'avg_queue_ms': round(self._total_queue_ms / completed, 2),
                 'avg_run_ms': round(self._total_run_ms / completed, 2),

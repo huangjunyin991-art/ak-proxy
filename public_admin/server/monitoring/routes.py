@@ -3,7 +3,7 @@ from typing import Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from ..runtime_performance import get_blocking_pools_snapshot
+from ..runtime_performance import BlockingPoolConfigService
 from .service import MonitoringService
 
 
@@ -38,6 +38,7 @@ def create_monitoring_router(
         system_config=system_config,
         logger=logger,
     )
+    blocking_pool_config = BlockingPoolConfigService(system_config, logger=logger)
 
     async def require_super_admin(request: Request):
         token = _extract_bearer_token(request)
@@ -288,12 +289,24 @@ def create_monitoring_router(
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
     @router.get("/blocking-pools")
-    async def monitoring_blocking_pools(request: Request):
+    async def monitoring_blocking_pools(request: Request, force: str = ""):
         _, error_response = await require_super_admin(request)
         if error_response is not None:
             return error_response
         try:
-            return {"success": True, "item": get_blocking_pools_snapshot()}
+            return {"success": True, "item": await blocking_pool_config.snapshot(force=_parse_force(force))}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/blocking-pools/policy")
+    async def monitoring_update_blocking_pools_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            payload = await request.json()
+            await blocking_pool_config.set_policy_payload(payload or {})
+            return {"success": True, "item": await blocking_pool_config.snapshot(force=True)}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 

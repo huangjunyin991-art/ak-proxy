@@ -255,6 +255,7 @@
 
 .monitoring-blocking-pools-section .monitoring-grid,
 .monitoring-blocking-pools-section .monitoring-bars,
+.monitoring-blocking-pool-policy-grid,
 .monitoring-blocking-pool-actions {
     margin-bottom: 14px;
 }

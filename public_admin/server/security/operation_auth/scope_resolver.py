@@ -87,6 +87,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/monitoring/ws-tickets/policy'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/request-metrics/policy'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/request-metrics/clear'): 'dispatcher_ops',
+            ('POST', '/admin/api/monitoring/blocking-pools/policy'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/static-cache/policy'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/static-cache/refresh-upstream'): 'dispatcher_ops',
             ('POST', '/admin/api/monitoring/static-cache/prewarm'): 'dispatcher_ops',

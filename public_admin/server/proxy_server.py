@@ -185,6 +185,7 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
 from .runtime_performance import (
+    BlockingPoolConfigService,
     TimedServiceStatusCache,
     get_blocking_runner_snapshot,
     get_event_loop_probe_snapshot,
@@ -5761,6 +5762,12 @@ async def admin_startup():
         logger.info("[RequestMetrics] request metrics policy initialized from config")
     except Exception as e:
         logger.warning(f"[RequestMetrics] init failed, fallback to default disabled: {e}")
+
+    try:
+        await BlockingPoolConfigService(db.system_config, logger=logger).refresh_policy(force=True)
+        logger.info("[BlockingPools] blocking IO pool policy initialized from config")
+    except Exception as e:
+        logger.warning(f"[BlockingPools] init failed, fallback to env defaults: {e}")
 
     await _load_tokens_from_db()
 
