@@ -913,7 +913,7 @@ func latestUserMessageIsContinuePrompt(items []contextMessageItem) bool {
 
 func isContinueOnlyPrompt(value string) bool {
 	text := strings.ToLower(strings.TrimSpace(value))
-	replacer := strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "", "。", "", "！", "", "!", "", "？", "", "?", "，", "", ",", "", ".", "")
+	replacer := strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "", "。", "", "！", "", "!", "", "？", "", "?", "", "，", "", ",", "", ".", "")
 	text = replacer.Replace(text)
 	switch text {
 	case "继续", "继续说", "接着说", "没说完", "继续讲", "接着讲", "往下说", "continue":
