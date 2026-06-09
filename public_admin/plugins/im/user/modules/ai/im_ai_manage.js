@@ -4,6 +4,7 @@
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
     const MAX_TASK_POLL_MS = 130000;
+    const MAX_TASK_POLL_ERRORS = 6;
 
     const aiManageModule = {
         ctx: null,
@@ -284,13 +285,28 @@
             }
             return this.ctx.request(this.ctx.httpRoot + '/ai/tasks/' + encodeURIComponent(normalizedTaskId)).then((task) => {
                 if (!task || !task.task_id) return null;
-                this.setActiveTask(task, { skipPoll: true });
+                this.setActiveTask(Object.assign({}, task, { poll_error_count: 0 }), { skipPoll: true });
                 if (!this.isTerminalTaskStatus(task.status)) {
                     this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(task));
                 }
                 return task;
-            }).catch(() => {
-                this.scheduleTaskPoll(normalizedTaskId, 2200);
+            }).catch((error) => {
+                const latestTask = state.aiAssistant && state.aiAssistant.activeTask;
+                if (!latestTask || latestTask.task_id !== normalizedTaskId) return null;
+                const errorCount = Number(latestTask.poll_error_count || 0) + 1;
+                if (errorCount >= MAX_TASK_POLL_ERRORS) {
+                    this.setActiveTask(Object.assign({}, latestTask, {
+                        status: 'failed',
+                        poll_error_count: errorCount,
+                        message: '\u0041\u0049 \u8fde\u63a5\u5f02\u5e38\uff0c\u672c\u6b21\u672a\u6d88\u8017\u989d\u5ea6\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5'
+                    }), { skipPoll: true });
+                    return null;
+                }
+                this.setActiveTask(Object.assign({}, latestTask, {
+                    poll_error_count: errorCount,
+                    message: error && error.message ? error.message : latestTask.message
+                }), { skipPoll: true });
+                this.scheduleTaskPoll(normalizedTaskId, Math.min(15000, 2500 + errorCount * 1800));
                 return null;
             });
         },

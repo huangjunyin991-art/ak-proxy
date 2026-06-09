@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -463,10 +464,16 @@ func terminalWriteContext() (context.Context, context.CancelFunc) {
 
 func (s *Service) processTask(taskID string) {
 	s.slots <- struct{}{}
-	defer func() { <-s.slots }()
+	var conversationID int64
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("AI task panic: task_id=%s err=%v stack=%s", taskID, recovered, string(debug.Stack()))
+			s.failTask(context.Background(), taskID, conversationID, "worker_panic", fmt.Sprint(recovered))
+		}
+		<-s.slots
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), taskRunTimeout)
 	defer cancel()
-	var conversationID int64
 	var ownerUsername string
 	var triggerMessageID int64
 	err := s.db.QueryRow(ctx, `
@@ -508,17 +515,22 @@ func (s *Service) processTask(taskID string) {
 		return
 	}
 	content := appendContinueHintIfLikelyTruncated(resp.Content, resp, cfg.ChatMaxOutputTokens)
-	message, err := s.sink.InsertAITextMessage(ctx, conversationID, bot.Username, content)
+	messageCtx, messageCancel := terminalWriteContext()
+	message, err := s.sink.InsertAITextMessage(messageCtx, conversationID, bot.Username, content)
+	messageCancel()
 	if err != nil {
 		s.failTask(ctx, taskID, conversationID, "message_write_error", err.Error())
 		return
 	}
-	if _, err := s.entitlement.Consume(ctx, ownerUsername, entitlement.FeatureAIChat, taskID, 1, "ai_chat_success"); err != nil {
+	quotaCtx, quotaCancel := terminalWriteContext()
+	if _, err := s.entitlement.Consume(quotaCtx, ownerUsername, entitlement.FeatureAIChat, taskID, 1, "ai_chat_success"); err != nil {
 		log.Printf("AI quota consume failed: task_id=%s username=%s err=%v", taskID, ownerUsername, err)
 	}
+	quotaCancel()
 	if s.billing != nil {
 		estimatedTokens := estimateProviderMessagesTokens(messages) + estimateTextTokens(content)
-		if _, err := s.billing.Settle(ctx, billing.Settlement{
+		billingCtx, billingCancel := terminalWriteContext()
+		if _, err := s.billing.Settle(billingCtx, billing.Settlement{
 			TaskID:            taskID,
 			Username:          ownerUsername,
 			FeatureKey:        entitlement.FeatureAIChat,
@@ -533,17 +545,29 @@ func (s *Service) processTask(taskID string) {
 		}); err != nil {
 			log.Printf("AI billing settle failed: task_id=%s username=%s err=%v", taskID, ownerUsername, err)
 		}
+		billingCancel()
 	}
 	go s.refreshContextSummary(ownerUsername, conversationID)
+	s.markTaskSucceeded(taskID, message.ID, resp.Model, latencyMS)
+}
+
+func (s *Service) markTaskSucceeded(taskID string, messageID int64, model string, latencyMS int) {
 	writeCtx, writeCancel := terminalWriteContext()
 	defer writeCancel()
 	_, _ = s.db.Exec(writeCtx, `
 		INSERT INTO im_ai_request_log (task_id, model, status, latency_ms, created_at)
-		VALUES ($1, $2, 'succeeded', $3, NOW())`, taskID, resp.Model, latencyMS)
-	_, _ = s.db.Exec(writeCtx, `
+		VALUES ($1, $2, 'succeeded', $3, NOW())`, taskID, model, latencyMS)
+	tag, err := s.db.Exec(writeCtx, `
 		UPDATE im_ai_task
 		SET status = $2, response_message_id = $3, finished_at = NOW(), updated_at = NOW()
-		WHERE task_id = $1`, taskID, taskStatusSucceeded, message.ID)
+		WHERE task_id = $1 AND status = $4`, taskID, taskStatusSucceeded, messageID, taskStatusRunning)
+	if err != nil {
+		log.Printf("mark AI task succeeded failed: task_id=%s err=%v", taskID, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		log.Printf("mark AI task succeeded ignored: task_id=%s", taskID)
+	}
 }
 
 func (s *Service) failTask(ctx context.Context, taskID string, conversationID int64, code string, message string) {
@@ -561,7 +585,9 @@ func (s *Service) failTask(ctx context.Context, taskID string, conversationID in
 		return
 	}
 	if s.sink != nil && conversationID > 0 {
-		_, err := s.sink.InsertAITextMessage(context.Background(), conversationID, bot.Username, "AI 服务暂时不可用，本次没有消耗额度，请稍后再试。")
+		messageCtx, messageCancel := terminalWriteContext()
+		_, err := s.sink.InsertAITextMessage(messageCtx, conversationID, bot.Username, "AI 服务暂时不可用，本次没有消耗额度，请稍后再试。")
+		messageCancel()
 		if err != nil {
 			log.Printf("insert AI failure prompt failed: task_id=%s err=%v", taskID, err)
 		}
@@ -817,7 +843,7 @@ func buildSummaryPrompt(previousSummary string, source []summaryMessage) string 
 func (s *Service) Task(ctx context.Context, taskID string, username string) (Task, error) {
 	var item Task
 	err := s.db.QueryRow(ctx, `
-		SELECT t.task_id, t.conversation_id, t.owner_username, t.status, t.created_at, t.started_at, t.finished_at,
+		SELECT t.task_id, t.conversation_id, t.owner_username, t.status, t.error_code, t.error_message, t.created_at, t.started_at, t.finished_at,
 		       CASE WHEN t.status = $3 THEN (
 		           SELECT COUNT(*)
 		           FROM im_ai_task q
@@ -829,17 +855,19 @@ func (s *Service) Task(ctx context.Context, taskID string, username string) (Tas
 		       ) ELSE 0 END AS queue_position
 		FROM im_ai_task t
 		WHERE t.task_id = $1 AND t.owner_username = $2`, strings.TrimSpace(taskID), normalizeUsername(username), taskStatusQueued).
-		Scan(&item.TaskID, &item.ConversationID, &item.OwnerUsername, &item.Status, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.QueuePosition)
+		Scan(&item.TaskID, &item.ConversationID, &item.OwnerUsername, &item.Status, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.QueuePosition)
 	if err != nil {
 		return Task{}, err
 	}
 	if isStaleRunningTask(item, time.Now()) {
 		s.failTask(ctx, item.TaskID, item.ConversationID, "task_timeout", "AI task timed out")
 		item.Status = taskStatusFailed
+		item.ErrorCode = "task_timeout"
+		item.ErrorMessage = "AI task timed out"
 		now := time.Now()
 		item.FinishedAt = &now
 	}
-	item.Message = taskStatusMessage(item.Status)
+	item.Message = taskStatusMessage(item)
 	return item, nil
 }
 
@@ -847,8 +875,8 @@ func isStaleRunningTask(item Task, now time.Time) bool {
 	return item.Status == taskStatusRunning && item.StartedAt != nil && now.Sub(*item.StartedAt) > taskStaleRunningAfter
 }
 
-func taskStatusMessage(status string) string {
-	switch status {
+func taskStatusMessage(item Task) string {
+	switch item.Status {
 	case taskStatusQueued:
 		return "当前请求较多，已为你排队。"
 	case taskStatusRunning:
@@ -856,6 +884,16 @@ func taskStatusMessage(status string) string {
 	case taskStatusSucceeded:
 		return "已完成。"
 	case taskStatusFailed:
+		switch strings.TrimSpace(item.ErrorCode) {
+		case "task_timeout":
+			return "AI 响应超时，本次没有消耗额度，请稍后再试。"
+		case "provider_error":
+			return "AI 中转站响应异常，本次没有消耗额度，请稍后再试。"
+		case "message_write_error":
+			return "AI 回复写入失败，本次没有消耗额度，请稍后再试。"
+		case "worker_panic":
+			return "AI 处理异常，本次没有消耗额度，请稍后再试。"
+		}
 		return "生成失败，本次未消耗额度。"
 	default:
 		return ""

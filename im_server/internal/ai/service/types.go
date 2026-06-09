@@ -50,6 +50,8 @@ type Task struct {
 	Status         string     `json:"status"`
 	QueuePosition  int        `json:"queue_position"`
 	Message        string     `json:"message"`
+	ErrorCode      string     `json:"error_code,omitempty"`
+	ErrorMessage   string     `json:"error_message,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	StartedAt      *time.Time `json:"started_at,omitempty"`
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
