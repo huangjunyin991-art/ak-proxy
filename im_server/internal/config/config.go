@@ -25,6 +25,9 @@ type Config struct {
 	NotifyCenterIdentityCookie string
 	AllowUnsignedIdentity      bool
 	WsTicketTTLSeconds         int
+	AISecretKey                string
+	AIProviderTimeoutMS        int
+	AIWorkerConcurrency        int
 }
 
 func Load() Config {
@@ -50,6 +53,9 @@ func Load() Config {
 		NotifyCenterIdentityCookie: getEnv("NOTIFY_CENTER_IDENTITY_COOKIE", "ak_notify_identity"),
 		AllowUnsignedIdentity:      getEnvBool("IM_ALLOW_UNSIGNED_IDENTITY", false),
 		WsTicketTTLSeconds:         getEnvInt("WS_TICKET_TTL_SECONDS", 45),
+		AISecretKey:                getEnv("IM_AI_SECRET_KEY", ""),
+		AIProviderTimeoutMS:        getEnvInt("IM_AI_PROVIDER_TIMEOUT_MS", 60000),
+		AIWorkerConcurrency:        getEnvInt("IM_AI_WORKER_CONCURRENCY", 3),
 	}
 }
 

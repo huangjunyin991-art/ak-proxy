@@ -855,6 +855,12 @@
                 body: JSON.stringify(requestPayload)
             }).then(function(data) {
                 const item = data && data.item ? data.item : null;
+                if (item && self.ctx && typeof self.ctx.onMessageCreated === 'function') {
+                    self.ctx.onMessageCreated(item, {
+                        source: 'http_send',
+                        response: data || null
+                    });
+                }
                 if (tempId && item && self.replaceLocalMessage(tempId, item)) {
                     self.renderMessages();
                     self.forceScrollToBottom(1800);
@@ -1348,6 +1354,11 @@
             if (data.type === 'im.message.created') {
                 const item = data.payload || null;
                 if (!item || !item.conversation_id) return;
+                if (this.ctx && typeof this.ctx.onMessageCreated === 'function') {
+                    this.ctx.onMessageCreated(item, {
+                        source: 'ws'
+                    });
+                }
                 const isActiveChat = Number(item.conversation_id) === Number(state.activeConversationId || 0) && state.view === 'chat';
                 const messageSync = this.getMessageSync();
                 if (messageSync && typeof messageSync.mergeIncomingMessage === 'function') {

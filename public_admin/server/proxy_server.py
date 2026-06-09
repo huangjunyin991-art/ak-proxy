@@ -1212,6 +1212,25 @@ async def _post_im_internal_json(path: str, payload: dict) -> tuple[int, dict]:
     return response.status_code, body
 
 
+async def _request_im_internal_json(method: str, path: str, payload: dict | None = None, timeout: float = 12.0) -> tuple[int, dict]:
+
+    url = f"{IM_SERVER_INTERNAL_URL}{path}"
+
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+
+        response = await client.request(str(method or "GET").upper(), url, json=payload if payload is not None else None)
+
+    try:
+
+        body = response.json()
+
+    except Exception:
+
+        body = {"error": True, "message": response.text[:300] or "IM 服务响应无效"}
+
+    return response.status_code, body
+
+
 
 async def _post_im_internal_multipart(path: str, upload_files: list[UploadFile]) -> tuple[int, dict]:
 
@@ -8593,7 +8612,139 @@ async def admin_whitelist_set_global(request: Request):
     except Exception as e:
         logger.error(f"[Whitelist] 设置全局开关失败: {e}")
         return {"success": False, "message": f"设置失败: {str(e)}"}
+async def _admin_ai_internal_proxy(request: Request, method: str, path: str, payload: dict | None = None, timeout: float = 15.0):
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+
+    if error_response is not None:
+
+        return error_response
+
+    status_code, body = await _request_im_internal_json(method, path, payload, timeout=timeout)
+
+    if status_code >= 400:
+
+        return JSONResponse(status_code=status_code, content=body if isinstance(body, dict) else {"error": True, "message": "IM AI 服务调用失败"})
+
+    return JSONResponse(content=body if isinstance(body, dict) else {"success": True, "item": body})
+
+
+@app.get("/admin/api/ai/config")
+async def admin_ai_config(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/config")
+
+
+@app.get("/admin/api/ai/diagnostics")
+async def admin_ai_diagnostics(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/diagnostics")
+
+
+@app.post("/admin/api/ai/config")
+async def admin_ai_config_update(request: Request):
+
+    try:
+
+        payload = await request.json()
+
+    except Exception:
+
+        payload = {}
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/config", payload)
+
+
+@app.get("/admin/api/ai/providers")
+async def admin_ai_providers(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/providers")
+
+
+@app.post("/admin/api/ai/providers")
+async def admin_ai_provider_create(request: Request):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/providers", payload)
+
+
+@app.put("/admin/api/ai/providers/{provider_id}")
+async def admin_ai_provider_update(request: Request, provider_id: int):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "PUT", f"/im/internal/ai/admin/providers/{int(provider_id)}", payload)
+
+
+@app.post("/admin/api/ai/providers/{provider_id}/secret")
+async def admin_ai_provider_secret(request: Request, provider_id: int):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/providers/{int(provider_id)}/secret", payload)
+
+
+@app.post("/admin/api/ai/providers/{provider_id}/test")
+async def admin_ai_provider_test(request: Request, provider_id: int):
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/providers/{int(provider_id)}/test", {}, timeout=20.0)
+
+
+@app.post("/admin/api/ai/providers/{provider_id}/balance/refresh")
+async def admin_ai_provider_balance_refresh(request: Request, provider_id: int):
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/providers/{int(provider_id)}/balance/refresh", {}, timeout=20.0)
+
+
+@app.get("/admin/api/ai/providers/{provider_id}/balance")
+async def admin_ai_provider_balance(request: Request, provider_id: int):
+
+    return await _admin_ai_internal_proxy(request, "GET", f"/im/internal/ai/admin/providers/{int(provider_id)}/balance")
+
+
+@app.get("/admin/api/ai/tiers")
+async def admin_ai_tiers(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/tiers")
+
+
+@app.post("/admin/api/ai/tiers")
+async def admin_ai_tier_update(request: Request):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/tiers", payload)
+
+
+@app.get("/admin/api/ai/redeem-codes")
+async def admin_ai_redeem_codes(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/redeem-codes")
+
+
+@app.post("/admin/api/ai/redeem-codes")
+async def admin_ai_redeem_code_create(request: Request):
+
+    token, error_response = await _require_admin_token(request, super_admin_only=True)
+
+    if error_response is not None:
+
+        return error_response
+
+    payload = await request.json()
+
+    if isinstance(payload, dict) and not str(payload.get("created_by") or "").strip():
+
+        payload["created_by"] = "super_admin" if get_token_role(token) == ROLE_SUPER_ADMIN else "admin"
+
+    status_code, body = await _request_im_internal_json("POST", "/im/internal/ai/admin/redeem-codes", payload, timeout=15.0)
+
+    if status_code >= 400:
+
+        return JSONResponse(status_code=status_code, content=body if isinstance(body, dict) else {"error": True, "message": "IM AI 服务调用失败"})
+
+    return JSONResponse(content=body if isinstance(body, dict) else {"success": True, "item": body})
 
 
 @app.get("/admin/api/im/groups")
@@ -12716,6 +12867,15 @@ async def im_user_plugin_plus_entry_manage_module_js(request: Request):
     return await _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/ai/im_ai_manage.js")
+
+async def im_user_plugin_ai_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "ai", "im_ai_manage.js")
+
+    return await _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/im_emoji_manage.js")
 
 async def im_user_plugin_emoji_manage_module_js(request: Request):
@@ -12932,6 +13092,12 @@ async def monitoring_panel_js(request: Request):
 @app.get("/admin/api/system-inspection-panel.js")
 async def system_inspection_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "system_inspection_panel.js")
+    return await _serve_text_asset(request, js_path, "application/javascript")
+
+
+@app.get("/admin/api/ai-assistant-panel.js")
+async def ai_assistant_panel_js(request: Request):
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "ai_assistant_panel.js")
     return await _serve_text_asset(request, js_path, "application/javascript")
 
 

@@ -16,8 +16,12 @@ import (
 	"sync"
 	"time"
 
+	"im_server/internal/ai/bot"
+	"im_server/internal/ai/provider"
+	aiservice "im_server/internal/ai/service"
 	socialsvc "im_server/internal/app/social"
 	"im_server/internal/config"
+	"im_server/internal/entitlement"
 	"im_server/internal/media/taskstore"
 	sessionvisibility "im_server/internal/session_visibility"
 	wsticket "im_server/internal/ws_ticket"
@@ -55,6 +59,9 @@ type App struct {
 	callSessionsMu    sync.RWMutex
 	messageNotifier   *MessageNotifyPublisher
 	wsTickets         *wsticket.Service
+	aiProvider        *provider.Service
+	entitlements      *entitlement.Service
+	ai                *aiservice.Service
 	server            *http.Server
 	upgrader          websocket.Upgrader
 	imageHEICMu       sync.Mutex
@@ -150,6 +157,7 @@ type MessageItem struct {
 	ReadProgress      *MessageReadProgressSummary `json:"read_progress,omitempty"`
 	MentionUsernames  []string                    `json:"mention_usernames,omitempty"`
 	MentionAll        bool                        `json:"mention_all,omitempty"`
+	AITask            *aiservice.Task             `json:"ai_task,omitempty"`
 }
 
 type UserProfileItem struct {
@@ -283,8 +291,27 @@ func New(cfg config.Config) (*App, error) {
 	app.social = socialsvc.New(pool, app.buildSocialIdentityItems)
 	app.sessionVisibility = sessionvisibility.New(pool)
 	app.mediaTasks = taskstore.New(pool)
+	app.aiProvider = provider.New(pool, cfg.AISecretKey, time.Duration(cfg.AIProviderTimeoutMS)*time.Millisecond)
+	app.entitlements = entitlement.New(pool, cfg.AISecretKey)
+	app.ai = aiservice.New(pool, app.aiProvider, app.entitlements, cfg.AIWorkerConcurrency)
+	app.ai.SetMessageSink(app)
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
+	}
+	if app.aiProvider != nil {
+		if err := app.aiProvider.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if app.entitlements != nil {
+		if err := app.entitlements.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if app.ai != nil {
+		if err := app.ai.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if app.mediaTasks != nil {
 		if err := app.mediaTasks.EnsureSchema(ctx); err != nil {
@@ -372,7 +399,10 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/call/accept", app.handleCallRoutes)
 	mux.HandleFunc("/im/api/call/reject", app.handleCallRoutes)
 	mux.HandleFunc("/im/api/call/hangup", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/ai", app.handleAIRoutes)
+	mux.HandleFunc("/im/api/ai/", app.handleAIRoutes)
 
+	mux.HandleFunc("/im/internal/ai/admin/", app.withInternalRequestGuard(app.handleAIAdminRoutes))
 	mux.HandleFunc("/im/internal/meetings/publish", app.withInternalRequestGuard(app.handleInternalMeetingPublish))
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.withInternalRequestGuard(app.handleInternalWhitelistGroupSync))
 	mux.HandleFunc("/im/internal/group_profile", app.withInternalRequestGuard(app.handleInternalGroupProfile))
@@ -2041,8 +2071,26 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
+	if aiTask := a.triggerAIReplyForMessage(r.Context(), username, result.Item); aiTask != nil {
+		result.Item.AITask = aiTask
+	}
 	a.broadcastMessageCreated(r.Context(), req.ConversationID, result.Item, result.Members)
-	writeJSON(w, http.StatusOK, map[string]any{"item": result.Item})
+	writeJSON(w, http.StatusOK, map[string]any{"item": result.Item, "ai_task": result.Item.AITask})
+}
+
+func (a *App) triggerAIReplyForMessage(ctx context.Context, username string, item MessageItem) *aiservice.Task {
+	if a == nil || a.ai == nil || bot.IsBotUsername(username) || item.ConversationID <= 0 || item.ID <= 0 {
+		return nil
+	}
+	if !a.ai.IsAIConversation(ctx, item.ConversationID) {
+		return nil
+	}
+	task, err := a.ai.TriggerReply(ctx, username, item.ConversationID, item.ID)
+	if err != nil {
+		log.Printf("trigger AI reply failed: conversation_id=%d username=%s err=%v", item.ConversationID, username, err)
+		return nil
+	}
+	return &task
 }
 
 func buildMessageStorage(req sendMessageRequest) (messageType string, contentPreview string, contentPayload string, contentSizeRaw int, contentSizeStored int, err error) {
@@ -2200,13 +2248,16 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 		return insertedMessageResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if a.social != nil {
+	isAIConversation := a.ai != nil && a.ai.IsAIConversation(ctx, conversationID)
+	if a.social != nil && !isAIConversation {
 		if err := a.social.AssertCanSendMessageTx(ctx, tx, username, conversationID); err != nil {
 			return insertedMessageResult{}, err
 		}
 	}
-	if err := a.assertGroupCanSendMessageTx(ctx, tx, conversationID, username); err != nil {
-		return insertedMessageResult{}, err
+	if !isAIConversation {
+		if err := a.assertGroupCanSendMessageTx(ctx, tx, conversationID, username); err != nil {
+			return insertedMessageResult{}, err
+		}
 	}
 	nextSeqNo, err := a.allocateMessageSeqNoTx(ctx, tx, conversationID)
 	if err != nil {
@@ -2229,7 +2280,7 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 	}
 	item.MentionUsernames = mentionUsernames
 	item.MentionAll = mentionAll
-	if a.social != nil {
+	if a.social != nil && !isAIConversation {
 		if err := a.social.AfterMessageSentTx(ctx, tx, username, conversationID, item.ID); err != nil {
 			return insertedMessageResult{}, err
 		}
@@ -2651,6 +2702,9 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "client_temp_id": strings.TrimSpace(payload.ClientTempID), "message": "发送失败"}})
 				}
 				continue
+			}
+			if aiTask := a.triggerAIReplyForMessage(r.Context(), username, result.Item); aiTask != nil {
+				result.Item.AITask = aiTask
 			}
 			a.broadcastMessageCreated(r.Context(), payload.ConversationID, result.Item, result.Members)
 		case "im.message.read":

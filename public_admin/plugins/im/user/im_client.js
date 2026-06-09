@@ -54,6 +54,12 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_plus_entry_manage.js`,
             errorMessage: '更多功能模块加载失败'
         },
+        aiManage: {
+            selector: 'script[data-ak-im-user-plugin-ai-manage="1"]',
+            datasetKey: 'akImUserPluginAiManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/ai/im_ai_manage.js`,
+            errorMessage: 'AI助手模块加载失败'
+        },
         emoji: {
             selector: 'script[data-ak-im-user-plugin-emoji-manage="1"]',
             datasetKey: 'akImUserPluginEmojiManage',
@@ -2011,6 +2017,14 @@
         return plusEntryManageModule;
     }
 
+    function getAIManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const aiManageModule = modules.aiManage;
+        if (!aiManageModule || typeof aiManageModule.init !== 'function') return null;
+        return aiManageModule;
+    }
+
     function getEmojiModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -2095,6 +2109,12 @@
             renderMemberPanel: renderMemberPanel,
             syncInputHeight: syncInputHeight,
             syncComposerState: syncComposerState,
+            onMessageCreated: function(item, meta) {
+                const aiManageModule = getAIManageModule();
+                if (aiManageModule && typeof aiManageModule.handleMessageCreated === 'function') {
+                    aiManageModule.handleMessageCreated(item, meta || {});
+                }
+            },
             escapeHtml: escapeHtml,
             formatTime: formatTime,
             formatTimeWithDate: formatTimeWithDate,
@@ -2451,6 +2471,29 @@
         });
     }
 
+    function initAIManageModule() {
+        const aiManageModule = getAIManageModule();
+        if (!aiManageModule) return;
+        aiManageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            get elements() {
+                return {
+                    root: root,
+                    statusLine: statusLine
+                };
+            },
+            getActiveSession: getActiveSession,
+            openConversationById: openConversationById,
+            loadSessions: loadSessions,
+            loadMessages: loadMessages,
+            closePlusPanel: closePlusPanel
+        });
+    }
+
     function initEmojiManageModule() {
         const emojiModule = getEmojiModule();
         if (!emojiModule) return;
@@ -2537,6 +2580,7 @@
         if (moduleKey === 'groupTitle') return getGroupTitleModule();
         if (moduleKey === 'groupAdmins') return getGroupAdminsModule();
         if (moduleKey === 'plus') return getPlusEntryModule();
+        if (moduleKey === 'aiManage') return getAIManageModule();
         if (moduleKey === 'emoji') return getEmojiModule();
         if (moduleKey === 'image') return getImageModule();
         if (moduleKey === 'file') return getFileModule();
@@ -2571,6 +2615,7 @@
         else if (moduleKey === 'groupTitle') initGroupTitleModule();
         else if (moduleKey === 'groupAdmins') initGroupAdminsModule();
         else if (moduleKey === 'plus') initPlusEntryModule();
+        else if (moduleKey === 'aiManage') initAIManageModule();
         else if (moduleKey === 'emoji') initEmojiManageModule();
         else if (moduleKey === 'image') initImageManageModule();
         else if (moduleKey === 'file') initFileManageModule();
@@ -2676,6 +2721,7 @@
             ensureOptionalLazyModule('callRecovery'),
             ensureOptionalLazyModule('callMessage'),
             ensureOptionalLazyModule('plus'),
+            ensureOptionalLazyModule('aiManage'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
             ensureOptionalLazyModule('uploadProgress'),
@@ -2959,6 +3005,19 @@
             state.plusPanelOpen = false;
             render();
             openCallByAction('video');
+            return;
+        }
+        if (actionKey === 'ai-assistant') {
+            state.plusPanelOpen = false;
+            render();
+            ensureLazyModule('aiManage').then(function(aiManageModule) {
+                if (!aiManageModule || typeof aiManageModule.openAssistant !== 'function') {
+                    throw new Error('AI助手模块暂不可用');
+                }
+                return aiManageModule.openAssistant();
+            }).catch(function(error) {
+                window.alert(error && error.message ? error.message : 'AI助手暂不可用');
+            });
             return;
         }
         if (actionLabelMap[actionKey]) {
@@ -5723,6 +5782,8 @@
         renderProfileView();
         renderProfileSubpage();
         syncComposerState();
+        const aiManageModule = getAIManageModule();
+        if (aiManageModule && typeof aiManageModule.renderStatus === 'function') aiManageModule.renderStatus();
         syncInputHeight();
         renderEmojiPanel();
         renderPlusPanel();

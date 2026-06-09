@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"strings"
+
+	"im_server/internal/ai/bot"
 )
 
 type userIdentityItem struct {
@@ -92,6 +94,17 @@ func (a *App) buildUserIdentityItems(ctx context.Context, usernames []string) ma
 	}
 	records := a.loadUserIdentityRecords(ctx, normalizedUsernames)
 	for _, username := range normalizedUsernames {
+		if bot.IsBotUsername(username) {
+			result[username] = userIdentityItem{
+				Username:    bot.Username,
+				DisplayName: bot.DisplayName,
+				AvatarKind:  "generated",
+				AvatarStyle: defaultAvatarStyle,
+				AvatarSeed:  bot.AvatarSeed,
+				HonorName:   "",
+			}
+			continue
+		}
 		record, ok := records[username]
 		if !ok {
 			avatar := a.getUserAvatarDescriptor(ctx, username)
