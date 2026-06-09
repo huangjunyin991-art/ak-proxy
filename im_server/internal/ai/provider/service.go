@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			chat_model TEXT NOT NULL DEFAULT '',
 			summary_model TEXT NOT NULL DEFAULT '',
 			embedding_model TEXT NOT NULL DEFAULT '',
+			available_models JSONB NOT NULL DEFAULT '[]'::jsonb,
 			balance_supported BOOLEAN NOT NULL DEFAULT FALSE,
 			balance_endpoint TEXT NOT NULL DEFAULT '',
 			balance_cache_ttl_seconds INTEGER NOT NULL DEFAULT 600,
@@ -70,6 +72,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			last_error TEXT NOT NULL DEFAULT '',
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
+		`ALTER TABLE im_ai_provider_account ADD COLUMN IF NOT EXISTS available_models JSONB NOT NULL DEFAULT '[]'::jsonb`,
 	}
 	for index, stmt := range statements {
 		if _, err := s.db.Exec(ctx, stmt); err != nil {
@@ -81,7 +84,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 
 func (s *Service) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model,
+		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
 		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at
 		FROM im_ai_provider_account
@@ -101,12 +104,26 @@ func (s *Service) ListAccounts(ctx context.Context) ([]Account, error) {
 	return items, rows.Err()
 }
 
+func (s *Service) GetAccount(ctx context.Context, providerID int64) (Account, error) {
+	if providerID <= 0 {
+		return Account{}, errors.New("invalid provider_id")
+	}
+	row := s.db.QueryRow(ctx, `
+		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
+		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
+		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at
+		FROM im_ai_provider_account
+		WHERE id = $1`, providerID)
+	return scanAccount(row)
+}
+
 type accountScanner interface {
 	Scan(dest ...any) error
 }
 
 func scanAccount(row accountScanner) (Account, error) {
 	var item Account
+	var availableModelsRaw []byte
 	err := row.Scan(
 		&item.ID,
 		&item.ProviderName,
@@ -115,6 +132,7 @@ func scanAccount(row accountScanner) (Account, error) {
 		&item.ChatModel,
 		&item.SummaryModel,
 		&item.EmbeddingModel,
+		&availableModelsRaw,
 		&item.BalanceSupported,
 		&item.BalanceEndpoint,
 		&item.BalanceCacheTTLSeconds,
@@ -126,6 +144,12 @@ func scanAccount(row accountScanner) (Account, error) {
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
+	if len(availableModelsRaw) > 0 {
+		_ = json.Unmarshal(availableModelsRaw, &item.AvailableModels)
+	}
+	if item.AvailableModels == nil {
+		item.AvailableModels = []string{}
+	}
 	return item, err
 }
 
@@ -147,36 +171,32 @@ func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, err
 		item.BalanceCacheTTLSeconds = 600
 	}
 	if item.ID > 0 {
-		err = s.db.QueryRow(ctx, `
+		row := s.db.QueryRow(ctx, `
 			UPDATE im_ai_provider_account
 			SET provider_name = $2, base_url = $3, chat_model = $4, summary_model = $5, embedding_model = $6,
 			    balance_supported = $7, balance_endpoint = $8, balance_cache_ttl_seconds = $9,
 			    low_balance_threshold = $10, enabled = $11, updated_at = NOW()
 			WHERE id = $1
-			RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model,
+			RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 			       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
 			       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at`,
 			item.ID, item.ProviderName, baseURL, item.ChatModel, item.SummaryModel, item.EmbeddingModel,
 			item.BalanceSupported, strings.TrimSpace(item.BalanceEndpoint), item.BalanceCacheTTLSeconds,
-			item.LowBalanceThreshold, item.Enabled).Scan(
-			&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
-			&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
-			&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt)
+			item.LowBalanceThreshold, item.Enabled)
+		item, err = scanAccount(row)
 		return item, err
 	}
-	err = s.db.QueryRow(ctx, `
+	row := s.db.QueryRow(ctx, `
 		INSERT INTO im_ai_provider_account (provider_name, base_url, chat_model, summary_model, embedding_model,
 			balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold, enabled, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-		RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model,
+		RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
 		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at`,
 		item.ProviderName, baseURL, item.ChatModel, item.SummaryModel, item.EmbeddingModel,
 		item.BalanceSupported, strings.TrimSpace(item.BalanceEndpoint), item.BalanceCacheTTLSeconds,
-		item.LowBalanceThreshold, item.Enabled).Scan(
-		&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
-		&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
-		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt)
+		item.LowBalanceThreshold, item.Enabled)
+	item, err = scanAccount(row)
 	return item, err
 }
 
@@ -218,26 +238,37 @@ func (s *Service) SetSecret(ctx context.Context, providerID int64, secret string
 		return Account{}, err
 	}
 	fingerprint := fingerprintSecret(secret)
-	var item Account
-	err = s.db.QueryRow(ctx, `
+	row := s.db.QueryRow(ctx, `
 		UPDATE im_ai_provider_account
 		SET secret_ciphertext_or_ref = $2, secret_fingerprint = $3, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model,
+		RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
 		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at`,
-		providerID, ciphertext, fingerprint).Scan(
-		&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
-		&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
-		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt)
-	return item, err
+		providerID, ciphertext, fingerprint)
+	item, err := scanAccount(row)
+	if err != nil {
+		return Account{}, err
+	}
+	if models, refreshErr := s.RefreshModels(ctx, providerID); refreshErr == nil && len(models) > 0 {
+		if refreshed, loadErr := s.GetAccount(ctx, providerID); loadErr == nil {
+			item = refreshed
+		}
+	} else if refreshErr != nil {
+		_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_test_status = $2, updated_at = NOW() WHERE id = $1`, providerID, "models: "+truncateForStatus(refreshErr.Error(), 180))
+		if refreshed, loadErr := s.GetAccount(ctx, providerID); loadErr == nil {
+			item = refreshed
+		}
+	}
+	return item, nil
 }
 
 func (s *Service) LoadActiveAccount(ctx context.Context) (Account, string, error) {
 	var item Account
 	var ciphertext string
+	var availableModelsRaw []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model,
+		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
 		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at, secret_ciphertext_or_ref
 		FROM im_ai_provider_account
@@ -245,10 +276,15 @@ func (s *Service) LoadActiveAccount(ctx context.Context) (Account, string, error
 		ORDER BY id ASC
 		LIMIT 1`).Scan(
 		&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
+		&availableModelsRaw,
 		&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
 		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt, &ciphertext)
 	if err != nil {
 		return Account{}, "", err
+	}
+	_ = json.Unmarshal(availableModelsRaw, &item.AvailableModels)
+	if item.AvailableModels == nil {
+		item.AvailableModels = []string{}
 	}
 	secret, err := decryptSecret(s.masterSecret, ciphertext)
 	if err != nil {
@@ -265,9 +301,21 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 		}
 		return ChatResponse{}, err
 	}
+	response, err := s.chatWithAccount(ctx, account, secret, req)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_used_at = NOW() WHERE id = $1`, account.ID)
+	return response, nil
+}
+
+func (s *Service) chatWithAccount(ctx context.Context, account Account, secret string, req ChatRequest) (ChatResponse, error) {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		model = account.ChatModel
+	}
+	if model == "" && len(account.AvailableModels) > 0 {
+		model = strings.TrimSpace(account.AvailableModels[0])
 	}
 	if model == "" {
 		return ChatResponse{}, errors.New("AI chat model is not configured")
@@ -287,7 +335,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 		"max_tokens":  maxTokens,
 	}
 	body, _ := json.Marshal(payload)
-	endpoint := account.BaseURL + "/v1/chat/completions"
+	endpoint := providerAPIURL(account.BaseURL, "/chat/completions")
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return ChatResponse{}, err
@@ -330,48 +378,101 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 	if content == "" {
 		return ChatResponse{}, errors.New("AI provider returned empty content")
 	}
-	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_used_at = NOW() WHERE id = $1`, account.ID)
+	responseModel := strings.TrimSpace(parsed.Model)
+	if responseModel == "" {
+		responseModel = model
+	}
 	return ChatResponse{
 		Content:           content,
-		Model:             parsed.Model,
+		Model:             responseModel,
 		ProviderID:        account.ID,
 		UpstreamRequestID: parsed.ID,
 		Usage:             parsed.Usage,
 	}, nil
 }
 
-func (s *Service) Test(ctx context.Context, providerID int64) (TestResult, error) {
+func (s *Service) Test(ctx context.Context, providerID int64, prompt string) (TestResult, error) {
 	started := time.Now()
 	account, secret, err := s.loadAccountSecret(ctx, providerID)
 	if err != nil {
 		return TestResult{}, err
 	}
 	modelsResult := s.testModelsProbe(ctx, account, secret, started)
-	result := modelsResult
-	if !modelsResult.OK {
-		chatResult := s.testChatProbe(ctx, account, secret, started)
-		if chatResult.OK {
-			chatResult.Message = "chat completions ok；/v1/models 不可用：" + modelsResult.Message
-			result = chatResult
-		} else {
-			if chatResult.Message != "" && modelsResult.Message != "" {
-				chatResult.Message = "models: " + modelsResult.Message + "；chat: " + chatResult.Message
+	if modelsResult.OK {
+		if models, refreshErr := s.RefreshModels(ctx, providerID); refreshErr == nil && len(models) > 0 {
+			if refreshed, refreshedSecret, loadErr := s.loadAccountSecret(ctx, providerID); loadErr == nil {
+				account = refreshed
+				secret = refreshedSecret
 			}
-			result = chatResult
+			modelsResult.Message = fmt.Sprintf("models ok: %d", len(models))
+		} else if refreshErr != nil {
+			modelsResult.OK = false
+			modelsResult.Message = refreshErr.Error()
 		}
+	}
+	result := s.testChatProbe(ctx, account, secret, started, prompt)
+	if result.OK {
+		if modelsResult.OK {
+			result.Message = "chat completions ok；" + modelsResult.Message
+		} else if modelsResult.Message != "" {
+			result.Message = "chat completions ok；/v1/models 不可用：" + modelsResult.Message
+		}
+	} else if modelsResult.Message != "" {
+		result.Message = "models: " + modelsResult.Message + "；chat: " + result.Message
 	}
 	statusText := "ok"
 	if !result.OK {
 		statusText = result.Message
 	} else if result.Probe != "" {
-		statusText = "ok (" + result.Probe + ")"
+		statusText = "ok (" + result.Probe + "; " + strings.TrimSpace(result.Model) + ")"
 	}
 	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_test_at = NOW(), last_test_status = $2, updated_at = NOW() WHERE id = $1`, providerID, statusText)
 	return result, nil
 }
 
+func (s *Service) RefreshModels(ctx context.Context, providerID int64) ([]string, error) {
+	account, secret, err := s.loadAccountSecret(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, providerAPIURL(account.BaseURL, "/models"), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("models status=%d: %s", resp.StatusCode, truncateForStatus(string(body), 180))
+	}
+	models := parseModels(body)
+	if len(models) == 0 {
+		return nil, errors.New("provider returned empty model list")
+	}
+	raw, _ := json.Marshal(models)
+	_, err = s.db.Exec(ctx, `
+		UPDATE im_ai_provider_account
+		SET available_models = $2::jsonb,
+		    chat_model = COALESCE(NULLIF(chat_model, ''), $3),
+		    summary_model = COALESCE(NULLIF(summary_model, ''), $3),
+		    updated_at = NOW(),
+		    last_test_status = 'models refreshed'
+		WHERE id = $1`, providerID, string(raw), models[0])
+	if err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
 func (s *Service) testModelsProbe(ctx context.Context, account Account, secret string, started time.Time) TestResult {
-	endpoint := account.BaseURL + "/v1/models"
+	endpoint := providerAPIURL(account.BaseURL, "/models")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return TestResult{OK: false, Message: err.Error(), LatencyMS: time.Since(started).Milliseconds(), Probe: "models"}
@@ -381,31 +482,31 @@ func (s *Service) testModelsProbe(ctx context.Context, account Account, secret s
 	return finishProviderProbe(resp, err, started, "models")
 }
 
-func (s *Service) testChatProbe(ctx context.Context, account Account, secret string, started time.Time) TestResult {
-	model := strings.TrimSpace(account.ChatModel)
-	if model == "" {
-		model = strings.TrimSpace(account.SummaryModel)
+func (s *Service) testChatProbe(ctx context.Context, account Account, secret string, started time.Time, prompt string) TestResult {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		prompt = "请只回复两个字：可用"
 	}
-	if model == "" {
-		model = "gpt-5-mini"
-	}
-	payload := map[string]any{
-		"model": model,
-		"messages": []Message{
-			{Role: "user", Content: "ping"},
+	response, err := s.chatWithAccount(ctx, account, secret, ChatRequest{
+		Messages: []Message{
+			{Role: "system", Content: "You are testing an OpenAI-compatible chat completion endpoint. Reply briefly."},
+			{Role: "user", Content: prompt},
 		},
-		"temperature": 0,
-		"max_tokens":  8,
-	}
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, account.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+		MaxOutputTokens: 48,
+		Temperature:     0.1,
+	})
 	if err != nil {
 		return TestResult{OK: false, Message: err.Error(), LatencyMS: time.Since(started).Milliseconds(), Probe: "chat_completions"}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+secret)
-	resp, err := s.client.Do(req)
-	return finishProviderProbe(resp, err, started, "chat_completions")
+	return TestResult{
+		OK:        true,
+		Status:    http.StatusOK,
+		Message:   "chat completions ok",
+		LatencyMS: time.Since(started).Milliseconds(),
+		Probe:     "chat_completions",
+		Model:     response.Model,
+		Content:   truncateForStatus(response.Content, 160),
+	}
 }
 
 func finishProviderProbe(resp *http.Response, err error, started time.Time, probe string) TestResult {
@@ -465,6 +566,57 @@ func providerErrorText(value any) string {
 	return ""
 }
 
+func parseModels(body []byte) []string {
+	seen := map[string]bool{}
+	models := make([]string, 0)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		models = append(models, value)
+	}
+	addRaw := func(raw json.RawMessage) {
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			add(text)
+			return
+		}
+		var item map[string]any
+		if json.Unmarshal(raw, &item) != nil {
+			return
+		}
+		for _, key := range []string{"id", "model", "name"} {
+			if text, ok := item[key].(string); ok {
+				add(text)
+				return
+			}
+		}
+	}
+	addRawArray := func(rawItems []json.RawMessage) {
+		for _, raw := range rawItems {
+			addRaw(raw)
+		}
+	}
+	var parsed struct {
+		Data   []json.RawMessage `json:"data"`
+		Models []json.RawMessage `json:"models"`
+	}
+	if json.Unmarshal(body, &parsed) == nil {
+		addRawArray(parsed.Data)
+		addRawArray(parsed.Models)
+	}
+	if len(models) == 0 {
+		var raw []json.RawMessage
+		if json.Unmarshal(body, &raw) == nil {
+			addRawArray(raw)
+		}
+	}
+	sort.Strings(models)
+	return models
+}
+
 func truncateForStatus(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if limit <= 0 || len([]rune(value)) <= limit {
@@ -480,17 +632,23 @@ func (s *Service) loadAccountSecret(ctx context.Context, providerID int64) (Acco
 	}
 	var item Account
 	var ciphertext string
+	var availableModelsRaw []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model,
+		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
 		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at, secret_ciphertext_or_ref
 		FROM im_ai_provider_account
 		WHERE id = $1`, providerID).Scan(
 		&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
+		&availableModelsRaw,
 		&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
 		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt, &ciphertext)
 	if err != nil {
 		return Account{}, "", err
+	}
+	_ = json.Unmarshal(availableModelsRaw, &item.AvailableModels)
+	if item.AvailableModels == nil {
+		item.AvailableModels = []string{}
 	}
 	secret, err := decryptSecret(s.masterSecret, ciphertext)
 	if err != nil {
@@ -573,6 +731,15 @@ func buildProviderURL(baseURL string, endpoint string) (string, error) {
 		endpoint = "/" + endpoint
 	}
 	return strings.TrimRight(baseURL, "/") + endpoint, nil
+}
+
+func providerAPIURL(baseURL string, v1Path string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	path := "/" + strings.TrimLeft(strings.TrimSpace(v1Path), "/")
+	if strings.HasSuffix(strings.ToLower(base), "/v1") {
+		return base + path
+	}
+	return base + "/v1" + path
 }
 
 func parseBalance(body []byte) (float64, string, string) {

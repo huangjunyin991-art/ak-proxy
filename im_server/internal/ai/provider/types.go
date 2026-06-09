@@ -10,6 +10,7 @@ type Account struct {
 	ChatModel              string     `json:"chat_model"`
 	SummaryModel           string     `json:"summary_model"`
 	EmbeddingModel         string     `json:"embedding_model"`
+	AvailableModels        []string   `json:"available_models,omitempty"`
 	BalanceSupported       bool       `json:"balance_supported"`
 	BalanceEndpoint        string     `json:"balance_endpoint"`
 	BalanceCacheTTLSeconds int        `json:"balance_cache_ttl_seconds"`
@@ -67,4 +68,6 @@ type TestResult struct {
 	Message   string `json:"message"`
 	LatencyMS int64  `json:"latency_ms"`
 	Probe     string `json:"probe"`
+	Model     string `json:"model,omitempty"`
+	Content   string `json:"content,omitempty"`
 }

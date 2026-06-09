@@ -12,6 +12,7 @@ PANEL_KEYS = (
     "rateBan",
     "settings",
     "remoteAssist",
+    "aiAssistant",
 )
 
 
@@ -59,6 +60,9 @@ PANEL_VERSION_FILES = {
     ),
     "remoteAssist": (
         ("remote_assist_panel.js",),
+    ),
+    "aiAssistant": (
+        ("ai_assistant_panel.js",),
     ),
 }
 

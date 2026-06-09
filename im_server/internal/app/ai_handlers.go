@@ -29,6 +29,10 @@ type aiProviderSecretRequest struct {
 	Secret string `json:"secret"`
 }
 
+type aiProviderTestRequest struct {
+	Prompt string `json:"prompt"`
+}
+
 func (a *App) handleAIRoutes(w http.ResponseWriter, r *http.Request) {
 	username, err := a.requireAllowedUser(r)
 	if err != nil {
@@ -250,10 +254,24 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid provider id"})
 			return
 		}
+		var req aiProviderTestRequest
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		result, err := a.aiProvider.Test(ctx, id)
+		result, err := a.aiProvider.Test(ctx, id, req.Prompt)
 		writeJSONOrError(w, result, err)
+	case len(parts) == 3 && parts[0] == "providers" && parts[2] == "models" && r.Method == http.MethodPost:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid provider id"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		models, err := a.aiProvider.RefreshModels(ctx, id)
+		writeJSONOrError(w, map[string]any{"models": models}, err)
 	case len(parts) == 4 && parts[0] == "providers" && parts[2] == "balance" && parts[3] == "refresh" && r.Method == http.MethodPost:
 		id, err := parseID(parts[1])
 		if err != nil {

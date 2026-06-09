@@ -8688,7 +8688,17 @@ async def admin_ai_provider_secret(request: Request, provider_id: int):
 @app.post("/admin/api/ai/providers/{provider_id}/test")
 async def admin_ai_provider_test(request: Request, provider_id: int):
 
-    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/providers/{int(provider_id)}/test", {}, timeout=20.0)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/providers/{int(provider_id)}/test", payload, timeout=20.0)
+
+
+@app.post("/admin/api/ai/providers/{provider_id}/models")
+async def admin_ai_provider_models_refresh(request: Request, provider_id: int):
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/providers/{int(provider_id)}/models", {}, timeout=25.0)
 
 
 @app.post("/admin/api/ai/providers/{provider_id}/balance/refresh")
@@ -12067,6 +12077,7 @@ def _admin_panel_versions():
             'pointStats': 0.0,
             'settings': 0.0,
             'remoteAssist': 0.0,
+            'aiAssistant': 0.0,
         }
     else:
         try:
@@ -12082,6 +12093,7 @@ def _admin_panel_versions():
                 'pointStats': 0.0,
                 'settings': 0.0,
                 'remoteAssist': 0.0,
+                'aiAssistant': 0.0,
             }
     _ADMIN_PANEL_VERSIONS_CACHE["versions"] = versions
     _ADMIN_PANEL_VERSIONS_CACHE["expires_at"] = now + 30.0
@@ -12091,7 +12103,8 @@ def _admin_panel_versions():
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
     r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
     r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion|"
-    r"rateBanPanelBuildVersion|settingsPanelBuildVersion|remoteAssistPanelBuildVersion)\s*=\s*'[^']*'"
+    r"rateBanPanelBuildVersion|settingsPanelBuildVersion|remoteAssistPanelBuildVersion|"
+    r"aiAssistantPanelBuildVersion)\s*=\s*'[^']*'"
 )
 
 _ADMIN_PANEL_VAR_TO_KEY = {
@@ -12104,6 +12117,7 @@ _ADMIN_PANEL_VAR_TO_KEY = {
     'rateBanPanelBuildVersion': 'rateBan',
     'settingsPanelBuildVersion': 'settings',
     'remoteAssistPanelBuildVersion': 'remoteAssist',
+    'aiAssistantPanelBuildVersion': 'aiAssistant',
 }
 
 
@@ -12189,6 +12203,7 @@ async def admin_page(request: Request):
         panel_versions['pointStats'],
         panel_versions.get('settings', 0.0),
         panel_versions.get('remoteAssist', 0.0),
+        panel_versions.get('aiAssistant', 0.0),
     )
     if _ADMIN_HTML_CACHE["key"] != cache_key:
         content = await run_blocking_asset_file(_read_text_file_sync, html_path)

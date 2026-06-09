@@ -203,10 +203,25 @@
         }).join('');
     }
 
+    function renderModelInput(id, label, value, models, placeholder) {
+        const listId = id + 'Options';
+        const options = (models || []).map(function(model) {
+            return '<option value="' + escapeHtml(model) + '"></option>';
+        }).join('');
+        return `
+            <div class="ai-field">
+                <label>${escapeHtml(label)}</label>
+                <input class="ai-input" id="${escapeHtml(id)}" list="${escapeHtml(listId)}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder || '导入 API Key 后刷新模型')}">
+                <datalist id="${escapeHtml(listId)}">${options}</datalist>
+            </div>
+        `;
+    }
+
     function renderProviderForm() {
         const item = selectedProvider() || {};
         const id = Number(item.id || 0);
         const providerEnabled = id ? !!item.enabled : true;
+        const models = Array.isArray(item.available_models) ? item.available_models : [];
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
@@ -216,9 +231,9 @@
                 <div class="ai-form-grid">
                     <div class="ai-field"><label>名称</label><input class="ai-input" id="aiProviderName" value="${escapeHtml(item.provider_name || 'OpenAI-Compatible Relay')}"></div>
                     <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="https://new.fluapi.com/v1" value="${escapeHtml(item.base_url || '')}"></div>
-                    <div class="ai-field"><label>聊天模型</label><input class="ai-input" id="aiProviderChatModel" value="${escapeHtml(item.chat_model || 'gpt-5-mini')}"></div>
-                    <div class="ai-field"><label>摘要模型</label><input class="ai-input" id="aiProviderSummaryModel" value="${escapeHtml(item.summary_model || item.chat_model || 'gpt-5-mini')}"></div>
-                    <div class="ai-field"><label>Embedding 模型</label><input class="ai-input" id="aiProviderEmbeddingModel" value="${escapeHtml(item.embedding_model || '')}"></div>
+                    ${renderModelInput('aiProviderChatModel', '聊天模型', item.chat_model || '', models, '先导入 API Key 获取模型')}
+                    ${renderModelInput('aiProviderSummaryModel', '摘要模型', item.summary_model || item.chat_model || '', models, '可与聊天模型相同')}
+                    ${renderModelInput('aiProviderEmbeddingModel', 'Embedding 模型', item.embedding_model || '', models, '需要语义搜索时选择')}
                     <div class="ai-field"><label>余额接口</label><input class="ai-input" id="aiProviderBalanceEndpoint" placeholder="/v1/dashboard/billing/credit_grants" value="${escapeHtml(item.balance_endpoint || '')}"></div>
                     <div class="ai-field"><label>余额缓存秒</label><input class="ai-input" id="aiProviderBalanceTtl" type="number" min="30" value="${Number(item.balance_cache_ttl_seconds || 600)}"></div>
                     <div class="ai-field"><label>低余额阈值</label><input class="ai-input" id="aiProviderLowBalance" type="number" min="0" step="0.01" value="${Number(item.low_balance_threshold || 0)}"></div>
@@ -230,13 +245,15 @@
                 <div class="ai-actions">
                     <button class="ai-btn primary" data-action="save-provider">${id ? '保存 Provider' : '新增 Provider'}</button>
                     <button class="ai-btn" data-action="new-provider">清空新增</button>
-                    ${id ? '<button class="ai-btn warn" data-action="test-provider">测试连接</button><button class="ai-btn" data-action="refresh-balance">刷新余额</button>' : ''}
+                    ${id ? '<button class="ai-btn" data-action="refresh-provider-models">刷新模型</button><button class="ai-btn" data-action="refresh-balance">刷新余额</button>' : ''}
                 </div>
                 <div class="ai-secret-row provider">
                     <input class="ai-input" id="aiProviderSecret" type="password" placeholder="中转站 API Key / sk 密钥，保存后只显示指纹">
                     <button class="ai-btn success" data-action="save-secret">${id ? '导入 API Key' : '新增并导入 API Key'}</button>
                 </div>
+                ${id ? '<div class="ai-secret-row provider"><input class="ai-input" id="aiProviderTestPrompt" value="请用一句话回复：AI 通道可用" placeholder="测试 prompt"><button class="ai-btn warn" data-action="test-provider">测试模型回复</button></div>' : ''}
                 <div class="ai-meta">Base URL 填中转站 OpenAI-compatible 地址，例如 https://new.fluapi.com/v1；API Key 填中转站控制台生成的 sk。</div>
+                <div class="ai-meta">模型列表来自 Provider 的 /v1/models，共 ${models.length} 个；如果中转站禁用了模型接口，也可以手动填写模型名。</div>
                 <div class="ai-meta" id="aiProviderBalanceInfo">${id ? '余额信息刷新后显示在这里。' : '新增 Provider 后可测试连接和刷新余额。'}</div>
             </div>
         `;
@@ -679,21 +696,45 @@
             if (provider && provider.id) state.selectedProviderId = Number(provider.id);
         }
         if (!provider || !provider.id) throw new Error('Provider 创建失败，无法导入 API Key');
-        await api('/admin/api/ai/providers/' + provider.id + '/secret', {
+        const data = await api('/admin/api/ai/providers/' + provider.id + '/secret', {
             method: 'POST',
             body: JSON.stringify({ secret: secret })
         });
-        showToast('API Key 已导入，只会保存加密密文和指纹');
+        const item = unwrapItem(data, {});
+        const models = Array.isArray(item.available_models) ? item.available_models : [];
+        const status = item.last_test_status ? ('；状态：' + item.last_test_status) : '';
+        showToast(models.length ? ('API Key 已导入，已获取 ' + models.length + ' 个模型') : ('API Key 已导入，暂未获取模型列表' + status), models.length ? undefined : 'error');
         await loadAll();
     }
 
     async function testProvider() {
         const provider = selectedProvider();
         if (!provider || !provider.id) throw new Error('请先选择 Provider');
-        const data = await api('/admin/api/ai/providers/' + provider.id + '/test', { method: 'POST', body: '{}' });
+        const prompt = document.getElementById('aiProviderTestPrompt')?.value || '';
+        const data = await api('/admin/api/ai/providers/' + provider.id + '/test', {
+            method: 'POST',
+            body: JSON.stringify({ prompt: prompt })
+        });
         const item = unwrapItem(data, {});
         const probeText = item.probe ? (' · ' + item.probe) : '';
-        showToast(item.ok ? ('连接测试成功：' + item.latency_ms + 'ms' + probeText) : ('连接测试失败：' + (item.message || '-')), item.ok ? undefined : 'error');
+        const modelText = item.model ? (' · ' + item.model) : '';
+        const contentText = item.content ? (' · 回复：' + item.content) : '';
+        const message = item.ok
+            ? ('模型回复测试成功：' + item.latency_ms + 'ms' + probeText + modelText + contentText)
+            : ('模型回复测试失败：' + (item.message || '-'));
+        const info = document.getElementById('aiProviderBalanceInfo');
+        if (info) info.textContent = message;
+        showToast(message, item.ok ? undefined : 'error');
+        await loadAll();
+    }
+
+    async function refreshProviderModels() {
+        const provider = selectedProvider();
+        if (!provider || !provider.id) throw new Error('请先选择 Provider');
+        const data = await api('/admin/api/ai/providers/' + provider.id + '/models', { method: 'POST', body: '{}' });
+        const item = unwrapItem(data, {});
+        const models = Array.isArray(item.models) ? item.models : [];
+        showToast(models.length ? ('已获取 ' + models.length + ' 个模型') : '模型列表为空，可手动填写模型名', models.length ? undefined : 'error');
         await loadAll();
     }
 
@@ -776,6 +817,7 @@
         if (action === 'save-provider') return saveProvider();
         if (action === 'save-secret') return saveSecret();
         if (action === 'test-provider') return testProvider();
+        if (action === 'refresh-provider-models') return refreshProviderModels();
         if (action === 'refresh-balance') {
             const provider = selectedProvider();
             if (provider && provider.id) await loadBalance(provider.id, true);
