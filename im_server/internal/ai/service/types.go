@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"im_server/internal/ai/billing"
 	"im_server/internal/entitlement"
 )
 
@@ -24,6 +25,7 @@ type Bootstrap struct {
 	BotUsername      string               `json:"bot_username"`
 	BotDisplayName   string               `json:"bot_display_name"`
 	Entitlement      entitlement.Snapshot `json:"entitlement"`
+	Billing          billing.Snapshot     `json:"billing"`
 	ProviderReady    bool                 `json:"provider_ready"`
 	ProviderMessage  string               `json:"provider_message,omitempty"`
 	QueueConcurrency int                  `json:"queue_concurrency"`

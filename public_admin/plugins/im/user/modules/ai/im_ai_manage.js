@@ -403,10 +403,14 @@
                 : null;
             const bootstrap = aiState.bootstrap;
             const entitlement = bootstrap && bootstrap.entitlement ? bootstrap.entitlement : null;
+            const billing = bootstrap && bootstrap.billing ? bootstrap.billing : null;
             const quota = entitlement && entitlement.quota ? entitlement.quota : null;
             const tierName = entitlement && entitlement.tier_name ? entitlement.tier_name : (entitlement && entitlement.is_trial ? '试用' : 'AI');
             const dailyRemaining = quota ? Number(quota.daily_remaining || 0) : 0;
             const dailyLimit = quota ? Number(quota.daily_limit || 0) : 0;
+            const billingRemaining = billing ? Number(billing.monthly_remaining_units || 0) : 0;
+            const billingLimit = billing ? Number(billing.monthly_limit_units || 0) : 0;
+            const billingUnit = billing && billing.unit_label ? String(billing.unit_label) : 'AI额度';
             let mainText = 'AI 助手';
             let quotaText = '';
             let isError = false;
@@ -426,9 +430,12 @@
                 isError = true;
             } else if (quota) {
                 mainText = '当前权益：' + tierName;
-                quotaText = '今日剩余 ' + dailyRemaining + '/' + dailyLimit;
+                quotaText = billing
+                    ? (billingUnit + ' ' + billingRemaining + '/' + billingLimit + ' · 今日 ' + dailyRemaining + '/' + dailyLimit)
+                    : ('今日剩余 ' + dailyRemaining + '/' + dailyLimit);
             } else {
                 mainText = '当前权益：' + tierName;
+                if (billing) quotaText = billingUnit + ' ' + billingRemaining + '/' + billingLimit;
             }
             statusLine.classList.add('ak-im-ai-status');
             statusLine.classList.toggle('is-error', isError);

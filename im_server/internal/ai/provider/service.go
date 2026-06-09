@@ -307,7 +307,9 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 		return ChatResponse{}, fmt.Errorf("AI provider status=%d", resp.StatusCode)
 	}
 	var parsed struct {
+		ID      string `json:"id"`
 		Model   string `json:"model"`
+		Usage   Usage  `json:"usage"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
@@ -329,7 +331,13 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 		return ChatResponse{}, errors.New("AI provider returned empty content")
 	}
 	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_used_at = NOW() WHERE id = $1`, account.ID)
-	return ChatResponse{Content: content, Model: parsed.Model}, nil
+	return ChatResponse{
+		Content:           content,
+		Model:             parsed.Model,
+		ProviderID:        account.ID,
+		UpstreamRequestID: parsed.ID,
+		Usage:             parsed.Usage,
+	}, nil
 }
 
 func (s *Service) Test(ctx context.Context, providerID int64) (TestResult, error) {

@@ -16,9 +16,11 @@ import (
 	"sync"
 	"time"
 
+	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
 	"im_server/internal/ai/provider"
 	aiservice "im_server/internal/ai/service"
+	fluapi "im_server/internal/ai/usage/fluapi"
 	socialsvc "im_server/internal/app/social"
 	"im_server/internal/config"
 	"im_server/internal/entitlement"
@@ -60,6 +62,8 @@ type App struct {
 	messageNotifier   *MessageNotifyPublisher
 	wsTickets         *wsticket.Service
 	aiProvider        *provider.Service
+	aiBilling         *billing.Service
+	aiFluAPI          *fluapi.Service
 	entitlements      *entitlement.Service
 	ai                *aiservice.Service
 	server            *http.Server
@@ -292,8 +296,11 @@ func New(cfg config.Config) (*App, error) {
 	app.sessionVisibility = sessionvisibility.New(pool)
 	app.mediaTasks = taskstore.New(pool)
 	app.aiProvider = provider.New(pool, cfg.AISecretKey, time.Duration(cfg.AIProviderTimeoutMS)*time.Millisecond)
+	app.aiBilling = billing.New(pool)
+	app.aiFluAPI = fluapi.New(pool, cfg.AISecretKey, time.Duration(cfg.AIProviderTimeoutMS)*time.Millisecond)
 	app.entitlements = entitlement.New(pool, cfg.AISecretKey)
 	app.ai = aiservice.New(pool, app.aiProvider, app.entitlements, cfg.AIWorkerConcurrency)
+	app.ai.SetBillingService(app.aiBilling)
 	app.ai.SetMessageSink(app)
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
@@ -305,6 +312,16 @@ func New(cfg config.Config) (*App, error) {
 	}
 	if app.entitlements != nil {
 		if err := app.entitlements.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if app.aiBilling != nil {
+		if err := app.aiBilling.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if app.aiFluAPI != nil {
+		if err := app.aiFluAPI.EnsureSchema(ctx); err != nil {
 			return nil, err
 		}
 	}

@@ -47,9 +47,18 @@ type ChatRequest struct {
 	Temperature     float64
 }
 
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 type ChatResponse struct {
-	Content string `json:"content"`
-	Model   string `json:"model"`
+	Content           string `json:"content"`
+	Model             string `json:"model"`
+	ProviderID        int64  `json:"provider_id"`
+	UpstreamRequestID string `json:"upstream_request_id,omitempty"`
+	Usage             Usage  `json:"usage"`
 }
 
 type TestResult struct {

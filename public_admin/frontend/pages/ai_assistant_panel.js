@@ -17,6 +17,9 @@
         config: null,
         diagnostics: null,
         providers: [],
+        billingConfig: null,
+        billingOverview: null,
+        fluapiStatus: null,
         tiers: [],
         redeemCodes: [],
         generatedCodes: [],
@@ -85,6 +88,19 @@
         return date.toLocaleString('zh-CN', { hour12: false });
     }
 
+    function fmtNumber(value, digits) {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num)) return '0';
+        return num.toLocaleString('zh-CN', {
+            minimumFractionDigits: Number(digits || 0),
+            maximumFractionDigits: Number(digits || 0)
+        });
+    }
+
+    function fmtUSD(value) {
+        return '$' + fmtNumber(value, 2);
+    }
+
     function providerById(id) {
         const target = Number(id || 0);
         return state.providers.find(function(item) {
@@ -141,8 +157,13 @@
             #aiAssistant .ai-feature-list{display:flex;flex-wrap:wrap;gap:6px}
             #aiAssistant .ai-feature-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary)}
             #aiAssistant .ai-code-box{margin-top:10px;border:1px dashed rgba(0,212,255,.35);border-radius:10px;padding:10px;background:rgba(0,212,255,.05);font-size:12px;color:var(--text-primary);line-height:1.8;word-break:break-all}
+            #aiAssistant .ai-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+            #aiAssistant .ai-stat{border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.035);padding:10px;min-width:0}
+            #aiAssistant .ai-stat-label{font-size:12px;color:var(--text-secondary);margin-bottom:5px}
+            #aiAssistant .ai-stat-value{font-size:18px;font-weight:800;color:var(--text-primary);font-variant-numeric:tabular-nums}
+            #aiAssistant .ai-secret-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;margin-top:10px}
             #aiAssistant .ai-empty{padding:26px;text-align:center;color:var(--text-secondary)}
-            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}}
+            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid{grid-template-columns:1fr}#aiAssistant .ai-secret-row{grid-template-columns:1fr}}
         `;
         document.head.appendChild(style);
     }
@@ -224,6 +245,116 @@
                 </div>
                 <div class="ai-actions"><button class="ai-btn primary" data-action="save-config">保存运行策略</button></div>
                 <div class="ai-meta">压缩任务在 AI 回复成功后异步执行，不阻塞用户聊天。</div>
+            </div>
+        `;
+    }
+
+    function renderFluAPI() {
+        const status = state.fluapiStatus || {};
+        const cfg = status.config || {};
+        const balance = status.latest_balance || null;
+        return `
+            <div class="ai-card">
+                <div class="ai-card-title">
+                    <span>FluAPI 上游账户</span>
+                    <span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已启用' : '未启用'}</span>
+                </div>
+                <div class="ai-stat-grid">
+                    <div class="ai-stat"><div class="ai-stat-label">剩余额度</div><div class="ai-stat-value">${balance ? fmtUSD(balance.balance_usd) : '-'}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">已用额度</div><div class="ai-stat-value">${balance ? fmtUSD(balance.used_usd) : '-'}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">总额度</div><div class="ai-stat-value">${balance ? fmtUSD(balance.total_usd) : '-'}</div></div>
+                </div>
+                <div class="ai-form-grid">
+                    <div class="ai-field">
+                        <label>同步开关</label>
+                        <select class="ai-select" id="aiFluapiEnabled">
+                            <option value="true" ${cfg.enabled ? 'selected' : ''}>启用</option>
+                            <option value="false" ${!cfg.enabled ? 'selected' : ''}>关闭</option>
+                        </select>
+                    </div>
+                    <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiFluapiBaseUrl" value="${escapeHtml(cfg.base_url || 'https://www.fluapi.com')}"></div>
+                    <div class="ai-field"><label>账号</label><input class="ai-input" id="aiFluapiUsername" value="${escapeHtml(cfg.username || '')}" placeholder="FluAPI 登录账号"></div>
+                    <div class="ai-field"><label>New-Api-User</label><input class="ai-input" id="aiFluapiUserId" value="${escapeHtml(cfg.user_id || '')}" placeholder="登录后自动获取"></div>
+                    <div class="ai-field"><label>1 USD 对应 quota</label><input class="ai-input" id="aiFluapiQuotaPerUsd" type="number" min="1" value="${Number(cfg.quota_per_usd || 500000)}"></div>
+                    <div class="ai-field"><label>低余额告警 USD</label><input class="ai-input" id="aiFluapiLowBalance" type="number" min="0" step="0.01" value="${Number(cfg.low_balance_usd || 10)}"></div>
+                </div>
+                <div class="ai-secret-row">
+                    <input class="ai-input" id="aiFluapiCredentialUsername" value="${escapeHtml(cfg.username || '')}" placeholder="FluAPI 账号">
+                    <input class="ai-input" id="aiFluapiPassword" type="password" placeholder="${cfg.has_password ? '已保存密码，留空则不更新' : 'FluAPI 密码'}">
+                    <button class="ai-btn success" data-action="save-fluapi-credentials">导入并登录</button>
+                </div>
+                <div class="ai-actions">
+                    <button class="ai-btn primary" data-action="save-fluapi-config">保存上游配置</button>
+                    <button class="ai-btn" data-action="fluapi-login">重新登录</button>
+                    <button class="ai-btn warn" data-action="fluapi-sync">同步余额</button>
+                </div>
+                <div class="ai-meta">状态：密码 ${cfg.has_password ? '已加密保存' : '未保存'} · session ${cfg.has_session ? '已保存' : '未保存'} · 最近登录 ${escapeHtml(fmtTime(cfg.last_login_at))} · 最近同步 ${escapeHtml(fmtTime(cfg.last_sync_at))}</div>
+                ${cfg.last_error ? '<div class="ai-meta" style="color:var(--accent-red);">最近错误：' + escapeHtml(cfg.last_error) + '</div>' : ''}
+            </div>
+        `;
+    }
+
+    function renderBilling() {
+        const overview = state.billingOverview || {};
+        const cfg = state.billingConfig || overview.config || {};
+        const tierCredits = cfg.tier_monthly_credit_units || {};
+        const tierOrder = ['trial', 'basic', 'advanced', 'honor', 'supreme'];
+        const rows = tierOrder.map(function(tier) {
+            return `
+                <tr>
+                    <td>${escapeHtml(TIER_LABELS[tier] || tier)}<div class="ai-meta">${escapeHtml(tier)}</div></td>
+                    <td><input data-billing-tier="${escapeHtml(tier)}" type="number" min="0" value="${Number(tierCredits[tier] || 0)}"></td>
+                </tr>
+            `;
+        }).join('');
+        const ledgerRows = (overview.recent_ledger || []).slice(0, 8).map(function(item) {
+            return `
+                <tr>
+                    <td>${escapeHtml(item.username || '-')}</td>
+                    <td>${escapeHtml(item.model || '-')}</td>
+                    <td>${Number(item.total_tokens || item.estimated_tokens || 0)}</td>
+                    <td>${Number(item.user_charge_units || 0)} ${escapeHtml(cfg.unit_label || 'AI额度')}</td>
+                    <td>${escapeHtml(fmtTime(item.settled_at || item.created_at))}</td>
+                </tr>
+            `;
+        }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);">暂无扣费流水</td></tr>';
+        return `
+            <div class="ai-card">
+                <div class="ai-card-title">
+                    <span>计费策略</span>
+                    <span class="ai-tag ${cfg.enabled !== false ? 'ok' : 'bad'}">${cfg.enabled !== false ? '已启用' : '已关闭'}</span>
+                </div>
+                <div class="ai-stat-grid">
+                    <div class="ai-stat"><div class="ai-stat-label">今日消耗</div><div class="ai-stat-value">${fmtNumber(overview.today_units || 0, 0)}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">本月消耗</div><div class="ai-stat-value">${fmtNumber(overview.month_units || 0, 0)}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">本月任务</div><div class="ai-stat-value">${fmtNumber(overview.month_tasks || 0, 0)}</div></div>
+                </div>
+                <div class="ai-form-grid">
+                    <div class="ai-field">
+                        <label>计费开关</label>
+                        <select class="ai-select" id="aiBillingEnabled">
+                            <option value="true" ${cfg.enabled !== false ? 'selected' : ''}>启用</option>
+                            <option value="false" ${cfg.enabled === false ? 'selected' : ''}>关闭</option>
+                        </select>
+                    </div>
+                    <div class="ai-field"><label>单位名称</label><input class="ai-input" id="aiBillingUnitLabel" value="${escapeHtml(cfg.unit_label || 'AI额度')}"></div>
+                    <div class="ai-field"><label>每 1K tokens 扣费</label><input class="ai-input" id="aiBillingUnitsPer1k" type="number" min="0.01" step="0.01" value="${Number(cfg.user_units_per_1k_tokens || 1)}"></div>
+                    <div class="ai-field"><label>默认倍率</label><input class="ai-input" id="aiBillingMarkup" type="number" min="0.01" step="0.01" value="${Number(cfg.default_markup || 1)}"></div>
+                    <div class="ai-field"><label>单次最低扣费</label><input class="ai-input" id="aiBillingMinimum" type="number" min="0" value="${Number(cfg.minimum_charge_units || 1)}"></div>
+                </div>
+                <div style="overflow:auto;margin-top:12px;">
+                    <table class="ai-table">
+                        <thead><tr><th>档位</th><th>每月 AI额度</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="ai-actions"><button class="ai-btn primary" data-action="save-billing-config">保存计费策略</button></div>
+                <div style="overflow:auto;margin-top:12px;">
+                    <table class="ai-table">
+                        <thead><tr><th>用户</th><th>模型</th><th>tokens</th><th>扣费</th><th>时间</th></tr></thead>
+                        <tbody>${ledgerRows}</tbody>
+                    </table>
+                </div>
             </div>
         `;
     }
@@ -348,6 +479,8 @@
                 <div class="ai-admin-grid">
                     <div>
                         ${renderConfig()}
+                        ${renderFluAPI()}
+                        ${renderBilling()}
                         ${renderTiers()}
                     </div>
                     <div>
@@ -390,14 +523,20 @@
                 api('/admin/api/ai/config'),
                 api('/admin/api/ai/diagnostics'),
                 api('/admin/api/ai/providers'),
+                api('/admin/api/ai/billing/config'),
+                api('/admin/api/ai/billing/overview'),
+                api('/admin/api/ai/fluapi'),
                 api('/admin/api/ai/tiers'),
                 api('/admin/api/ai/redeem-codes')
             ]);
             state.config = unwrapItem(results[0], {});
             state.diagnostics = unwrapItem(results[1], {});
             state.providers = unwrapItems(results[2]);
-            state.tiers = unwrapItems(results[3]);
-            state.redeemCodes = unwrapItems(results[4]);
+            state.billingConfig = unwrapItem(results[3], {});
+            state.billingOverview = unwrapItem(results[4], {});
+            state.fluapiStatus = unwrapItem(results[5], {});
+            state.tiers = unwrapItems(results[6]);
+            state.redeemCodes = unwrapItems(results[7]);
             if (!providerById(state.selectedProviderId)) {
                 state.selectedProviderId = Number(state.providers[0] && state.providers[0].id || 0);
             }
@@ -420,6 +559,85 @@
         state.config = unwrapItem(data, payload);
         showToast('AI 运行策略已保存');
         render();
+    }
+
+    function readBillingPayload() {
+        const tierMonthlyCreditUnits = {};
+        document.querySelectorAll('[data-billing-tier]').forEach(function(input) {
+            tierMonthlyCreditUnits[input.dataset.billingTier] = Number(input.value || 0);
+        });
+        return {
+            enabled: document.getElementById('aiBillingEnabled')?.value !== 'false',
+            unit_label: document.getElementById('aiBillingUnitLabel')?.value || 'AI额度',
+            user_units_per_1k_tokens: Number(document.getElementById('aiBillingUnitsPer1k')?.value || 1),
+            default_markup: Number(document.getElementById('aiBillingMarkup')?.value || 1),
+            minimum_charge_units: Number(document.getElementById('aiBillingMinimum')?.value || 1),
+            tier_monthly_credit_units: tierMonthlyCreditUnits
+        };
+    }
+
+    async function saveBillingConfig() {
+        const payload = readBillingPayload();
+        const data = await api('/admin/api/ai/billing/config', { method: 'POST', body: JSON.stringify(payload) });
+        state.billingConfig = unwrapItem(data, payload);
+        showToast('AI 计费策略已保存');
+        await loadBillingOverview();
+    }
+
+    async function loadBillingOverview() {
+        const data = await api('/admin/api/ai/billing/overview');
+        state.billingOverview = unwrapItem(data, {});
+        render();
+    }
+
+    function readFluAPIConfigPayload() {
+        return {
+            enabled: document.getElementById('aiFluapiEnabled')?.value !== 'false',
+            base_url: document.getElementById('aiFluapiBaseUrl')?.value || 'https://www.fluapi.com',
+            username: document.getElementById('aiFluapiUsername')?.value || '',
+            user_id: document.getElementById('aiFluapiUserId')?.value || '',
+            quota_per_usd: Number(document.getElementById('aiFluapiQuotaPerUsd')?.value || 500000),
+            low_balance_usd: Number(document.getElementById('aiFluapiLowBalance')?.value || 10)
+        };
+    }
+
+    async function saveFluAPIConfig() {
+        const data = await api('/admin/api/ai/fluapi/config', {
+            method: 'POST',
+            body: JSON.stringify(readFluAPIConfigPayload())
+        });
+        state.fluapiStatus = unwrapItem(data, {});
+        showToast('FluAPI 上游配置已保存');
+        render();
+    }
+
+    async function saveFluAPICredentials() {
+        const username = document.getElementById('aiFluapiCredentialUsername')?.value || document.getElementById('aiFluapiUsername')?.value || '';
+        const password = document.getElementById('aiFluapiPassword')?.value || '';
+        if (!username.trim() || !password.trim()) throw new Error('请输入 FluAPI 账号和密码');
+        const data = await api('/admin/api/ai/fluapi/credentials', {
+            method: 'POST',
+            body: JSON.stringify({ username: username, password: password })
+        });
+        state.fluapiStatus = unwrapItem(data, {});
+        showToast('FluAPI 已登录，session 已加密保存');
+        render();
+    }
+
+    async function fluAPILogin() {
+        const data = await api('/admin/api/ai/fluapi/login', { method: 'POST', body: '{}' });
+        const cfg = unwrapItem(data, {});
+        state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { config: cfg });
+        showToast('FluAPI 重新登录成功');
+        render();
+    }
+
+    async function fluAPISync() {
+        const data = await api('/admin/api/ai/fluapi/sync', { method: 'POST', body: '{}' });
+        const balance = unwrapItem(data, {});
+        state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { latest_balance: balance });
+        showToast('FluAPI 余额已同步');
+        await loadAll();
     }
 
     async function saveProvider() {
@@ -527,6 +745,11 @@
             return;
         }
         if (action === 'save-config') return saveConfig();
+        if (action === 'save-billing-config') return saveBillingConfig();
+        if (action === 'save-fluapi-config') return saveFluAPIConfig();
+        if (action === 'save-fluapi-credentials') return saveFluAPICredentials();
+        if (action === 'fluapi-login') return fluAPILogin();
+        if (action === 'fluapi-sync') return fluAPISync();
         if (action === 'save-provider') return saveProvider();
         if (action === 'save-secret') return saveSecret();
         if (action === 'test-provider') return testProvider();

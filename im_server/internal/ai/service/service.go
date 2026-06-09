@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
 	"im_server/internal/ai/provider"
 	"im_server/internal/entitlement"
@@ -35,6 +36,7 @@ type Service struct {
 	db          *pgxpool.Pool
 	provider    *provider.Service
 	entitlement *entitlement.Service
+	billing     *billing.Service
 	sink        MessageSink
 	slots       chan struct{}
 }
@@ -63,6 +65,13 @@ func (s *Service) SetMessageSink(sink MessageSink) {
 		return
 	}
 	s.sink = sink
+}
+
+func (s *Service) SetBillingService(service *billing.Service) {
+	if s == nil {
+		return
+	}
+	s.billing = service
 }
 
 func (s *Service) QueueConcurrency() int {
@@ -240,6 +249,13 @@ func (s *Service) Bootstrap(ctx context.Context, username string) (Bootstrap, er
 	if err != nil {
 		return Bootstrap{}, err
 	}
+	billingSnapshot := billing.Snapshot{}
+	if s.billing != nil {
+		billingSnapshot, err = s.billing.Snapshot(ctx, username, snapshot.Tier)
+		if err != nil {
+			return Bootstrap{}, err
+		}
+	}
 	providerReady := true
 	providerMessage := ""
 	if _, _, err := s.provider.LoadActiveAccount(ctx); err != nil {
@@ -252,6 +268,7 @@ func (s *Service) Bootstrap(ctx context.Context, username string) (Bootstrap, er
 		BotUsername:      bot.Username,
 		BotDisplayName:   bot.DisplayName,
 		Entitlement:      snapshot,
+		Billing:          billingSnapshot,
 		ProviderReady:    providerReady,
 		ProviderMessage:  providerMessage,
 		QueueConcurrency: cap(s.slots),
@@ -311,6 +328,22 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 			log.Printf("insert AI quota prompt failed: conversation_id=%d err=%v", conversationID, err)
 		}
 		return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
+	}
+	if s.billing != nil {
+		billingPrecheck, err := s.billing.Precheck(ctx, ownerUsername, precheck.Snapshot.Tier)
+		if err != nil {
+			return Task{}, err
+		}
+		if !billingPrecheck.Allowed {
+			message := billingPrecheck.Message
+			if strings.TrimSpace(message) == "" {
+				message = "本月 AI 额度已用完，本次没有消耗额度。"
+			}
+			if _, err := s.sink.InsertAITextMessage(context.Background(), conversationID, bot.Username, message); err != nil {
+				log.Printf("insert AI billing prompt failed: conversation_id=%d err=%v", conversationID, err)
+			}
+			return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
+		}
 	}
 	taskID, err := newTaskID()
 	if err != nil {
@@ -401,6 +434,24 @@ func (s *Service) processTask(taskID string) {
 	}
 	if _, err := s.entitlement.Consume(ctx, ownerUsername, entitlement.FeatureAIChat, taskID, 1, "ai_chat_success"); err != nil {
 		log.Printf("AI quota consume failed: task_id=%s username=%s err=%v", taskID, ownerUsername, err)
+	}
+	if s.billing != nil {
+		estimatedTokens := estimateProviderMessagesTokens(messages) + estimateTextTokens(resp.Content)
+		if _, err := s.billing.Settle(ctx, billing.Settlement{
+			TaskID:            taskID,
+			Username:          ownerUsername,
+			FeatureKey:        entitlement.FeatureAIChat,
+			Model:             resp.Model,
+			ProviderID:        resp.ProviderID,
+			PromptTokens:      resp.Usage.PromptTokens,
+			CompletionTokens:  resp.Usage.CompletionTokens,
+			TotalTokens:       resp.Usage.TotalTokens,
+			EstimatedTokens:   estimatedTokens,
+			UpstreamRequestID: resp.UpstreamRequestID,
+			Reason:            "ai_chat_success",
+		}); err != nil {
+			log.Printf("AI billing settle failed: task_id=%s username=%s err=%v", taskID, ownerUsername, err)
+		}
 	}
 	go s.refreshContextSummary(ownerUsername, conversationID)
 	_, _ = s.db.Exec(ctx, `
@@ -676,4 +727,13 @@ func estimateTextTokens(value string) int {
 		return 0
 	}
 	return (runeCount + 1) / 2
+}
+
+func estimateProviderMessagesTokens(messages []provider.Message) int {
+	total := 0
+	for _, item := range messages {
+		total += estimateTextTokens(item.Role)
+		total += estimateTextTokens(item.Content)
+	}
+	return total
 }

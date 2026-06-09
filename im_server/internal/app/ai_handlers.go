@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
 	"im_server/internal/ai/provider"
 	aiservice "im_server/internal/ai/service"
+	fluapi "im_server/internal/ai/usage/fluapi"
 	"im_server/internal/entitlement"
 
 	"github.com/jackc/pgx/v5"
@@ -163,6 +165,47 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		item, err := a.ai.SetConfig(r.Context(), req)
 		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "billing" && parts[1] == "config" && r.Method == http.MethodGet:
+		item, err := a.aiBilling.Config(r.Context())
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "billing" && parts[1] == "config" && r.Method == http.MethodPost:
+		var req billing.Config
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		item, err := a.aiBilling.SetConfig(r.Context(), req)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "billing" && parts[1] == "overview" && r.Method == http.MethodGet:
+		item, err := a.aiBilling.Overview(r.Context(), 30)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 1 && parts[0] == "fluapi" && r.Method == http.MethodGet:
+		item, err := a.aiFluAPI.Status(r.Context())
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "config" && r.Method == http.MethodPost:
+		var req fluapi.Config
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		item, err := a.aiFluAPI.SetConfig(r.Context(), req)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "credentials" && r.Method == http.MethodPost:
+		var req fluapi.CredentialsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		item, err := a.aiFluAPI.SetCredentials(r.Context(), req)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "login" && r.Method == http.MethodPost:
+		item, err := a.aiFluAPI.Login(r.Context())
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "sync" && r.Method == http.MethodPost:
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		item, err := a.aiFluAPI.Sync(ctx)
+		writeJSONOrError(w, item, err)
 	case len(parts) == 1 && parts[0] == "providers" && r.Method == http.MethodGet:
 		items, err := a.aiProvider.ListAccounts(r.Context())
 		writeJSONOrError(w, items, err)
@@ -288,6 +331,14 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 	} else {
 		providerReady = true
 	}
+	billingOverview, billingErr := a.aiBilling.Overview(r.Context(), 5)
+	fluAPIStatus, fluAPIErr := a.aiFluAPI.Status(r.Context())
+	fluAPIBalanceUSD := float64(0)
+	fluAPILowBalance := false
+	if fluAPIStatus.LatestBalance != nil {
+		fluAPIBalanceUSD = fluAPIStatus.LatestBalance.BalanceUSD
+		fluAPILowBalance = fluAPIStatus.LatestBalance.LowBalance
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"item": map[string]any{
@@ -302,6 +353,15 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"active_provider_name":       activeProviderName,
 			"active_provider_has_secret": activeProviderHasSecret,
 			"queue_concurrency":          a.ai.QueueConcurrency(),
+			"billing_enabled":            billingErr == nil && billingOverview.Config.Enabled,
+			"billing_error":              errorString(billingErr),
+			"billing_today_units":        billingOverview.TodayUnits,
+			"billing_month_units":        billingOverview.MonthUnits,
+			"fluapi_enabled":             fluAPIErr == nil && fluAPIStatus.Config.Enabled,
+			"fluapi_error":               errorString(fluAPIErr),
+			"fluapi_balance_usd":         fluAPIBalanceUSD,
+			"fluapi_low_balance":         fluAPILowBalance,
+			"fluapi_last_error":          fluAPIStatus.Config.LastError,
 		},
 	})
 }

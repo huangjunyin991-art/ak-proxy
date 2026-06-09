@@ -8703,6 +8703,60 @@ async def admin_ai_provider_balance(request: Request, provider_id: int):
     return await _admin_ai_internal_proxy(request, "GET", f"/im/internal/ai/admin/providers/{int(provider_id)}/balance")
 
 
+@app.get("/admin/api/ai/billing/config")
+async def admin_ai_billing_config(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/billing/config")
+
+
+@app.post("/admin/api/ai/billing/config")
+async def admin_ai_billing_config_update(request: Request):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/billing/config", payload)
+
+
+@app.get("/admin/api/ai/billing/overview")
+async def admin_ai_billing_overview(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/billing/overview")
+
+
+@app.get("/admin/api/ai/fluapi")
+async def admin_ai_fluapi_status(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/fluapi")
+
+
+@app.post("/admin/api/ai/fluapi/config")
+async def admin_ai_fluapi_config_update(request: Request):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/config", payload)
+
+
+@app.post("/admin/api/ai/fluapi/credentials")
+async def admin_ai_fluapi_credentials(request: Request):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/credentials", payload, timeout=25.0)
+
+
+@app.post("/admin/api/ai/fluapi/login")
+async def admin_ai_fluapi_login(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/login", {}, timeout=25.0)
+
+
+@app.post("/admin/api/ai/fluapi/sync")
+async def admin_ai_fluapi_sync(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/sync", {}, timeout=25.0)
+
+
 @app.get("/admin/api/ai/tiers")
 async def admin_ai_tiers(request: Request):
 
