@@ -142,18 +142,30 @@
             return String(model || '').trim();
         }).filter(Boolean);
         if (!normalized.length) return '';
-        if (mode === 'embedding') {
-            return normalized.find(function(model) {
-                const lower = model.toLowerCase();
-                return lower.indexOf('embedding') >= 0 || lower.indexOf('embed') >= 0;
-            }) || '';
-        }
         if (mode === 'chat') {
             return normalized.find(function(model) {
                 return !isLikelyNonChatModel(model);
             }) || normalized[0] || '';
         }
         return normalized[0] || '';
+    }
+
+    function modelExists(models, value) {
+        const target = String(value || '').trim();
+        if (!target) return false;
+        const targetLower = target.toLowerCase();
+        return (models || []).some(function(model) {
+            return String(model || '').trim().toLowerCase() === targetLower;
+        });
+    }
+
+    function safeModelValue(models, value, fallbackValue) {
+        const target = String(value || '').trim();
+        if (!target) return fallbackValue || '';
+        if (Array.isArray(models) && models.length && !modelExists(models, target)) {
+            return fallbackValue || '';
+        }
+        return target;
     }
 
     function mount() {
@@ -260,6 +272,8 @@
         }
         return state.providers.map(function(item) {
             const active = Number(item.id || 0) === Number(state.selectedProviderId || 0);
+            const itemModels = Array.isArray(item.available_models) ? item.available_models : [];
+            const displayModel = safeModelValue(itemModels, item.chat_model, firstModelValue(itemModels, 'chat')) || '-';
             return `
                 <div class="ai-provider-item ${active ? 'active' : ''}" data-action="select-provider" data-id="${Number(item.id || 0)}">
                     <div class="ai-provider-head">
@@ -267,7 +281,7 @@
                         <span class="ai-tag ${item.enabled ? 'ok' : 'bad'}">${item.enabled ? '启用' : '停用'}</span>
                     </div>
                     <div class="ai-meta">${escapeHtml(item.base_url || '-')}</div>
-                    <div class="ai-meta">模型：${escapeHtml(item.chat_model || '-')} · 密钥：${escapeHtml(item.secret_fingerprint || '未导入')}</div>
+                    <div class="ai-meta">模型：${escapeHtml(displayModel)} · 密钥：${escapeHtml(item.secret_fingerprint || '未导入')}</div>
                     <div class="ai-meta">最近测试：${escapeHtml(item.last_test_status || '-')} · 最近使用：${escapeHtml(fmtTime(item.last_used_at))}</div>
                 </div>
             `;
@@ -333,10 +347,8 @@
         const baseUrl = String(item.base_url || '');
         const baseUrlLooksKey = looksLikeApiKey(baseUrl);
         const fallbackChatModel = firstModelValue(models, 'chat');
-        const fallbackEmbeddingModel = firstModelValue(models, 'embedding');
-        const chatModelValue = item.chat_model || fallbackChatModel;
-        const summaryModelValue = item.summary_model || item.chat_model || fallbackChatModel;
-        const embeddingModelValue = item.embedding_model || fallbackEmbeddingModel;
+        const chatModelValue = safeModelValue(models, item.chat_model, fallbackChatModel);
+        const summaryModelValue = safeModelValue(models, item.summary_model || chatModelValue, chatModelValue || fallbackChatModel);
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
@@ -356,7 +368,6 @@
                 <div class="ai-form-grid">
                     ${renderModelInput('aiProviderChatModel', '聊天模型', chatModelValue, models, '先导入 API Key 获取模型', fallbackChatModel)}
                     ${renderModelInput('aiProviderSummaryModel', '上下文压缩模型', summaryModelValue, models, '可与聊天模型相同，低成本模型通常足够', fallbackChatModel)}
-                    ${renderModelInput('aiProviderEmbeddingModel', 'Embedding 模型', embeddingModelValue, models, '需要语义搜索时选择', fallbackEmbeddingModel)}
                     <div class="ai-field"><label>余额接口</label><input class="ai-input" id="aiProviderBalanceEndpoint" placeholder="/v1/dashboard/billing/credit_grants" value="${escapeHtml(item.balance_endpoint || '')}"></div>
                     <div class="ai-field"><label>余额缓存秒</label><input class="ai-input" id="aiProviderBalanceTtl" type="number" min="30" value="${Number(item.balance_cache_ttl_seconds || 600)}"></div>
                     <div class="ai-field"><label>低余额阈值</label><input class="ai-input" id="aiProviderLowBalance" type="number" min="0" step="0.01" value="${Number(item.low_balance_threshold || 0)}"></div>
@@ -662,7 +673,6 @@
             base_url: baseUrl,
             chat_model: document.getElementById('aiProviderChatModel')?.value || '',
             summary_model: document.getElementById('aiProviderSummaryModel')?.value || '',
-            embedding_model: document.getElementById('aiProviderEmbeddingModel')?.value || '',
             balance_supported: !!document.getElementById('aiProviderBalanceSupported')?.checked,
             balance_endpoint: document.getElementById('aiProviderBalanceEndpoint')?.value || '',
             balance_cache_ttl_seconds: Number(document.getElementById('aiProviderBalanceTtl')?.value || 600),

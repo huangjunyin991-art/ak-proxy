@@ -150,7 +150,22 @@ func scanAccount(row accountScanner) (Account, error) {
 	if item.AvailableModels == nil {
 		item.AvailableModels = []string{}
 	}
+	sanitizeAccountModels(&item)
 	return item, err
+}
+
+func sanitizeAccountModels(item *Account) {
+	if item == nil || len(item.AvailableModels) == 0 {
+		return
+	}
+	defaultChatModel := chooseDefaultChatModel(item.AvailableModels, "")
+	if strings.TrimSpace(item.ChatModel) != "" && (isLikelyNonChatModel(item.ChatModel) || !modelAvailable(item.AvailableModels, item.ChatModel)) {
+		item.ChatModel = defaultChatModel
+	}
+	if strings.TrimSpace(item.SummaryModel) != "" && (isLikelyNonChatModel(item.SummaryModel) || !modelAvailable(item.AvailableModels, item.SummaryModel)) {
+		item.SummaryModel = defaultChatModel
+	}
+	item.EmbeddingModel = ""
 }
 
 func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, error) {
@@ -164,6 +179,7 @@ func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, err
 	if item.SummaryModel == "" {
 		item.SummaryModel = item.ChatModel
 	}
+	item.EmbeddingModel = ""
 	if item.BalanceCacheTTLSeconds <= 0 {
 		item.BalanceCacheTTLSeconds = 600
 	}
@@ -512,8 +528,8 @@ func (s *Service) RefreshModels(ctx context.Context, providerID int64) ([]string
 	}
 	raw, _ := json.Marshal(models)
 	defaultChatModel := chooseDefaultChatModel(models, account.ChatModel)
-	replaceChatModel := strings.TrimSpace(account.ChatModel) == "" || isLikelyNonChatModel(account.ChatModel)
-	replaceSummaryModel := strings.TrimSpace(account.SummaryModel) == "" || isLikelyNonChatModel(account.SummaryModel)
+	replaceChatModel := strings.TrimSpace(account.ChatModel) == "" || isLikelyNonChatModel(account.ChatModel) || !modelAvailable(models, account.ChatModel)
+	replaceSummaryModel := strings.TrimSpace(account.SummaryModel) == "" || isLikelyNonChatModel(account.SummaryModel) || !modelAvailable(models, account.SummaryModel)
 	_, err = s.db.Exec(ctx, `
 		UPDATE im_ai_provider_account
 		SET available_models = $2::jsonb,
@@ -570,11 +586,11 @@ func (s *Service) testChatProbe(ctx context.Context, account Account, secret str
 
 func resolveChatModel(account Account, requested string) string {
 	model := strings.TrimSpace(requested)
-	if model != "" {
+	if model != "" && modelAvailableOrUnknown(account.AvailableModels, model) {
 		return model
 	}
 	model = strings.TrimSpace(account.ChatModel)
-	if model != "" {
+	if model != "" && !isLikelyNonChatModel(model) && modelAvailableOrUnknown(account.AvailableModels, model) {
 		return model
 	}
 	if len(account.AvailableModels) > 0 {
@@ -585,21 +601,41 @@ func resolveChatModel(account Account, requested string) string {
 
 func resolveSummaryModel(account Account, requested string) string {
 	model := strings.TrimSpace(requested)
-	if model != "" {
+	if model != "" && modelAvailableOrUnknown(account.AvailableModels, model) {
 		return model
 	}
 	model = strings.TrimSpace(account.SummaryModel)
-	if model != "" && !isLikelyNonChatModel(model) {
+	if model != "" && !isLikelyNonChatModel(model) && modelAvailableOrUnknown(account.AvailableModels, model) {
 		return model
 	}
 	model = strings.TrimSpace(account.ChatModel)
-	if model != "" && !isLikelyNonChatModel(model) {
+	if model != "" && !isLikelyNonChatModel(model) && modelAvailableOrUnknown(account.AvailableModels, model) {
 		return model
 	}
 	if len(account.AvailableModels) > 0 {
 		return chooseDefaultChatModel(account.AvailableModels, "")
 	}
 	return ""
+}
+
+func modelAvailableOrUnknown(models []string, model string) bool {
+	if len(models) == 0 {
+		return true
+	}
+	return modelAvailable(models, model)
+}
+
+func modelAvailable(models []string, model string) bool {
+	target := strings.TrimSpace(model)
+	if target == "" {
+		return false
+	}
+	for _, item := range models {
+		if strings.EqualFold(strings.TrimSpace(item), target) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendModelIdentityGuard(messages []Message, model string) []Message {
@@ -817,7 +853,7 @@ func parseModels(body []byte) []string {
 
 func chooseDefaultChatModel(models []string, preferred string) string {
 	preferred = strings.TrimSpace(preferred)
-	if preferred != "" && !isLikelyNonChatModel(preferred) {
+	if preferred != "" && !isLikelyNonChatModel(preferred) && modelAvailableOrUnknown(models, preferred) {
 		return preferred
 	}
 	for _, model := range models {
