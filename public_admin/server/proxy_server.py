@@ -3108,9 +3108,10 @@ async def api_dispatcher_policy(request: Request):
     ok = dispatcher.set_policy(
         per_exit_rate_per_second=data.get("per_exit_rate_per_second"),
         latency_strategy_enabled=data.get("latency_strategy_enabled"),
+        connect_failure_freeze_seconds=data.get("connect_failure_freeze_seconds"),
     )
     if not ok:
-        return {"success": False, "message": "策略配置无效（每节点速率需在 1~20 req/s 之间）"}
+        return {"success": False, "message": "策略配置无效（每节点速率需在 1~20 req/s，连接失败禁用时间需在 30~86400 秒之间）"}
     return {"success": True, "message": "负载均衡策略已更新", "policy": dispatcher.get_status().get("policy", {})}
 
 

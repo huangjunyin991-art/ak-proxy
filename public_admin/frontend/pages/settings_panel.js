@@ -572,6 +572,22 @@
             return Number.isFinite(index) ? index : fallbackIndex;
         }
 
+        function getLbConnectFailureFreezeSeconds(policy) {
+            const value = Number(policy && policy.connect_failure_freeze_seconds);
+            return Number.isFinite(value) && value >= 30 ? Math.round(value) : 300;
+        }
+
+        function formatLbDuration(seconds) {
+            const total = Math.max(0, Math.round(Number(seconds || 0)));
+            if (total >= 3600) {
+                const hours = Math.floor(total / 3600);
+                const minutes = Math.round((total % 3600) / 60);
+                return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+            }
+            if (total >= 60) return `${Math.round(total / 60)}分钟`;
+            return `${total}秒`;
+        }
+
         function getLbExitLatencyNumber(ex) {
             const value = ex && ex.latency_ms;
             if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
@@ -664,6 +680,8 @@
             document.getElementById('lbLatencyStrategy').textContent = policy.latency_strategy_enabled === false ? '最少连接' : '延迟优先';
             document.getElementById('lbPerSecondLimit').textContent = `${policy.per_exit_rate_per_second || 3} req/s/节点`;
             document.getElementById('lbProbeInterval').textContent = `${Math.round((policy.latency_probe_interval_seconds || 1800) / 60)} 分钟`;
+            const connectFreezeEl = document.getElementById('lbConnectFailureFreeze');
+            if (connectFreezeEl) connectFreezeEl.textContent = formatLbDuration(getLbConnectFailureFreezeSeconds(policy));
             document.getElementById('lbSummary').textContent =
                 `${data.healthy_exits}/${data.total_exits} 健康 | ${data.total_active} 活跃连接`;
 
@@ -1066,6 +1084,7 @@
             const policy = (lbData && lbData.policy) || {};
             const rate = policy.per_exit_rate_per_second || 3;
             const enabled = policy.latency_strategy_enabled !== false;
+            const connectFreezeSeconds = getLbConnectFailureFreezeSeconds(policy);
             const content = `
                 <div style="margin-bottom:12px;">
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
@@ -1079,32 +1098,37 @@
                             <input id="lbPolicyLatencyEnabled" type="checkbox" ${enabled ? 'checked' : ''} style="accent-color:var(--accent);">
                             启用延迟优先调度
                         </label>
+                        <label style="font-size:13px;color:var(--text-primary);">节点连接失败禁用时间（秒）:</label>
+                        <input id="lbPolicyConnectFreezeInput" type="number" min="30" max="86400" step="30" value="${connectFreezeSeconds}"
+                            style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
                         <div style="font-size:11px;color:var(--text-secondary);">
-                            默认 3 req/s/节点；节点会每 30 分钟自动测速一次，也可以点击“测速”立即触发。
+                            默认 3 req/s/节点；连接失败默认禁用 300 秒，连续失败会按梯度延长；节点会每 30 分钟自动测速一次，也可以点击“测速”立即触发。
                         </div>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:12px;">
-                        <button onclick="lbSetPolicy(1,true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">1/s</button>
-                        <button onclick="lbSetPolicy(3,true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">3/s</button>
-                        <button onclick="lbSetPolicy(5,true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,255,136,0.3);background:rgba(0,255,136,0.1);color:#00ff88;cursor:pointer;font-size:12px;">5/s</button>
+                        <button onclick="document.getElementById('lbPolicyRpsInput').value=1" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">1/s</button>
+                        <button onclick="document.getElementById('lbPolicyRpsInput').value=3" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">3/s</button>
+                        <button onclick="document.getElementById('lbPolicyRpsInput').value=5" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,255,136,0.3);background:rgba(0,255,136,0.1);color:#00ff88;cursor:pointer;font-size:12px;">5/s</button>
                     </div>
                 </div>
             `;
             showModal('⚙️ 负载均衡策略', content, async () => {
                 const val = parseInt(document.getElementById('lbPolicyRpsInput')?.value || '3', 10);
                 const latencyEnabled = !!document.getElementById('lbPolicyLatencyEnabled')?.checked;
-                await lbSetPolicy(val, latencyEnabled);
+                const connectFreeze = parseInt(document.getElementById('lbPolicyConnectFreezeInput')?.value || '300', 10);
+                await lbSetPolicy(val, latencyEnabled, connectFreeze);
             }, '应用策略');
         }
 
-        async function lbSetPolicy(perExitRatePerSecond, latencyStrategyEnabled) {
+        async function lbSetPolicy(perExitRatePerSecond, latencyStrategyEnabled, connectFailureFreezeSeconds) {
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/policy`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         per_exit_rate_per_second: perExitRatePerSecond,
-                        latency_strategy_enabled: latencyStrategyEnabled
+                        latency_strategy_enabled: latencyStrategyEnabled,
+                        connect_failure_freeze_seconds: connectFailureFreezeSeconds
                     })
                 });
                 const data = await res.json();

@@ -124,10 +124,12 @@ class OutboundExit:
         self._frozen_reason = reason
         logger.warning(f"[Dispatcher] {self.name} {reason}, 冻结{duration}秒")
 
-    def freeze_for_connect_error(self, error: str = ""):
+    def freeze_for_connect_error(self, error: str = "", base_duration_seconds: int = 3600):
         self._connect_failures += 1
-        durations = [3600, 10800, 21600, 43200, 86400]
-        duration = durations[min(self._connect_failures - 1, len(durations) - 1)]
+        base_duration = max(30, min(int(base_duration_seconds or 3600), 86400))
+        multipliers = [1, 3, 6, 12, 24]
+        multiplier = multipliers[min(self._connect_failures - 1, len(multipliers) - 1)]
+        duration = min(base_duration * multiplier, 86400)
         self.freeze(float(duration), f"连接失败×{self._connect_failures}")
         logger.warning(f"[Dispatcher] {self.name} 连接失败梯度禁用 level={self._connect_failures} duration={duration}s error={error}")
 
@@ -784,7 +786,10 @@ class OutboundDispatcher:
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
                 if not current_exit.is_direct:
-                    current_exit.freeze_for_connect_error(str(e))
+                    base_freeze_seconds = 3600
+                    if self.policy_config is not None:
+                        base_freeze_seconds = int(getattr(self.policy_config, "connect_failure_freeze_seconds", 3600) or 3600)
+                    current_exit.freeze_for_connect_error(str(e), base_freeze_seconds)
                 if attempt_index + 1 < len(attempts):
                     next_exit = attempts[attempt_index + 1]
                     logger.warning(f"[Dispatcher] {current_exit.name} 失败({e})，降级至 {next_exit.name} 重试")
@@ -1138,19 +1143,23 @@ class OutboundDispatcher:
             return True
         return False
 
-    def set_policy(self, *, per_exit_rate_per_second=None, latency_strategy_enabled=None) -> bool:
+    def set_policy(self, *, per_exit_rate_per_second=None, latency_strategy_enabled=None,
+                   connect_failure_freeze_seconds=None) -> bool:
         if self.policy_config is None:
             return False
         old_rate = self.policy_config.per_exit_rate_per_second
         old_enabled = self.policy_config.latency_strategy_enabled
+        old_freeze = self.policy_config.connect_failure_freeze_seconds
         ok = self.policy_config.update(
             per_exit_rate_per_second=per_exit_rate_per_second,
             latency_strategy_enabled=latency_strategy_enabled,
+            connect_failure_freeze_seconds=connect_failure_freeze_seconds,
         )
         if ok:
             logger.info(
                 f"[DispatcherPolicy] 策略调整: req/s {old_rate} -> {self.policy_config.per_exit_rate_per_second}, "
-                f"latency_enabled {old_enabled} -> {self.policy_config.latency_strategy_enabled}"
+                f"latency_enabled {old_enabled} -> {self.policy_config.latency_strategy_enabled}, "
+                f"connect_failure_freeze_seconds {old_freeze} -> {self.policy_config.connect_failure_freeze_seconds}"
             )
         return ok
 
