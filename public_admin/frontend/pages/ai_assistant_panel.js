@@ -120,6 +120,10 @@
         return providerById(state.selectedProviderId) || state.providers[0] || null;
     }
 
+    function looksLikeApiKey(value) {
+        return /^sk-[A-Za-z0-9_-]{12,}/.test(String(value || '').trim());
+    }
+
     function mount() {
         return document.getElementById('aiAssistantPanelMount');
     }
@@ -142,6 +146,20 @@
             #aiAssistant .ai-field label{font-size:12px;color:var(--text-secondary)}
             #aiAssistant .ai-input,#aiAssistant .ai-select{height:38px;border:1px solid var(--border);border-radius:9px;background:var(--bg-primary);color:var(--text-primary);padding:0 10px;outline:none}
             #aiAssistant .ai-input:focus,#aiAssistant .ai-select:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,212,255,.12)}
+            #aiAssistant .ai-model-field{position:relative}
+            #aiAssistant .ai-model-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
+            #aiAssistant .ai-model-count{font-size:11px;color:var(--text-secondary);opacity:.78;font-variant-numeric:tabular-nums}
+            #aiAssistant .ai-model-control{position:relative;display:flex;align-items:center}
+            #aiAssistant .ai-model-control .ai-model-input{width:100%;padding-right:43px}
+            #aiAssistant .ai-model-toggle{position:absolute;right:6px;top:50%;display:flex;align-items:center;justify-content:center;width:28px;height:26px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.045);color:var(--text-secondary);cursor:pointer;font-size:14px;line-height:1;transform:translateY(-50%);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}
+            #aiAssistant .ai-model-toggle:hover,#aiAssistant .ai-model-field.open .ai-model-toggle{border-color:rgba(0,212,255,.42);background:rgba(0,212,255,.12);color:var(--accent)}
+            #aiAssistant .ai-model-field.open .ai-model-toggle{transform:translateY(-50%) rotate(180deg)}
+            #aiAssistant .ai-model-menu{position:absolute;z-index:80;left:0;right:0;top:calc(100% + 6px);max-height:270px;overflow:auto;padding:6px;border:1px solid rgba(0,212,255,.26);border-radius:10px;background:linear-gradient(180deg,rgba(18,24,35,.98),rgba(10,14,22,.98));box-shadow:0 18px 42px rgba(0,0,0,.38),0 0 0 1px rgba(255,255,255,.04) inset}
+            #aiAssistant .ai-model-option,#aiAssistant .ai-model-empty{width:100%;min-height:32px;border:0;border-radius:8px;background:transparent;color:var(--text-primary);padding:0 9px;text-align:left;font-size:12px;line-height:32px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            #aiAssistant .ai-model-option{display:block;cursor:pointer}
+            #aiAssistant .ai-model-option:hover,#aiAssistant .ai-model-option.active{background:rgba(0,212,255,.13);color:#fff}
+            #aiAssistant .ai-model-option.active{box-shadow:0 0 0 1px rgba(0,212,255,.22) inset}
+            #aiAssistant .ai-model-empty{color:var(--text-secondary);cursor:default}
             #aiAssistant .ai-switch-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
             #aiAssistant .ai-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
             #aiAssistant .ai-btn{height:36px;border:0;border-radius:9px;padding:0 13px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-weight:700}
@@ -205,15 +223,29 @@
     }
 
     function renderModelInput(id, label, value, models, placeholder) {
-        const listId = id + 'Options';
-        const options = (models || []).map(function(model) {
-            return '<option value="' + escapeHtml(model) + '"></option>';
+        const seen = {};
+        const normalizedModels = (models || []).filter(function(model) {
+            const key = String(model || '').trim();
+            if (!key || seen[key]) return false;
+            seen[key] = true;
+            return true;
+        });
+        const currentValue = String(value || '');
+        const options = normalizedModels.map(function(model) {
+            const modelName = String(model || '');
+            return '<button type="button" class="ai-model-option ' + (modelName === currentValue ? 'active' : '') + '" data-model-option="1" data-model-value="' + escapeHtml(modelName) + '">' + escapeHtml(modelName) + '</button>';
         }).join('');
         return `
-            <div class="ai-field">
-                <label>${escapeHtml(label)}</label>
-                <input class="ai-input" id="${escapeHtml(id)}" list="${escapeHtml(listId)}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder || '导入 API Key 后刷新模型')}">
-                <datalist id="${escapeHtml(listId)}">${options}</datalist>
+            <div class="ai-field ai-model-field" data-model-picker="1">
+                <label class="ai-model-label"><span>${escapeHtml(label)}</span>${normalizedModels.length ? '<span class="ai-model-count">' + normalizedModels.length + ' 个</span>' : ''}</label>
+                <div class="ai-model-control">
+                    <input class="ai-input ai-model-input" id="${escapeHtml(id)}" value="${escapeHtml(currentValue)}" placeholder="${escapeHtml(placeholder || '导入 API Key 后刷新模型')}" autocomplete="off" spellcheck="false" data-model-input="1">
+                    <button class="ai-model-toggle" type="button" data-model-toggle="1" aria-label="展开模型列表" title="展开模型列表">⌄</button>
+                </div>
+                <div class="ai-model-menu" data-model-menu="1" hidden>
+                    ${options || '<div class="ai-model-empty">暂无模型，先导入 API Key 或手动输入</div>'}
+                    <div class="ai-model-empty ai-model-no-match" hidden>没有匹配模型，可直接手动输入</div>
+                </div>
             </div>
         `;
     }
@@ -223,6 +255,8 @@
         const id = Number(item.id || 0);
         const providerEnabled = id ? !!item.enabled : true;
         const models = Array.isArray(item.available_models) ? item.available_models : [];
+        const baseUrl = String(item.base_url || '');
+        const baseUrlLooksKey = looksLikeApiKey(baseUrl);
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
@@ -231,7 +265,15 @@
                 </div>
                 <div class="ai-form-grid">
                     <div class="ai-field"><label>名称</label><input class="ai-input" id="aiProviderName" value="${escapeHtml(item.provider_name || 'OpenAI-Compatible Relay')}"></div>
-                    <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="https://new.fluapi.com/v1" value="${escapeHtml(item.base_url || '')}"></div>
+                    <div class="ai-field"><label>Base URL（不是 sk）</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="例如：https://new.fluapi.com/v1" value="${escapeHtml(baseUrl)}"></div>
+                </div>
+                ${baseUrlLooksKey ? '<div class="ai-meta" style="color:var(--accent-red);">你把 API Key 填到了 Base URL。Base URL 应该是 https://.../v1，sk 请填到下面的 API Key 输入框。</div>' : ''}
+                <div class="ai-secret-row provider">
+                    <input class="ai-input" id="aiProviderSecret" type="password" placeholder="API Key / sk 密钥，保存后只显示指纹">
+                    <button class="ai-btn success" data-action="save-secret">${id ? '导入 API Key' : '新增并导入 API Key'}</button>
+                </div>
+                ${id ? '<div class="ai-secret-row provider"><input class="ai-input" id="aiProviderTestPrompt" value="请用一句话回复：AI 通道可用" placeholder="测试 prompt"><button class="ai-btn warn" data-action="test-provider">测试模型回复</button></div>' : ''}
+                <div class="ai-form-grid">
                     ${renderModelInput('aiProviderChatModel', '聊天模型', item.chat_model || '', models, '先导入 API Key 获取模型')}
                     ${renderModelInput('aiProviderSummaryModel', '摘要模型', item.summary_model || item.chat_model || '', models, '可与聊天模型相同')}
                     ${renderModelInput('aiProviderEmbeddingModel', 'Embedding 模型', item.embedding_model || '', models, '需要语义搜索时选择')}
@@ -248,11 +290,6 @@
                     <button class="ai-btn" data-action="new-provider">清空新增</button>
                     ${id ? '<button class="ai-btn" data-action="refresh-provider-models">刷新模型</button><button class="ai-btn" data-action="refresh-balance">刷新余额</button>' : ''}
                 </div>
-                <div class="ai-secret-row provider">
-                    <input class="ai-input" id="aiProviderSecret" type="password" placeholder="中转站 API Key / sk 密钥，保存后只显示指纹">
-                    <button class="ai-btn success" data-action="save-secret">${id ? '导入 API Key' : '新增并导入 API Key'}</button>
-                </div>
-                ${id ? '<div class="ai-secret-row provider"><input class="ai-input" id="aiProviderTestPrompt" value="请用一句话回复：AI 通道可用" placeholder="测试 prompt"><button class="ai-btn warn" data-action="test-provider">测试模型回复</button></div>' : ''}
                 <div class="ai-meta">Base URL 填中转站 OpenAI-compatible 地址，例如 https://new.fluapi.com/v1；API Key 填中转站控制台生成的 sk。</div>
                 <div class="ai-meta">模型列表来自 Provider 的 /v1/models，共 ${models.length} 个；如果中转站禁用了模型接口，也可以手动填写模型名。</div>
                 <div class="ai-meta" id="aiProviderBalanceInfo">${id ? '余额信息刷新后显示在这里。' : '新增 Provider 后可测试连接和刷新余额。'}</div>
@@ -532,10 +569,14 @@
 
     function readProviderPayload() {
         const current = selectedProvider() || {};
+        const baseUrl = document.getElementById('aiProviderBaseUrl')?.value || '';
+        if (looksLikeApiKey(baseUrl)) {
+            throw new Error('Base URL 不能填写 sk 密钥，请填写 https://.../v1，并把 sk 填到 API Key 输入框');
+        }
         return {
             id: Number(current.id || 0),
             provider_name: document.getElementById('aiProviderName')?.value || 'OpenAI-Compatible Relay',
-            base_url: document.getElementById('aiProviderBaseUrl')?.value || '',
+            base_url: baseUrl,
             chat_model: document.getElementById('aiProviderChatModel')?.value || 'gpt-5-mini',
             summary_model: document.getElementById('aiProviderSummaryModel')?.value || '',
             embedding_model: document.getElementById('aiProviderEmbeddingModel')?.value || '',
@@ -692,6 +733,10 @@
     async function saveSecret() {
         const secret = document.getElementById('aiProviderSecret')?.value || '';
         if (!secret.trim()) throw new Error('请粘贴 sk 密钥');
+        const baseUrl = document.getElementById('aiProviderBaseUrl')?.value || '';
+        if (looksLikeApiKey(baseUrl)) {
+            throw new Error('你把 sk 填到了 Base URL。请先把 Base URL 改成 https://.../v1，再导入 API Key');
+        }
         let provider = selectedProvider();
         if (!provider || !provider.id) {
             const payload = readProviderPayload();
@@ -715,9 +760,10 @@
         const provider = selectedProvider();
         if (!provider || !provider.id) throw new Error('请先选择 Provider');
         const prompt = document.getElementById('aiProviderTestPrompt')?.value || '';
+        const model = document.getElementById('aiProviderChatModel')?.value || '';
         const data = await api('/admin/api/ai/providers/' + provider.id + '/test', {
             method: 'POST',
-            body: JSON.stringify({ prompt: prompt })
+            body: JSON.stringify({ prompt: prompt, model: model })
         });
         const item = unwrapItem(data, {});
         const probeText = item.probe ? (' · ' + item.probe) : '';
@@ -831,11 +877,80 @@
         if (action === 'create-redeem') return createRedeem();
     }
 
+    function closeModelMenus(exceptField) {
+        document.querySelectorAll('#aiAssistant [data-model-picker]').forEach(function(field) {
+            if (exceptField && field === exceptField) return;
+            const menu = field.querySelector('[data-model-menu]');
+            if (menu) menu.hidden = true;
+            field.classList.remove('open');
+        });
+    }
+
+    function updateModelMenu(field, showAll) {
+        if (!field) return;
+        const input = field.querySelector('[data-model-input]');
+        const selectedValue = String(input && input.value || '').trim();
+        const term = showAll ? '' : selectedValue.toLowerCase();
+        let visibleCount = 0;
+        field.querySelectorAll('[data-model-option]').forEach(function(option) {
+            const value = String(option.dataset.modelValue || option.textContent || '').trim();
+            const matched = !term || value.toLowerCase().indexOf(term) >= 0;
+            option.hidden = !matched;
+            option.classList.toggle('active', !!selectedValue && value === selectedValue);
+            if (matched) visibleCount += 1;
+        });
+        const noMatch = field.querySelector('.ai-model-no-match');
+        if (noMatch) noMatch.hidden = visibleCount > 0 || !term;
+    }
+
+    function openModelMenu(field, showAll) {
+        if (!field) return;
+        const menu = field.querySelector('[data-model-menu]');
+        if (!menu) return;
+        closeModelMenus(field);
+        updateModelMenu(field, !!showAll);
+        menu.hidden = false;
+        field.classList.add('open');
+    }
+
+    function selectModelOption(option) {
+        if (!option) return;
+        const field = option.closest('[data-model-picker]');
+        const input = field && field.querySelector('[data-model-input]');
+        if (!input) return;
+        input.value = String(option.dataset.modelValue || option.textContent || '').trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        closeModelMenus();
+        input.focus();
+    }
+
     function bindEvents() {
         const el = mount();
         if (!el || el.dataset.aiBound === '1') return;
         el.dataset.aiBound = '1';
         el.addEventListener('click', function(event) {
+            const modelOption = event.target.closest('[data-model-option]');
+            if (modelOption && el.contains(modelOption)) {
+                event.preventDefault();
+                selectModelOption(modelOption);
+                return;
+            }
+
+            const modelToggle = event.target.closest('[data-model-toggle]');
+            if (modelToggle && el.contains(modelToggle)) {
+                event.preventDefault();
+                const field = modelToggle.closest('[data-model-picker]');
+                if (field && field.classList.contains('open')) closeModelMenus();
+                else openModelMenu(field, true);
+                return;
+            }
+
+            const modelInput = event.target.closest('[data-model-input]');
+            if (modelInput && el.contains(modelInput)) {
+                openModelMenu(modelInput.closest('[data-model-picker]'), true);
+                return;
+            }
+
             const target = event.target.closest('[data-action]');
             if (!target || !el.contains(target)) return;
             event.preventDefault();
@@ -844,6 +959,29 @@
                 showToast(e.message || '操作失败', 'error');
             });
         });
+        el.addEventListener('focusin', function(event) {
+            const modelInput = event.target.closest('[data-model-input]');
+            if (modelInput && el.contains(modelInput)) {
+                openModelMenu(modelInput.closest('[data-model-picker]'), true);
+            }
+        });
+        el.addEventListener('input', function(event) {
+            const modelInput = event.target.closest('[data-model-input]');
+            if (modelInput && el.contains(modelInput)) {
+                const field = modelInput.closest('[data-model-picker]');
+                openModelMenu(field, false);
+            }
+        });
+        if (!global.__AKAIAssistantModelPickerBound) {
+            global.__AKAIAssistantModelPickerBound = true;
+            document.addEventListener('click', function(event) {
+                if (event.target.closest && event.target.closest('#aiAssistant [data-model-picker]')) return;
+                closeModelMenus();
+            });
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') closeModelMenus();
+            });
+        }
     }
 
     function start() {

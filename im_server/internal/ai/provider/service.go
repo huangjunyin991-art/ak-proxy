@@ -319,7 +319,7 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 		model = account.ChatModel
 	}
 	if model == "" && len(account.AvailableModels) > 0 {
-		model = strings.TrimSpace(account.AvailableModels[0])
+		model = chooseDefaultChatModel(account.AvailableModels, "")
 	}
 	if model == "" {
 		return ChatResponse{}, errors.New("AI chat model is not configured")
@@ -356,7 +356,7 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 		return ChatResponse{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ChatResponse{}, fmt.Errorf("AI provider status=%d", resp.StatusCode)
+		return ChatResponse{}, fmt.Errorf("AI provider chat failed (model=%s): %s", model, formatProviderError(resp.StatusCode, respBody))
 	}
 	var parsed struct {
 		ID      string `json:"id"`
@@ -395,7 +395,7 @@ func (s *Service) chatWithAccount(ctx context.Context, account Account, secret s
 	}, nil
 }
 
-func (s *Service) Test(ctx context.Context, providerID int64, prompt string) (TestResult, error) {
+func (s *Service) Test(ctx context.Context, providerID int64, prompt string, model string) (TestResult, error) {
 	started := time.Now()
 	account, secret, err := s.loadAccountSecret(ctx, providerID)
 	if err != nil {
@@ -414,7 +414,7 @@ func (s *Service) Test(ctx context.Context, providerID int64, prompt string) (Te
 			modelsResult.Message = refreshErr.Error()
 		}
 	}
-	result := s.testChatProbe(ctx, account, secret, started, prompt)
+	result := s.testChatProbe(ctx, account, secret, started, prompt, model)
 	if result.OK {
 		if modelsResult.OK {
 			result.Message = "chat completions ok；" + modelsResult.Message
@@ -461,14 +461,17 @@ func (s *Service) RefreshModels(ctx context.Context, providerID int64) ([]string
 		return nil, errors.New("provider returned empty model list")
 	}
 	raw, _ := json.Marshal(models)
+	defaultChatModel := chooseDefaultChatModel(models, account.ChatModel)
+	replaceChatModel := strings.TrimSpace(account.ChatModel) == "" || isLikelyNonChatModel(account.ChatModel)
+	replaceSummaryModel := strings.TrimSpace(account.SummaryModel) == "" || isLikelyNonChatModel(account.SummaryModel)
 	_, err = s.db.Exec(ctx, `
 		UPDATE im_ai_provider_account
 		SET available_models = $2::jsonb,
-		    chat_model = COALESCE(NULLIF(chat_model, ''), $3),
-		    summary_model = COALESCE(NULLIF(summary_model, ''), $3),
+		    chat_model = CASE WHEN $4 THEN $3 ELSE chat_model END,
+		    summary_model = CASE WHEN $5 THEN $3 ELSE summary_model END,
 		    updated_at = NOW(),
 		    last_test_status = 'models refreshed'
-		WHERE id = $1`, providerID, string(raw), models[0])
+		WHERE id = $1`, providerID, string(raw), defaultChatModel, replaceChatModel, replaceSummaryModel)
 	if err != nil {
 		return nil, err
 	}
@@ -486,12 +489,13 @@ func (s *Service) testModelsProbe(ctx context.Context, account Account, secret s
 	return finishProviderProbe(resp, err, started, "models")
 }
 
-func (s *Service) testChatProbe(ctx context.Context, account Account, secret string, started time.Time, prompt string) TestResult {
+func (s *Service) testChatProbe(ctx context.Context, account Account, secret string, started time.Time, prompt string, model string) TestResult {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		prompt = "请只回复两个字：可用"
 	}
 	response, err := s.chatWithAccount(ctx, account, secret, ChatRequest{
+		Model: strings.TrimSpace(model),
 		Messages: []Message{
 			{Role: "system", Content: "You are testing an OpenAI-compatible chat completion endpoint. Reply briefly."},
 			{Role: "user", Content: prompt},
@@ -619,6 +623,52 @@ func parseModels(body []byte) []string {
 	}
 	sort.Strings(models)
 	return models
+}
+
+func chooseDefaultChatModel(models []string, preferred string) string {
+	preferred = strings.TrimSpace(preferred)
+	if preferred != "" && !isLikelyNonChatModel(preferred) {
+		return preferred
+	}
+	for _, model := range models {
+		name := strings.TrimSpace(model)
+		if name == "" || isLikelyNonChatModel(name) {
+			continue
+		}
+		lower := strings.ToLower(name)
+		for _, keyword := range []string{"gpt", "chat", "claude", "gemini", "deepseek", "qwen", "glm", "doubao", "moonshot", "yi-"} {
+			if strings.Contains(lower, keyword) {
+				return name
+			}
+		}
+	}
+	for _, model := range models {
+		name := strings.TrimSpace(model)
+		if name != "" && !isLikelyNonChatModel(name) {
+			return name
+		}
+	}
+	if len(models) > 0 {
+		return strings.TrimSpace(models[0])
+	}
+	return preferred
+}
+
+func isLikelyNonChatModel(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	if lower == "" {
+		return false
+	}
+	for _, keyword := range []string{
+		"embedding", "embed", "rerank", "ranker", "moderation",
+		"tts", "whisper", "speech", "transcribe", "audio",
+		"image", "dall-e", "dalle", "stable-diffusion", "sd-",
+	} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func truncateForStatus(value string, limit int) string {

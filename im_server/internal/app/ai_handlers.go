@@ -31,6 +31,7 @@ type aiProviderSecretRequest struct {
 
 type aiProviderTestRequest struct {
 	Prompt string `json:"prompt"`
+	Model  string `json:"model"`
 }
 
 func (a *App) handleAIRoutes(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +261,7 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		result, err := a.aiProvider.Test(ctx, id, req.Prompt)
+		result, err := a.aiProvider.Test(ctx, id, req.Prompt, req.Model)
 		writeJSONOrError(w, result, err)
 	case len(parts) == 3 && parts[0] == "providers" && parts[2] == "models" && r.Method == http.MethodPost:
 		id, err := parseID(parts[1])
