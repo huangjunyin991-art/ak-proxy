@@ -161,9 +161,6 @@ func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, err
 	if item.ProviderName == "" {
 		item.ProviderName = "OpenAI-Compatible Relay"
 	}
-	if item.ChatModel == "" {
-		item.ChatModel = "gpt-5-mini"
-	}
 	if item.SummaryModel == "" {
 		item.SummaryModel = item.ChatModel
 	}
@@ -314,13 +311,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, erro
 }
 
 func (s *Service) chatWithAccount(ctx context.Context, account Account, secret string, req ChatRequest) (ChatResponse, error) {
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = account.ChatModel
-	}
-	if model == "" && len(account.AvailableModels) > 0 {
-		model = chooseDefaultChatModel(account.AvailableModels, "")
-	}
+	model := resolveChatModel(account, req.Model)
 	if model == "" {
 		return ChatResponse{}, errors.New("AI chat model is not configured")
 	}
@@ -415,11 +406,37 @@ func (s *Service) Test(ctx context.Context, providerID int64, prompt string, mod
 		}
 	}
 	result := s.testChatProbe(ctx, account, secret, started, prompt, model)
+	switchMessage := ""
+	if !result.OK && shouldTryAlternateChatModel(result.Message) {
+		fallback, tried := s.tryAlternateChatModels(ctx, account, secret, started, prompt, result.Model)
+		if fallback.OK {
+			result = fallback
+			modelName := strings.TrimSpace(fallback.Model)
+			if modelName != "" {
+				summaryNeedsUpdate := strings.TrimSpace(account.SummaryModel) == "" ||
+					isLikelyNonChatModel(account.SummaryModel) ||
+					strings.EqualFold(strings.TrimSpace(account.SummaryModel), strings.TrimSpace(account.ChatModel)) ||
+					strings.EqualFold(strings.TrimSpace(account.SummaryModel), strings.TrimSpace(model))
+				_, _ = s.db.Exec(ctx, `
+					UPDATE im_ai_provider_account
+					SET chat_model = $2,
+					    summary_model = CASE WHEN $3 THEN $2 ELSE summary_model END,
+					    updated_at = NOW()
+					WHERE id = $1`, providerID, modelName, summaryNeedsUpdate)
+				switchMessage = fmt.Sprintf("当前模型不可用，已自动切换到 %s", modelName)
+			}
+		} else if tried > 0 {
+			result.Message = result.Message + fmt.Sprintf("；已尝试 %d 个候选模型，仍未找到可用聊天通道", tried)
+		}
+	}
 	if result.OK {
 		if modelsResult.OK {
 			result.Message = "chat completions ok；" + modelsResult.Message
 		} else if modelsResult.Message != "" {
 			result.Message = "chat completions ok；/v1/models 不可用：" + modelsResult.Message
+		}
+		if switchMessage != "" {
+			result.Message = switchMessage + "；" + result.Message
 		}
 	} else if modelsResult.Message != "" {
 		result.Message = "models: " + modelsResult.Message + "；chat: " + result.Message
@@ -494,8 +511,9 @@ func (s *Service) testChatProbe(ctx context.Context, account Account, secret str
 	if prompt == "" {
 		prompt = "请只回复两个字：可用"
 	}
+	probeModel := resolveChatModel(account, model)
 	response, err := s.chatWithAccount(ctx, account, secret, ChatRequest{
-		Model: strings.TrimSpace(model),
+		Model: probeModel,
 		Messages: []Message{
 			{Role: "system", Content: "You are testing an OpenAI-compatible chat completion endpoint. Reply briefly."},
 			{Role: "user", Content: prompt},
@@ -504,7 +522,7 @@ func (s *Service) testChatProbe(ctx context.Context, account Account, secret str
 		Temperature:     0.1,
 	})
 	if err != nil {
-		return TestResult{OK: false, Message: err.Error(), LatencyMS: time.Since(started).Milliseconds(), Probe: "chat_completions"}
+		return TestResult{OK: false, Message: err.Error(), LatencyMS: time.Since(started).Milliseconds(), Probe: "chat_completions", Model: probeModel}
 	}
 	return TestResult{
 		OK:        true,
@@ -515,6 +533,101 @@ func (s *Service) testChatProbe(ctx context.Context, account Account, secret str
 		Model:     response.Model,
 		Content:   truncateForStatus(response.Content, 160),
 	}
+}
+
+func resolveChatModel(account Account, requested string) string {
+	model := strings.TrimSpace(requested)
+	if model != "" {
+		return model
+	}
+	model = strings.TrimSpace(account.ChatModel)
+	if model != "" {
+		return model
+	}
+	if len(account.AvailableModels) > 0 {
+		return chooseDefaultChatModel(account.AvailableModels, "")
+	}
+	return ""
+}
+
+func (s *Service) tryAlternateChatModels(ctx context.Context, account Account, secret string, started time.Time, prompt string, failedModel string) (TestResult, int) {
+	candidates := chatModelCandidates(account.AvailableModels, failedModel)
+	attempts := 0
+	for _, candidate := range candidates {
+		if attempts >= 12 {
+			break
+		}
+		if strings.EqualFold(strings.TrimSpace(candidate), strings.TrimSpace(failedModel)) {
+			continue
+		}
+		attempts++
+		result := s.testChatProbe(ctx, account, secret, started, prompt, candidate)
+		if result.OK {
+			return result, attempts
+		}
+		if !shouldTryAlternateChatModel(result.Message) {
+			return result, attempts
+		}
+	}
+	return TestResult{}, attempts
+}
+
+func shouldTryAlternateChatModel(message string) bool {
+	lower := strings.ToLower(message)
+	for _, blocked := range []string{"invalid api key", "unauthorized", "forbidden", "quota", "insufficient", "billing"} {
+		if strings.Contains(lower, blocked) {
+			return false
+		}
+	}
+	for _, keyword := range []string{
+		"no available channel", "no channel", "model_not_found", "model not found",
+		"model does not exist", "unsupported model", "not support", "invalid model",
+		"under group", "no route",
+	} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatModelCandidates(models []string, failedModel string) []string {
+	seen := map[string]bool{}
+	candidates := make([]string, 0, len(models))
+	for _, model := range models {
+		name := strings.TrimSpace(model)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] || isLikelyNonChatModel(name) || strings.EqualFold(name, failedModel) {
+			continue
+		}
+		seen[key] = true
+		candidates = append(candidates, name)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftScore := chatModelProbeScore(candidates[i])
+		rightScore := chatModelProbeScore(candidates[j])
+		if leftScore == rightScore {
+			return strings.ToLower(candidates[i]) < strings.ToLower(candidates[j])
+		}
+		return leftScore > rightScore
+	})
+	return candidates
+}
+
+func chatModelProbeScore(model string) int {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	score := 10
+	for keyword, delta := range map[string]int{
+		"mini": 32, "haiku": 30, "flash": 28, "lite": 26,
+		"deepseek": 24, "qwen": 23, "glm": 22, "doubao": 21,
+		"gpt": 20, "gemini": 19, "claude": 18, "moonshot": 17,
+		"spark": 14, "sonnet": 10, "opus": 4,
+	} {
+		if strings.Contains(lower, keyword) {
+			score += delta
+		}
+	}
+	return score
 }
 
 func finishProviderProbe(resp *http.Response, err error, started time.Time, probe string) TestResult {

@@ -32,9 +32,12 @@ type Bootstrap struct {
 }
 
 type RuntimeConfig struct {
-	Enabled                bool `json:"enabled"`
-	ContextSummaryMinCount int  `json:"context_summary_min_count"`
-	ContextRecentKeepCount int  `json:"context_recent_keep_count"`
+	Enabled                 bool `json:"enabled"`
+	ContextSummaryMinCount  int  `json:"context_summary_min_count"`
+	ContextRecentKeepCount  int  `json:"context_recent_keep_count"`
+	ContextSummaryMinTokens int  `json:"context_summary_min_tokens"`
+	ContextRecentKeepTokens int  `json:"context_recent_keep_tokens"`
+	ContextScanMaxCount     int  `json:"context_scan_max_count"`
 }
 
 type Task struct {

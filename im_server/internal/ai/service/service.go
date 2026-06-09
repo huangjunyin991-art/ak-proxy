@@ -29,7 +29,9 @@ const (
 	runtimeConfigKey               = "runtime"
 	defaultContextSummaryMinCount  = 70
 	defaultContextRecentKeepCount  = 30
-	contextSummaryMaxSourceMessage = 120
+	defaultContextSummaryMinTokens = 12000
+	defaultContextRecentKeepTokens = 4000
+	defaultContextScanMaxCount     = 200
 )
 
 type Service struct {
@@ -175,9 +177,12 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 
 func defaultRuntimeConfig() RuntimeConfig {
 	return RuntimeConfig{
-		Enabled:                true,
-		ContextSummaryMinCount: defaultContextSummaryMinCount,
-		ContextRecentKeepCount: defaultContextRecentKeepCount,
+		Enabled:                 true,
+		ContextSummaryMinCount:  defaultContextSummaryMinCount,
+		ContextRecentKeepCount:  defaultContextRecentKeepCount,
+		ContextSummaryMinTokens: defaultContextSummaryMinTokens,
+		ContextRecentKeepTokens: defaultContextRecentKeepTokens,
+		ContextScanMaxCount:     defaultContextScanMaxCount,
 	}
 }
 
@@ -196,6 +201,36 @@ func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
 	}
 	if cfg.ContextSummaryMinCount <= cfg.ContextRecentKeepCount {
 		cfg.ContextSummaryMinCount = cfg.ContextRecentKeepCount + 20
+	}
+	if cfg.ContextSummaryMinTokens <= 0 {
+		cfg.ContextSummaryMinTokens = defaultContextSummaryMinTokens
+	}
+	if cfg.ContextSummaryMinTokens < 2000 {
+		cfg.ContextSummaryMinTokens = 2000
+	}
+	if cfg.ContextSummaryMinTokens > 200000 {
+		cfg.ContextSummaryMinTokens = 200000
+	}
+	if cfg.ContextRecentKeepTokens <= 0 {
+		cfg.ContextRecentKeepTokens = defaultContextRecentKeepTokens
+	}
+	if cfg.ContextRecentKeepTokens < 800 {
+		cfg.ContextRecentKeepTokens = 800
+	}
+	if cfg.ContextRecentKeepTokens > 64000 {
+		cfg.ContextRecentKeepTokens = 64000
+	}
+	if cfg.ContextSummaryMinTokens <= cfg.ContextRecentKeepTokens {
+		cfg.ContextSummaryMinTokens = cfg.ContextRecentKeepTokens + 2000
+	}
+	if cfg.ContextScanMaxCount <= 0 {
+		cfg.ContextScanMaxCount = defaultContextScanMaxCount
+	}
+	if cfg.ContextScanMaxCount < 50 {
+		cfg.ContextScanMaxCount = 50
+	}
+	if cfg.ContextScanMaxCount > 1000 {
+		cfg.ContextScanMaxCount = 1000
 	}
 	return cfg
 }
@@ -493,7 +528,7 @@ func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string
 		FROM im_message
 		WHERE conversation_id = $1 AND deleted_at IS NULL AND message_type = 'text'
 		ORDER BY seq_no DESC
-		LIMIT $2`, conversationID, cfg.ContextRecentKeepCount)
+		LIMIT $2`, conversationID, cfg.ContextScanMaxCount)
 	if err != nil {
 		return nil, err
 	}
@@ -503,15 +538,26 @@ func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string
 		Content string
 	}
 	items := make([]rowItem, 0)
+	usedTokens := 0
 	for rows.Next() {
 		var item rowItem
 		if err := rows.Scan(&item.Sender, &item.Content); err != nil {
 			return nil, err
 		}
 		item.Content = strings.TrimSpace(item.Content)
-		if item.Content != "" {
-			items = append(items, item)
+		if item.Content == "" {
+			continue
 		}
+		contentTokens := estimateTextTokens(item.Content)
+		if usedTokens+contentTokens > cfg.ContextRecentKeepTokens {
+			if len(items) > 0 {
+				break
+			}
+			item.Content = truncateToEstimatedTokens(item.Content, cfg.ContextRecentKeepTokens)
+			contentTokens = estimateTextTokens(item.Content)
+		}
+		items = append(items, item)
+		usedTokens += contentTokens
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -545,27 +591,8 @@ func (s *Service) refreshContextSummary(ownerUsername string, conversationID int
 		log.Printf("load AI summary config failed: conversation_id=%d err=%v", conversationID, err)
 		return
 	}
-	var messageCount int
-	if err := s.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM im_message
-		WHERE conversation_id = $1 AND deleted_at IS NULL AND message_type = 'text'`, conversationID).Scan(&messageCount); err != nil {
-		log.Printf("count AI summary messages failed: conversation_id=%d err=%v", conversationID, err)
-		return
-	}
-	if messageCount < cfg.ContextSummaryMinCount {
-		return
-	}
-	var cutoffSeqNo int64
-	if err := s.db.QueryRow(ctx, `
-		SELECT COALESCE(MIN(seq_no), 0)
-		FROM (
-			SELECT seq_no
-			FROM im_message
-			WHERE conversation_id = $1 AND deleted_at IS NULL AND message_type = 'text'
-			ORDER BY seq_no DESC
-			LIMIT $2
-		) recent`, conversationID, cfg.ContextRecentKeepCount).Scan(&cutoffSeqNo); err != nil {
+	cutoffSeqNo, err := s.contextSummaryCutoffSeqNo(ctx, conversationID, cfg)
+	if err != nil {
 		log.Printf("load AI summary cutoff failed: conversation_id=%d err=%v", conversationID, err)
 		return
 	}
@@ -589,13 +616,14 @@ func (s *Service) refreshContextSummary(ownerUsername string, conversationID int
 		  AND seq_no > $2
 		  AND seq_no < $3
 		ORDER BY seq_no ASC
-		LIMIT $4`, conversationID, coveredEndSeqNo, cutoffSeqNo, contextSummaryMaxSourceMessage)
+		LIMIT $4`, conversationID, coveredEndSeqNo, cutoffSeqNo, cfg.ContextScanMaxCount)
 	if err != nil {
 		log.Printf("load AI summary source failed: conversation_id=%d err=%v", conversationID, err)
 		return
 	}
 	defer rows.Close()
 	source := make([]summaryMessage, 0)
+	sourceTokens := 0
 	for rows.Next() {
 		var item summaryMessage
 		if err := rows.Scan(&item.ID, &item.SeqNo, &item.Sender, &item.Content); err != nil {
@@ -605,13 +633,14 @@ func (s *Service) refreshContextSummary(ownerUsername string, conversationID int
 		item.Content = strings.TrimSpace(item.Content)
 		if item.Content != "" {
 			source = append(source, item)
+			sourceTokens += estimateTextTokens(item.Content)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("iterate AI summary source failed: conversation_id=%d err=%v", conversationID, err)
 		return
 	}
-	if len(source) < 20 {
+	if len(source) == 0 || sourceTokens < cfg.ContextSummaryMinTokens {
 		return
 	}
 	prompt := buildSummaryPrompt(previousSummary, source)
@@ -650,6 +679,46 @@ func (s *Service) refreshContextSummary(ownerUsername string, conversationID int
 	}
 }
 
+func (s *Service) contextSummaryCutoffSeqNo(ctx context.Context, conversationID int64, cfg RuntimeConfig) (int64, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT seq_no, content_payload
+		FROM im_message
+		WHERE conversation_id = $1 AND deleted_at IS NULL AND message_type = 'text'
+		ORDER BY seq_no DESC
+		LIMIT $2`, conversationID, cfg.ContextScanMaxCount)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	usedTokens := 0
+	var cutoffSeqNo int64
+	for rows.Next() {
+		var seqNo int64
+		var content string
+		if err := rows.Scan(&seqNo, &content); err != nil {
+			return 0, err
+		}
+		content = strings.TrimSpace(content)
+		if content == "" {
+			continue
+		}
+		tokens := estimateTextTokens(content)
+		if usedTokens+tokens > cfg.ContextRecentKeepTokens {
+			if cutoffSeqNo > 0 {
+				break
+			}
+			cutoffSeqNo = seqNo
+			break
+		}
+		usedTokens += tokens
+		cutoffSeqNo = seqNo
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	return cutoffSeqNo, nil
+}
+
 func buildSummaryPrompt(previousSummary string, source []summaryMessage) string {
 	var builder strings.Builder
 	builder.WriteString("请把下面的聊天记录压缩成后续对话可用的长期记忆。要求：保留用户偏好、明确事实、待办事项、项目约定、重要上下文；删除寒暄和重复内容；不要编造。\n")
@@ -664,7 +733,7 @@ func buildSummaryPrompt(previousSummary string, source []summaryMessage) string 
 		if strings.EqualFold(item.Sender, bot.Username) {
 			role = "AI"
 		}
-		builder.WriteString(fmt.Sprintf("[%d] %s: %s\n", item.SeqNo, role, truncate(item.Content, 1200)))
+		builder.WriteString(fmt.Sprintf("[%d] %s: %s\n", item.SeqNo, role, truncateToEstimatedTokens(item.Content, 1200)))
 	}
 	builder.WriteString("\n请输出合并后的摘要，控制在 1200 字以内。")
 	return builder.String()
@@ -721,12 +790,45 @@ func truncate(value string, limit int) string {
 	return string(runes[:limit])
 }
 
+func truncateToEstimatedTokens(value string, maxTokens int) string {
+	value = strings.TrimSpace(value)
+	if maxTokens <= 0 {
+		return ""
+	}
+	if estimateTextTokens(value) <= maxTokens {
+		return value
+	}
+	runes := []rune(value)
+	asciiCount := 0
+	nonASCIICount := 0
+	for index, r := range runes {
+		if r <= 127 {
+			asciiCount++
+		} else {
+			nonASCIICount++
+		}
+		if nonASCIICount+(asciiCount+3)/4 > maxTokens {
+			return strings.TrimSpace(string(runes[:index]))
+		}
+	}
+	return value
+}
+
 func estimateTextTokens(value string) int {
-	runeCount := len([]rune(strings.TrimSpace(value)))
-	if runeCount <= 0 {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return 0
 	}
-	return (runeCount + 1) / 2
+	asciiCount := 0
+	nonASCIICount := 0
+	for _, r := range value {
+		if r <= 127 {
+			asciiCount++
+		} else {
+			nonASCIICount++
+		}
+	}
+	return nonASCIICount + (asciiCount+3)/4
 }
 
 func estimateProviderMessagesTokens(messages []provider.Message) int {

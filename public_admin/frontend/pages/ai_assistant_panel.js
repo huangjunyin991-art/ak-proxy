@@ -17,6 +17,7 @@
         honor: '荣耀',
         supreme: '至尊'
     };
+    const TIER_ORDER = ['trial', 'basic', 'advanced', 'honor', 'supreme'];
 
     const state = {
         loaded: false,
@@ -124,6 +125,37 @@
         return /^sk-[A-Za-z0-9_-]{12,}/.test(String(value || '').trim());
     }
 
+    function isLikelyNonChatModel(model) {
+        const lower = String(model || '').trim().toLowerCase();
+        if (!lower) return false;
+        return [
+            'embedding', 'embed', 'rerank', 'ranker', 'moderation',
+            'tts', 'whisper', 'speech', 'transcribe', 'audio',
+            'image', 'dall-e', 'dalle', 'stable-diffusion', 'sd-'
+        ].some(function(keyword) {
+            return lower.indexOf(keyword) >= 0;
+        });
+    }
+
+    function firstModelValue(models, mode) {
+        const normalized = (models || []).map(function(model) {
+            return String(model || '').trim();
+        }).filter(Boolean);
+        if (!normalized.length) return '';
+        if (mode === 'embedding') {
+            return normalized.find(function(model) {
+                const lower = model.toLowerCase();
+                return lower.indexOf('embedding') >= 0 || lower.indexOf('embed') >= 0;
+            }) || '';
+        }
+        if (mode === 'chat') {
+            return normalized.find(function(model) {
+                return !isLikelyNonChatModel(model);
+            }) || normalized[0] || '';
+        }
+        return normalized[0] || '';
+    }
+
     function mount() {
         return document.getElementById('aiAssistantPanelMount');
     }
@@ -150,19 +182,35 @@
             #aiAssistant .ai-model-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
             #aiAssistant .ai-model-count{font-size:11px;color:var(--text-secondary);opacity:.78;font-variant-numeric:tabular-nums}
             #aiAssistant .ai-model-control{position:relative;display:flex;align-items:center}
-            #aiAssistant .ai-model-control .ai-model-input{width:100%;padding-right:43px}
-            #aiAssistant .ai-model-toggle{position:absolute;right:6px;top:50%;display:flex;align-items:center;justify-content:center;width:28px;height:26px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.045);color:var(--text-secondary);cursor:pointer;font-size:14px;line-height:1;transform:translateY(-50%);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}
-            #aiAssistant .ai-model-toggle:hover,#aiAssistant .ai-model-field.open .ai-model-toggle{border-color:rgba(0,212,255,.42);background:rgba(0,212,255,.12);color:var(--accent)}
-            #aiAssistant .ai-model-field.open .ai-model-toggle{transform:translateY(-50%) rotate(180deg)}
-            #aiAssistant .ai-model-menu{position:absolute;z-index:80;left:0;right:0;top:calc(100% + 6px);max-height:270px;overflow:auto;padding:6px;border:1px solid rgba(0,212,255,.26);border-radius:10px;background:linear-gradient(180deg,rgba(18,24,35,.98),rgba(10,14,22,.98));box-shadow:0 18px 42px rgba(0,0,0,.38),0 0 0 1px rgba(255,255,255,.04) inset}
-            #aiAssistant .ai-model-option,#aiAssistant .ai-model-empty{width:100%;min-height:32px;border:0;border-radius:8px;background:transparent;color:var(--text-primary);padding:0 9px;text-align:left;font-size:12px;line-height:32px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            #aiAssistant .ai-model-control:focus-within .ai-model-input{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,212,255,.12)}
+            #aiAssistant .ai-model-control .ai-model-input{width:100%;padding-right:48px}
+            #aiAssistant .ai-model-toggle{position:absolute;right:1px;top:1px;bottom:1px;display:flex;align-items:center;justify-content:center;width:42px;border:0;border-left:1px solid rgba(255,255,255,.06);border-radius:0 8px 8px 0;background:linear-gradient(90deg,rgba(5,10,18,.1),rgba(0,212,255,.055));cursor:pointer;transition:background .16s ease,border-color .16s ease}
+            #aiAssistant .ai-model-toggle::before{content:"";width:7px;height:7px;border-right:2px solid var(--text-secondary);border-bottom:2px solid var(--text-secondary);transform:rotate(45deg) translate(-1px,-1px);transition:border-color .16s ease,transform .16s ease}
+            #aiAssistant .ai-model-toggle:hover,#aiAssistant .ai-model-field.open .ai-model-toggle{border-left-color:rgba(0,212,255,.22);background:linear-gradient(90deg,rgba(0,212,255,.04),rgba(0,212,255,.14))}
+            #aiAssistant .ai-model-toggle:hover::before,#aiAssistant .ai-model-field.open .ai-model-toggle::before{border-color:var(--accent)}
+            #aiAssistant .ai-model-field.open .ai-model-toggle::before{transform:rotate(225deg) translate(-1px,-1px)}
+            #aiAssistant .ai-model-menu{position:absolute;z-index:80;left:0;right:0;top:calc(100% + 6px);max-height:276px;overflow:auto;padding:5px;border:1px solid rgba(0,212,255,.22);border-radius:10px;background:linear-gradient(180deg,rgba(13,19,29,.99),rgba(7,12,20,.99));box-shadow:0 18px 42px rgba(0,0,0,.36),0 0 0 1px rgba(255,255,255,.035) inset}
+            #aiAssistant .ai-model-menu::-webkit-scrollbar{width:8px}
+            #aiAssistant .ai-model-menu::-webkit-scrollbar-track{background:rgba(255,255,255,.035);border-radius:999px}
+            #aiAssistant .ai-model-menu::-webkit-scrollbar-thumb{background:rgba(0,212,255,.45);border-radius:999px;border:2px solid rgba(7,12,20,.99)}
+            #aiAssistant .ai-model-option,#aiAssistant .ai-model-empty{width:100%;min-height:34px;border:0;border-radius:7px;background:transparent;color:var(--text-primary);padding:0 10px;text-align:left;font-size:12px;line-height:34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             #aiAssistant .ai-model-option{display:block;cursor:pointer}
-            #aiAssistant .ai-model-option:hover,#aiAssistant .ai-model-option.active{background:rgba(0,212,255,.13);color:#fff}
-            #aiAssistant .ai-model-option.active{box-shadow:0 0 0 1px rgba(0,212,255,.22) inset}
+            #aiAssistant .ai-model-option:hover{background:rgba(255,255,255,.055);color:#fff}
+            #aiAssistant .ai-model-option.active{background:rgba(0,212,255,.12);color:#fff;box-shadow:3px 0 0 var(--accent) inset;font-weight:800}
             #aiAssistant .ai-model-empty{color:var(--text-secondary);cursor:default}
+            #aiAssistant .ai-select-field{position:relative}
+            #aiAssistant .ai-select-hidden{display:none}
+            #aiAssistant .ai-select-display{position:relative;display:flex;align-items:center;justify-content:space-between;width:100%;height:38px;border:1px solid var(--border);border-radius:9px;background:var(--bg-primary);color:var(--text-primary);padding:0 42px 0 12px;outline:none;cursor:pointer;text-align:left;font-weight:800;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}
+            #aiAssistant .ai-select-display::after{content:"";position:absolute;right:14px;top:50%;width:7px;height:7px;border-right:2px solid var(--text-secondary);border-bottom:2px solid var(--text-secondary);transform:translateY(-65%) rotate(45deg);transition:border-color .16s ease,transform .16s ease}
+            #aiAssistant .ai-select-field.open .ai-select-display,#aiAssistant .ai-select-display:hover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,212,255,.12);background:rgba(0,212,255,.035)}
+            #aiAssistant .ai-select-field.open .ai-select-display::after{border-color:var(--accent);transform:translateY(-25%) rotate(225deg)}
+            #aiAssistant .ai-select-menu{position:absolute;z-index:70;left:0;right:0;top:calc(100% + 6px);padding:5px;border:1px solid rgba(0,212,255,.22);border-radius:10px;background:linear-gradient(180deg,rgba(13,19,29,.99),rgba(7,12,20,.99));box-shadow:0 18px 42px rgba(0,0,0,.36),0 0 0 1px rgba(255,255,255,.035) inset}
+            #aiAssistant .ai-select-option{display:block;width:100%;height:36px;border:0;border-radius:7px;background:transparent;color:var(--text-primary);padding:0 12px;text-align:left;font-size:13px;font-weight:800;cursor:pointer}
+            #aiAssistant .ai-select-option:hover{background:rgba(255,255,255,.055);color:#fff}
+            #aiAssistant .ai-select-option.active{background:rgba(0,212,255,.12);color:#fff;box-shadow:3px 0 0 var(--accent) inset}
             #aiAssistant .ai-switch-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
             #aiAssistant .ai-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
-            #aiAssistant .ai-btn{height:36px;border:0;border-radius:9px;padding:0 13px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-weight:700}
+            #aiAssistant .ai-btn{height:36px;border:0;border-radius:9px;padding:0 13px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-weight:700;white-space:nowrap}
             #aiAssistant .ai-btn:disabled{opacity:.5;cursor:not-allowed;filter:grayscale(.25)}
             #aiAssistant .ai-btn.primary{background:linear-gradient(135deg,var(--accent),#008ed0);color:#fff}
             #aiAssistant .ai-btn.success{background:linear-gradient(135deg,#00ff88,#00b96b);color:#052d1b}
@@ -184,10 +232,14 @@
             #aiAssistant .ai-feature-list{display:flex;flex-wrap:wrap;gap:6px}
             #aiAssistant .ai-check{position:relative;display:inline-flex;align-items:center;min-height:28px;cursor:pointer;user-select:none}
             #aiAssistant .ai-check input{position:absolute;opacity:0;pointer-events:none}
-            #aiAssistant .ai-check span{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.035);color:var(--text-secondary);font-size:12px;font-weight:700;transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease}
+            #aiAssistant .ai-check span{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.035);color:var(--text-secondary);font-size:12px;font-weight:700;white-space:nowrap;transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease}
             #aiAssistant .ai-check input:checked + span{border-color:rgba(0,255,136,.55);background:rgba(0,255,136,.14);color:var(--accent-green);box-shadow:0 0 0 1px rgba(0,255,136,.10) inset}
             #aiAssistant .ai-check input:focus-visible + span{box-shadow:0 0 0 3px rgba(0,212,255,.18)}
             #aiAssistant .ai-check.small span{min-height:24px;padding:0 8px;font-size:11px}
+            #aiAssistant .ai-tier-table th:nth-last-child(-n+2),#aiAssistant .ai-tier-table td:nth-last-child(-n+2){text-align:center;white-space:nowrap}
+            #aiAssistant .ai-tier-status .ai-check.small span{min-width:54px;min-height:30px;border-radius:10px;padding:0 12px}
+            #aiAssistant .ai-tier-save{height:30px;min-width:58px;border:1px solid rgba(0,212,255,.30);border-radius:9px;background:rgba(0,212,255,.09);color:var(--accent);box-shadow:0 0 0 1px rgba(0,212,255,.06) inset}
+            #aiAssistant .ai-tier-save:hover{background:rgba(0,212,255,.16);border-color:rgba(0,212,255,.52);color:#fff}
             #aiAssistant .ai-feature-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary)}
             #aiAssistant .ai-code-box{margin-top:10px;border:1px dashed rgba(0,212,255,.35);border-radius:10px;padding:10px;background:rgba(0,212,255,.05);font-size:12px;color:var(--text-primary);line-height:1.8;word-break:break-all}
             #aiAssistant .ai-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
@@ -222,7 +274,7 @@
         }).join('');
     }
 
-    function renderModelInput(id, label, value, models, placeholder) {
+    function renderModelInput(id, label, value, models, placeholder, fallbackValue) {
         const seen = {};
         const normalizedModels = (models || []).filter(function(model) {
             const key = String(model || '').trim();
@@ -230,7 +282,7 @@
             seen[key] = true;
             return true;
         });
-        const currentValue = String(value || '');
+        const currentValue = String(value || fallbackValue || '');
         const options = normalizedModels.map(function(model) {
             const modelName = String(model || '');
             return '<button type="button" class="ai-model-option ' + (modelName === currentValue ? 'active' : '') + '" data-model-option="1" data-model-value="' + escapeHtml(modelName) + '">' + escapeHtml(modelName) + '</button>';
@@ -240,12 +292,35 @@
                 <label class="ai-model-label"><span>${escapeHtml(label)}</span>${normalizedModels.length ? '<span class="ai-model-count">' + normalizedModels.length + ' 个</span>' : ''}</label>
                 <div class="ai-model-control">
                     <input class="ai-input ai-model-input" id="${escapeHtml(id)}" value="${escapeHtml(currentValue)}" placeholder="${escapeHtml(placeholder || '导入 API Key 后刷新模型')}" autocomplete="off" spellcheck="false" data-model-input="1">
-                    <button class="ai-model-toggle" type="button" data-model-toggle="1" aria-label="展开模型列表" title="展开模型列表">⌄</button>
+                    <button class="ai-model-toggle" type="button" data-model-toggle="1" aria-label="展开模型列表" title="展开模型列表"></button>
                 </div>
                 <div class="ai-model-menu" data-model-menu="1" hidden>
                     ${options || '<div class="ai-model-empty">暂无模型，先导入 API Key 或手动输入</div>'}
                     <div class="ai-model-empty ai-model-no-match" hidden>没有匹配模型，可直接手动输入</div>
                 </div>
+            </div>
+        `;
+    }
+
+    function renderSelectPicker(id, label, value, options) {
+        const currentValue = String(value || '');
+        const items = (options || []).filter(function(item) {
+            return item && String(item.value || '').trim();
+        });
+        const current = items.find(function(item) {
+            return String(item.value) === currentValue;
+        }) || items[0] || { value: currentValue, label: currentValue || '-' };
+        const optionHtml = items.map(function(item) {
+            const optionValue = String(item.value || '');
+            const optionLabel = String(item.label || optionValue);
+            return '<button type="button" class="ai-select-option ' + (optionValue === String(current.value || '') ? 'active' : '') + '" data-select-option="1" data-select-value="' + escapeHtml(optionValue) + '">' + escapeHtml(optionLabel) + '</button>';
+        }).join('');
+        return `
+            <div class="ai-field ai-select-field" data-select-picker="1">
+                <label>${escapeHtml(label)}</label>
+                <input class="ai-select-hidden" id="${escapeHtml(id)}" type="hidden" value="${escapeHtml(String(current.value || ''))}">
+                <button class="ai-select-display" type="button" data-select-toggle="1"><span data-select-label>${escapeHtml(current.label || current.value || '-')}</span></button>
+                <div class="ai-select-menu" data-select-menu="1" hidden>${optionHtml}</div>
             </div>
         `;
     }
@@ -257,6 +332,11 @@
         const models = Array.isArray(item.available_models) ? item.available_models : [];
         const baseUrl = String(item.base_url || '');
         const baseUrlLooksKey = looksLikeApiKey(baseUrl);
+        const fallbackChatModel = firstModelValue(models, 'chat');
+        const fallbackEmbeddingModel = firstModelValue(models, 'embedding');
+        const chatModelValue = item.chat_model || fallbackChatModel;
+        const summaryModelValue = item.summary_model || item.chat_model || fallbackChatModel;
+        const embeddingModelValue = item.embedding_model || fallbackEmbeddingModel;
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
@@ -274,9 +354,9 @@
                 </div>
                 ${id ? '<div class="ai-secret-row provider"><input class="ai-input" id="aiProviderTestPrompt" value="请用一句话回复：AI 通道可用" placeholder="测试 prompt"><button class="ai-btn warn" data-action="test-provider">测试模型回复</button></div>' : ''}
                 <div class="ai-form-grid">
-                    ${renderModelInput('aiProviderChatModel', '聊天模型', item.chat_model || '', models, '先导入 API Key 获取模型')}
-                    ${renderModelInput('aiProviderSummaryModel', '摘要模型', item.summary_model || item.chat_model || '', models, '可与聊天模型相同')}
-                    ${renderModelInput('aiProviderEmbeddingModel', 'Embedding 模型', item.embedding_model || '', models, '需要语义搜索时选择')}
+                    ${renderModelInput('aiProviderChatModel', '聊天模型', chatModelValue, models, '先导入 API Key 获取模型', fallbackChatModel)}
+                    ${renderModelInput('aiProviderSummaryModel', '摘要模型', summaryModelValue, models, '可与聊天模型相同', fallbackChatModel)}
+                    ${renderModelInput('aiProviderEmbeddingModel', 'Embedding 模型', embeddingModelValue, models, '需要语义搜索时选择', fallbackEmbeddingModel)}
                     <div class="ai-field"><label>余额接口</label><input class="ai-input" id="aiProviderBalanceEndpoint" placeholder="/v1/dashboard/billing/credit_grants" value="${escapeHtml(item.balance_endpoint || '')}"></div>
                     <div class="ai-field"><label>余额缓存秒</label><input class="ai-input" id="aiProviderBalanceTtl" type="number" min="30" value="${Number(item.balance_cache_ttl_seconds || 600)}"></div>
                     <div class="ai-field"><label>低余额阈值</label><input class="ai-input" id="aiProviderLowBalance" type="number" min="0" step="0.01" value="${Number(item.low_balance_threshold || 0)}"></div>
@@ -298,27 +378,21 @@
     }
 
     function renderConfig() {
-        const cfg = state.config || { enabled: true, context_summary_min_count: 70, context_recent_keep_count: 30 };
+        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200 };
         return `
             <div class="ai-card">
                 <div class="ai-card-title"><span>运行策略</span><span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已开启' : '已关闭'}</span></div>
                 <div class="ai-form-grid">
-                    <div class="ai-field">
-                        <label>AI 助手开关</label>
-                        <select class="ai-select" id="aiConfigEnabled">
-                            <option value="true" ${cfg.enabled ? 'selected' : ''}>开启</option>
-                            <option value="false" ${!cfg.enabled ? 'selected' : ''}>关闭</option>
-                        </select>
-                    </div>
-                    <div class="ai-field"><label>多少条后压缩上下文</label><input class="ai-input" id="aiConfigSummaryMin" type="number" min="20" value="${Number(cfg.context_summary_min_count || 70)}"></div>
-                    <div class="ai-field"><label>保留最近原文条数</label><input class="ai-input" id="aiConfigRecentKeep" type="number" min="12" max="80" value="${Number(cfg.context_recent_keep_count || 30)}"></div>
+                    ${renderSelectPicker('aiConfigEnabled', 'AI 助手开关', cfg.enabled ? 'true' : 'false', [{ value: 'true', label: '开启' }, { value: 'false', label: '关闭' }])}
+                    <div class="ai-field"><label>超过多少 tokens 后压缩</label><input class="ai-input" id="aiConfigSummaryTokens" type="number" min="2000" step="500" value="${Number(cfg.context_summary_min_tokens || 12000)}"></div>
+                    <div class="ai-field"><label>保留最近原文 tokens</label><input class="ai-input" id="aiConfigRecentTokens" type="number" min="800" step="200" value="${Number(cfg.context_recent_keep_tokens || 4000)}"></div>
+                    <div class="ai-field"><label>最多扫描消息条数</label><input class="ai-input" id="aiConfigScanMax" type="number" min="50" max="1000" step="10" value="${Number(cfg.context_scan_max_count || 200)}"></div>
                 </div>
                 <div class="ai-actions"><button class="ai-btn primary" data-action="save-config">保存运行策略</button></div>
-                <div class="ai-meta">压缩任务在 AI 回复成功后异步执行，不阻塞用户聊天。</div>
+                <div class="ai-meta">上下文按估算 tokens 控制体积；长消息会更早触发压缩，消息条数只作为扫描上限保护。</div>
             </div>
         `;
     }
-
     function renderFluAPI() {
         const status = state.fluapiStatus || {};
         const cfg = status.config || {};
@@ -368,8 +442,7 @@
         const overview = state.billingOverview || {};
         const cfg = state.billingConfig || overview.config || {};
         const tierCredits = cfg.tier_monthly_credit_units || {};
-        const tierOrder = ['trial', 'basic', 'advanced', 'honor', 'supreme'];
-        const rows = tierOrder.map(function(tier) {
+        const rows = TIER_ORDER.map(function(tier) {
             return `
                 <tr>
                     <td>${escapeHtml(TIER_LABELS[tier] || tier)}<div class="ai-meta">${escapeHtml(tier)}</div></td>
@@ -450,8 +523,15 @@
     }
 
     function renderTiers() {
+        const tierRank = TIER_ORDER.reduce(function(acc, tier, index) {
+            acc[tier] = index;
+            return acc;
+        }, {});
         const tiers = state.tiers.slice().sort(function(a, b) {
-            return Number(a.priority || 0) - Number(b.priority || 0);
+            const leftRank = Object.prototype.hasOwnProperty.call(tierRank, a.tier) ? tierRank[a.tier] : 999;
+            const rightRank = Object.prototype.hasOwnProperty.call(tierRank, b.tier) ? tierRank[b.tier] : 999;
+            if (leftRank !== rightRank) return leftRank - rightRank;
+            return String(a.tier || '').localeCompare(String(b.tier || ''));
         });
         if (!tiers.length) return '<div class="ai-card"><div class="ai-empty">档位配置加载中...</div></div>';
         const rows = tiers.map(function(item) {
@@ -466,8 +546,8 @@
                     <td><div class="ai-feature-list">${FEATURE_KEYS.map(function(key) {
                         return '<label class="ai-check small"><input type="checkbox" data-feature="' + escapeHtml(key) + '" ' + (features[key] ? 'checked' : '') + '><span>' + escapeHtml(FEATURE_LABELS[key] || key) + '</span></label>';
                     }).join('')}</div></td>
-                    <td><label class="ai-check small"><input type="checkbox" data-field="enabled" ${item.enabled ? 'checked' : ''}><span>启用</span></label></td>
-                    <td><button class="ai-btn" data-action="save-tier" data-tier="${escapeHtml(item.tier)}">保存</button></td>
+                    <td class="ai-tier-status"><label class="ai-check small"><input type="checkbox" data-field="enabled" ${item.enabled ? 'checked' : ''}><span>启用</span></label></td>
+                    <td><button class="ai-btn ai-tier-save" data-action="save-tier" data-tier="${escapeHtml(item.tier)}">保存</button></td>
                 </tr>
             `;
         }).join('');
@@ -475,7 +555,7 @@
             <div class="ai-card">
                 <div class="ai-card-title"><span>权益档位</span><span class="ai-tag">试用 / 普通 / 进阶 / 荣耀 / 至尊</span></div>
                 <div style="overflow:auto;">
-                    <table class="ai-table">
+                    <table class="ai-table ai-tier-table">
                         <thead><tr><th>档位</th><th>显示名</th><th>日额度</th><th>月额度</th><th>记忆天数</th><th>功能</th><th>状态</th><th>操作</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
@@ -506,7 +586,7 @@
             <div class="ai-card">
                 <div class="ai-card-title"><span>兑换码</span><span class="ai-tag">仅兑换码开通</span></div>
                 <div class="ai-form-grid">
-                    <div class="ai-field"><label>档位</label><select class="ai-select" id="aiRedeemTier">${['basic','advanced','honor','supreme'].map(function(t) { return '<option value="' + t + '">' + (TIER_LABELS[t] || t) + '</option>'; }).join('')}</select></div>
+                    ${renderSelectPicker('aiRedeemTier', '档位', 'basic', ['basic','advanced','honor','supreme'].map(function(t) { return { value: t, label: TIER_LABELS[t] || t }; }))}
                     <div class="ai-field"><label>有效天数</label><input class="ai-input" id="aiRedeemDuration" type="number" min="1" value="30"></div>
                     <div class="ai-field"><label>生成数量</label><input class="ai-input" id="aiRedeemCount" type="number" min="1" max="200" value="1"></div>
                     <div class="ai-field"><label>绑定账号，可空</label><input class="ai-input" id="aiRedeemBind" placeholder="cyh6699"></div>
@@ -577,7 +657,7 @@
             id: Number(current.id || 0),
             provider_name: document.getElementById('aiProviderName')?.value || 'OpenAI-Compatible Relay',
             base_url: baseUrl,
-            chat_model: document.getElementById('aiProviderChatModel')?.value || 'gpt-5-mini',
+            chat_model: document.getElementById('aiProviderChatModel')?.value || '',
             summary_model: document.getElementById('aiProviderSummaryModel')?.value || '',
             embedding_model: document.getElementById('aiProviderEmbeddingModel')?.value || '',
             balance_supported: !!document.getElementById('aiProviderBalanceSupported')?.checked,
@@ -626,8 +706,9 @@
     async function saveConfig() {
         const payload = {
             enabled: document.getElementById('aiConfigEnabled')?.value !== 'false',
-            context_summary_min_count: Number(document.getElementById('aiConfigSummaryMin')?.value || 70),
-            context_recent_keep_count: Number(document.getElementById('aiConfigRecentKeep')?.value || 30)
+            context_summary_min_tokens: Number(document.getElementById('aiConfigSummaryTokens')?.value || 12000),
+            context_recent_keep_tokens: Number(document.getElementById('aiConfigRecentTokens')?.value || 4000),
+            context_scan_max_count: Number(document.getElementById('aiConfigScanMax')?.value || 200)
         };
         const data = await api('/admin/api/ai/config', { method: 'POST', body: JSON.stringify(payload) });
         state.config = unwrapItem(data, payload);
@@ -908,6 +989,7 @@
         const menu = field.querySelector('[data-model-menu]');
         if (!menu) return;
         closeModelMenus(field);
+        closeSelectMenus();
         updateModelMenu(field, !!showAll);
         menu.hidden = false;
         field.classList.add('open');
@@ -919,9 +1001,44 @@
         const input = field && field.querySelector('[data-model-input]');
         if (!input) return;
         input.value = String(option.dataset.modelValue || option.textContent || '').trim();
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
         closeModelMenus();
-        input.focus();
+        input.blur();
+    }
+
+    function closeSelectMenus(exceptField) {
+        document.querySelectorAll('#aiAssistant [data-select-picker]').forEach(function(field) {
+            if (exceptField && field === exceptField) return;
+            const menu = field.querySelector('[data-select-menu]');
+            if (menu) menu.hidden = true;
+            field.classList.remove('open');
+        });
+    }
+
+    function openSelectMenu(field) {
+        if (!field) return;
+        const menu = field.querySelector('[data-select-menu]');
+        if (!menu) return;
+        closeSelectMenus(field);
+        closeModelMenus();
+        menu.hidden = false;
+        field.classList.add('open');
+    }
+
+    function selectPickerOption(option) {
+        if (!option) return;
+        const field = option.closest('[data-select-picker]');
+        const input = field && field.querySelector('.ai-select-hidden');
+        const label = field && field.querySelector('[data-select-label]');
+        if (!input) return;
+        const value = String(option.dataset.selectValue || option.textContent || '').trim();
+        input.value = value;
+        if (label) label.textContent = String(option.textContent || value).trim();
+        field.querySelectorAll('[data-select-option]').forEach(function(item) {
+            item.classList.toggle('active', item === option);
+        });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        closeSelectMenus();
     }
 
     function bindEvents() {
@@ -929,6 +1046,22 @@
         if (!el || el.dataset.aiBound === '1') return;
         el.dataset.aiBound = '1';
         el.addEventListener('click', function(event) {
+            const selectOption = event.target.closest('[data-select-option]');
+            if (selectOption && el.contains(selectOption)) {
+                event.preventDefault();
+                selectPickerOption(selectOption);
+                return;
+            }
+
+            const selectToggle = event.target.closest('[data-select-toggle]');
+            if (selectToggle && el.contains(selectToggle)) {
+                event.preventDefault();
+                const field = selectToggle.closest('[data-select-picker]');
+                if (field && field.classList.contains('open')) closeSelectMenus();
+                else openSelectMenu(field);
+                return;
+            }
+
             const modelOption = event.target.closest('[data-model-option]');
             if (modelOption && el.contains(modelOption)) {
                 event.preventDefault();
@@ -976,10 +1109,15 @@
             global.__AKAIAssistantModelPickerBound = true;
             document.addEventListener('click', function(event) {
                 if (event.target.closest && event.target.closest('#aiAssistant [data-model-picker]')) return;
+                if (event.target.closest && event.target.closest('#aiAssistant [data-select-picker]')) return;
                 closeModelMenus();
+                closeSelectMenus();
             });
             document.addEventListener('keydown', function(event) {
-                if (event.key === 'Escape') closeModelMenus();
+                if (event.key === 'Escape') {
+                    closeModelMenus();
+                    closeSelectMenus();
+                }
             });
         }
     }
