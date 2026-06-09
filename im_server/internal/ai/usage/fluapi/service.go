@@ -103,6 +103,9 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	if latest != nil && (cfg.LastSyncAt == nil || latest.SyncedAt.After(*cfg.LastSyncAt)) {
+		cfg.LastSyncAt = &latest.SyncedAt
+	}
 	return Status{Config: cfg.Config, LatestBalance: latest}, nil
 }
 
@@ -280,10 +283,10 @@ func (s *Service) Sync(ctx context.Context) (BalanceSnapshot, error) {
 		UPDATE im_ai_fluapi_config
 		SET username = COALESCE(NULLIF($1, ''), username),
 		    user_id = COALESCE(NULLIF($2, ''), user_id),
-		    last_sync_at = NOW(),
+		    last_sync_at = $3,
 		    last_error = '',
 		    updated_at = NOW()
-		WHERE id = 1`, saved.Username, saved.UserID)
+		WHERE id = 1`, saved.Username, saved.UserID, saved.SyncedAt)
 	return saved, nil
 }
 

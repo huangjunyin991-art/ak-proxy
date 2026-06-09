@@ -379,11 +379,8 @@
                 <div class="ai-actions">
                     <button class="ai-btn primary" data-action="save-provider">${id ? '保存 Provider' : '新增 Provider'}</button>
                     <button class="ai-btn" data-action="new-provider">清空新增</button>
-                    ${id ? '<button class="ai-btn" data-action="refresh-provider-models">刷新模型</button><button class="ai-btn" data-action="refresh-balance">刷新余额</button>' : ''}
+                    ${id ? '<button class="ai-btn" data-action="refresh-provider-models">刷新模型</button>' : ''}
                 </div>
-                <div class="ai-meta">Base URL 填中转站 OpenAI-compatible 地址，例如 https://new.fluapi.com/v1；API Key 填中转站控制台生成的 sk。</div>
-                <div class="ai-meta">模型列表来自 Provider 的 /v1/models，共 ${models.length} 个；如果中转站禁用了模型接口，也可以手动填写模型名。</div>
-                <div class="ai-meta" id="aiProviderBalanceInfo">${id ? '余额信息刷新后显示在这里。' : '新增 Provider 后可测试连接和刷新余额。'}</div>
             </div>
         `;
     }
@@ -403,7 +400,6 @@
                     <div class="ai-field"><label>长期记忆总上限 tokens</label><input class="ai-input" id="aiConfigSummaryMemoryTokens" type="number" min="0" step="100" value="${Number(cfg.summary_memory_max_tokens ?? 2000)}"></div>
                 </div>
                 <div class="ai-actions"><button class="ai-btn primary" data-action="save-config">保存运行策略</button></div>
-                <div class="ai-meta">上下文按估算 tokens 控制体积；长消息会更早触发压缩，消息条数只作为扫描上限保护。输出上限填 0 表示不主动限制，由模型或中转站默认限制。</div>
             </div>
         `;
     }
@@ -445,8 +441,6 @@
                     <button class="ai-btn" data-action="fluapi-login" ${cfg.has_password ? '' : 'disabled title="请先导入并登录"'}>重新登录</button>
                     <button class="ai-btn warn" data-action="fluapi-sync" ${cfg.has_password ? '' : 'disabled title="请先导入并登录"'}>同步余额</button>
                 </div>
-                <div class="ai-meta">状态：密码 ${cfg.has_password ? '已加密保存' : '未保存'} · session ${cfg.has_session ? '已保存' : '未保存'} · 最近登录 ${escapeHtml(fmtTime(cfg.last_login_at))} · 最近同步 ${escapeHtml(fmtTime(cfg.last_sync_at))}</div>
-                <div class="ai-meta">这里用于登录中转站控制台同步余额；实际模型调用使用下方 Provider 的 Base URL 和 API Key。</div>
                 ${cfg.last_error ? '<div class="ai-meta" style="color:var(--accent-red);">最近错误：' + escapeHtml(cfg.last_error) + '</div>' : ''}
             </div>
         `;
@@ -658,7 +652,6 @@
                 </div>
             </div>
         `;
-        if (provider && provider.id) loadBalance(provider.id, false);
     }
 
     function readProviderPayload() {
@@ -810,7 +803,12 @@
         if (!cfg.has_password) throw new Error('请先填写中转站控制台账号密码，并点击“导入并登录”');
         const data = await api('/admin/api/ai/fluapi/sync', { method: 'POST', body: '{}' });
         const balance = unwrapItem(data, {});
-        state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { latest_balance: balance });
+        const currentStatus = state.fluapiStatus || {};
+        const nextConfig = Object.assign({}, currentStatus.config || {});
+        if (balance && balance.synced_at) {
+            nextConfig.last_sync_at = balance.synced_at;
+        }
+        state.fluapiStatus = Object.assign({}, currentStatus, { config: nextConfig, latest_balance: balance });
         showToast('FluAPI 余额已同步');
         await loadAll();
     }
@@ -869,8 +867,6 @@
         const message = item.ok
             ? ('模型回复测试成功：' + item.latency_ms + 'ms' + probeText + modelText + contentText)
             : ('模型回复测试失败：' + (item.message || '-'));
-        const info = document.getElementById('aiProviderBalanceInfo');
-        if (info) info.textContent = message;
         showToast(message, item.ok ? undefined : 'error');
         await loadAll();
     }
@@ -883,27 +879,6 @@
         const models = Array.isArray(item.models) ? item.models : [];
         showToast(models.length ? ('已获取 ' + models.length + ' 个模型') : '模型列表为空，可手动填写模型名', models.length ? undefined : 'error');
         await loadAll();
-    }
-
-    async function loadBalance(providerId, refresh) {
-        const info = document.getElementById('aiProviderBalanceInfo');
-        if (!info || !providerId) return;
-        try {
-            const path = refresh
-                ? '/admin/api/ai/providers/' + providerId + '/balance/refresh'
-                : '/admin/api/ai/providers/' + providerId + '/balance';
-            const data = await api(path, { method: refresh ? 'POST' : 'GET', body: refresh ? '{}' : undefined });
-            const item = unwrapItem(data, {});
-            if (!item.supported) {
-                info.textContent = item.last_error || '当前 Provider 未开启余额查询。';
-                return;
-            }
-            info.textContent = '余额：' + Number(item.balance_amount || 0) + ' ' + (item.balance_currency || item.raw_unit || '') +
-                ' · 低余额：' + (item.low_balance ? '是' : '否') +
-                ' · 刷新：' + fmtTime(item.last_refresh_at || item.updated_at);
-        } catch (e) {
-            info.textContent = e.message || '余额查询失败';
-        }
     }
 
     async function saveTier(tier) {
@@ -924,9 +899,16 @@
             features: features,
             enabled: !!row.querySelector('[data-field="enabled"]')?.checked
         };
-        await api('/admin/api/ai/tiers', { method: 'POST', body: JSON.stringify(payload) });
-        showToast('档位已保存');
-        await loadAll();
+        const data = await api('/admin/api/ai/tiers', { method: 'POST', body: JSON.stringify(payload) });
+        const saved = unwrapItem(data, payload);
+        state.tiers = state.tiers.map(function(item) {
+            return String(item.tier || '') === String(saved.tier || tier) ? Object.assign({}, item, saved) : item;
+        });
+        if (!state.tiers.some(function(item) { return String(item.tier || '') === String(saved.tier || tier); })) {
+            state.tiers.push(saved);
+        }
+        showToast('设置已保存');
+        render();
     }
 
     async function createRedeem() {
@@ -965,11 +947,6 @@
         if (action === 'save-secret') return saveSecret();
         if (action === 'test-provider') return testProvider();
         if (action === 'refresh-provider-models') return refreshProviderModels();
-        if (action === 'refresh-balance') {
-            const provider = selectedProvider();
-            if (provider && provider.id) await loadBalance(provider.id, true);
-            return;
-        }
         if (action === 'save-tier') return saveTier(target.dataset.tier || '');
         if (action === 'create-redeem') return createRedeem();
     }
