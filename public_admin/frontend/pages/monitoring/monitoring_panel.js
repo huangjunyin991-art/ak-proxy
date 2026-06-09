@@ -436,6 +436,16 @@
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
+            '<div class="monitoring-section monitoring-snapshot-policy-section">' +
+            '<div class="monitoring-section-header"><h4>快照策略</h4><span class="monitoring-meta" id="monitoringSnapshotPolicyMeta">读取中...</span></div>' +
+            '<div class="monitoring-cache-grid monitoring-snapshot-policy-grid">' +
+            '<label><span>轻量刷新（秒）</span><input class="monitoring-input" id="monitoringLightRefreshSeconds" type="number" min="2" max="300" step="1"></label>' +
+            '<label><span>重统计快照（分钟）</span><input class="monitoring-input" id="monitoringHeavyRefreshMinutes" type="number" min="1" max="1440" step="1"></label>' +
+            '<label class="monitoring-switch-card"><input id="monitoringSnapshotBackgroundEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>后台预生成</strong><small>关闭时只在打开监控且缓存过期后生成</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="monitoringSnapshotHighLoadSkip" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>高负载跳过</strong><small>负载偏高时返回旧快照，避免监控拖慢业务</small></span></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions"><button class="monitoring-btn primary" data-monitoring-action="save-snapshot-policy">保存快照策略</button><button class="monitoring-btn" data-monitoring-action="refresh-snapshot-policy">刷新策略</button><span class="monitoring-meta" id="monitoringSnapshotRuntimeMeta">-</span></div>' +
+            '</div>' +
             '<div class="monitoring-section monitoring-ws-ticket-section">' +
             '<div class="monitoring-section-header"><h4>WebSocket 短票握手</h4><span class="monitoring-meta" id="monitoringWsTicketMeta">读取中...</span></div>' +
             '<div class="monitoring-cache-grid monitoring-ws-ticket-policy-grid">' +
@@ -471,16 +481,6 @@
             '<div class="monitoring-table-wrap monitoring-blocking-pool-table-wrap"><table class="monitoring-table monitoring-blocking-pool-table"><thead><tr><th>池</th><th>状态</th><th>并发</th><th>等待</th><th>完成/失败</th><th>排队</th><th>运行</th><th>慢调用</th></tr></thead><tbody id="monitoringBlockingPoolRows"></tbody></table></div>' +
             '<div class="monitoring-table-wrap monitoring-blocking-pool-slow-wrap"><table class="monitoring-table monitoring-blocking-pool-slow-table"><thead><tr><th>时间</th><th>池</th><th>函数</th><th>排队</th><th>运行</th></tr></thead><tbody id="monitoringBlockingPoolSlowRows"></tbody></table></div>' +
             '</details>' +
-            '<div class="monitoring-section monitoring-snapshot-policy-section">' +
-            '<div class="monitoring-section-header"><h4>快照策略</h4><span class="monitoring-meta" id="monitoringSnapshotPolicyMeta">读取中...</span></div>' +
-            '<div class="monitoring-cache-grid monitoring-snapshot-policy-grid">' +
-            '<label><span>轻量刷新（秒）</span><input class="monitoring-input" id="monitoringLightRefreshSeconds" type="number" min="2" max="300" step="1"></label>' +
-            '<label><span>重统计快照（分钟）</span><input class="monitoring-input" id="monitoringHeavyRefreshMinutes" type="number" min="1" max="1440" step="1"></label>' +
-            '<label class="monitoring-switch-card"><input id="monitoringSnapshotBackgroundEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>后台预生成</strong><small>关闭时只在打开监控且缓存过期后生成</small></span></label>' +
-            '<label class="monitoring-switch-card"><input id="monitoringSnapshotHighLoadSkip" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>高负载跳过</strong><small>负载偏高时返回旧快照，避免监控拖慢业务</small></span></label>' +
-            '</div>' +
-            '<div class="monitoring-cache-actions"><button class="monitoring-btn primary" data-monitoring-action="save-snapshot-policy">保存快照策略</button><button class="monitoring-btn" data-monitoring-action="refresh-snapshot-policy">刷新策略</button><span class="monitoring-meta" id="monitoringSnapshotRuntimeMeta">-</span></div>' +
-            '</div>' +
             '<details class="monitoring-section monitoring-request-metrics-section monitoring-collapsible-section" data-monitoring-section="requestMetrics">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>慢请求与上游耗时</h4><span class="monitoring-meta" id="monitoringRequestMetricsMeta">默认关闭，仅调试时开启</span></summary>' +
             '<div class="monitoring-cache-grid monitoring-request-metrics-policy-grid">' +
