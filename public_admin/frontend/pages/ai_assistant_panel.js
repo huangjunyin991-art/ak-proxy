@@ -311,8 +311,7 @@
                     <div class="ai-field"><label>1 USD 对应 quota</label><input class="ai-input" id="aiFluapiQuotaPerUsd" type="number" min="1" value="${Number(cfg.quota_per_usd || 500000)}"></div>
                     <div class="ai-field"><label>低余额告警 USD</label><input class="ai-input" id="aiFluapiLowBalance" type="number" min="0" step="0.01" value="${Number(cfg.low_balance_usd || 10)}"></div>
                 </div>
-                <div class="ai-secret-row">
-                    <input class="ai-input" id="aiFluapiCredentialUsername" value="${escapeHtml(cfg.username || '')}" placeholder="中转站控制台账号">
+                <div class="ai-secret-row provider">
                     <input class="ai-input" id="aiFluapiPassword" type="password" placeholder="${cfg.has_password ? '已保存密码，留空则不更新' : '中转站控制台密码'}">
                     <button class="ai-btn success" data-action="save-fluapi-credentials">导入并登录</button>
                 </div>
@@ -646,7 +645,7 @@
     }
 
     async function saveFluAPICredentials() {
-        const username = document.getElementById('aiFluapiCredentialUsername')?.value || document.getElementById('aiFluapiUsername')?.value || '';
+        const username = document.getElementById('aiFluapiUsername')?.value || '';
         const password = document.getElementById('aiFluapiPassword')?.value || '';
         if (!username.trim() || !password.trim()) throw new Error('请输入 FluAPI 账号和密码');
         const data = await api('/admin/api/ai/fluapi/credentials', {
