@@ -19,11 +19,11 @@ class RateBanService:
         policy: RateBanPolicy | None = None,
         store: RateBanRuntimeStore | None = None,
     ):
-        self._policy = policy or RateBanPolicy()
+        self._policy = (policy or RateBanPolicy()).with_missing_default_rules()
         self._store = store or RateBanRuntimeStore()
 
     def update_policy(self, policy: RateBanPolicy) -> None:
-        self._policy = policy
+        self._policy = policy.with_missing_default_rules()
 
     def get_policy(self) -> RateBanPolicy:
         return self._policy
@@ -109,6 +109,7 @@ class RateBanService:
             )
 
     def _find_matched_rule(self, request_path: str, method: str) -> RateBanRule | None:
+        matched: RateBanRule | None = None
         for rule in self._policy.rules:
             if not rule.enabled:
                 continue
@@ -116,5 +117,6 @@ class RateBanService:
                 continue
             if rule.methods and method.upper() not in rule.methods:
                 continue
-            return rule
-        return None
+            if matched is None or len(rule.route_prefix) > len(matched.route_prefix):
+                matched = rule
+        return matched

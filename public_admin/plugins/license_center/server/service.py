@@ -9,6 +9,7 @@ import urllib.parse
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
+from .credential_guard import LicenseCredentialGuard
 from .repository import LicenseCenterRepository
 
 
@@ -23,9 +24,50 @@ LICENSE_CREDENTIALS_ISSUER = 'AK授权中心'
 class LicenseCenterService:
     def __init__(self, repository: LicenseCenterRepository):
         self.repository = repository
+        self.credential_guard = LicenseCredentialGuard(repository.pool_supplier)
 
     async def ensure_schema(self) -> None:
         await self.repository.ensure_schema()
+        await self.credential_guard.ensure_schema()
+
+    async def _credential_guard_error(self, action: str, license_key: str, machine_id: str, ip_address: str = '') -> Optional[Dict[str, Any]]:
+        try:
+            decision = await self.credential_guard.ensure_allowed(
+                action=action,
+                license_key=license_key,
+                machine_id=machine_id,
+                ip_address=ip_address,
+            )
+        except Exception:
+            return None
+        if decision.allowed:
+            return None
+        return decision.to_error()
+
+    async def _record_credential_failure(self, action: str, license_key: str, machine_id: str, ip_address: str = '') -> Optional[Dict[str, Any]]:
+        try:
+            decision = await self.credential_guard.record_failure(
+                action=action,
+                license_key=license_key,
+                machine_id=machine_id,
+                ip_address=ip_address,
+            )
+        except Exception:
+            return None
+        if decision.allowed:
+            return None
+        return decision.to_error()
+
+    async def _record_credential_success(self, action: str, license_key: str, machine_id: str, ip_address: str = '') -> None:
+        try:
+            await self.credential_guard.record_success(
+                action=action,
+                license_key=license_key,
+                machine_id=machine_id,
+                ip_address=ip_address,
+            )
+        except Exception:
+            return
 
     def generate_license_key(self) -> str:
         alphabet = string.ascii_uppercase + string.digits
@@ -329,10 +371,13 @@ class LicenseCenterService:
         status['requires_google_confirm'] = True
         return {'error': False, 'success': True, 'message': '安全凭证保存成功，请绑定 Google Authenticator', 'data': status}
 
-    async def login_credentials(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def login_credentials(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         _, license_key, machine_id, error = await self.require_license_device(data)
         if error:
             return error
+        guard_error = await self._credential_guard_error('login', license_key, machine_id, ip_address)
+        if guard_error:
+            return guard_error
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('login_password_hash'):
             return {'error': True, 'success': False, 'message': '尚未设置登录密码'}
@@ -345,6 +390,9 @@ class LicenseCenterService:
                 'data': {'is_locked': True, 'locked_until': locked_until, 'remaining_attempts': 0}
             }
         if not self.verify_password_hash(str(data.get('login_password') or data.get('password') or ''), credentials.get('login_password_hash')):
+            guard_block = await self._record_credential_failure('login', license_key, machine_id, ip_address)
+            if guard_block:
+                return guard_block
             failed_attempts = int(credentials.get('failed_attempts') or 0) + 1
             fields = {'failed_attempts': failed_attempts}
             if failed_attempts >= 5:
@@ -368,19 +416,27 @@ class LicenseCenterService:
             'locked_until': None,
             'last_login_at': datetime.now(),
         })
+        await self._record_credential_success('login', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': '登录成功', 'data': self.format_credentials_status(credentials)}
 
-    async def verify_secondary_password(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def verify_secondary_password(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         _, license_key, machine_id, error = await self.require_license_device(data)
         if error:
             return error
+        guard_error = await self._credential_guard_error('verify_password', license_key, machine_id, ip_address)
+        if guard_error:
+            return guard_error
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('verify_password_hash'):
             return {'error': True, 'success': False, 'message': '尚未设置二次验证码'}
         if not self.verify_password_hash(str(data.get('verify_password') or ''), credentials.get('verify_password_hash')):
+            guard_block = await self._record_credential_failure('verify_password', license_key, machine_id, ip_address)
+            if guard_block:
+                return guard_block
             return {'error': True, 'success': False, 'message': '二次验证码错误'}
         result = self.format_credentials_status(credentials)
         result['verified'] = True
+        await self._record_credential_success('verify_password', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': '验证成功', 'data': result}
 
     async def begin_google_binding(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -400,28 +456,41 @@ class LicenseCenterService:
         result['otpauth_uri'] = self.google_otpauth_uri(license_key, machine_id, secret)
         return {'error': False, 'success': True, 'message': '请使用 Google Authenticator 扫码绑定', 'data': result}
 
-    async def confirm_google_binding(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def confirm_google_binding(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         _, license_key, machine_id, error = await self.require_license_device(data)
         if error:
             return error
+        guard_error = await self._credential_guard_error('google_confirm', license_key, machine_id, ip_address)
+        if guard_error:
+            return guard_error
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('google_secret'):
             return {'error': True, 'success': False, 'message': '请先生成 Google Authenticator 绑定密钥'}
         if not self.verify_totp_code(credentials.get('google_secret'), str(data.get('google_code') or data.get('code') or '')):
+            guard_block = await self._record_credential_failure('google_confirm', license_key, machine_id, ip_address)
+            if guard_block:
+                return guard_block
             return {'error': True, 'success': False, 'message': 'Google Authenticator 动态码错误'}
         credentials = await self.repository.update_credentials(license_key, machine_id, {'google_enabled': True})
+        await self._record_credential_success('google_confirm', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': 'Google Authenticator 绑定成功', 'data': self.format_credentials_status(credentials)}
 
-    async def reset_passwords_with_google(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def reset_passwords_with_google(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         _, license_key, machine_id, error = await self.require_license_device(data)
         if error:
             return error
+        guard_error = await self._credential_guard_error('google_reset', license_key, machine_id, ip_address)
+        if guard_error:
+            return guard_error
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('login_password_hash'):
             return {'error': True, 'success': False, 'message': '尚未初始化安全凭证'}
         if not credentials.get('google_enabled') or not credentials.get('google_secret'):
             return {'error': True, 'success': False, 'message': '尚未绑定 Google Authenticator'}
         if not self.verify_totp_code(credentials.get('google_secret'), str(data.get('google_code') or data.get('code') or '')):
+            guard_block = await self._record_credential_failure('google_reset', license_key, machine_id, ip_address)
+            if guard_block:
+                return guard_block
             return {'error': True, 'success': False, 'message': 'Google Authenticator 动态码错误'}
         login_password = str(data.get('login_password') or '')
         verify_password = str(data.get('verify_password') or '')
@@ -439,6 +508,7 @@ class LicenseCenterService:
         fields['failed_attempts'] = 0
         fields['locked_until'] = None
         credentials = await self.repository.update_credentials(license_key, machine_id, fields)
+        await self._record_credential_success('google_reset', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': '重置成功', 'data': self.format_credentials_status(credentials)}
 
     async def check_update(self, product_id: str, current_version: str, channel: str = 'stable') -> Dict[str, Any]:

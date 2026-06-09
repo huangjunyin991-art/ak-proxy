@@ -30,10 +30,10 @@ class RateBanConfigService:
         except Exception as exc:
             if self._logger:
                 self._logger.warning(f"[RateBan] 读取策略配置失败，使用默认值: {exc}")
-        return RateBanPolicy.from_mapping(payload).to_dict()
+        return RateBanPolicy.from_mapping(payload).with_missing_default_rules().to_dict()
 
     async def set_policy_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        policy = RateBanPolicy.from_mapping(payload or {})
+        policy = RateBanPolicy.from_mapping(payload or {}).with_missing_default_rules()
         saved = policy.to_dict()
         ok = await self._system_config.set(RATE_BAN_CONFIG_KEY, saved, "限速封禁策略")
         if not ok:
@@ -46,7 +46,7 @@ class RateBanConfigService:
         now = time.time()
         if not force and now - self._last_refresh_at < self._refresh_interval_seconds:
             return
-        self.apply_policy(RateBanPolicy.from_mapping(await self.get_policy_payload()))
+        self.apply_policy(RateBanPolicy.from_mapping(await self.get_policy_payload()).with_missing_default_rules())
         self._last_refresh_at = now
 
     def apply_policy(self, policy: RateBanPolicy) -> None:
@@ -57,7 +57,7 @@ class RateBanConfigService:
         payload = await self.get_policy_payload()
         if self._rate_ban_service is None:
             return {"policy": payload, "runtime": {}, "available": False}
-        policy = RateBanPolicy.from_mapping(payload)
+        policy = RateBanPolicy.from_mapping(payload).with_missing_default_rules()
         self.apply_policy(policy)
         self._last_refresh_at = time.time()
         snapshot = self._rate_ban_service.snapshot()
