@@ -73,6 +73,8 @@ async def _collect_event_window(conn, interval: str) -> dict[str, Any]:
         """
     )
     summary = _empty_window(interval)
+    summary["reject_codes"] = {}
+    summary["by_audience"] = {}
     for row in rows:
         audience = str(row["audience"] or "-")
         event_type = str(row["event_type"] or "-")

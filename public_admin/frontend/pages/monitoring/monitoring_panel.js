@@ -446,6 +446,12 @@
             '</div>' +
             '<div class="monitoring-cache-actions"><button class="monitoring-btn primary" data-monitoring-action="save-snapshot-policy">保存快照策略</button><button class="monitoring-btn" data-monitoring-action="refresh-snapshot-policy">刷新策略</button><span class="monitoring-meta" id="monitoringSnapshotRuntimeMeta">-</span></div>' +
             '</div>' +
+            '<div class="monitoring-section monitoring-runtime-performance-section">' +
+            '<div class="monitoring-section-header"><h4>运行时性能</h4><span class="monitoring-meta" id="monitoringRuntimePerformanceMeta">读取中...</span></div>' +
+            '<div class="monitoring-grid" id="monitoringRuntimePerformanceCards"></div>' +
+            '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
+            '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
+            '</div>' +
             '<div class="monitoring-section monitoring-ws-ticket-section">' +
             '<div class="monitoring-section-header"><h4>WebSocket 短票握手</h4><span class="monitoring-meta" id="monitoringWsTicketMeta">读取中...</span></div>' +
             '<div class="monitoring-cache-grid monitoring-ws-ticket-policy-grid">' +
@@ -458,12 +464,6 @@
             '<div class="monitoring-bars" id="monitoringWsTicketBars"></div>' +
             '<div class="monitoring-table-wrap monitoring-ws-ticket-table-wrap"><table class="monitoring-table monitoring-ws-ticket-table"><thead><tr><th>Audience</th><th>签发</th><th>消费</th><th>拒绝</th><th>待消费</th><th>过期未用</th><th>最近事件</th></tr></thead><tbody id="monitoringWsTicketAudienceRows"></tbody></table></div>' +
             '<div class="monitoring-table-wrap monitoring-ws-ticket-failure-wrap"><table class="monitoring-table monitoring-ws-ticket-failure-table"><thead><tr><th>时间</th><th>Audience</th><th>原因</th><th>角色</th><th>资源</th><th>账号</th><th>IP</th></tr></thead><tbody id="monitoringWsTicketFailureRows"></tbody></table></div>' +
-            '</div>' +
-            '<div class="monitoring-section monitoring-runtime-performance-section">' +
-            '<div class="monitoring-section-header"><h4>运行时性能</h4><span class="monitoring-meta" id="monitoringRuntimePerformanceMeta">读取中...</span></div>' +
-            '<div class="monitoring-grid" id="monitoringRuntimePerformanceCards"></div>' +
-            '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
-            '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
             '</div>' +
             '<details class="monitoring-section monitoring-blocking-pools-section monitoring-collapsible-section" data-monitoring-section="blockingPools">' +
             '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>阻塞 IO 池</h4><span class="monitoring-meta" id="monitoringBlockingPoolsMeta">默认收起，展开后读取</span></summary>' +
