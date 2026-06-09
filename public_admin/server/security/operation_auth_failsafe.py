@@ -110,6 +110,7 @@ class FallbackOperationScopeResolver:
             ("POST", "/admin/api/sub_admin/set_monitoring"): "account_ops",
             ("POST", "/admin/api/ak_auth/clear"): "dispatcher_ops",
             ("POST", "/admin/api/browse_login"): "dispatcher_ops",
+            ("POST", "/admin/api/notifications/meeting/resolve"): "moderate_ops",
             ("POST", "/admin/api/notify-center/ntfy/binding"): "account_ops",
             ("DELETE", "/admin/api/notify-center/ntfy/binding"): "account_ops",
             ("POST", "/admin/api/notify-center/ntfy/test"): "moderate_ops",

@@ -161,6 +161,43 @@ def _literal_string_list(node: ast.AST) -> list[str]:
     return []
 
 
+def operation_auth_scope_for(paths: list[str], methods: list[str]) -> str:
+    resolver = _operation_scope_resolver()
+    if resolver is None:
+        return ""
+    matched_scopes: set[str] = set()
+    for path in paths:
+        normalized_path = _normalize_route_path(path)
+        for method in methods:
+            normalized_method = str(method or "").upper()
+            scope = str(resolver.resolve(normalized_method, normalized_path) or "")
+            if scope:
+                matched_scopes.add(scope)
+    if not matched_scopes:
+        return ""
+    return ",".join(sorted(matched_scopes))
+
+
+def _operation_scope_resolver():
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        repo_root_text = str(repo_root)
+        if repo_root_text not in sys.path:
+            sys.path.insert(0, repo_root_text)
+        from public_admin.server.security.operation_auth.scope_resolver import OperationScopeResolver
+
+        return OperationScopeResolver()
+    except Exception:
+        return None
+
+
+def _normalize_route_path(path: str) -> str:
+    normalized = str(path or "").split("?", 1)[0]
+    if len(normalized) > 1:
+        normalized = normalized.rstrip("/")
+    return normalized or "/"
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -241,6 +278,16 @@ def classify_route(paths: list[str], methods: list[str], body: str, function_nam
     if _has_permission_scoped_admin_guard(body):
         evidence.append("_require_admin_token(permission)")
         return "permission_scope", "ok", "admin permission-scope guard", evidence
+    operation_scope = operation_auth_scope_for(paths, methods)
+    if operation_scope:
+        evidence.append(f"operation_auth:{operation_scope}")
+        return "operation_auth_scope", "ok", "admin token plus operation lease guard", evidence
+    if _issues_operation_auth_lease(body):
+        evidence.append("operation_auth_totp")
+        return "operation_auth_issue", "ok", "admin token plus TOTP code issues scoped operation lease", evidence
+    if _uses_permission_helper(body):
+        evidence.append("permission_helper")
+        return "permission_scope", "ok", "route-local helper validates admin permission scope", evidence
     if "_resolve_meeting_admin_context(" in body:
         evidence.append("_resolve_meeting_admin_context")
         return "admin_session", "warn", "meeting helper validates admin token; review scope when changed", evidence
@@ -284,6 +331,19 @@ def _has_permission_scoped_admin_guard(body: str) -> bool:
         if "'" in line or '"' in line:
             return True
         start = index + len(marker)
+
+
+def _issues_operation_auth_lease(body: str) -> bool:
+    return (
+        "service.issue_lease(" in body
+        and "resolve_admin_identity(request" in body
+        and "code =" in body
+        and "scope =" in body
+    )
+
+
+def _uses_permission_helper(body: str) -> bool:
+    return "require_admin(request)" in body
 
 
 def _has_role_super_admin_gate(body: str) -> bool:
