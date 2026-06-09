@@ -3,6 +3,13 @@
 
     const API_BASE = '';
     const FEATURE_KEYS = ['ai_chat', 'polish_translate', 'chat_summary', 'semantic_search', 'search_summary'];
+    const FEATURE_LABELS = {
+        ai_chat: 'AI 聊天',
+        polish_translate: '润色翻译',
+        chat_summary: '聊天总结',
+        semantic_search: '语义搜索',
+        search_summary: '搜索总结'
+    };
     const TIER_LABELS = {
         trial: '试用',
         basic: '普通',
@@ -109,6 +116,7 @@
     }
 
     function selectedProvider() {
+        if (Number(state.selectedProviderId || 0) <= 0) return null;
         return providerById(state.selectedProviderId) || state.providers[0] || null;
     }
 
@@ -153,8 +161,14 @@
             #aiAssistant .ai-table{width:100%;border-collapse:collapse}
             #aiAssistant .ai-table th,#aiAssistant .ai-table td{padding:9px 8px;border-bottom:1px solid var(--border);text-align:left;font-size:12px;vertical-align:middle}
             #aiAssistant .ai-table th{color:var(--text-secondary);font-weight:700}
-            #aiAssistant .ai-table input{width:100%;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);padding:0 8px}
+            #aiAssistant .ai-table input:not([type="checkbox"]){width:100%;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);padding:0 8px}
             #aiAssistant .ai-feature-list{display:flex;flex-wrap:wrap;gap:6px}
+            #aiAssistant .ai-check{position:relative;display:inline-flex;align-items:center;min-height:28px;cursor:pointer;user-select:none}
+            #aiAssistant .ai-check input{position:absolute;opacity:0;pointer-events:none}
+            #aiAssistant .ai-check span{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.035);color:var(--text-secondary);font-size:12px;font-weight:700;transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease}
+            #aiAssistant .ai-check input:checked + span{border-color:rgba(0,255,136,.55);background:rgba(0,255,136,.14);color:var(--accent-green);box-shadow:0 0 0 1px rgba(0,255,136,.10) inset}
+            #aiAssistant .ai-check input:focus-visible + span{box-shadow:0 0 0 3px rgba(0,212,255,.18)}
+            #aiAssistant .ai-check.small span{min-height:24px;padding:0 8px;font-size:11px}
             #aiAssistant .ai-feature-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary)}
             #aiAssistant .ai-code-box{margin-top:10px;border:1px dashed rgba(0,212,255,.35);border-radius:10px;padding:10px;background:rgba(0,212,255,.05);font-size:12px;color:var(--text-primary);line-height:1.8;word-break:break-all}
             #aiAssistant .ai-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
@@ -162,8 +176,9 @@
             #aiAssistant .ai-stat-label{font-size:12px;color:var(--text-secondary);margin-bottom:5px}
             #aiAssistant .ai-stat-value{font-size:18px;font-weight:800;color:var(--text-primary);font-variant-numeric:tabular-nums}
             #aiAssistant .ai-secret-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;margin-top:10px}
+            #aiAssistant .ai-secret-row.provider{grid-template-columns:minmax(0,1fr) auto}
             #aiAssistant .ai-empty{padding:26px;text-align:center;color:var(--text-secondary)}
-            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid{grid-template-columns:1fr}#aiAssistant .ai-secret-row{grid-template-columns:1fr}}
+            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid{grid-template-columns:1fr}#aiAssistant .ai-secret-row,#aiAssistant .ai-secret-row.provider{grid-template-columns:1fr}}
         `;
         document.head.appendChild(style);
     }
@@ -191,6 +206,7 @@
     function renderProviderForm() {
         const item = selectedProvider() || {};
         const id = Number(item.id || 0);
+        const providerEnabled = id ? !!item.enabled : true;
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
@@ -199,7 +215,7 @@
                 </div>
                 <div class="ai-form-grid">
                     <div class="ai-field"><label>名称</label><input class="ai-input" id="aiProviderName" value="${escapeHtml(item.provider_name || 'OpenAI-Compatible Relay')}"></div>
-                    <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="https://relay.example.com" value="${escapeHtml(item.base_url || '')}"></div>
+                    <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="https://new.fluapi.com/v1" value="${escapeHtml(item.base_url || '')}"></div>
                     <div class="ai-field"><label>聊天模型</label><input class="ai-input" id="aiProviderChatModel" value="${escapeHtml(item.chat_model || 'gpt-5-mini')}"></div>
                     <div class="ai-field"><label>摘要模型</label><input class="ai-input" id="aiProviderSummaryModel" value="${escapeHtml(item.summary_model || item.chat_model || 'gpt-5-mini')}"></div>
                     <div class="ai-field"><label>Embedding 模型</label><input class="ai-input" id="aiProviderEmbeddingModel" value="${escapeHtml(item.embedding_model || '')}"></div>
@@ -208,21 +224,20 @@
                     <div class="ai-field"><label>低余额阈值</label><input class="ai-input" id="aiProviderLowBalance" type="number" min="0" step="0.01" value="${Number(item.low_balance_threshold || 0)}"></div>
                 </div>
                 <div class="ai-actions">
-                    <label class="ai-feature-chip"><input type="checkbox" id="aiProviderEnabled" ${item.enabled ? 'checked' : ''}> 启用</label>
-                    <label class="ai-feature-chip"><input type="checkbox" id="aiProviderBalanceSupported" ${item.balance_supported ? 'checked' : ''}> 支持余额查询</label>
+                    <label class="ai-check"><input type="checkbox" id="aiProviderEnabled" ${providerEnabled ? 'checked' : ''}><span>启用 Provider</span></label>
+                    <label class="ai-check"><input type="checkbox" id="aiProviderBalanceSupported" ${item.balance_supported ? 'checked' : ''}><span>支持余额查询</span></label>
                 </div>
                 <div class="ai-actions">
                     <button class="ai-btn primary" data-action="save-provider">${id ? '保存 Provider' : '新增 Provider'}</button>
                     <button class="ai-btn" data-action="new-provider">清空新增</button>
                     ${id ? '<button class="ai-btn warn" data-action="test-provider">测试连接</button><button class="ai-btn" data-action="refresh-balance">刷新余额</button>' : ''}
                 </div>
-                ${id ? `
-                    <div class="ai-actions">
-                        <input class="ai-input" id="aiProviderSecret" type="password" placeholder="粘贴 sk 密钥，保存后只显示指纹" style="max-width:420px;">
-                        <button class="ai-btn success" data-action="save-secret">导入 sk</button>
-                    </div>
-                    <div class="ai-meta" id="aiProviderBalanceInfo">余额信息刷新后显示在这里。</div>
-                ` : ''}
+                <div class="ai-secret-row provider">
+                    <input class="ai-input" id="aiProviderSecret" type="password" placeholder="中转站 API Key / sk 密钥，保存后只显示指纹">
+                    <button class="ai-btn success" data-action="save-secret">${id ? '导入 API Key' : '新增并导入 API Key'}</button>
+                </div>
+                <div class="ai-meta">Base URL 填中转站 OpenAI-compatible 地址，例如 https://new.fluapi.com/v1；API Key 填中转站控制台生成的 sk。</div>
+                <div class="ai-meta" id="aiProviderBalanceInfo">${id ? '余额信息刷新后显示在这里。' : '新增 Provider 后可测试连接和刷新余额。'}</div>
             </div>
         `;
     }
@@ -256,7 +271,7 @@
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
-                    <span>FluAPI 上游账户</span>
+                    <span>中转站账号与上游余额</span>
                     <span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已启用' : '未启用'}</span>
                 </div>
                 <div class="ai-stat-grid">
@@ -273,14 +288,14 @@
                         </select>
                     </div>
                     <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiFluapiBaseUrl" value="${escapeHtml(cfg.base_url || 'https://www.fluapi.com')}"></div>
-                    <div class="ai-field"><label>账号</label><input class="ai-input" id="aiFluapiUsername" value="${escapeHtml(cfg.username || '')}" placeholder="FluAPI 登录账号"></div>
+                    <div class="ai-field"><label>控制台账号</label><input class="ai-input" id="aiFluapiUsername" value="${escapeHtml(cfg.username || '')}" placeholder="FluAPI 登录账号"></div>
                     <div class="ai-field"><label>New-Api-User</label><input class="ai-input" id="aiFluapiUserId" value="${escapeHtml(cfg.user_id || '')}" placeholder="登录后自动获取"></div>
                     <div class="ai-field"><label>1 USD 对应 quota</label><input class="ai-input" id="aiFluapiQuotaPerUsd" type="number" min="1" value="${Number(cfg.quota_per_usd || 500000)}"></div>
                     <div class="ai-field"><label>低余额告警 USD</label><input class="ai-input" id="aiFluapiLowBalance" type="number" min="0" step="0.01" value="${Number(cfg.low_balance_usd || 10)}"></div>
                 </div>
                 <div class="ai-secret-row">
-                    <input class="ai-input" id="aiFluapiCredentialUsername" value="${escapeHtml(cfg.username || '')}" placeholder="FluAPI 账号">
-                    <input class="ai-input" id="aiFluapiPassword" type="password" placeholder="${cfg.has_password ? '已保存密码，留空则不更新' : 'FluAPI 密码'}">
+                    <input class="ai-input" id="aiFluapiCredentialUsername" value="${escapeHtml(cfg.username || '')}" placeholder="中转站控制台账号">
+                    <input class="ai-input" id="aiFluapiPassword" type="password" placeholder="${cfg.has_password ? '已保存密码，留空则不更新' : '中转站控制台密码'}">
                     <button class="ai-btn success" data-action="save-fluapi-credentials">导入并登录</button>
                 </div>
                 <div class="ai-actions">
@@ -289,6 +304,7 @@
                     <button class="ai-btn warn" data-action="fluapi-sync">同步余额</button>
                 </div>
                 <div class="ai-meta">状态：密码 ${cfg.has_password ? '已加密保存' : '未保存'} · session ${cfg.has_session ? '已保存' : '未保存'} · 最近登录 ${escapeHtml(fmtTime(cfg.last_login_at))} · 最近同步 ${escapeHtml(fmtTime(cfg.last_sync_at))}</div>
+                <div class="ai-meta">这里用于登录中转站控制台同步余额；实际模型调用使用下方 Provider 的 Base URL 和 API Key。</div>
                 ${cfg.last_error ? '<div class="ai-meta" style="color:var(--accent-red);">最近错误：' + escapeHtml(cfg.last_error) + '</div>' : ''}
             </div>
         `;
@@ -394,9 +410,9 @@
                     <td><input data-field="monthly_limit" type="number" min="0" value="${Number(item.monthly_limit || 0)}"></td>
                     <td><input data-field="memory_retention_days" type="number" min="1" value="${Number(item.memory_retention_days || 30)}"></td>
                     <td><div class="ai-feature-list">${FEATURE_KEYS.map(function(key) {
-                        return '<label class="ai-feature-chip"><input type="checkbox" data-feature="' + escapeHtml(key) + '" ' + (features[key] ? 'checked' : '') + '> ' + escapeHtml(key) + '</label>';
+                        return '<label class="ai-check small"><input type="checkbox" data-feature="' + escapeHtml(key) + '" ' + (features[key] ? 'checked' : '') + '><span>' + escapeHtml(FEATURE_LABELS[key] || key) + '</span></label>';
                     }).join('')}</div></td>
-                    <td><label class="ai-feature-chip"><input type="checkbox" data-field="enabled" ${item.enabled ? 'checked' : ''}> 启用</label></td>
+                    <td><label class="ai-check small"><input type="checkbox" data-field="enabled" ${item.enabled ? 'checked' : ''}><span>启用</span></label></td>
                     <td><button class="ai-btn" data-action="save-tier" data-tier="${escapeHtml(item.tier)}">保存</button></td>
                 </tr>
             `;
@@ -479,16 +495,16 @@
                 <div class="ai-admin-grid">
                     <div>
                         ${renderConfig()}
-                        ${renderFluAPI()}
                         ${renderBilling()}
                         ${renderTiers()}
                     </div>
                     <div>
+                        ${renderFluAPI()}
+                        ${renderProviderForm()}
                         <div class="ai-card">
                             <div class="ai-card-title"><span>Provider 列表</span><span class="ai-tag">${state.providers.length} 个</span></div>
                             <div class="ai-provider-list">${renderProviderList()}</div>
                         </div>
-                        ${renderProviderForm()}
                         ${renderRedeem()}
                     </div>
                 </div>
@@ -649,18 +665,25 @@
         if (item && item.id) state.selectedProviderId = Number(item.id);
         showToast('Provider 已保存');
         await loadAll();
+        return item;
     }
 
     async function saveSecret() {
-        const provider = selectedProvider();
         const secret = document.getElementById('aiProviderSecret')?.value || '';
-        if (!provider || !provider.id) throw new Error('请先选择 Provider');
         if (!secret.trim()) throw new Error('请粘贴 sk 密钥');
+        let provider = selectedProvider();
+        if (!provider || !provider.id) {
+            const payload = readProviderPayload();
+            const data = await api('/admin/api/ai/providers', { method: 'POST', body: JSON.stringify(payload) });
+            provider = unwrapItem(data, null);
+            if (provider && provider.id) state.selectedProviderId = Number(provider.id);
+        }
+        if (!provider || !provider.id) throw new Error('Provider 创建失败，无法导入 API Key');
         await api('/admin/api/ai/providers/' + provider.id + '/secret', {
             method: 'POST',
             body: JSON.stringify({ secret: secret })
         });
-        showToast('sk 已导入，只会保存加密密文和指纹');
+        showToast('API Key 已导入，只会保存加密密文和指纹');
         await loadAll();
     }
 
