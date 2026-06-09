@@ -136,6 +136,23 @@ class WsTicketRepository:
                 audience,
             )
 
+    async def cleanup_expired_tickets(self, *, grace_seconds: int = 3600) -> dict[str, Any]:
+        grace = max(0, min(86400, int(grace_seconds or 0)))
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            has_tickets = bool(await conn.fetchval("SELECT to_regclass($1)", "public.ws_tickets"))
+            if not has_tickets:
+                return {"deleted": 0, "grace_seconds": grace, "table_ready": False}
+            result = await conn.execute(
+                "DELETE FROM ws_tickets WHERE expires_at < NOW() - ($1::int * INTERVAL '1 second')",
+                grace,
+            )
+            return {
+                "deleted": _parse_deleted_count(result),
+                "grace_seconds": grace,
+                "table_ready": True,
+            }
+
     async def record_event(
         self,
         *,
@@ -173,3 +190,10 @@ class WsTicketRepository:
                 str(user_agent or "")[:300],
                 (created_at or datetime.now()).replace(microsecond=0),
             )
+
+
+def _parse_deleted_count(result: str) -> int:
+    try:
+        return int(str(result or "").split()[-1])
+    except Exception:
+        return 0

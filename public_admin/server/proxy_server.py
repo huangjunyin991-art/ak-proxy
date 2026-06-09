@@ -13874,6 +13874,32 @@ def _snapshot_ak_auth_cache() -> dict[str, Any]:
     return {"count": len(_ak_auth_cache), "expired_count": expired}
 
 
+async def _cleanup_ws_ticket_runtime_state() -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    service = globals().get("ws_ticket_service")
+    repository = getattr(service, "repository", None)
+    if repository is not None and hasattr(repository, "cleanup_expired_tickets"):
+        try:
+            result["expired_tickets"] = await repository.cleanup_expired_tickets(grace_seconds=3600)
+        except Exception as exc:
+            result["expired_tickets"] = {"error": str(exc)}
+    else:
+        result["expired_tickets"] = {"skipped": "repository_unavailable"}
+
+    policy_store = globals().get("ws_ticket_diagnostics_policy")
+    if policy_store is not None and hasattr(policy_store, "prune_events"):
+        try:
+            policy = {}
+            if hasattr(policy_store, "get_policy"):
+                policy = await policy_store.get_policy(force=True)
+            result["diagnostic_events"] = await policy_store.prune_events((policy or {}).get("retention_days") or 3)
+        except Exception as exc:
+            result["diagnostic_events"] = {"error": str(exc)}
+    else:
+        result["diagnostic_events"] = {"skipped": "policy_store_unavailable"}
+    return result
+
+
 async def _run_runtime_hygiene_cleanup(policy: RuntimeHygienePolicy) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if policy.cleanup_browse_sessions_enabled:
@@ -13885,6 +13911,8 @@ async def _run_runtime_hygiene_cleanup(policy: RuntimeHygienePolicy) -> dict[str
             "removed": _AK_WEB_STATIC_CACHE_SERVICE.cleanup_idle_locks(),
             "remaining": _AK_WEB_STATIC_CACHE_SERVICE.snapshot().get("lock_count", 0),
         }
+    if policy.cleanup_ws_tickets_enabled:
+        result["ws_tickets"] = await _cleanup_ws_ticket_runtime_state()
     result["ak_web_client_pool"] = {"idle_closed": await _ak_web_client_pool.cleanup_idle_clients()}
     result["dispatcher_clients"] = {"idle_closed": await dispatcher.cleanup_idle_clients()}
     return result

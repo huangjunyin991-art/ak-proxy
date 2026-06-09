@@ -514,6 +514,7 @@
             '<label class="monitoring-switch-card"><input id="runtimeCleanupBrowseSessions" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理浏览会话</strong><small>移除过期 AK 页面会话</small></span></label>' +
             '<label class="monitoring-switch-card"><input id="runtimeCleanupAkAuthCache" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理 AK 登录缓存</strong><small>移除过期登录态缓存</small></span></label>' +
             '<label class="monitoring-switch-card"><input id="runtimeCleanupStaticLocks" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理静态资源锁</strong><small>释放无请求占用的缓存锁</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="runtimeCleanupWsTickets" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理短票记录</strong><small>删除过期 WebSocket 短票和旧诊断事件</small></span></label>' +
             '<label><span>维护周期（秒）</span><input class="monitoring-input" id="runtimeCleanupInterval" type="number" min="5" step="5"></label>' +
             '<label><span>AK 代理连接最大寿命（秒）</span><input class="monitoring-input" id="runtimeAkClientMaxAge" type="number" min="60" step="30"></label>' +
             '<label><span>AK 代理连接最大请求数</span><input class="monitoring-input" id="runtimeAkClientMaxRequests" type="number" min="10" step="10"></label>' +
@@ -1737,6 +1738,7 @@
             setChecked('runtimeCleanupBrowseSessions', policy.cleanup_browse_sessions_enabled !== false);
             setChecked('runtimeCleanupAkAuthCache', policy.cleanup_ak_auth_cache_enabled !== false);
             setChecked('runtimeCleanupStaticLocks', policy.cleanup_static_cache_locks_enabled !== false);
+            setChecked('runtimeCleanupWsTickets', policy.cleanup_ws_tickets_enabled !== false);
             setInputValue('runtimeCleanupInterval', policy.cleanup_interval_seconds || 300);
             setInputValue('runtimeAkClientMaxAge', policy.ak_web_client_max_age_seconds || 900);
             setInputValue('runtimeAkClientMaxRequests', policy.ak_web_client_max_requests || 800);
@@ -1756,6 +1758,11 @@
         var browse = item.browse_sessions || {};
         var auth = item.ak_auth_cache || {};
         var staticCache = item.static_resource_cache || {};
+        var wsTickets = ((service.last_result || {}).ws_tickets || {});
+        var wsExpired = wsTickets.expired_tickets || {};
+        var wsEvents = wsTickets.diagnostic_events || {};
+        var wsTicketValue = wsTickets.expired_tickets ? '清理 ' + formatNumber(wsExpired.deleted) : '未执行';
+        var wsTicketDetail = wsTickets.diagnostic_events ? '诊断事件清理 ' + formatNumber(wsEvents.deleted) + '；保留 ' + formatNumber(wsEvents.retention_days || 0) + ' 天' : '等待下一次维护任务';
         var cards = document.getElementById('monitoringRuntimeCards');
         if (cards) {
             setHtmlIfChanged(cards,
@@ -1764,7 +1771,8 @@
                 renderCard('出口连接池', formatNumber(dispatcherOpen) + ' 打开', '出口 ' + formatNumber(exits.length) + '；活跃 ' + formatNumber(dispatcher.total_active)) +
                 renderCard('浏览会话缓存', formatNumber(browse.count), '过期待清理 ' + formatNumber(browse.expired_count) + '；已验证 ' + formatNumber(browse.validated_count)) +
                 renderCard('AK 登录缓存', formatNumber(auth.count), '过期待清理 ' + formatNumber(auth.expired_count)) +
-                renderCard('静态资源锁', formatNumber(staticCache.lock_count), '上次清理剩余 ' + formatNumber((staticCache.last_lock_cleanup || {}).remaining))
+                renderCard('静态资源锁', formatNumber(staticCache.lock_count), '上次清理剩余 ' + formatNumber((staticCache.last_lock_cleanup || {}).remaining)) +
+                renderCard('WebSocket 短票', wsTicketValue, wsTicketDetail)
             );
         }
         var meta = document.getElementById('monitoringRuntimeMeta');
@@ -2199,6 +2207,7 @@
             cleanup_browse_sessions_enabled: inputChecked('runtimeCleanupBrowseSessions'),
             cleanup_ak_auth_cache_enabled: inputChecked('runtimeCleanupAkAuthCache'),
             cleanup_static_cache_locks_enabled: inputChecked('runtimeCleanupStaticLocks'),
+            cleanup_ws_tickets_enabled: inputChecked('runtimeCleanupWsTickets'),
             cleanup_interval_seconds: inputNumber('runtimeCleanupInterval'),
             ak_web_client_max_age_seconds: inputNumber('runtimeAkClientMaxAge'),
             ak_web_client_max_requests: inputNumber('runtimeAkClientMaxRequests'),

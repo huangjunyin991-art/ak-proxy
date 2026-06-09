@@ -84,6 +84,7 @@ class RuntimeHygienePolicy:
     cleanup_browse_sessions_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_BROWSE_SESSIONS", True)
     cleanup_ak_auth_cache_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_AK_AUTH_CACHE", True)
     cleanup_static_cache_locks_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_STATIC_CACHE_LOCKS", True)
+    cleanup_ws_tickets_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_WS_TICKETS", True)
 
     @classmethod
     def from_mapping(cls, payload: dict[str, Any] | None) -> "RuntimeHygienePolicy":
@@ -151,6 +152,10 @@ class RuntimeHygienePolicy:
                 data.get("cleanup_static_cache_locks_enabled"),
                 defaults.cleanup_static_cache_locks_enabled,
             ),
+            cleanup_ws_tickets_enabled=_bool_value(
+                data.get("cleanup_ws_tickets_enabled"),
+                defaults.cleanup_ws_tickets_enabled,
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -167,4 +172,5 @@ class RuntimeHygienePolicy:
             "cleanup_browse_sessions_enabled": self.cleanup_browse_sessions_enabled,
             "cleanup_ak_auth_cache_enabled": self.cleanup_ak_auth_cache_enabled,
             "cleanup_static_cache_locks_enabled": self.cleanup_static_cache_locks_enabled,
+            "cleanup_ws_tickets_enabled": self.cleanup_ws_tickets_enabled,
         }
