@@ -61,6 +61,7 @@
             style.id = STYLE_ID;
             style.textContent = [
                 '#ak-im-root .ak-im-bubble.ak-im-bubble-ai{white-space:normal;max-width:min(82vw,520px)}',
+                '#ak-im-root .ak-im-bubble.ak-im-bubble-ai-thinking{min-width:min(188px,64vw);max-width:min(260px,74vw);padding:9px 12px;white-space:normal;overflow:visible}',
                 '#ak-im-root .ak-im-ai-markdown{display:block;font-size:15px;line-height:1.62;color:inherit;word-break:break-word;overflow-wrap:anywhere}',
                 '#ak-im-root .ak-im-ai-markdown>*:first-child{margin-top:0}',
                 '#ak-im-root .ak-im-ai-markdown>*:last-child{margin-bottom:0}',
@@ -82,9 +83,13 @@
                 '#ak-im-root .ak-im-ai-table-scroll table{min-width:100%;border-collapse:collapse;font-size:13px;white-space:normal}',
                 '#ak-im-root .ak-im-ai-table-scroll th,#ak-im-root .ak-im-ai-table-scroll td{padding:6px 8px;border-bottom:1px solid rgba(15,23,42,.08);text-align:left;vertical-align:top}',
                 '#ak-im-root .ak-im-ai-table-scroll tr:last-child td{border-bottom:0}',
-                '#ak-im-root .ak-im-ai-thinking{display:inline-flex;align-items:center;gap:7px;color:#475569}',
-                '#ak-im-root .ak-im-ai-thinking:before{content:"";width:6px;height:6px;border-radius:999px;background:#2563eb;box-shadow:10px 0 0 rgba(37,99,235,.45),20px 0 0 rgba(37,99,235,.22);animation:ak-im-ai-thinking 1.05s infinite ease-in-out}',
-                '@keyframes ak-im-ai-thinking{0%,100%{opacity:.45;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}'
+                '#ak-im-root .ak-im-ai-thinking{display:flex;align-items:center;gap:10px;min-width:0;color:#475569}',
+                '#ak-im-root .ak-im-ai-thinking-dots{display:inline-flex;align-items:center;gap:4px;width:26px;min-width:26px;height:16px;flex:0 0 26px}',
+                '#ak-im-root .ak-im-ai-thinking-dots i{display:block;width:5px;height:5px;border-radius:999px;background:#2563eb;animation:ak-im-ai-thinking 1.05s infinite ease-in-out}',
+                '#ak-im-root .ak-im-ai-thinking-dots i:nth-child(2){animation-delay:.14s;opacity:.56}',
+                '#ak-im-root .ak-im-ai-thinking-dots i:nth-child(3){animation-delay:.28s;opacity:.34}',
+                '#ak-im-root .ak-im-ai-thinking-text{display:block;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.45}',
+                '@keyframes ak-im-ai-thinking{0%,100%{opacity:.36;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}'
             ].join('\n');
             (document.head || document.documentElement).appendChild(style);
         },
@@ -300,13 +305,14 @@
             this.ensureStyle();
             const text = this.getMessageText(item);
             if (this.isThinkingPlaceholder(item)) {
-                return '<span class="ak-im-ai-thinking">' + this.escapeHtml(text) + '</span>';
+                return '<span class="ak-im-ai-thinking" role="status"><span class="ak-im-ai-thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="ak-im-ai-thinking-text">' + this.escapeHtml(text) + '</span></span>';
             }
             return '<div class="ak-im-ai-markdown" data-ak-ai-markdown="1">' + this.renderMarkdown(text) + '</div>';
         },
 
         getMessageBubbleClassName(item) {
-            return this.isAITextMessage(item) ? 'ak-im-bubble-ai' : '';
+            if (!this.isAITextMessage(item)) return '';
+            return this.isThinkingPlaceholder(item) ? 'ak-im-bubble-ai ak-im-bubble-ai-thinking' : 'ak-im-bubble-ai';
         },
 
         renderMarkdown(text) {
