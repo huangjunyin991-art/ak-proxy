@@ -13,10 +13,15 @@ type MessageRef struct {
 	ConversationID int64
 	SenderUsername string
 	Content        string
+	Suggestions    []string
 }
 
 type MessageSink interface {
 	InsertAITextMessage(ctx context.Context, conversationID int64, senderUsername string, content string) (MessageRef, error)
+}
+
+type SuggestionMessageSink interface {
+	InsertAITextMessageWithSuggestions(ctx context.Context, conversationID int64, senderUsername string, content string, suggestions []string) (MessageRef, error)
 }
 
 type Bootstrap struct {
@@ -48,8 +53,11 @@ type Task struct {
 	ConversationID int64      `json:"conversation_id"`
 	OwnerUsername  string     `json:"owner_username"`
 	Status         string     `json:"status"`
+	Stage          string     `json:"stage,omitempty"`
+	StageText      string     `json:"stage_text,omitempty"`
 	QueuePosition  int        `json:"queue_position"`
 	Message        string     `json:"message"`
+	Suggestions    []string   `json:"suggestions,omitempty"`
 	ErrorCode      string     `json:"error_code,omitempty"`
 	ErrorMessage   string     `json:"error_message,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`

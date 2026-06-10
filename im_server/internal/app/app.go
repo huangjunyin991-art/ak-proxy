@@ -162,6 +162,7 @@ type MessageItem struct {
 	MentionUsernames  []string                    `json:"mention_usernames,omitempty"`
 	MentionAll        bool                        `json:"mention_all,omitempty"`
 	AITask            *aiservice.Task             `json:"ai_task,omitempty"`
+	AISuggestions     []string                    `json:"ai_suggestions,omitempty"`
 }
 
 type UserProfileItem struct {
@@ -2049,6 +2050,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 	}
 	a.ensureTextMentionAllRows(r.Context(), items)
 	a.populateMessageMentions(r.Context(), items)
+	a.populateAIReplySuggestions(r.Context(), items)
 	members, err := a.listConversationMembers(r.Context(), conversationIDValue)
 	if err == nil {
 		a.populateMessageReadProgress(items, members, username)

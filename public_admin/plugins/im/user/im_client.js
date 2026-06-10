@@ -2542,15 +2542,20 @@
             loadMessages: loadMessages,
             closePlusPanel: closePlusPanel,
             createLocalSentAt: createLocalSentAt,
-            insertLocalMessage: function(item) {
-                const messageManageModule = getMessageManageModule();
-                if (!messageManageModule || typeof messageManageModule.insertLocalMessage !== 'function') return false;
-                return !!messageManageModule.insertLocalMessage(item);
-            },
-            removeLocalMessage: function(tempId) {
-                const messageManageModule = getMessageManageModule();
-                if (!messageManageModule || typeof messageManageModule.removeLocalMessage !== 'function') return false;
-                return !!messageManageModule.removeLocalMessage(tempId);
+            insertLocalMessage: insertLocalMessage,
+            updateLocalMessage: updateLocalMessage,
+            removeLocalMessage: removeLocalMessage,
+            setComposerText: function(text) {
+                const value = String(text || '').trim();
+                if (!inputEl || !value) return false;
+                setComposerMode('text', { silent: true });
+                inputEl.value = value;
+                state.inputValue = value;
+                handleComposerInput(value);
+                try {
+                    inputEl.focus();
+                } catch (e) {}
+                return true;
             },
             renderMessages: function() {
                 const messageManageModule = getMessageManageModule();
@@ -7108,6 +7113,10 @@
         }
         const messageManageModule = getMessageManageModule();
         if (messageManageModule && typeof messageManageModule.sendCurrentMessage === 'function') {
+            const aiManageModule = getAIManageModule();
+            if (content && aiManageModule && typeof aiManageModule.isAIConversation === 'function' && aiManageModule.isAIConversation() && typeof aiManageModule.removeSuggestionBar === 'function') {
+                aiManageModule.removeSuggestionBar();
+            }
             return messageManageModule.sendCurrentMessage();
         }
         if (Number(state.activeConversationId || 0) > 0) {

@@ -421,7 +421,11 @@ func writeJSONOrError(w http.ResponseWriter, payload any, err error) {
 }
 
 func (a *App) InsertAITextMessage(ctx context.Context, conversationID int64, senderUsername string, content string) (aiservice.MessageRef, error) {
-	item, err := a.insertSystemTextMessage(ctx, conversationID, senderUsername, content)
+	return a.InsertAITextMessageWithSuggestions(ctx, conversationID, senderUsername, content, nil)
+}
+
+func (a *App) InsertAITextMessageWithSuggestions(ctx context.Context, conversationID int64, senderUsername string, content string, suggestions []string) (aiservice.MessageRef, error) {
+	item, err := a.insertSystemTextMessage(ctx, conversationID, senderUsername, content, suggestions)
 	if err != nil {
 		return aiservice.MessageRef{}, err
 	}
@@ -431,10 +435,11 @@ func (a *App) InsertAITextMessage(ctx context.Context, conversationID int64, sen
 		ConversationID: item.ConversationID,
 		SenderUsername: item.SenderUsername,
 		Content:        item.Content,
+		Suggestions:    item.AISuggestions,
 	}, nil
 }
 
-func (a *App) insertSystemTextMessage(ctx context.Context, conversationID int64, senderUsername string, content string) (MessageItem, error) {
+func (a *App) insertSystemTextMessage(ctx context.Context, conversationID int64, senderUsername string, content string, suggestions []string) (MessageItem, error) {
 	messageType, preview, contentPayload, contentSizeRaw, contentSizeStored, err := buildMessageStorage(sendMessageRequest{
 		ConversationID: conversationID,
 		MessageType:    "text",
@@ -466,6 +471,21 @@ func (a *App) insertSystemTextMessage(ctx context.Context, conversationID int64,
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = timezone('Asia/Shanghai', NOW()), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return MessageItem{}, err
 	}
+	normalizedSuggestions := normalizeAISuggestions(suggestions)
+	if len(normalizedSuggestions) > 0 {
+		suggestionBytes, marshalErr := json.Marshal(normalizedSuggestions)
+		if marshalErr != nil {
+			return MessageItem{}, marshalErr
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO im_ai_reply_suggestion (message_id, conversation_id, task_id, suggestions_json, created_at, updated_at)
+			VALUES ($1, $2, '', $3::jsonb, NOW(), NOW())
+			ON CONFLICT (message_id) DO UPDATE
+			SET suggestions_json = EXCLUDED.suggestions_json, updated_at = NOW()`, item.ID, conversationID, string(suggestionBytes)); err != nil {
+			return MessageItem{}, err
+		}
+		item.AISuggestions = normalizedSuggestions
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE im_direct_message_gate
 		SET reply_unlocked_at = COALESCE(reply_unlocked_at, NOW()), updated_at = NOW()
@@ -485,4 +505,82 @@ func (a *App) insertSystemTextMessage(ctx context.Context, conversationID int64,
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item = a.normalizeOutgoingMessageItem(ctx, item)
 	return item, nil
+}
+
+func normalizeAISuggestions(suggestions []string) []string {
+	result := make([]string, 0, 3)
+	seen := map[string]struct{}{}
+	for _, suggestion := range suggestions {
+		text := strings.TrimSpace(suggestion)
+		text = strings.Trim(text, "-* \t\r\n\"'`，。,.、")
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		runes := []rune(text)
+		if len(runes) > 24 {
+			text = string(runes[:24])
+		}
+		key := strings.ToLower(text)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, text)
+		if len(result) >= 3 {
+			break
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func (a *App) populateAIReplySuggestions(ctx context.Context, items []MessageItem) {
+	if len(items) == 0 || a == nil || a.db == nil {
+		return
+	}
+	messageIDs := make([]int64, 0, len(items))
+	indexByMessageID := map[int64]int{}
+	for index, item := range items {
+		if item.ID <= 0 || !strings.EqualFold(strings.TrimSpace(item.SenderUsername), bot.Username) {
+			continue
+		}
+		messageIDs = append(messageIDs, item.ID)
+		indexByMessageID[item.ID] = index
+	}
+	if len(messageIDs) == 0 {
+		return
+	}
+	placeholders := make([]string, 0, len(messageIDs))
+	args := make([]any, 0, len(messageIDs))
+	for index, messageID := range messageIDs {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", index+1))
+		args = append(args, messageID)
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT message_id, suggestions_json::text
+		FROM im_ai_reply_suggestion
+		WHERE message_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var messageID int64
+		var raw string
+		if err := rows.Scan(&messageID, &raw); err != nil {
+			return
+		}
+		index, ok := indexByMessageID[messageID]
+		if !ok {
+			continue
+		}
+		var suggestions []string
+		if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &suggestions); err != nil {
+			continue
+		}
+		items[index].AISuggestions = normalizeAISuggestions(suggestions)
+	}
 }

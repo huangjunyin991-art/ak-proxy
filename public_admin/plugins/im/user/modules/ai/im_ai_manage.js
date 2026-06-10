@@ -53,6 +53,11 @@
                 '#ak-im-root .ak-im-ai-status-action{border:0;background:transparent;color:#2563eb;font-size:12px;font-weight:700;padding:0 2px;cursor:pointer;white-space:nowrap}',
                 '#ak-im-root .ak-im-ai-status.is-error{background:rgba(255,71,87,.08);color:#b91c1c}',
                 '#ak-im-root .ak-im-ai-status.is-error .ak-im-ai-status-pill{background:rgba(255,71,87,.12);color:#b91c1c}',
+                '#ak-im-root .ak-im-ai-suggestions{display:flex;align-items:center;gap:7px;padding:7px 10px 0;background:#f7f7f7;border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box;overflow-x:auto;scrollbar-width:none}',
+                '#ak-im-root .ak-im-ai-suggestions::-webkit-scrollbar{display:none}',
+                '#ak-im-root .ak-im-ai-suggestion-label{flex:0 0 auto;color:#7b8494;font-size:12px;white-space:nowrap}',
+                '#ak-im-root .ak-im-ai-suggestion-chip{flex:0 0 auto;max-width:52vw;height:30px;border:1px solid rgba(37,99,235,.18);border-radius:999px;background:#fff;color:#1f2937;padding:0 11px;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 3px rgba(15,23,42,.05);cursor:pointer}',
+                '#ak-im-root .ak-im-ai-suggestion-chip:active{transform:translateY(1px);background:#eef4ff}',
                 '#ak-im-root .ak-im-ai-redeem-mask{position:absolute;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.28);backdrop-filter:blur(4px);box-sizing:border-box}',
                 '#ak-im-root .ak-im-ai-redeem-card{width:min(360px,100%);border:1px solid rgba(15,23,42,.10);border-radius:14px;background:#fff;box-shadow:0 18px 48px rgba(15,23,42,.22);padding:16px;box-sizing:border-box}',
                 '#ak-im-root .ak-im-ai-redeem-title{font-size:16px;font-weight:800;color:#111827;margin-bottom:6px}',
@@ -210,13 +215,45 @@
             });
         },
 
+        getTaskStageText(task) {
+            return String(task && (task.stage_text || task.message) || '').trim() || THINKING_TEXT;
+        },
+
+        updateThinkingPlaceholder(task) {
+            const state = this.ctx && this.ctx.state;
+            const taskId = String(task && task.task_id || '').trim();
+            const tempId = this.getThinkingTempId(taskId);
+            const text = this.getTaskStageText(task);
+            if (!state || !tempId || !this.hasThinkingPlaceholder(tempId)) return false;
+            const patch = {
+                content: text,
+                content_preview: text,
+                __akAIStage: String(task && task.stage || '').trim()
+            };
+            if (this.ctx && typeof this.ctx.updateLocalMessage === 'function' && this.ctx.updateLocalMessage(tempId, patch)) {
+                return true;
+            }
+            let changed = false;
+            state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).map(function(item) {
+                if (!item || String(item.__akTempId || item.client_temp_id || '').trim() !== tempId) return item;
+                changed = true;
+                return Object.assign({}, item, patch);
+            });
+            if (changed && typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+            return changed;
+        },
+
         showThinkingPlaceholder(task) {
             const state = this.ctx && this.ctx.state;
             const conversationId = Number(task && task.conversation_id || state && state.activeConversationId || 0);
             const taskId = String(task && task.task_id || '').trim();
             const tempId = this.getThinkingTempId(taskId);
             if (!this.ctx || !state || !conversationId || !tempId || typeof this.ctx.insertLocalMessage !== 'function') return;
-            if (this.hasThinkingPlaceholder(tempId)) return;
+            if (this.hasThinkingPlaceholder(tempId)) {
+                this.updateThinkingPlaceholder(task);
+                return;
+            }
+            const thinkingText = this.getTaskStageText(task);
             const sentAt = typeof this.ctx.createLocalSentAt === 'function' ? this.ctx.createLocalSentAt() : new Date().toISOString();
             this.ctx.insertLocalMessage({
                 id: 0,
@@ -225,8 +262,8 @@
                 sender_display_name: '\u5c0f\u0041',
                 seq_no: 0,
                 message_type: 'text',
-                content: THINKING_TEXT,
-                content_preview: THINKING_TEXT,
+                content: thinkingText,
+                content_preview: thinkingText,
                 status: 'sent',
                 sent_at: sentAt,
                 client_temp_id: tempId,
@@ -263,7 +300,7 @@
 
         taskStatusText(task) {
             const status = String(task && task.status || '').trim().toLowerCase();
-            if (status === 'queued' || status === 'running') return THINKING_TEXT;
+            if (status === 'queued' || status === 'running') return this.getTaskStageText(task);
             if (status === 'succeeded') return '\u0041\u0049 \u5df2\u56de\u590d';
             if (status === 'failed') return String(task && task.message || '').trim() || '\u0041\u0049 \u751f\u6210\u5931\u8d25\uff0c\u672c\u6b21\u672a\u6d88\u8017\u989d\u5ea6';
             if (status === 'rejected') return String(task && task.message || '').trim() || '\u0041\u0049 \u6682\u4e0d\u53ef\u7528\uff0c\u672c\u6b21\u672a\u6d88\u8017\u989d\u5ea6';
@@ -308,6 +345,7 @@
                     setTimeout(() => this.ctx.loadMessages(state.activeConversationId), 350);
                 }
             } else {
+                this.removeSuggestionBar();
                 this.showThinkingPlaceholder(state.aiAssistant.activeTask);
                 if (!(options && options.skipPoll)) this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(state.aiAssistant.activeTask));
             }
@@ -379,11 +417,87 @@
             if (activeTask && String(item.sender_username || '').trim().toLowerCase() === BOT_USERNAME && Number(item.conversation_id || 0) === Number(activeTask.conversation_id || 0)) {
                 this.clearThinkingPlaceholder(activeTask.task_id);
                 this.setActiveTask(Object.assign({}, activeTask, { status: 'succeeded', message: 'AI 已回复' }), { skipPoll: true });
+                setTimeout(() => this.renderSuggestions(), 0);
             }
         },
 
         getRootElement() {
             return this.ctx && this.ctx.elements && this.ctx.elements.root ? this.ctx.elements.root : document.getElementById('ak-im-root');
+        },
+
+        removeSuggestionBar() {
+            const root = this.getRootElement();
+            const bar = root ? root.querySelector('.ak-im-ai-suggestions') : null;
+            if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+        },
+
+        normalizeSuggestions(items) {
+            const result = [];
+            const seen = {};
+            (Array.isArray(items) ? items : []).forEach(function(item) {
+                const text = String(item || '').trim();
+                const key = text.toLowerCase();
+                if (!text || seen[key]) return;
+                seen[key] = true;
+                result.push(text.length > 28 ? text.slice(0, 28) : text);
+            });
+            return result.slice(0, 3);
+        },
+
+        getLatestReplySuggestions() {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !this.isAIConversation() || !Array.isArray(state.activeMessages)) return [];
+            const activeTask = state.aiAssistant && state.aiAssistant.activeTask && Number(state.aiAssistant.activeTask.conversation_id || 0) === Number(state.activeConversationId || 0)
+                ? state.aiAssistant.activeTask
+                : null;
+            if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) return [];
+            for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
+                const item = state.activeMessages[index];
+                if (!item || item.__akAIPlaceholder) continue;
+                const sender = String(item.sender_username || '').trim().toLowerCase();
+                if (sender === BOT_USERNAME) return this.normalizeSuggestions(item.ai_suggestions);
+                if (sender) return [];
+            }
+            return [];
+        },
+
+        applySuggestion(text) {
+            const value = String(text || '').trim();
+            if (!value) return;
+            if (this.ctx && typeof this.ctx.setComposerText === 'function') {
+                this.ctx.setComposerText(value);
+            }
+        },
+
+        renderSuggestions() {
+            const root = this.getRootElement();
+            if (!root) return;
+            const suggestions = this.getLatestReplySuggestions();
+            const composer = root.querySelector('.ak-im-composer');
+            if (!composer || !suggestions.length) {
+                this.removeSuggestionBar();
+                return;
+            }
+            let bar = root.querySelector('.ak-im-ai-suggestions');
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.className = 'ak-im-ai-suggestions';
+            }
+            const nextKey = suggestions.join('\n');
+            if (bar.dataset.suggestionsKey !== nextKey) {
+                bar.dataset.suggestionsKey = nextKey;
+                bar.innerHTML = '<span class="ak-im-ai-suggestion-label">可以继续问</span>' + suggestions.map((item) => {
+                    return '<button type="button" class="ak-im-ai-suggestion-chip" data-ak-ai-suggestion="' + this.escapeHtml(item) + '">' + this.escapeHtml(item) + '</button>';
+                }).join('');
+            }
+            if (bar.parentNode !== composer.parentNode || bar.nextSibling !== composer) {
+                composer.parentNode.insertBefore(bar, composer);
+            }
+            bar.querySelectorAll('[data-ak-ai-suggestion]').forEach((button) => {
+                if (button.dataset.bound === '1') return;
+                button.dataset.bound = '1';
+                button.addEventListener('click', () => this.applySuggestion(button.getAttribute('data-ak-ai-suggestion') || button.textContent || ''));
+            });
         },
 
         closeRedeemDialog() {
@@ -478,6 +592,7 @@
             const elements = this.ctx && this.ctx.elements ? this.ctx.elements : {};
             const statusLine = elements && elements.statusLine;
             if (!statusLine || !state || !this.isAIConversation()) {
+                this.removeSuggestionBar();
                 if (statusLine) {
                     statusLine.classList.remove('ak-im-ai-status', 'is-error');
                     if (statusLine.dataset.akAiStatus === '1') {
@@ -551,6 +666,7 @@
                 redeemBtn.dataset.bound = '1';
                 redeemBtn.addEventListener('click', () => this.showRedeemDialog());
             }
+            this.renderSuggestions();
         }
     };
 

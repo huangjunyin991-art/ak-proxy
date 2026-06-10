@@ -27,6 +27,15 @@ const (
 	taskStatusSucceeded = "succeeded"
 	taskStatusFailed    = "failed"
 
+	taskStageQueued      = "queued"
+	taskStagePreparing   = "preparing"
+	taskStageContext     = "context"
+	taskStageGenerating  = "generating"
+	taskStageSuggestions = "suggestions"
+	taskStageWriting     = "writing"
+	taskStageFinished    = "finished"
+	taskStageFailed      = "failed"
+
 	runtimeConfigKey               = "runtime"
 	defaultContextSummaryMinCount  = 70
 	defaultContextRecentKeepCount  = 30
@@ -42,6 +51,8 @@ const (
 
 	continueReplyHint = "内容可能还没说完，你可以回复“继续”让我接着说。"
 )
+
+var defaultReplySuggestions = []string{"再详细一点", "帮我总结要点", "给我举个例子"}
 
 type Service struct {
 	db          *pgxpool.Pool
@@ -124,11 +135,23 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			queue_priority INTEGER NOT NULL DEFAULT 0,
 			request_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
 			response_message_id BIGINT NOT NULL DEFAULT 0,
+			stage TEXT NOT NULL DEFAULT 'queued',
+			stage_text TEXT NOT NULL DEFAULT '',
 			error_code TEXT NOT NULL DEFAULT '',
 			error_message TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			started_at TIMESTAMP,
 			finished_at TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'queued'`,
+		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS stage_text TEXT NOT NULL DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS im_ai_reply_suggestion (
+			message_id BIGINT PRIMARY KEY REFERENCES im_message(id) ON DELETE CASCADE,
+			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
+			task_id TEXT NOT NULL DEFAULT '',
+			suggestions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS im_ai_context_summary (
@@ -423,14 +446,15 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 		"trigger_message_id": triggerMessageID,
 	})
 	var createdAt time.Time
+	stageText := taskStageText(taskStageQueued)
 	err = s.db.QueryRow(ctx, `
-		INSERT INTO im_ai_task (task_id, conversation_id, owner_username, trigger_message_id, status, feature_key, queue_priority, request_payload, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), NOW())
-		RETURNING created_at`, taskID, conversationID, ownerUsername, triggerMessageID, taskStatusQueued, entitlement.FeatureAIChat, precheck.Snapshot.Priority, string(payload)).Scan(&createdAt)
+		INSERT INTO im_ai_task (task_id, conversation_id, owner_username, trigger_message_id, status, feature_key, queue_priority, request_payload, stage, stage_text, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, NOW(), NOW())
+		RETURNING created_at`, taskID, conversationID, ownerUsername, triggerMessageID, taskStatusQueued, entitlement.FeatureAIChat, precheck.Snapshot.Priority, string(payload), taskStageQueued, stageText).Scan(&createdAt)
 	if err != nil {
 		return Task{}, err
 	}
-	task := Task{TaskID: taskID, ConversationID: conversationID, OwnerUsername: ownerUsername, Status: taskStatusQueued, CreatedAt: createdAt}
+	task := Task{TaskID: taskID, ConversationID: conversationID, OwnerUsername: ownerUsername, Status: taskStatusQueued, Stage: taskStageQueued, StageText: stageText, CreatedAt: createdAt}
 	go s.processTask(taskID)
 	return task, nil
 }
@@ -462,6 +486,50 @@ func terminalWriteContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), taskTerminalWriteTimeout)
 }
 
+func taskStageText(stage string) string {
+	switch strings.TrimSpace(stage) {
+	case taskStageQueued:
+		return "小A已收到，正在安排处理"
+	case taskStagePreparing:
+		return "正在准备这次回复"
+	case taskStageContext:
+		return "正在整理最近聊天上下文"
+	case taskStageGenerating:
+		return "正在生成回复"
+	case taskStageSuggestions:
+		return "正在准备备选追问"
+	case taskStageWriting:
+		return "正在发送回复"
+	case taskStageFinished:
+		return "回复已完成"
+	case taskStageFailed:
+		return "处理失败，本次未消耗额度"
+	default:
+		return "请稍等，让我想想..."
+	}
+}
+
+func (s *Service) setTaskStage(ctx context.Context, taskID string, stage string, text string) {
+	if s == nil || s.db == nil || strings.TrimSpace(taskID) == "" {
+		return
+	}
+	stage = strings.TrimSpace(stage)
+	if stage == "" {
+		return
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = taskStageText(stage)
+	}
+	_, err := s.db.Exec(ctx, `
+		UPDATE im_ai_task
+		SET stage = $2, stage_text = $3, updated_at = NOW()
+		WHERE task_id = $1 AND status IN ($4, $5)`, strings.TrimSpace(taskID), stage, truncate(text, 200), taskStatusQueued, taskStatusRunning)
+	if err != nil {
+		log.Printf("update AI task stage failed: task_id=%s stage=%s err=%v", taskID, stage, err)
+	}
+}
+
 func (s *Service) processTask(taskID string) {
 	s.slots <- struct{}{}
 	var conversationID int64
@@ -478,10 +546,10 @@ func (s *Service) processTask(taskID string) {
 	var triggerMessageID int64
 	err := s.db.QueryRow(ctx, `
 		UPDATE im_ai_task
-		SET status = $2, started_at = NOW(), updated_at = NOW()
-		WHERE task_id = $1 AND status = $3
+		SET status = $2, stage = $3, stage_text = $4, started_at = NOW(), updated_at = NOW()
+		WHERE task_id = $1 AND status = $5
 		RETURNING conversation_id, owner_username, trigger_message_id`,
-		taskID, taskStatusRunning, taskStatusQueued).Scan(&conversationID, &ownerUsername, &triggerMessageID)
+		taskID, taskStatusRunning, taskStagePreparing, taskStageText(taskStagePreparing), taskStatusQueued).Scan(&conversationID, &ownerUsername, &triggerMessageID)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			log.Printf("start AI task failed: task_id=%s err=%v", taskID, err)
@@ -494,11 +562,13 @@ func (s *Service) processTask(taskID string) {
 		s.failTask(ctx, taskID, conversationID, "config_error", err.Error())
 		return
 	}
+	s.setTaskStage(ctx, taskID, taskStageContext, "")
 	messages, err := s.buildContextMessages(ctx, ownerUsername, conversationID, triggerMessageID, cfg)
 	if err != nil {
 		s.failTask(ctx, taskID, conversationID, "context_error", err.Error())
 		return
 	}
+	s.setTaskStage(ctx, taskID, taskStageGenerating, "")
 	resp, err := s.provider.Chat(ctx, provider.ChatRequest{
 		Messages:        messages,
 		MaxOutputTokens: cfg.ChatMaxOutputTokens,
@@ -515,8 +585,11 @@ func (s *Service) processTask(taskID string) {
 		return
 	}
 	content := appendContinueHintIfLikelyTruncated(resp.Content, resp, cfg.ChatMaxOutputTokens)
+	s.setTaskStage(ctx, taskID, taskStageSuggestions, "")
+	suggestions := s.generateReplySuggestions(ctx, messages, content)
+	s.setTaskStage(ctx, taskID, taskStageWriting, "")
 	messageCtx, messageCancel := terminalWriteContext()
-	message, err := s.sink.InsertAITextMessage(messageCtx, conversationID, bot.Username, content)
+	message, err := s.insertAIReplyMessage(messageCtx, conversationID, bot.Username, content, suggestions)
 	messageCancel()
 	if err != nil {
 		s.failTask(ctx, taskID, conversationID, "message_write_error", err.Error())
@@ -559,8 +632,8 @@ func (s *Service) markTaskSucceeded(taskID string, messageID int64, model string
 		VALUES ($1, $2, 'succeeded', $3, NOW())`, taskID, model, latencyMS)
 	tag, err := s.db.Exec(writeCtx, `
 		UPDATE im_ai_task
-		SET status = $2, response_message_id = $3, finished_at = NOW(), updated_at = NOW()
-		WHERE task_id = $1 AND status = $4`, taskID, taskStatusSucceeded, messageID, taskStatusRunning)
+		SET status = $2, response_message_id = $3, stage = $4, stage_text = $5, finished_at = NOW(), updated_at = NOW()
+		WHERE task_id = $1 AND status = $6`, taskID, taskStatusSucceeded, messageID, taskStageFinished, taskStageText(taskStageFinished), taskStatusRunning)
 	if err != nil {
 		log.Printf("mark AI task succeeded failed: task_id=%s err=%v", taskID, err)
 		return
@@ -570,13 +643,112 @@ func (s *Service) markTaskSucceeded(taskID string, messageID int64, model string
 	}
 }
 
+func (s *Service) insertAIReplyMessage(ctx context.Context, conversationID int64, senderUsername string, content string, suggestions []string) (MessageRef, error) {
+	if s == nil || s.sink == nil {
+		return MessageRef{}, errors.New("AI message sink is not configured")
+	}
+	normalizedSuggestions := normalizeReplySuggestions(suggestions)
+	if suggestionSink, ok := s.sink.(SuggestionMessageSink); ok {
+		return suggestionSink.InsertAITextMessageWithSuggestions(ctx, conversationID, senderUsername, content, normalizedSuggestions)
+	}
+	message, err := s.sink.InsertAITextMessage(ctx, conversationID, senderUsername, content)
+	if err != nil {
+		return MessageRef{}, err
+	}
+	message.Suggestions = normalizedSuggestions
+	return message, nil
+}
+
+func (s *Service) generateReplySuggestions(ctx context.Context, messages []provider.Message, answer string) []string {
+	if s == nil || s.provider == nil || strings.TrimSpace(answer) == "" {
+		return append([]string{}, defaultReplySuggestions...)
+	}
+	prompt := "请基于小A刚才的回复，生成3个用户可能继续点击的短追问。要求：每条6到18个中文字符，自然口语化，不要重复，不要编号，只输出JSON字符串数组。"
+	userContent := "小A刚才的回复：\n" + truncate(answer, 1800)
+	if len(messages) > 0 {
+		last := messages[len(messages)-1]
+		userContent = "用户刚才的问题：\n" + truncate(last.Content, 700) + "\n\n" + userContent
+	}
+	suggestionCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	resp, err := s.provider.Chat(suggestionCtx, provider.ChatRequest{
+		Messages: []provider.Message{
+			{Role: "system", Content: prompt},
+			{Role: "user", Content: userContent},
+		},
+		MaxOutputTokens: 120,
+		Temperature:     0.4,
+	})
+	if err != nil {
+		log.Printf("AI reply suggestions provider failed: err=%v", err)
+		return append([]string{}, defaultReplySuggestions...)
+	}
+	suggestions := parseReplySuggestions(resp.Content)
+	if len(suggestions) == 0 {
+		return append([]string{}, defaultReplySuggestions...)
+	}
+	return suggestions
+}
+
+func parseReplySuggestions(raw string) []string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil
+	}
+	var parsed []string
+	if err := json.Unmarshal([]byte(text), &parsed); err == nil {
+		return normalizeReplySuggestions(parsed)
+	}
+	start := strings.Index(text, "[")
+	end := strings.LastIndex(text, "]")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(text[start:end+1]), &parsed); err == nil {
+			return normalizeReplySuggestions(parsed)
+		}
+	}
+	lines := strings.FieldsFunc(text, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == '；' || r == ';'
+	})
+	return normalizeReplySuggestions(lines)
+}
+
+func normalizeReplySuggestions(items []string) []string {
+	result := make([]string, 0, 3)
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		text := strings.TrimSpace(item)
+		text = strings.Trim(text, "-* \t\r\n\"'`，。,.、")
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		runes := []rune(text)
+		if len(runes) > 24 {
+			text = string(runes[:24])
+		}
+		key := strings.ToLower(text)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, text)
+		if len(result) >= 3 {
+			break
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 func (s *Service) failTask(ctx context.Context, taskID string, conversationID int64, code string, message string) {
 	writeCtx, writeCancel := terminalWriteContext()
 	defer writeCancel()
 	tag, err := s.db.Exec(writeCtx, `
 		UPDATE im_ai_task
-		SET status = $2, error_code = $3, error_message = $4, finished_at = NOW(), updated_at = NOW()
-		WHERE task_id = $1 AND status IN ($5, $6)`, taskID, taskStatusFailed, strings.TrimSpace(code), truncate(message, 500), taskStatusQueued, taskStatusRunning)
+		SET status = $2, stage = $3, stage_text = $4, error_code = $5, error_message = $6, finished_at = NOW(), updated_at = NOW()
+		WHERE task_id = $1 AND status IN ($7, $8)`, taskID, taskStatusFailed, taskStageFailed, taskStageText(taskStageFailed), strings.TrimSpace(code), truncate(message, 500), taskStatusQueued, taskStatusRunning)
 	if err != nil {
 		log.Printf("mark AI task failed failed: task_id=%s err=%v", taskID, err)
 		return
@@ -842,8 +1014,10 @@ func buildSummaryPrompt(previousSummary string, source []summaryMessage) string 
 
 func (s *Service) Task(ctx context.Context, taskID string, username string) (Task, error) {
 	var item Task
+	var suggestionsRaw string
 	err := s.db.QueryRow(ctx, `
-		SELECT t.task_id, t.conversation_id, t.owner_username, t.status, t.error_code, t.error_message, t.created_at, t.started_at, t.finished_at,
+		SELECT t.task_id, t.conversation_id, t.owner_username, t.status, COALESCE(t.stage, ''), COALESCE(t.stage_text, ''), t.error_code, t.error_message, t.created_at, t.started_at, t.finished_at,
+		       COALESCE(rs.suggestions_json::text, '[]') AS suggestions_json,
 		       CASE WHEN t.status = $3 THEN (
 		           SELECT COUNT(*)
 		           FROM im_ai_task q
@@ -854,18 +1028,28 @@ func (s *Service) Task(ctx context.Context, taskID string, username string) (Tas
 		             )
 		       ) ELSE 0 END AS queue_position
 		FROM im_ai_task t
+		LEFT JOIN im_ai_reply_suggestion rs ON rs.message_id = t.response_message_id
 		WHERE t.task_id = $1 AND t.owner_username = $2`, strings.TrimSpace(taskID), normalizeUsername(username), taskStatusQueued).
-		Scan(&item.TaskID, &item.ConversationID, &item.OwnerUsername, &item.Status, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.QueuePosition)
+		Scan(&item.TaskID, &item.ConversationID, &item.OwnerUsername, &item.Status, &item.Stage, &item.StageText, &item.ErrorCode, &item.ErrorMessage, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &suggestionsRaw, &item.QueuePosition)
 	if err != nil {
 		return Task{}, err
 	}
+	item.Suggestions = parseReplySuggestions(suggestionsRaw)
 	if isStaleRunningTask(item, time.Now()) {
 		s.failTask(ctx, item.TaskID, item.ConversationID, "task_timeout", "AI task timed out")
 		item.Status = taskStatusFailed
+		item.Stage = taskStageFailed
+		item.StageText = taskStageText(taskStageFailed)
 		item.ErrorCode = "task_timeout"
 		item.ErrorMessage = "AI task timed out"
 		now := time.Now()
 		item.FinishedAt = &now
+	}
+	if strings.TrimSpace(item.Stage) == "" {
+		item.Stage = item.Status
+	}
+	if strings.TrimSpace(item.StageText) == "" {
+		item.StageText = taskStageText(item.Stage)
 	}
 	item.Message = taskStatusMessage(item)
 	return item, nil
@@ -876,6 +1060,9 @@ func isStaleRunningTask(item Task, now time.Time) bool {
 }
 
 func taskStatusMessage(item Task) string {
+	if strings.TrimSpace(item.StageText) != "" && (item.Status == taskStatusQueued || item.Status == taskStatusRunning) {
+		return strings.TrimSpace(item.StageText)
+	}
 	switch item.Status {
 	case taskStatusQueued:
 		return "当前请求较多，已为你排队。"
