@@ -5899,6 +5899,10 @@
         renderProfileView();
         renderProfileSubpage();
         syncComposerState();
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.reportActiveConversationState === 'function') {
+            messageManageModule.reportActiveConversationState(false);
+        }
         const aiManageModule = getAIManageModule();
         if (aiManageModule && typeof aiManageModule.renderStatus === 'function') aiManageModule.renderStatus();
         syncInputHeight();

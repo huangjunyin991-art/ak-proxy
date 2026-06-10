@@ -2,10 +2,13 @@
     'use strict';
 
     const IMAGE_PREVIEW_REFRESH_DELAY_MS = 3500;
+    const ACTIVE_CONVERSATION_REFRESH_MS = 25000;
 
     const messageManageModule = {
         ctx: null,
         imagePreviewRefreshTimer: null,
+        activeConversationReportKey: '',
+        activeConversationRefreshTimer: null,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -315,6 +318,60 @@
         shouldAutoMarkRead(conversationId) {
             const state = this.getState();
             return !!(state && state.open && state.view === 'chat' && Number(state.activeConversationId || 0) === Number(conversationId || 0) && document.visibilityState !== 'hidden');
+        },
+
+        getActiveConversationVisibility() {
+            const state = this.getState();
+            const conversationId = Number(state && state.activeConversationId || 0);
+            const visible = !!(state && state.open && state.view === 'chat' && conversationId > 0 && document.visibilityState !== 'hidden');
+            return {
+                conversationId: visible ? conversationId : 0,
+                visible: visible
+            };
+        },
+
+        reportActiveConversationState(force) {
+            const state = this.getState();
+            const ws = state && state.ws ? state.ws : null;
+            if (!state || !ws || ws.readyState !== WebSocket.OPEN) {
+                this.activeConversationReportKey = '';
+                this.clearActiveConversationRefresh();
+                return false;
+            }
+            const visibility = this.getActiveConversationVisibility();
+            this.scheduleActiveConversationRefresh(visibility.visible);
+            const key = String(visibility.visible ? visibility.conversationId : 0) + ':' + (visibility.visible ? '1' : '0');
+            if (!force && key === this.activeConversationReportKey) return false;
+            this.activeConversationReportKey = key;
+            try {
+                ws.send(JSON.stringify({
+                    type: 'im.conversation.active',
+                    payload: {
+                        conversation_id: visibility.conversationId,
+                        visible: visibility.visible
+                    }
+                }));
+                return true;
+            } catch (e) {
+                this.activeConversationReportKey = '';
+                return false;
+            }
+        },
+
+        clearActiveConversationRefresh() {
+            if (!this.activeConversationRefreshTimer) return;
+            clearTimeout(this.activeConversationRefreshTimer);
+            this.activeConversationRefreshTimer = null;
+        },
+
+        scheduleActiveConversationRefresh(visible) {
+            this.clearActiveConversationRefresh();
+            if (!visible) return;
+            const self = this;
+            this.activeConversationRefreshTimer = setTimeout(function() {
+                self.activeConversationRefreshTimer = null;
+                self.reportActiveConversationState(true);
+            }, ACTIVE_CONVERSATION_REFRESH_MS);
         },
 
         canRecallMessage(item) {
@@ -1574,6 +1631,7 @@
                 self.updateWebSocketDebug(state, 'open', { expectedUsername: expectedUsername });
                 try {
                     const cur = self.getState();
+                    self.reportActiveConversationState(true);
                     if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {
                         self.markRead(cur.activeConversationId, { force: true });
                     }
@@ -1689,6 +1747,7 @@
                     // WS 建立/重连后，若当前身处 chat 视图，补发一次强已读，避免由于进入会话时 WS 未 OPEN 导致首次丢失
                     try {
                         const cur = self.getState();
+                        self.reportActiveConversationState(true);
                         if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {
                             self.markRead(cur.activeConversationId, { force: true });
                         }
@@ -1742,6 +1801,7 @@
             const self = this;
             try {
                 document.addEventListener('visibilitychange', function() {
+                    self.reportActiveConversationState(true);
                     if (document.visibilityState !== 'visible') return;
                     const cur = self.getState();
                     if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {

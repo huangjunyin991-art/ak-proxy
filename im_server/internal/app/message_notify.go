@@ -17,6 +17,8 @@ import (
 	"im_server/internal/config"
 )
 
+const activeConversationNotificationSuppressTTL = 45 * time.Second
+
 type MessageNotifyPublisher struct {
 	enabled    bool
 	webhookURL string
@@ -194,6 +196,7 @@ func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem, member
 	sender := strings.ToLower(strings.TrimSpace(item.SenderUsername))
 	recipients := make([]string, 0, len(members))
 	seen := map[string]struct{}{}
+	now := time.Now()
 	for _, member := range members {
 		if member.LeftAt != nil {
 			continue
@@ -203,6 +206,9 @@ func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem, member
 			continue
 		}
 		if _, ok := seen[username]; ok {
+			continue
+		}
+		if a.hub != nil && a.hub.userViewingConversation(username, item.ConversationID, now, activeConversationNotificationSuppressTTL) {
 			continue
 		}
 		seen[username] = struct{}{}

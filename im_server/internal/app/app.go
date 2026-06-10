@@ -79,11 +79,15 @@ type Hub struct {
 }
 
 type HubConn struct {
-	conn      *websocket.Conn
-	mu        sync.Mutex
-	outbound  chan map[string]any
-	done      chan struct{}
-	closeOnce sync.Once
+	conn                 *websocket.Conn
+	mu                   sync.Mutex
+	outbound             chan map[string]any
+	done                 chan struct{}
+	closeOnce            sync.Once
+	activeMu             sync.RWMutex
+	activeConversationID int64
+	activeVisible        bool
+	activeUpdatedAt      time.Time
 }
 
 type BootstrapResponse struct {
@@ -244,6 +248,11 @@ type wsEnvelope struct {
 type wsReadPayload struct {
 	ConversationID int64 `json:"conversation_id"`
 	SeqNo          int64 `json:"seq_no"`
+}
+
+type wsActiveConversationPayload struct {
+	ConversationID int64 `json:"conversation_id"`
+	Visible        bool  `json:"visible"`
 }
 
 type wsReadProgressUpdate struct {
@@ -2699,6 +2708,16 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 		switch env.Type {
 		case "im.presence.ping":
 			_ = client.WriteJSON(map[string]any{"type": "im.presence.pong", "payload": map[string]any{"ts": time.Now().Unix()}})
+		case "im.conversation.active":
+			var payload wsActiveConversationPayload
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				continue
+			}
+			if payload.Visible && payload.ConversationID > 0 && !a.ensureConversationMember(r.Context(), fmt.Sprintf("%d", payload.ConversationID), username) {
+				payload.Visible = false
+				payload.ConversationID = 0
+			}
+			client.SetActiveConversation(payload.ConversationID, payload.Visible)
 		case "im.message.send":
 			var payload sendMessageRequest
 			if err := json.Unmarshal(env.Payload, &payload); err != nil {
@@ -2831,6 +2850,32 @@ func (c *HubConn) Close() {
 	})
 }
 
+func (c *HubConn) SetActiveConversation(conversationID int64, visible bool) {
+	c.activeMu.Lock()
+	defer c.activeMu.Unlock()
+	if !visible || conversationID <= 0 {
+		c.activeConversationID = 0
+		c.activeVisible = false
+		c.activeUpdatedAt = time.Now()
+		return
+	}
+	c.activeConversationID = conversationID
+	c.activeVisible = true
+	c.activeUpdatedAt = time.Now()
+}
+
+func (c *HubConn) IsViewingConversation(conversationID int64, now time.Time, ttl time.Duration) bool {
+	if c == nil || conversationID <= 0 {
+		return false
+	}
+	c.activeMu.RLock()
+	defer c.activeMu.RUnlock()
+	if !c.activeVisible || c.activeConversationID != conversationID || c.activeUpdatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(c.activeUpdatedAt) <= ttl
+}
+
 func (c *HubConn) writePump() {
 	for {
 		select {
@@ -2846,6 +2891,10 @@ func (c *HubConn) writePump() {
 }
 
 func (h *Hub) add(username string, conn *HubConn) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" || conn == nil {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.conns[username] == nil {
@@ -2855,6 +2904,10 @@ func (h *Hub) add(username string, conn *HubConn) {
 }
 
 func (h *Hub) remove(username string, conn *HubConn) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" || conn == nil {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.conns[username] == nil {
@@ -2867,6 +2920,10 @@ func (h *Hub) remove(username string, conn *HubConn) {
 }
 
 func (h *Hub) send(username string, payload map[string]any) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" {
+		return
+	}
 	h.mu.RLock()
 	conns := make([]*HubConn, 0, len(h.conns[username]))
 	for conn := range h.conns[username] {
@@ -2879,6 +2936,25 @@ func (h *Hub) send(username string, payload map[string]any) {
 			conn.Close()
 		}
 	}
+}
+
+func (h *Hub) userViewingConversation(username string, conversationID int64, now time.Time, ttl time.Duration) bool {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if h == nil || normalizedUsername == "" || conversationID <= 0 {
+		return false
+	}
+	h.mu.RLock()
+	conns := make([]*HubConn, 0, len(h.conns[normalizedUsername]))
+	for conn := range h.conns[normalizedUsername] {
+		conns = append(conns, conn)
+	}
+	h.mu.RUnlock()
+	for _, conn := range conns {
+		if conn.IsViewingConversation(conversationID, now, ttl) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
