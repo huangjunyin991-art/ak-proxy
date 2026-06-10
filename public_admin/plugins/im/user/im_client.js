@@ -708,6 +708,7 @@
         }).then(function(avatarRuntimeModule) {
             if (avatarRuntimeModule) render();
         });
+        initAIMarkdownModule();
         initMessageManageModule();
         initMessageNavigationModule();
         initMentionManageModule();
@@ -2026,6 +2027,22 @@
         return aiManageModule;
     }
 
+    function getAIMarkdownModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const aiMarkdownModule = modules.aiMarkdown;
+        if (!aiMarkdownModule || typeof aiMarkdownModule.buildMessageBubbleMarkup !== 'function') return null;
+        return aiMarkdownModule;
+    }
+
+    function initAIMarkdownModule() {
+        const aiMarkdownModule = getAIMarkdownModule();
+        if (!aiMarkdownModule || typeof aiMarkdownModule.init !== 'function') return;
+        aiMarkdownModule.init({
+            escapeHtml: escapeHtml
+        });
+    }
+
     function getEmojiModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -2777,6 +2794,11 @@
             const emojiMarkup = emojiModule.buildMessageBubbleMarkup(item);
             if (emojiMarkup) return emojiMarkup;
         }
+        const aiMarkdownModule = getAIMarkdownModule();
+        if (aiMarkdownModule && typeof aiMarkdownModule.buildMessageBubbleMarkup === 'function') {
+            const aiMarkdownMarkup = aiMarkdownModule.buildMessageBubbleMarkup(item);
+            if (aiMarkdownMarkup) return aiMarkdownMarkup;
+        }
         return escapeHtml(item && (item.content || item.content_preview || '') || '');
     }
 
@@ -2815,6 +2837,11 @@
         if (emojiModule && typeof emojiModule.getMessageBubbleClassName === 'function') {
             const emojiClassName = emojiModule.getMessageBubbleClassName(item);
             if (emojiClassName) return emojiClassName;
+        }
+        const aiMarkdownModule = getAIMarkdownModule();
+        if (aiMarkdownModule && typeof aiMarkdownModule.getMessageBubbleClassName === 'function') {
+            const aiMarkdownClassName = aiMarkdownModule.getMessageBubbleClassName(item);
+            if (aiMarkdownClassName) return aiMarkdownClassName;
         }
         return '';
     }

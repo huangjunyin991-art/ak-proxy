@@ -30,6 +30,21 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_session_manage.js`
         },
         {
+            selector: 'script[data-ak-im-vendor-marked="1"]',
+            datasetKey: 'akImVendorMarked',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/ai/vendors/marked-18.0.5.umd.js`
+        },
+        {
+            selector: 'script[data-ak-im-vendor-dompurify="1"]',
+            datasetKey: 'akImVendorDompurify',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/ai/vendors/dompurify-3.4.9.min.js`
+        },
+        {
+            selector: 'script[data-ak-im-user-plugin-ai-markdown="1"]',
+            datasetKey: 'akImUserPluginAiMarkdown',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/ai/im_ai_markdown_render.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-message-manage="1"]',
             datasetKey: 'akImUserPluginMessageManage',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_message_manage.js`

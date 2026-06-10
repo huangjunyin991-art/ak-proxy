@@ -5,6 +5,7 @@
     const STYLE_ID = 'ak-im-ai-manage-style';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
+    const THINKING_TEXT = '\u8bf7\u7a0d\u7b49\uff0c\u8ba9\u6211\u60f3\u60f3...';
 
     const aiManageModule = {
         ctx: null,
@@ -61,7 +62,23 @@
                 '#ak-im-root .ak-im-ai-redeem-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:14px}',
                 '#ak-im-root .ak-im-ai-redeem-btn{height:36px;border:0;border-radius:10px;padding:0 13px;background:#eef2f7;color:#334155;font-weight:800;cursor:pointer}',
                 '#ak-im-root .ak-im-ai-redeem-btn.primary{background:#2563eb;color:#fff}',
-                '#ak-im-root .ak-im-ai-redeem-btn:disabled{opacity:.55;cursor:not-allowed}'
+                '#ak-im-root .ak-im-ai-redeem-btn:disabled{opacity:.55;cursor:not-allowed}',
+                '#ak-im-root .ak-im-bubble.ak-im-bubble-ai{white-space:normal;max-width:min(82vw,460px)}',
+                '#ak-im-root .ak-im-ai-markdown{display:block;font-size:15px;line-height:1.62;color:inherit;word-break:break-word;overflow-wrap:anywhere}',
+                '#ak-im-root .ak-im-ai-markdown p{margin:0 0 8px}',
+                '#ak-im-root .ak-im-ai-markdown p:last-child{margin-bottom:0}',
+                '#ak-im-root .ak-im-ai-markdown h1,#ak-im-root .ak-im-ai-markdown h2,#ak-im-root .ak-im-ai-markdown h3{margin:2px 0 8px;font-weight:800;line-height:1.35}',
+                '#ak-im-root .ak-im-ai-markdown h1{font-size:17px}#ak-im-root .ak-im-ai-markdown h2{font-size:16px}#ak-im-root .ak-im-ai-markdown h3{font-size:15px}',
+                '#ak-im-root .ak-im-ai-markdown ul,#ak-im-root .ak-im-ai-markdown ol{margin:0 0 8px 18px;padding:0}',
+                '#ak-im-root .ak-im-ai-markdown li{margin:3px 0;padding-left:2px}',
+                '#ak-im-root .ak-im-ai-markdown blockquote{margin:0 0 8px;padding:2px 0 2px 10px;border-left:3px solid rgba(37,99,235,.32);color:#475569}',
+                '#ak-im-root .ak-im-ai-markdown code{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;font-size:.92em;background:rgba(15,23,42,.08);border-radius:5px;padding:1px 4px}',
+                '#ak-im-root .ak-im-ai-markdown pre{margin:0 0 9px;max-width:100%;overflow:auto;border-radius:8px;background:#0f172a;color:#e5e7eb;padding:10px 11px;white-space:pre}',
+                '#ak-im-root .ak-im-ai-markdown pre code{background:transparent;color:inherit;padding:0;border-radius:0;font-size:12px;line-height:1.55}',
+                '#ak-im-root .ak-im-ai-markdown a{color:#2563eb;text-decoration:none;border-bottom:1px solid rgba(37,99,235,.28)}',
+                '#ak-im-root .ak-im-ai-thinking{display:inline-flex;align-items:center;gap:7px;color:#475569}',
+                '#ak-im-root .ak-im-ai-thinking:before{content:"";width:6px;height:6px;border-radius:999px;background:#2563eb;box-shadow:10px 0 0 rgba(37,99,235,.45),20px 0 0 rgba(37,99,235,.22);animation:ak-im-ai-thinking 1.05s infinite ease-in-out}',
+                '@keyframes ak-im-ai-thinking{0%,100%{opacity:.45;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}'
             ].join('\n');
             (document.head || document.documentElement).appendChild(style);
         },
@@ -192,6 +209,50 @@
             return peerUsername === BOT_USERNAME;
         },
 
+        getThinkingTempId(taskId) {
+            const normalizedTaskId = String(taskId || '').trim();
+            return normalizedTaskId ? ('ak-ai-thinking-' + normalizedTaskId) : '';
+        },
+
+        showThinkingPlaceholder(task) {
+            const state = this.ctx && this.ctx.state;
+            const conversationId = Number(task && task.conversation_id || state && state.activeConversationId || 0);
+            const taskId = String(task && task.task_id || '').trim();
+            const tempId = this.getThinkingTempId(taskId);
+            if (!this.ctx || !state || !conversationId || !tempId || typeof this.ctx.insertLocalMessage !== 'function') return;
+            const sentAt = typeof this.ctx.createLocalSentAt === 'function' ? this.ctx.createLocalSentAt() : new Date().toISOString();
+            this.ctx.insertLocalMessage({
+                id: 0,
+                conversation_id: conversationId,
+                sender_username: BOT_USERNAME,
+                sender_display_name: '\u5c0f\u0041',
+                seq_no: 0,
+                message_type: 'text',
+                content: THINKING_TEXT,
+                content_preview: THINKING_TEXT,
+                status: 'sending',
+                sent_at: sentAt,
+                client_temp_id: tempId,
+                avatar_kind: 'generated',
+                avatar_style: 'thumbs',
+                avatar_seed: 'ak-ai-assistant',
+                __akTempId: tempId,
+                __akLocalStatus: 'ai-thinking',
+                __akAIPlaceholder: true,
+                __akAITaskId: taskId
+            });
+            if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+            if (typeof this.ctx.forceScrollToBottom === 'function') this.ctx.forceScrollToBottom(500);
+        },
+
+        clearThinkingPlaceholder(taskId) {
+            const tempId = this.getThinkingTempId(taskId);
+            if (!tempId || !this.ctx || typeof this.ctx.removeLocalMessage !== 'function') return false;
+            const removed = !!this.ctx.removeLocalMessage(tempId);
+            if (removed && typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+            return removed;
+        },
+
         clearTaskPoll() {
             if (!this.taskPollTimer) return;
             clearTimeout(this.taskPollTimer);
@@ -205,15 +266,11 @@
 
         taskStatusText(task) {
             const status = String(task && task.status || '').trim().toLowerCase();
-            if (status === 'queued') {
-                const position = Number(task && task.queue_position || 0);
-                return position > 0 ? ('AI 请求较多，排队中 · 前方 ' + position + ' 个') : 'AI 请求较多，已为你排队';
-            }
-            if (status === 'running') return 'AI 正在思考...';
-            if (status === 'succeeded') return 'AI 已回复';
-            if (status === 'failed') return String(task && task.message || '').trim() || 'AI 生成失败，本次未消耗额度';
-            if (status === 'rejected') return String(task && task.message || '').trim() || 'AI 暂不可用，本次未消耗额度';
-            return String(task && task.message || '').trim() || 'AI 正在处理...';
+            if (status === 'queued' || status === 'running') return THINKING_TEXT;
+            if (status === 'succeeded') return '\u0041\u0049 \u5df2\u56de\u590d';
+            if (status === 'failed') return String(task && task.message || '').trim() || '\u0041\u0049 \u751f\u6210\u5931\u8d25\uff0c\u672c\u6b21\u672a\u6d88\u8017\u989d\u5ea6';
+            if (status === 'rejected') return String(task && task.message || '').trim() || '\u0041\u0049 \u6682\u4e0d\u53ef\u7528\uff0c\u672c\u6b21\u672a\u6d88\u8017\u989d\u5ea6';
+            return String(task && task.message || '').trim() || THINKING_TEXT;
         },
 
         resolveTaskPollDelay(task) {
@@ -238,6 +295,7 @@
             const status = String(state.aiAssistant.activeTask.status || '').trim().toLowerCase();
             if (this.isTerminalTaskStatus(status)) {
                 this.clearTaskPoll();
+                this.clearThinkingPlaceholder(state.aiAssistant.activeTask.task_id);
                 const clearDelay = status === 'succeeded' ? 2200 : 4800;
                 state.aiAssistant.activeTaskClearingAt = Date.now() + clearDelay;
                 setTimeout(() => {
@@ -252,8 +310,9 @@
                 if (status === 'succeeded' && this.ctx && typeof this.ctx.loadMessages === 'function' && Number(state.activeConversationId || 0) === Number(state.aiAssistant.activeTask.conversation_id || 0)) {
                     setTimeout(() => this.ctx.loadMessages(state.activeConversationId), 350);
                 }
-            } else if (!(options && options.skipPoll)) {
-                this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(state.aiAssistant.activeTask));
+            } else {
+                this.showThinkingPlaceholder(state.aiAssistant.activeTask);
+                if (!(options && options.skipPoll)) this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(state.aiAssistant.activeTask));
             }
             if (typeof this.ctx.render === 'function') this.ctx.render();
         },
@@ -321,6 +380,7 @@
             }
             const activeTask = state.aiAssistant && state.aiAssistant.activeTask ? state.aiAssistant.activeTask : null;
             if (activeTask && String(item.sender_username || '').trim().toLowerCase() === BOT_USERNAME && Number(item.conversation_id || 0) === Number(activeTask.conversation_id || 0)) {
+                this.clearThinkingPlaceholder(activeTask.task_id);
                 this.setActiveTask(Object.assign({}, activeTask, { status: 'succeeded', message: 'AI 已回复' }), { skipPoll: true });
             }
         },

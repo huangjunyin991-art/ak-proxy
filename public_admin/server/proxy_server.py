@@ -12945,6 +12945,33 @@ async def im_user_plugin_ai_manage_module_js(request: Request):
     return await _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/ai/im_ai_markdown_render.js")
+
+async def im_user_plugin_ai_markdown_render_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "ai", "im_ai_markdown_render.js")
+
+    return await _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/ai/vendors/marked-18.0.5.umd.js")
+
+async def im_user_plugin_ai_marked_vendor_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "ai", "vendors", "marked-18.0.5.umd.js")
+
+    return await _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/ai/vendors/dompurify-3.4.9.min.js")
+
+async def im_user_plugin_ai_dompurify_vendor_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "ai", "vendors", "dompurify-3.4.9.min.js")
+
+    return await _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/im_emoji_manage.js")
 
 async def im_user_plugin_emoji_manage_module_js(request: Request):
