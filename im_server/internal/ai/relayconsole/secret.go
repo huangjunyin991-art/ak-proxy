@@ -1,4 +1,4 @@
-package fluapi
+package relayconsole
 
 import (
 	"crypto/aes"

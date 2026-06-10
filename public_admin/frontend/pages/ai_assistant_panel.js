@@ -27,11 +27,13 @@
         providers: [],
         billingConfig: null,
         billingOverview: null,
-        fluapiStatus: null,
+        relayConsoleStatus: null,
+        relayConsoleTokens: {},
         tiers: [],
         redeemCodes: [],
         generatedCodes: [],
         selectedProviderId: 0,
+        selectedRelayConsoleId: 0,
         error: ''
     };
 
@@ -119,6 +121,23 @@
     function selectedProvider() {
         if (Number(state.selectedProviderId || 0) <= 0) return null;
         return providerById(state.selectedProviderId) || state.providers[0] || null;
+    }
+
+    function relayConsoleAccounts() {
+        const status = state.relayConsoleStatus || {};
+        return Array.isArray(status.accounts) ? status.accounts : [];
+    }
+
+    function relayConsoleById(id) {
+        const target = Number(id || 0);
+        return relayConsoleAccounts().find(function(item) {
+            return Number(item && item.id || 0) === target;
+        }) || null;
+    }
+
+    function selectedRelayConsole() {
+        if (Number(state.selectedRelayConsoleId || 0) <= 0) return null;
+        return relayConsoleById(state.selectedRelayConsoleId) || relayConsoleAccounts()[0] || null;
     }
 
     function looksLikeApiKey(value) {
@@ -357,7 +376,7 @@
                 </div>
                 <div class="ai-form-grid">
                     <div class="ai-field"><label>名称</label><input class="ai-input" id="aiProviderName" value="${escapeHtml(item.provider_name || 'OpenAI-Compatible Relay')}"></div>
-                    <div class="ai-field"><label>Base URL（不是 sk）</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="例如：https://new.fluapi.com/v1" value="${escapeHtml(baseUrl)}"></div>
+                    <div class="ai-field"><label>Base URL（不是 API Key）</label><input class="ai-input" id="aiProviderBaseUrl" placeholder="例如：https://www.dreamfield.top/v1" value="${escapeHtml(baseUrl)}"></div>
                 </div>
                 ${baseUrlLooksKey ? '<div class="ai-meta" style="color:var(--accent-red);">你把 API Key 填到了 Base URL。Base URL 应该是 https://.../v1，sk 请填到下面的 API Key 输入框。</div>' : ''}
                 <div class="ai-secret-row provider">
@@ -403,45 +422,66 @@
             </div>
         `;
     }
-    function renderFluAPI() {
-        const status = state.fluapiStatus || {};
-        const cfg = status.config || {};
-        const balance = status.latest_balance || null;
+    function renderRelayConsole() {
+        const status = state.relayConsoleStatus || {};
+        const accounts = relayConsoleAccounts();
+        const item = selectedRelayConsole() || {};
+        const id = Number(item.id || 0);
+        const balance = id ? ((status.latest_balances && status.latest_balances[id]) || status.latest_balance || null) : null;
+        const tokens = id ? (state.relayConsoleTokens[id] || []) : [];
+        const accountOptions = (id ? [] : [{ value: '0', label: '新建 Dream Field' }]).concat(accounts.map(function(account) {
+            const label = (account.display_name || account.console_base_url || '中转站') + ' #' + account.id;
+            return { value: String(account.id), label: label };
+        }));
+        const tokenRows = tokens.map(function(token) {
+            return `
+                <tr>
+                    <td>${escapeHtml(token.name || '-')}<div class="ai-meta">${escapeHtml(token.key_masked || token.id || '')}</div></td>
+                    <td>${token.unlimited_quota ? '无限' : fmtNumber(token.remain_quota || 0, 0)}</td>
+                    <td>${fmtNumber(token.used_quota || 0, 0)}</td>
+                    <td>
+                        <button class="ai-tier-save" data-action="relay-sync" data-token-id="${escapeHtml(token.id)}">同步</button>
+                        <button class="ai-tier-save" data-action="relay-import-provider" data-token-id="${escapeHtml(token.id)}">导入</button>
+                    </td>
+                </tr>
+            `;
+        }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);">登录后点击“刷新 Token”</td></tr>';
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
-                    <span>中转站账号与上游余额</span>
-                    <span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已启用' : '未启用'}</span>
+                    <span>中转站控制台</span>
+                    <span class="ai-tag ${item.enabled !== false ? 'ok' : 'bad'}">${item.enabled !== false ? '已启用' : '已停用'}</span>
                 </div>
                 <div class="ai-stat-grid">
-                    <div class="ai-stat"><div class="ai-stat-label">剩余额度</div><div class="ai-stat-value">${balance ? fmtUSD(balance.balance_usd) : '-'}</div></div>
-                    <div class="ai-stat"><div class="ai-stat-label">已用额度</div><div class="ai-stat-value">${balance ? fmtUSD(balance.used_usd) : '-'}</div></div>
-                    <div class="ai-stat"><div class="ai-stat-label">总额度</div><div class="ai-stat-value">${balance ? fmtUSD(balance.total_usd) : '-'}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">可用 quota</div><div class="ai-stat-value">${balance ? fmtNumber(balance.total_available || 0, 0) : '-'}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">已用 quota</div><div class="ai-stat-value">${balance ? fmtNumber(balance.total_used || 0, 0) : '-'}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">Token</div><div class="ai-stat-value">${tokens.length || '-'}</div></div>
                 </div>
                 <div class="ai-form-grid">
-                    <div class="ai-field">
-                        <label>同步开关</label>
-                        <select class="ai-select" id="aiFluapiEnabled">
-                            <option value="true" ${cfg.enabled ? 'selected' : ''}>启用</option>
-                            <option value="false" ${!cfg.enabled ? 'selected' : ''}>关闭</option>
-                        </select>
-                    </div>
-                    <div class="ai-field"><label>Base URL</label><input class="ai-input" id="aiFluapiBaseUrl" value="${escapeHtml(cfg.base_url || 'https://www.fluapi.com')}"></div>
-                    <div class="ai-field"><label>控制台账号</label><input class="ai-input" id="aiFluapiUsername" value="${escapeHtml(cfg.username || '')}" placeholder="FluAPI 登录账号"></div>
-                    <div class="ai-field"><label>New-Api-User</label><input class="ai-input" id="aiFluapiUserId" value="${escapeHtml(cfg.user_id || '')}" placeholder="登录后自动获取"></div>
-                    <div class="ai-field"><label>1 USD 对应 quota</label><input class="ai-input" id="aiFluapiQuotaPerUsd" type="number" min="1" value="${Number(cfg.quota_per_usd || 500000)}"></div>
-                    <div class="ai-field"><label>低余额告警 USD</label><input class="ai-input" id="aiFluapiLowBalance" type="number" min="0" step="0.01" value="${Number(cfg.low_balance_usd || 10)}"></div>
+                    ${renderSelectPicker('aiRelayConsoleSelected', '当前中转站', String(id || 0), accountOptions.length ? accountOptions : [{ value: '0', label: '新建 Dream Field' }])}
+                    ${renderSelectPicker('aiRelayConsoleAdapter', '适配器类型', item.adapter_key || 'newapi', [{ value: 'newapi', label: 'New API / Dream Field' }])}
+                    <div class="ai-field"><label>显示名称</label><input class="ai-input" id="aiRelayDisplayName" value="${escapeHtml(item.display_name || 'Dream Field')}"></div>
+                    <div class="ai-field"><label>控制台地址</label><input class="ai-input" id="aiRelayBaseUrl" value="${escapeHtml(item.console_base_url || 'https://www.dreamfield.top')}"></div>
+                    <div class="ai-field"><label>控制台账号</label><input class="ai-input" id="aiRelayUsername" value="${escapeHtml(item.username || '')}" placeholder="登录邮箱或用户名"></div>
+                    <div class="ai-field"><label>New-Api-User</label><input class="ai-input" id="aiRelayUserId" value="${escapeHtml(item.user_id || '')}" placeholder="登录后自动获取"></div>
+                    <div class="ai-field"><label>低余额告警 quota</label><input class="ai-input" id="aiRelayLowBalance" type="number" min="0" step="1" value="${Number(item.low_balance_quota || 0)}"></div>
+                    ${renderSelectPicker('aiRelayEnabled', '控制台开关', item.enabled === false ? 'false' : 'true', [{ value: 'true', label: '启用' }, { value: 'false', label: '停用' }])}
                 </div>
                 <div class="ai-secret-row provider">
-                    <input class="ai-input" id="aiFluapiPassword" type="password" placeholder="${cfg.has_password ? '已保存密码，留空则不更新' : '中转站控制台密码'}">
-                    <button class="ai-btn success" data-action="save-fluapi-credentials">导入并登录</button>
+                    <input class="ai-input" id="aiRelayPassword" type="password" placeholder="${item.has_password ? '已保存密码，留空则不更新' : '中转站控制台密码'}">
+                    <button class="ai-btn success" data-action="relay-save-credentials" ${id ? '' : 'disabled title="请先保存控制台"'}>导入并登录</button>
                 </div>
                 <div class="ai-actions">
-                    <button class="ai-btn primary" data-action="save-fluapi-config">保存上游配置</button>
-                    <button class="ai-btn" data-action="fluapi-login" ${cfg.has_password ? '' : 'disabled title="请先导入并登录"'}>重新登录</button>
-                    <button class="ai-btn warn" data-action="fluapi-sync" ${cfg.has_password ? '' : 'disabled title="请先导入并登录"'}>同步余额</button>
+                    <button class="ai-btn primary" data-action="relay-save-console">${id ? '保存控制台' : '新增控制台'}</button>
+                    <button class="ai-btn" data-action="relay-new-console">新建</button>
+                    <button class="ai-btn" data-action="relay-login" ${item.has_password ? '' : 'disabled title="请先导入并登录"'}>重新登录</button>
+                    <button class="ai-btn warn" data-action="relay-load-tokens" ${id ? '' : 'disabled'}>刷新 Token</button>
                 </div>
-                ${cfg.last_error ? '<div class="ai-meta" style="color:var(--accent-red);">最近错误：' + escapeHtml(cfg.last_error) + '</div>' : ''}
+                <table class="ai-table" style="margin-top:12px">
+                    <thead><tr><th>Token</th><th>剩余</th><th>已用</th><th>操作</th></tr></thead>
+                    <tbody>${tokenRows}</tbody>
+                </table>
+                ${item.last_error ? '<div class="ai-meta" style="color:var(--accent-red);margin-top:10px;">最近错误：' + escapeHtml(item.last_error) + '</div>' : ''}
             </div>
         `;
     }
@@ -641,7 +681,7 @@
                         ${renderTiers()}
                     </div>
                     <div>
-                        ${renderFluAPI()}
+                        ${renderRelayConsole()}
                         ${renderProviderForm()}
                         <div class="ai-card">
                             <div class="ai-card-title"><span>Provider 列表</span><span class="ai-tag">${state.providers.length} 个</span></div>
@@ -685,7 +725,7 @@
                 api('/admin/api/ai/providers'),
                 api('/admin/api/ai/billing/config'),
                 api('/admin/api/ai/billing/overview'),
-                api('/admin/api/ai/fluapi'),
+                api('/admin/api/ai/relay-consoles'),
                 api('/admin/api/ai/tiers'),
                 api('/admin/api/ai/redeem-codes')
             ]);
@@ -694,11 +734,15 @@
             state.providers = unwrapItems(results[2]);
             state.billingConfig = unwrapItem(results[3], {});
             state.billingOverview = unwrapItem(results[4], {});
-            state.fluapiStatus = unwrapItem(results[5], {});
+            state.relayConsoleStatus = unwrapItem(results[5], {});
             state.tiers = unwrapItems(results[6]);
             state.redeemCodes = unwrapItems(results[7]);
             if (!providerById(state.selectedProviderId)) {
                 state.selectedProviderId = Number(state.providers[0] && state.providers[0].id || 0);
+            }
+            if (!relayConsoleById(state.selectedRelayConsoleId)) {
+                const accounts = relayConsoleAccounts();
+                state.selectedRelayConsoleId = Number(accounts[0] && accounts[0].id || 0);
             }
             state.loaded = true;
         } catch (e) {
@@ -754,62 +798,89 @@
         render();
     }
 
-    function readFluAPIConfigPayload() {
+    function readRelayConsolePayload() {
+        const current = selectedRelayConsole() || {};
         return {
-            enabled: document.getElementById('aiFluapiEnabled')?.value !== 'false',
-            base_url: document.getElementById('aiFluapiBaseUrl')?.value || 'https://www.fluapi.com',
-            username: document.getElementById('aiFluapiUsername')?.value || '',
-            user_id: document.getElementById('aiFluapiUserId')?.value || '',
-            quota_per_usd: Number(document.getElementById('aiFluapiQuotaPerUsd')?.value || 500000),
-            low_balance_usd: Number(document.getElementById('aiFluapiLowBalance')?.value || 10)
+            id: Number(current.id || 0),
+            adapter_key: document.getElementById('aiRelayConsoleAdapter')?.value || 'newapi',
+            display_name: document.getElementById('aiRelayDisplayName')?.value || 'Dream Field',
+            console_base_url: document.getElementById('aiRelayBaseUrl')?.value || 'https://www.dreamfield.top',
+            username: document.getElementById('aiRelayUsername')?.value || '',
+            user_id: document.getElementById('aiRelayUserId')?.value || '',
+            enabled: document.getElementById('aiRelayEnabled')?.value !== 'false',
+            low_balance_quota: Number(document.getElementById('aiRelayLowBalance')?.value || 0)
         };
     }
 
-    async function saveFluAPIConfig() {
-        const data = await api('/admin/api/ai/fluapi/config', {
+    async function saveRelayConsole() {
+        const data = await api('/admin/api/ai/relay-consoles', {
             method: 'POST',
-            body: JSON.stringify(readFluAPIConfigPayload())
+            body: JSON.stringify(readRelayConsolePayload())
         });
-        state.fluapiStatus = unwrapItem(data, {});
-        showToast('FluAPI 上游配置已保存');
-        render();
+        const item = unwrapItem(data, {});
+        if (item && item.id) state.selectedRelayConsoleId = Number(item.id);
+        showToast('中转站控制台已保存');
+        await loadAll();
     }
 
-    async function saveFluAPICredentials() {
-        const username = document.getElementById('aiFluapiUsername')?.value || '';
-        const password = document.getElementById('aiFluapiPassword')?.value || '';
-        if (!username.trim() || !password.trim()) throw new Error('请输入 FluAPI 账号和密码');
-        const data = await api('/admin/api/ai/fluapi/credentials', {
+    async function saveRelayCredentials() {
+        const item = selectedRelayConsole();
+        if (!item || !item.id) throw new Error('请先保存中转站控制台');
+        const username = document.getElementById('aiRelayUsername')?.value || '';
+        const password = document.getElementById('aiRelayPassword')?.value || '';
+        if (!username.trim() || !password.trim()) throw new Error('请输入中转站控制台账号和密码');
+        const data = await api('/admin/api/ai/relay-consoles/' + item.id + '/credentials', {
             method: 'POST',
             body: JSON.stringify({ username: username, password: password })
         });
-        state.fluapiStatus = unwrapItem(data, {});
-        showToast('FluAPI 已登录，session 已加密保存');
+        const saved = unwrapItem(data, {});
+        if (saved && saved.id) state.selectedRelayConsoleId = Number(saved.id);
+        showToast('中转站已登录，session 已加密保存');
+        await loadAll();
+    }
+
+    async function relayLogin() {
+        const item = selectedRelayConsole();
+        if (!item || !item.id) throw new Error('请先选择中转站控制台');
+        if (!item.has_password) throw new Error('请先导入控制台账号密码');
+        await api('/admin/api/ai/relay-consoles/' + item.id + '/login', { method: 'POST', body: '{}' });
+        showToast('中转站重新登录成功');
+        await loadAll();
+    }
+
+    async function loadRelayTokens() {
+        const item = selectedRelayConsole();
+        if (!item || !item.id) throw new Error('请先选择中转站控制台');
+        const data = await api('/admin/api/ai/relay-consoles/' + item.id + '/tokens');
+        const payload = unwrapItem(data, {});
+        state.relayConsoleTokens[item.id] = Array.isArray(payload.tokens) ? payload.tokens : [];
+        showToast(state.relayConsoleTokens[item.id].length ? ('已获取 ' + state.relayConsoleTokens[item.id].length + ' 个 Token') : '没有获取到 Token', state.relayConsoleTokens[item.id].length ? undefined : 'error');
         render();
     }
 
-    async function fluAPILogin() {
-        const cfg = (state.fluapiStatus && state.fluapiStatus.config) || {};
-        if (!cfg.has_password) throw new Error('请先填写中转站控制台账号密码，并点击“导入并登录”');
-        const data = await api('/admin/api/ai/fluapi/login', { method: 'POST', body: '{}' });
-        const nextCfg = unwrapItem(data, {});
-        state.fluapiStatus = Object.assign({}, state.fluapiStatus || {}, { config: nextCfg });
-        showToast('FluAPI 重新登录成功');
-        render();
+    async function syncRelayBalance(tokenId) {
+        const item = selectedRelayConsole();
+        if (!item || !item.id) throw new Error('请先选择中转站控制台');
+        if (!String(tokenId || '').trim()) throw new Error('缺少 token_id');
+        await api('/admin/api/ai/relay-consoles/' + item.id + '/sync', {
+            method: 'POST',
+            body: JSON.stringify({ token_id: String(tokenId || '') })
+        });
+        showToast('中转站余额已同步');
+        await loadAll();
     }
 
-    async function fluAPISync() {
-        const cfg = (state.fluapiStatus && state.fluapiStatus.config) || {};
-        if (!cfg.has_password) throw new Error('请先填写中转站控制台账号密码，并点击“导入并登录”');
-        const data = await api('/admin/api/ai/fluapi/sync', { method: 'POST', body: '{}' });
-        const balance = unwrapItem(data, {});
-        const currentStatus = state.fluapiStatus || {};
-        const nextConfig = Object.assign({}, currentStatus.config || {});
-        if (balance && balance.synced_at) {
-            nextConfig.last_sync_at = balance.synced_at;
-        }
-        state.fluapiStatus = Object.assign({}, currentStatus, { config: nextConfig, latest_balance: balance });
-        showToast('FluAPI 余额已同步');
+    async function importRelayProvider(tokenId) {
+        const item = selectedRelayConsole();
+        if (!item || !item.id) throw new Error('请先选择中转站控制台');
+        if (!String(tokenId || '').trim()) throw new Error('缺少 token_id');
+        const data = await api('/admin/api/ai/relay-consoles/' + item.id + '/import-provider', {
+            method: 'POST',
+            body: JSON.stringify({ token_id: String(tokenId || '') })
+        });
+        const provider = unwrapItem(data, {});
+        if (provider && provider.id) state.selectedProviderId = Number(provider.id);
+        showToast('Token 已导入为 Provider');
         await loadAll();
     }
 
@@ -937,12 +1008,19 @@
             render();
             return;
         }
+        if (action === 'relay-new-console') {
+            state.selectedRelayConsoleId = 0;
+            render();
+            return;
+        }
         if (action === 'save-config') return saveConfig();
         if (action === 'save-billing-config') return saveBillingConfig();
-        if (action === 'save-fluapi-config') return saveFluAPIConfig();
-        if (action === 'save-fluapi-credentials') return saveFluAPICredentials();
-        if (action === 'fluapi-login') return fluAPILogin();
-        if (action === 'fluapi-sync') return fluAPISync();
+        if (action === 'relay-save-console') return saveRelayConsole();
+        if (action === 'relay-save-credentials') return saveRelayCredentials();
+        if (action === 'relay-login') return relayLogin();
+        if (action === 'relay-load-tokens') return loadRelayTokens();
+        if (action === 'relay-sync') return syncRelayBalance(target.dataset.tokenId || '');
+        if (action === 'relay-import-provider') return importRelayProvider(target.dataset.tokenId || '');
         if (action === 'save-provider') return saveProvider();
         if (action === 'save-secret') return saveSecret();
         if (action === 'test-provider') return testProvider();
@@ -1031,6 +1109,12 @@
             item.classList.toggle('active', item === option);
         });
         input.dispatchEvent(new Event('change', { bubbles: true }));
+        if (input.id === 'aiRelayConsoleSelected') {
+            state.selectedRelayConsoleId = Number(value || 0);
+            closeSelectMenus();
+            render();
+            return;
+        }
         closeSelectMenus();
     }
 

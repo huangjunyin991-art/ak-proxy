@@ -19,8 +19,8 @@ import (
 	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
 	"im_server/internal/ai/provider"
+	"im_server/internal/ai/relayconsole"
 	aiservice "im_server/internal/ai/service"
-	fluapi "im_server/internal/ai/usage/fluapi"
 	socialsvc "im_server/internal/app/social"
 	"im_server/internal/config"
 	"im_server/internal/entitlement"
@@ -63,7 +63,7 @@ type App struct {
 	wsTickets         *wsticket.Service
 	aiProvider        *provider.Service
 	aiBilling         *billing.Service
-	aiFluAPI          *fluapi.Service
+	aiRelayConsole    *relayconsole.Service
 	entitlements      *entitlement.Service
 	ai                *aiservice.Service
 	server            *http.Server
@@ -307,7 +307,7 @@ func New(cfg config.Config) (*App, error) {
 	app.mediaTasks = taskstore.New(pool)
 	app.aiProvider = provider.New(pool, cfg.AISecretKey, time.Duration(cfg.AIProviderTimeoutMS)*time.Millisecond)
 	app.aiBilling = billing.New(pool)
-	app.aiFluAPI = fluapi.New(pool, cfg.AISecretKey, time.Duration(cfg.AIProviderTimeoutMS)*time.Millisecond)
+	app.aiRelayConsole = relayconsole.New(pool, cfg.AISecretKey, time.Duration(cfg.AIProviderTimeoutMS)*time.Millisecond)
 	app.entitlements = entitlement.New(pool, cfg.AISecretKey)
 	app.ai = aiservice.New(pool, app.aiProvider, app.entitlements, cfg.AIWorkerConcurrency)
 	app.ai.SetBillingService(app.aiBilling)
@@ -330,8 +330,8 @@ func New(cfg config.Config) (*App, error) {
 			return nil, err
 		}
 	}
-	if app.aiFluAPI != nil {
-		if err := app.aiFluAPI.EnsureSchema(ctx); err != nil {
+	if app.aiRelayConsole != nil {
+		if err := app.aiRelayConsole.EnsureSchema(ctx); err != nil {
 			return nil, err
 		}
 	}

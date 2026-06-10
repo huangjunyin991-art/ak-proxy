@@ -14,8 +14,8 @@ import (
 	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
 	"im_server/internal/ai/provider"
+	"im_server/internal/ai/relayconsole"
 	aiservice "im_server/internal/ai/service"
-	fluapi "im_server/internal/ai/usage/fluapi"
 	"im_server/internal/entitlement"
 
 	"github.com/jackc/pgx/v5"
@@ -32,6 +32,10 @@ type aiProviderSecretRequest struct {
 type aiProviderTestRequest struct {
 	Prompt string `json:"prompt"`
 	Model  string `json:"model"`
+}
+
+type aiRelayConsoleSyncRequest struct {
+	TokenID string `json:"token_id"`
 }
 
 func (a *App) handleAIRoutes(w http.ResponseWriter, r *http.Request) {
@@ -184,32 +188,77 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 2 && parts[0] == "billing" && parts[1] == "overview" && r.Method == http.MethodGet:
 		item, err := a.aiBilling.Overview(r.Context(), 30)
 		writeJSONOrError(w, item, err)
-	case len(parts) == 1 && parts[0] == "fluapi" && r.Method == http.MethodGet:
-		item, err := a.aiFluAPI.Status(r.Context())
+	case len(parts) == 1 && parts[0] == "relay-consoles" && r.Method == http.MethodGet:
+		item, err := a.aiRelayConsole.Status(r.Context())
 		writeJSONOrError(w, item, err)
-	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "config" && r.Method == http.MethodPost:
-		var req fluapi.Config
+	case len(parts) == 1 && parts[0] == "relay-consoles" && r.Method == http.MethodPost:
+		var req relayconsole.Account
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 			return
 		}
-		item, err := a.aiFluAPI.SetConfig(r.Context(), req)
+		item, err := a.aiRelayConsole.UpsertAccount(r.Context(), req)
 		writeJSONOrError(w, item, err)
-	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "credentials" && r.Method == http.MethodPost:
-		var req fluapi.CredentialsRequest
+	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "credentials" && r.Method == http.MethodPost:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid relay console id"})
+			return
+		}
+		var req relayconsole.CredentialsRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 			return
 		}
-		item, err := a.aiFluAPI.SetCredentials(r.Context(), req)
+		item, err := a.aiRelayConsole.SetCredentials(r.Context(), id, req)
 		writeJSONOrError(w, item, err)
-	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "login" && r.Method == http.MethodPost:
-		item, err := a.aiFluAPI.Login(r.Context())
+	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "login" && r.Method == http.MethodPost:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid relay console id"})
+			return
+		}
+		item, err := a.aiRelayConsole.Login(r.Context(), id)
 		writeJSONOrError(w, item, err)
-	case len(parts) == 2 && parts[0] == "fluapi" && parts[1] == "sync" && r.Method == http.MethodPost:
+	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "tokens" && r.Method == http.MethodGet:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid relay console id"})
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		item, err := a.aiFluAPI.Sync(ctx)
+		item, err := a.aiRelayConsole.ListTokens(ctx, id)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "sync" && r.Method == http.MethodPost:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid relay console id"})
+			return
+		}
+		var req aiRelayConsoleSyncRequest
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		item, err := a.aiRelayConsole.Sync(ctx, id, req.TokenID)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "import-provider" && r.Method == http.MethodPost:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid relay console id"})
+			return
+		}
+		var req relayconsole.ImportProviderRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		req.ConsoleID = id
+		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		defer cancel()
+		item, err := a.importRelayConsoleTokenAsProvider(ctx, req)
 		writeJSONOrError(w, item, err)
 	case len(parts) == 1 && parts[0] == "providers" && r.Method == http.MethodGet:
 		items, err := a.aiProvider.ListAccounts(r.Context())
@@ -351,12 +400,12 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 		providerReady = true
 	}
 	billingOverview, billingErr := a.aiBilling.Overview(r.Context(), 5)
-	fluAPIStatus, fluAPIErr := a.aiFluAPI.Status(r.Context())
-	fluAPIBalanceUSD := float64(0)
-	fluAPILowBalance := false
-	if fluAPIStatus.LatestBalance != nil {
-		fluAPIBalanceUSD = fluAPIStatus.LatestBalance.BalanceUSD
-		fluAPILowBalance = fluAPIStatus.LatestBalance.LowBalance
+	relayStatus, relayErr := a.aiRelayConsole.Status(r.Context())
+	relayBalance := float64(0)
+	relayLowBalance := false
+	if relayStatus.LatestBalance != nil {
+		relayBalance = relayStatus.LatestBalance.TotalAvailable
+		relayLowBalance = relayStatus.LatestBalance.LowBalance
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
@@ -376,13 +425,63 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"billing_error":              errorString(billingErr),
 			"billing_today_units":        billingOverview.TodayUnits,
 			"billing_month_units":        billingOverview.MonthUnits,
-			"fluapi_enabled":             fluAPIErr == nil && fluAPIStatus.Config.Enabled,
-			"fluapi_error":               errorString(fluAPIErr),
-			"fluapi_balance_usd":         fluAPIBalanceUSD,
-			"fluapi_low_balance":         fluAPILowBalance,
-			"fluapi_last_error":          fluAPIStatus.Config.LastError,
+			"relay_console_count":        len(relayStatus.Accounts),
+			"relay_console_error":        errorString(relayErr),
+			"relay_console_balance":      relayBalance,
+			"relay_console_low_balance":  relayLowBalance,
 		},
 	})
+}
+
+func (a *App) importRelayConsoleTokenAsProvider(ctx context.Context, req relayconsole.ImportProviderRequest) (provider.Account, error) {
+	if a.aiRelayConsole == nil || a.aiProvider == nil {
+		return provider.Account{}, errors.New("AI relay console or provider service is not available")
+	}
+	tokenID := strings.TrimSpace(req.TokenID)
+	if tokenID == "" {
+		return provider.Account{}, errors.New("missing token_id")
+	}
+	console, err := a.aiRelayConsole.GetAccount(ctx, req.ConsoleID)
+	if err != nil {
+		return provider.Account{}, err
+	}
+	tokenKey, token, err := a.aiRelayConsole.FetchTokenKey(ctx, req.ConsoleID, tokenID)
+	if err != nil {
+		return provider.Account{}, err
+	}
+	providerName := strings.TrimSpace(console.DisplayName)
+	if token.Name != "" {
+		providerName = providerName + " / " + token.Name
+	}
+	if providerName == "" {
+		providerName = "New API Relay"
+	}
+	baseURL := strings.TrimRight(console.ConsoleBaseURL, "/") + "/v1"
+	balanceEndpoint := strings.TrimRight(console.ConsoleBaseURL, "/") + "/api/usage/token/"
+	item := provider.Account{
+		ID:                     req.ProviderID,
+		ProviderName:           providerName,
+		BaseURL:                baseURL,
+		BalanceSupported:       true,
+		BalanceEndpoint:        balanceEndpoint,
+		BalanceCacheTTLSeconds: 600,
+		LowBalanceThreshold:    console.LowBalanceQuota,
+		Enabled:                true,
+	}
+	item, err = a.aiProvider.UpsertAccount(ctx, item)
+	if err != nil {
+		return provider.Account{}, err
+	}
+	item, err = a.aiProvider.SetSecret(ctx, item.ID, tokenKey)
+	if err != nil {
+		return provider.Account{}, err
+	}
+	if strings.TrimSpace(item.ChatModel) == "" && len(item.AvailableModels) > 0 {
+		item.ChatModel = item.AvailableModels[0]
+		item.SummaryModel = item.ChatModel
+		item, _ = a.aiProvider.UpsertAccount(ctx, item)
+	}
+	return item, nil
 }
 
 func errorString(err error) string {

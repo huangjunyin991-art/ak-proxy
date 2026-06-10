@@ -1010,6 +1010,9 @@ func buildProviderURL(baseURL string, endpoint string) (string, error) {
 	if !strings.HasPrefix(endpoint, "/") {
 		endpoint = "/" + endpoint
 	}
+	if strings.HasSuffix(strings.ToLower(baseURL), "/v1") && strings.HasPrefix(endpoint, "/api/") {
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+	}
 	return strings.TrimRight(baseURL, "/") + endpoint, nil
 }
 
@@ -1028,13 +1031,13 @@ func parseBalance(body []byte) (float64, string, string) {
 		return 0, "", "unknown"
 	}
 	currency := stringField(raw, "currency", "unit")
-	for _, key := range []string{"balance", "remaining", "amount", "credit", "credits", "quota"} {
+	for _, key := range []string{"balance", "remaining", "amount", "credit", "credits", "quota", "total_available", "available"} {
 		if value, ok := numberField(raw, key); ok {
 			return value, currency, key
 		}
 	}
 	if data, ok := raw["data"].(map[string]any); ok {
-		for _, key := range []string{"balance", "remaining", "amount", "credit", "credits", "quota"} {
+		for _, key := range []string{"balance", "remaining", "amount", "credit", "credits", "quota", "total_available", "available"} {
 			if value, ok := numberField(data, key); ok {
 				if currency == "" {
 					currency = stringField(data, "currency", "unit")

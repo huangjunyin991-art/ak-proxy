@@ -8733,38 +8733,54 @@ async def admin_ai_billing_overview(request: Request):
     return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/billing/overview")
 
 
-@app.get("/admin/api/ai/fluapi")
-async def admin_ai_fluapi_status(request: Request):
+@app.get("/admin/api/ai/relay-consoles")
+async def admin_ai_relay_consoles(request: Request):
 
-    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/fluapi")
-
-
-@app.post("/admin/api/ai/fluapi/config")
-async def admin_ai_fluapi_config_update(request: Request):
-
-    payload = await request.json()
-
-    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/config", payload)
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/relay-consoles")
 
 
-@app.post("/admin/api/ai/fluapi/credentials")
-async def admin_ai_fluapi_credentials(request: Request):
+@app.post("/admin/api/ai/relay-consoles")
+async def admin_ai_relay_console_upsert(request: Request):
 
     payload = await request.json()
 
-    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/credentials", payload, timeout=25.0)
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/relay-consoles", payload)
 
 
-@app.post("/admin/api/ai/fluapi/login")
-async def admin_ai_fluapi_login(request: Request):
+@app.post("/admin/api/ai/relay-consoles/{console_id}/credentials")
+async def admin_ai_relay_console_credentials(request: Request, console_id: int):
 
-    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/login", {}, timeout=25.0)
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/credentials", payload, timeout=25.0)
 
 
-@app.post("/admin/api/ai/fluapi/sync")
-async def admin_ai_fluapi_sync(request: Request):
+@app.post("/admin/api/ai/relay-consoles/{console_id}/login")
+async def admin_ai_relay_console_login(request: Request, console_id: int):
 
-    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/fluapi/sync", {}, timeout=25.0)
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/login", {}, timeout=25.0)
+
+
+@app.get("/admin/api/ai/relay-consoles/{console_id}/tokens")
+async def admin_ai_relay_console_tokens(request: Request, console_id: int):
+
+    return await _admin_ai_internal_proxy(request, "GET", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/tokens", timeout=25.0)
+
+
+@app.post("/admin/api/ai/relay-consoles/{console_id}/sync")
+async def admin_ai_relay_console_sync(request: Request, console_id: int):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/sync", payload, timeout=25.0)
+
+
+@app.post("/admin/api/ai/relay-consoles/{console_id}/import-provider")
+async def admin_ai_relay_console_import_provider(request: Request, console_id: int):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/import-provider", payload, timeout=30.0)
 
 
 @app.get("/admin/api/ai/tiers")
