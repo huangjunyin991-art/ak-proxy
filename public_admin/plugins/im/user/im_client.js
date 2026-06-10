@@ -60,6 +60,24 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/ai/im_ai_manage.js`,
             errorMessage: 'AI助手模块加载失败'
         },
+        aiMarkdownMarked: {
+            selector: 'script[data-ak-im-user-plugin-ai-markdown-marked="1"]',
+            datasetKey: 'akImUserPluginAiMarkdownMarked',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/ai/vendors/marked-18.0.5.umd.js`,
+            errorMessage: 'AI Markdown marked load failed'
+        },
+        aiMarkdownPurify: {
+            selector: 'script[data-ak-im-user-plugin-ai-markdown-purify="1"]',
+            datasetKey: 'akImUserPluginAiMarkdownPurify',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/ai/vendors/dompurify-3.4.9.min.js`,
+            errorMessage: 'AI Markdown DOMPurify load failed'
+        },
+        aiMarkdown: {
+            selector: 'script[data-ak-im-user-plugin-ai-markdown-render="1"]',
+            datasetKey: 'akImUserPluginAiMarkdownRender',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/ai/im_ai_markdown_render.js`,
+            errorMessage: 'AI Markdown render load failed'
+        },
         emoji: {
             selector: 'script[data-ak-im-user-plugin-emoji-manage="1"]',
             datasetKey: 'akImUserPluginEmojiManage',
@@ -708,7 +726,9 @@
         }).then(function(avatarRuntimeModule) {
             if (avatarRuntimeModule) render();
         });
-        initAIMarkdownModule();
+        ensureAIMarkdownModule().then(function(aiMarkdownModule) {
+            if (aiMarkdownModule) render();
+        });
         initMessageManageModule();
         initMessageNavigationModule();
         initMentionManageModule();
@@ -2510,7 +2530,32 @@
             openConversationById: openConversationById,
             loadSessions: loadSessions,
             loadMessages: loadMessages,
-            closePlusPanel: closePlusPanel
+            closePlusPanel: closePlusPanel,
+            createLocalSentAt: createLocalSentAt,
+            insertLocalMessage: function(item) {
+                const messageManageModule = getMessageManageModule();
+                if (!messageManageModule || typeof messageManageModule.insertLocalMessage !== 'function') return false;
+                return !!messageManageModule.insertLocalMessage(item);
+            },
+            removeLocalMessage: function(tempId) {
+                const messageManageModule = getMessageManageModule();
+                if (!messageManageModule || typeof messageManageModule.removeLocalMessage !== 'function') return false;
+                return !!messageManageModule.removeLocalMessage(tempId);
+            },
+            renderMessages: function() {
+                const messageManageModule = getMessageManageModule();
+                if (messageManageModule && typeof messageManageModule.renderMessages === 'function') {
+                    messageManageModule.renderMessages();
+                    return;
+                }
+                render();
+            },
+            forceScrollToBottom: function(durationMs) {
+                const messageManageModule = getMessageManageModule();
+                if (messageManageModule && typeof messageManageModule.forceScrollToBottom === 'function') {
+                    messageManageModule.forceScrollToBottom(durationMs);
+                }
+            }
         });
     }
 
@@ -2601,6 +2646,9 @@
         if (moduleKey === 'groupAdmins') return getGroupAdminsModule();
         if (moduleKey === 'plus') return getPlusEntryModule();
         if (moduleKey === 'aiManage') return getAIManageModule();
+        if (moduleKey === 'aiMarkdownMarked') return window.marked || null;
+        if (moduleKey === 'aiMarkdownPurify') return window.DOMPurify || null;
+        if (moduleKey === 'aiMarkdown') return getAIMarkdownModule();
         if (moduleKey === 'emoji') return getEmojiModule();
         if (moduleKey === 'image') return getImageModule();
         if (moduleKey === 'file') return getFileModule();
@@ -2636,6 +2684,8 @@
         else if (moduleKey === 'groupAdmins') initGroupAdminsModule();
         else if (moduleKey === 'plus') initPlusEntryModule();
         else if (moduleKey === 'aiManage') initAIManageModule();
+        else if (moduleKey === 'aiMarkdown') initAIMarkdownModule();
+        else if (moduleKey === 'aiMarkdownMarked' || moduleKey === 'aiMarkdownPurify') {}
         else if (moduleKey === 'emoji') initEmojiManageModule();
         else if (moduleKey === 'image') initImageManageModule();
         else if (moduleKey === 'file') initFileManageModule();
@@ -2731,6 +2781,18 @@
         });
     }
 
+    function ensureAIMarkdownModule() {
+        return Promise.all([
+            ensureOptionalLazyModule('aiMarkdownMarked'),
+            ensureOptionalLazyModule('aiMarkdownPurify')
+        ]).then(function() {
+            return ensureOptionalLazyModule('aiMarkdown');
+        }).then(function(aiMarkdownModule) {
+            if (aiMarkdownModule && typeof aiMarkdownModule.init === 'function') initAIMarkdownModule();
+            return aiMarkdownModule || null;
+        });
+    }
+
     function ensureChatFeatureModules() {
         return Promise.all([
             ensureOptionalLazyModule('groupAdmins'),
@@ -2741,6 +2803,7 @@
             ensureOptionalLazyModule('callRecovery'),
             ensureOptionalLazyModule('callMessage'),
             ensureOptionalLazyModule('plus'),
+            ensureAIMarkdownModule(),
             ensureOptionalLazyModule('aiManage'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),

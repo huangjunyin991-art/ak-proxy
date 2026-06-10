@@ -63,19 +63,6 @@
                 '#ak-im-root .ak-im-ai-redeem-btn{height:36px;border:0;border-radius:10px;padding:0 13px;background:#eef2f7;color:#334155;font-weight:800;cursor:pointer}',
                 '#ak-im-root .ak-im-ai-redeem-btn.primary{background:#2563eb;color:#fff}',
                 '#ak-im-root .ak-im-ai-redeem-btn:disabled{opacity:.55;cursor:not-allowed}',
-                '#ak-im-root .ak-im-bubble.ak-im-bubble-ai{white-space:normal;max-width:min(82vw,460px)}',
-                '#ak-im-root .ak-im-ai-markdown{display:block;font-size:15px;line-height:1.62;color:inherit;word-break:break-word;overflow-wrap:anywhere}',
-                '#ak-im-root .ak-im-ai-markdown p{margin:0 0 8px}',
-                '#ak-im-root .ak-im-ai-markdown p:last-child{margin-bottom:0}',
-                '#ak-im-root .ak-im-ai-markdown h1,#ak-im-root .ak-im-ai-markdown h2,#ak-im-root .ak-im-ai-markdown h3{margin:2px 0 8px;font-weight:800;line-height:1.35}',
-                '#ak-im-root .ak-im-ai-markdown h1{font-size:17px}#ak-im-root .ak-im-ai-markdown h2{font-size:16px}#ak-im-root .ak-im-ai-markdown h3{font-size:15px}',
-                '#ak-im-root .ak-im-ai-markdown ul,#ak-im-root .ak-im-ai-markdown ol{margin:0 0 8px 18px;padding:0}',
-                '#ak-im-root .ak-im-ai-markdown li{margin:3px 0;padding-left:2px}',
-                '#ak-im-root .ak-im-ai-markdown blockquote{margin:0 0 8px;padding:2px 0 2px 10px;border-left:3px solid rgba(37,99,235,.32);color:#475569}',
-                '#ak-im-root .ak-im-ai-markdown code{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;font-size:.92em;background:rgba(15,23,42,.08);border-radius:5px;padding:1px 4px}',
-                '#ak-im-root .ak-im-ai-markdown pre{margin:0 0 9px;max-width:100%;overflow:auto;border-radius:8px;background:#0f172a;color:#e5e7eb;padding:10px 11px;white-space:pre}',
-                '#ak-im-root .ak-im-ai-markdown pre code{background:transparent;color:inherit;padding:0;border-radius:0;font-size:12px;line-height:1.55}',
-                '#ak-im-root .ak-im-ai-markdown a{color:#2563eb;text-decoration:none;border-bottom:1px solid rgba(37,99,235,.28)}',
                 '#ak-im-root .ak-im-ai-thinking{display:inline-flex;align-items:center;gap:7px;color:#475569}',
                 '#ak-im-root .ak-im-ai-thinking:before{content:"";width:6px;height:6px;border-radius:999px;background:#2563eb;box-shadow:10px 0 0 rgba(37,99,235,.45),20px 0 0 rgba(37,99,235,.22);animation:ak-im-ai-thinking 1.05s infinite ease-in-out}',
                 '@keyframes ak-im-ai-thinking{0%,100%{opacity:.45;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}'
@@ -214,12 +201,22 @@
             return normalizedTaskId ? ('ak-ai-thinking-' + normalizedTaskId) : '';
         },
 
+        hasThinkingPlaceholder(tempId) {
+            const state = this.ctx && this.ctx.state;
+            const normalizedTempId = String(tempId || '').trim();
+            if (!state || !normalizedTempId || !Array.isArray(state.activeMessages)) return false;
+            return state.activeMessages.some(function(item) {
+                return item && String(item.__akTempId || item.client_temp_id || '').trim() === normalizedTempId;
+            });
+        },
+
         showThinkingPlaceholder(task) {
             const state = this.ctx && this.ctx.state;
             const conversationId = Number(task && task.conversation_id || state && state.activeConversationId || 0);
             const taskId = String(task && task.task_id || '').trim();
             const tempId = this.getThinkingTempId(taskId);
             if (!this.ctx || !state || !conversationId || !tempId || typeof this.ctx.insertLocalMessage !== 'function') return;
+            if (this.hasThinkingPlaceholder(tempId)) return;
             const sentAt = typeof this.ctx.createLocalSentAt === 'function' ? this.ctx.createLocalSentAt() : new Date().toISOString();
             this.ctx.insertLocalMessage({
                 id: 0,
@@ -230,7 +227,7 @@
                 message_type: 'text',
                 content: THINKING_TEXT,
                 content_preview: THINKING_TEXT,
-                status: 'sending',
+                status: 'sent',
                 sent_at: sentAt,
                 client_temp_id: tempId,
                 avatar_kind: 'generated',
@@ -540,7 +537,6 @@
             statusLine.innerHTML =
                 '<span class="ak-im-ai-status-main"><span class="ak-im-ai-status-pill">AI</span><span>' + this.escapeHtml(mainText) + '</span></span>' +
                 '<span class="ak-im-ai-status-side">' +
-                (activeTask ? '<span class="ak-im-ai-status-task">' + this.escapeHtml(String(activeTask.status || '').trim() || 'processing') + '</span>' : '') +
                 (!activeTask && quotaText ? '<span class="ak-im-ai-status-quota">' + this.escapeHtml(quotaText) + '</span>' : '') +
                 '<button type="button" class="ak-im-ai-status-action" data-ak-ai-redeem="1">兑换</button>' +
                 '<button type="button" class="ak-im-ai-status-action" data-ak-ai-refresh="1">刷新</button>' +
