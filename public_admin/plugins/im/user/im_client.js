@@ -2039,7 +2039,9 @@
         const aiMarkdownModule = getAIMarkdownModule();
         if (!aiMarkdownModule || typeof aiMarkdownModule.init !== 'function') return;
         aiMarkdownModule.init({
-            escapeHtml: escapeHtml
+            state: state,
+            escapeHtml: escapeHtml,
+            getActiveSession: getActiveSession
         });
     }
 

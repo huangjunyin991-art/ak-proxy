@@ -4,6 +4,13 @@
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-markdown-render-style';
     const MAX_MARKDOWN_LENGTH = 80000;
+    const TEXT_LIKE_TYPES = {
+        text: true,
+        markdown: true,
+        ai_text: true,
+        ai_response: true,
+        assistant_text: true
+    };
     const ALLOWED_TAGS = [
         'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4',
         'hr', 'li', 'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td', 'th',
@@ -107,11 +114,87 @@
             });
         },
 
+        normalizeText(value) {
+            return String(value == null ? '' : value).trim().toLowerCase();
+        },
+
+        getState() {
+            return this.ctx && this.ctx.state ? this.ctx.state : null;
+        },
+
+        getViewerUsername() {
+            const state = this.getState();
+            return this.normalizeText(state && state.username);
+        },
+
+        getSenderUsername(item) {
+            const fields = [
+                'sender_username',
+                'sender',
+                'username',
+                'from_username',
+                'from',
+                'account',
+                'author_username'
+            ];
+            for (let i = 0; i < fields.length; i += 1) {
+                const value = this.normalizeText(item && item[fields[i]]);
+                if (value) return value;
+            }
+            return '';
+        },
+
+        isTextLikeMessage(item) {
+            const type = this.normalizeText(item && item.message_type);
+            return !!TEXT_LIKE_TYPES[type];
+        },
+
+        isAIAssistantSession(session) {
+            if (!session || typeof session !== 'object') return false;
+            const peerUsername = this.normalizeText(session.peer_username);
+            if (peerUsername === BOT_USERNAME) return true;
+            if (session.is_ai_assistant || session.ai_assistant) return true;
+            const avatarSeed = this.normalizeText(session.avatar_seed);
+            return avatarSeed === 'ak-ai-assistant';
+        },
+
+        getMessageSession(item) {
+            if (this.ctx && typeof this.ctx.getActiveSession === 'function') {
+                const activeSession = this.ctx.getActiveSession();
+                if (activeSession && Number(activeSession.conversation_id || 0) === Number(item && item.conversation_id || 0)) {
+                    return activeSession;
+                }
+            }
+            const state = this.getState();
+            const sessions = Array.isArray(state && state.sessions) ? state.sessions : [];
+            const conversationId = Number(item && item.conversation_id || 0);
+            for (let i = 0; i < sessions.length; i += 1) {
+                if (Number(sessions[i] && sessions[i].conversation_id || 0) === conversationId) return sessions[i];
+            }
+            return null;
+        },
+
+        isFromViewer(item) {
+            if (item && item.is_self === true) return true;
+            const viewerUsername = this.getViewerUsername();
+            const senderUsername = this.getSenderUsername(item);
+            return !!(viewerUsername && senderUsername && viewerUsername === senderUsername);
+        },
+
+        isFromAIAssistant(item) {
+            const senderUsername = this.getSenderUsername(item);
+            if (senderUsername === BOT_USERNAME) return true;
+            if (item && (item.is_ai_assistant || item.ai_assistant)) return true;
+            const avatarSeed = this.normalizeText(item && item.avatar_seed);
+            return avatarSeed === 'ak-ai-assistant';
+        },
+
         isAITextMessage(item) {
             if (!item || typeof item !== 'object') return false;
-            const type = String(item.message_type || '').trim().toLowerCase();
-            const sender = String(item.sender_username || '').trim().toLowerCase();
-            return type === 'text' && sender === BOT_USERNAME;
+            if (!this.isTextLikeMessage(item)) return false;
+            if (this.isFromAIAssistant(item)) return true;
+            if (this.isFromViewer(item)) return false;
+            return this.isAIAssistantSession(this.getMessageSession(item));
         },
 
         isThinkingPlaceholder(item) {
