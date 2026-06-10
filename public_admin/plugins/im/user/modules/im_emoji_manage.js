@@ -235,9 +235,7 @@
 
         buildMessageBubbleMarkup(item) {
             const emojiMessage = this.resolveEmojiMessage(item);
-            if (!emojiMessage) {
-                return this.escapeHtml(item && (item.content || item.content_preview || '') || '');
-            }
+            if (!emojiMessage) return '';
             if (emojiMessage.imageUrl) {
                 return '<img class="ak-im-emoji-bubble-image" src="' + this.escapeAttribute(emojiMessage.imageUrl) + '" alt="' + this.escapeAttribute(emojiMessage.label) + '">';
             }
