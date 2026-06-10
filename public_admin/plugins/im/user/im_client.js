@@ -2061,7 +2061,17 @@
         aiMarkdownModule.init({
             state: state,
             escapeHtml: escapeHtml,
-            getActiveSession: getActiveSession
+            getActiveSession: getActiveSession,
+            pluginRoot: `${API_ROOT}/chat/plugins/im/user/modules/ai`,
+            withAssetVersion: withWidgetAssetVersion,
+            renderMessages: function() {
+                const messageManageModule = getMessageManageModule();
+                if (messageManageModule && typeof messageManageModule.renderMessages === 'function') {
+                    messageManageModule.renderMessages();
+                    return;
+                }
+                render();
+            }
         });
     }
 

@@ -4,6 +4,20 @@
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-markdown-render-style';
     const MAX_MARKDOWN_LENGTH = 80000;
+    const VENDOR_SCRIPTS = [
+        {
+            globalName: 'marked',
+            fileName: 'vendors/marked-18.0.5.umd.js',
+            selector: 'script[data-ak-im-user-plugin-ai-markdown-marked="1"]',
+            datasetKey: 'akImUserPluginAiMarkdownMarked'
+        },
+        {
+            globalName: 'DOMPurify',
+            fileName: 'vendors/dompurify-3.4.9.min.js',
+            selector: 'script[data-ak-im-user-plugin-ai-markdown-purify="1"]',
+            datasetKey: 'akImUserPluginAiMarkdownPurify'
+        }
+    ];
     const TEXT_LIKE_TYPES = {
         text: true,
         markdown: true,
@@ -31,6 +45,8 @@
     const aiMarkdownModule = {
         ctx: null,
         markedConfigured: false,
+        vendorPromise: null,
+        rerenderPending: false,
 
         init(ctx) {
             this.ctx = ctx || this.ctx || null;
@@ -107,6 +123,73 @@
             return purify && typeof purify.sanitize === 'function' ? purify : null;
         },
 
+        getPluginRoot() {
+            const configuredRoot = String(this.ctx && this.ctx.pluginRoot || '').trim();
+            if (configuredRoot) return configuredRoot.replace(/\/+$/, '');
+            const origin = global.location && global.location.origin ? global.location.origin : '';
+            return origin + '/chat/plugins/im/user/modules/ai';
+        },
+
+        withAssetVersion(url) {
+            if (this.ctx && typeof this.ctx.withAssetVersion === 'function') {
+                return this.ctx.withAssetVersion(url);
+            }
+            return String(url || '');
+        },
+
+        getVendorScriptUrl(config) {
+            return this.withAssetVersion(this.getPluginRoot() + '/' + config.fileName);
+        },
+
+        hasVendorGlobal(config) {
+            if (!config || !config.globalName) return false;
+            const value = global[config.globalName];
+            return !!value;
+        },
+
+        loadVendorScript(config) {
+            if (this.hasVendorGlobal(config)) return Promise.resolve(true);
+            return new Promise((resolve, reject) => {
+                const existing = document.querySelector(config.selector);
+                if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+                const script = document.createElement('script');
+                script.async = true;
+                script.src = this.getVendorScriptUrl(config);
+                script.dataset[config.datasetKey] = '1';
+                script.onload = () => resolve(true);
+                script.onerror = () => {
+                    script.dataset.akAiMarkdownLoadFailed = '1';
+                    reject(new Error('AI markdown vendor load failed'));
+                };
+                (document.head || document.documentElement || document.body).appendChild(script);
+            }).then(() => this.hasVendorGlobal(config));
+        },
+
+        ensureVendors() {
+            if (this.getMarkedApi() && this.getPurify()) return Promise.resolve(true);
+            if (this.vendorPromise) return this.vendorPromise;
+            this.vendorPromise = Promise.all(VENDOR_SCRIPTS.map((config) => this.loadVendorScript(config))).then(() => {
+                this.markedConfigured = false;
+                this.configureMarked();
+                this.vendorPromise = null;
+                return !!(this.getMarkedApi() && this.getPurify());
+            }).catch(() => {
+                this.vendorPromise = null;
+                return false;
+            });
+            return this.vendorPromise;
+        },
+
+        scheduleRerenderWhenReady() {
+            if (this.rerenderPending) return;
+            this.rerenderPending = true;
+            this.ensureVendors().then((ready) => {
+                this.rerenderPending = false;
+                if (!ready || !this.ctx || typeof this.ctx.renderMessages !== 'function') return;
+                this.ctx.renderMessages();
+            });
+        },
+
         escapeHtml(value) {
             if (this.ctx && typeof this.ctx.escapeHtml === 'function') return this.ctx.escapeHtml(value);
             return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
@@ -145,7 +228,8 @@
         },
 
         isTextLikeMessage(item) {
-            const type = this.normalizeText(item && item.message_type);
+            const type = this.normalizeText(item && (item.message_type || item.messageType || item.type));
+            if (!type) return true;
             return !!TEXT_LIKE_TYPES[type];
         },
 
@@ -154,7 +238,7 @@
             const peerUsername = this.normalizeText(session.peer_username);
             if (peerUsername === BOT_USERNAME) return true;
             if (session.is_ai_assistant || session.ai_assistant) return true;
-            const avatarSeed = this.normalizeText(session.avatar_seed);
+            const avatarSeed = this.normalizeText(session.avatar_seed || session.avatarSeed || session.sender_avatar_seed || session.senderAvatarSeed);
             return avatarSeed === 'ak-ai-assistant';
         },
 
@@ -185,16 +269,17 @@
             const senderUsername = this.getSenderUsername(item);
             if (senderUsername === BOT_USERNAME) return true;
             if (item && (item.is_ai_assistant || item.ai_assistant)) return true;
-            const avatarSeed = this.normalizeText(item && item.avatar_seed);
+            const avatarSeed = this.normalizeText(item && (item.avatar_seed || item.avatarSeed || item.sender_avatar_seed || item.senderAvatarSeed));
             return avatarSeed === 'ak-ai-assistant';
         },
 
         isAITextMessage(item) {
             if (!item || typeof item !== 'object') return false;
-            if (!this.isTextLikeMessage(item)) return false;
-            if (this.isFromAIAssistant(item)) return true;
+            const fromAssistant = this.isFromAIAssistant(item);
+            const sessionIsAssistant = this.isAIAssistantSession(this.getMessageSession(item));
+            if (!fromAssistant && !sessionIsAssistant) return false;
             if (this.isFromViewer(item)) return false;
-            return this.isAIAssistantSession(this.getMessageSession(item));
+            return this.isTextLikeMessage(item);
         },
 
         isThinkingPlaceholder(item) {
@@ -228,7 +313,10 @@
             const source = String(text || '').slice(0, MAX_MARKDOWN_LENGTH);
             const api = this.getMarkedApi();
             const purify = this.getPurify();
-            if (!api || !purify) return this.renderPlainText(source);
+            if (!api || !purify) {
+                this.scheduleRerenderWhenReady();
+                return this.renderPlainText(source);
+            }
             let rawHtml = '';
             try {
                 rawHtml = api.parse(source, {
