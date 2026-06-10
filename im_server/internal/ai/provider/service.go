@@ -213,6 +213,20 @@ func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, err
 	return item, err
 }
 
+func (s *Service) DeleteAccount(ctx context.Context, providerID int64) error {
+	if providerID <= 0 {
+		return errors.New("invalid provider_id")
+	}
+	tag, err := s.db.Exec(ctx, `DELETE FROM im_ai_provider_account WHERE id = $1`, providerID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 func normalizeBaseURL(value string) (string, error) {
 	value = strings.TrimRight(strings.TrimSpace(value), "/")
 	if value == "" {

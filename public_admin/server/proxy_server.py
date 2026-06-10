@@ -8677,6 +8677,12 @@ async def admin_ai_provider_update(request: Request, provider_id: int):
     return await _admin_ai_internal_proxy(request, "PUT", f"/im/internal/ai/admin/providers/{int(provider_id)}", payload)
 
 
+@app.delete("/admin/api/ai/providers/{provider_id}")
+async def admin_ai_provider_delete(request: Request, provider_id: int):
+
+    return await _admin_ai_internal_proxy(request, "DELETE", f"/im/internal/ai/admin/providers/{int(provider_id)}")
+
+
 @app.post("/admin/api/ai/providers/{provider_id}/secret")
 async def admin_ai_provider_secret(request: Request, provider_id: int):
 
@@ -8765,6 +8771,14 @@ async def admin_ai_relay_console_login(request: Request, console_id: int):
 async def admin_ai_relay_console_tokens(request: Request, console_id: int):
 
     return await _admin_ai_internal_proxy(request, "GET", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/tokens", timeout=25.0)
+
+
+@app.post("/admin/api/ai/relay-consoles/{console_id}/models")
+async def admin_ai_relay_console_models(request: Request, console_id: int):
+
+    payload = await request.json()
+
+    return await _admin_ai_internal_proxy(request, "POST", f"/im/internal/ai/admin/relay-consoles/{int(console_id)}/models", payload, timeout=25.0)
 
 
 @app.post("/admin/api/ai/relay-consoles/{console_id}/sync")

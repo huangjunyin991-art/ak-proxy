@@ -277,7 +277,12 @@ func (s *Service) ListTokens(ctx context.Context, consoleID int64) (TokenList, e
 		_ = s.setError(ctx, consoleID, err.Error())
 		return TokenList{}, err
 	}
-	return TokenList{ConsoleID: consoleID, Tokens: tokens}, nil
+	var usage *AccountUsage
+	if accountUsage, usageErr := adapter.FetchAccountUsage(ctx, s.client, account.Account, session); usageErr == nil {
+		accountUsage.ConsoleID = consoleID
+		usage = &accountUsage
+	}
+	return TokenList{ConsoleID: consoleID, Tokens: tokens, AccountUsage: usage}, nil
 }
 
 func (s *Service) FetchTokenKey(ctx context.Context, consoleID int64, tokenID string) (string, TokenInfo, error) {
@@ -310,6 +315,31 @@ func (s *Service) FetchTokenKey(ctx context.Context, consoleID int64, tokenID st
 		return "", TokenInfo{}, err
 	}
 	return key, token, nil
+}
+
+func (s *Service) ListModels(ctx context.Context, consoleID int64, tokenID string) (ModelList, error) {
+	tokenID = strings.TrimSpace(tokenID)
+	if tokenID == "" {
+		return ModelList{}, errors.New("missing token_id")
+	}
+	account, err := s.loadAccount(ctx, consoleID)
+	if err != nil {
+		return ModelList{}, err
+	}
+	adapter := adapterByKey(account.AdapterKey)
+	if adapter == nil {
+		return ModelList{}, errors.New("unsupported relay console adapter")
+	}
+	key, _, err := s.FetchTokenKey(ctx, consoleID, tokenID)
+	if err != nil {
+		return ModelList{}, err
+	}
+	models, err := adapter.FetchModels(ctx, s.client, account.Account, key)
+	if err != nil {
+		_ = s.setError(ctx, consoleID, err.Error())
+		return ModelList{}, err
+	}
+	return ModelList{ConsoleID: consoleID, TokenID: tokenID, Models: models}, nil
 }
 
 func (s *Service) Sync(ctx context.Context, consoleID int64, tokenID string) (BalanceSnapshot, error) {
@@ -561,6 +591,38 @@ func tokenMaps(rows []map[string]any) []TokenInfo {
 		})
 	}
 	return items
+}
+
+func parseNewAPIModels(body []byte) []string {
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil && len(parsed.Data) > 0 {
+		models := make([]string, 0, len(parsed.Data))
+		seen := map[string]struct{}{}
+		for _, item := range parsed.Data {
+			model := strings.TrimSpace(item.ID)
+			if model == "" {
+				continue
+			}
+			key := strings.ToLower(model)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			models = append(models, model)
+		}
+		return models
+	}
+	var fallback struct {
+		Models []string `json:"models"`
+	}
+	if err := json.Unmarshal(body, &fallback); err == nil {
+		return fallback.Models
+	}
+	return []string{}
 }
 
 func stringify(value any) string {

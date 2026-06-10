@@ -42,9 +42,28 @@ type TokenInfo struct {
 	ExpiredTime        int64   `json:"expired_time"`
 }
 
+type AccountUsage struct {
+	ConsoleID    int64   `json:"console_id"`
+	Username     string  `json:"username"`
+	UserID       string  `json:"user_id"`
+	Quota        float64 `json:"quota"`
+	UsedQuota    float64 `json:"used_quota"`
+	TotalQuota   float64 `json:"total_quota"`
+	RequestCount float64 `json:"request_count"`
+	LowBalance   bool    `json:"low_balance"`
+	Source       string  `json:"source"`
+}
+
 type TokenList struct {
-	ConsoleID int64       `json:"console_id"`
-	Tokens    []TokenInfo `json:"tokens"`
+	ConsoleID    int64         `json:"console_id"`
+	Tokens       []TokenInfo   `json:"tokens"`
+	AccountUsage *AccountUsage `json:"account_usage,omitempty"`
+}
+
+type ModelList struct {
+	ConsoleID int64    `json:"console_id"`
+	TokenID   string   `json:"token_id"`
+	Models    []string `json:"models"`
 }
 
 type BalanceSnapshot struct {

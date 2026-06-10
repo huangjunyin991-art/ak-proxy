@@ -29,6 +29,8 @@
         billingOverview: null,
         relayConsoleStatus: null,
         relayConsoleTokens: {},
+        relayConsoleModels: {},
+        relayConsoleAccountUsage: {},
         tiers: [],
         redeemCodes: [],
         generatedCodes: [],
@@ -111,6 +113,11 @@
         return '$' + fmtNumber(value, 2);
     }
 
+    function fmtQuota(value) {
+        if (value === 'unlimited') return '无限';
+        return fmtNumber(value || 0, 0);
+    }
+
     function providerById(id) {
         const target = Number(id || 0);
         return state.providers.find(function(item) {
@@ -138,6 +145,50 @@
     function selectedRelayConsole() {
         if (Number(state.selectedRelayConsoleId || 0) <= 0) return null;
         return relayConsoleById(state.selectedRelayConsoleId) || relayConsoleAccounts()[0] || null;
+    }
+
+    function relayTokenSummary(tokens) {
+        const rows = Array.isArray(tokens) ? tokens : [];
+        const hasUnlimited = rows.some(function(token) { return !!token.unlimited_quota; });
+        const used = rows.reduce(function(sum, token) {
+            return sum + Number(token.used_quota || 0);
+        }, 0);
+        const available = rows.reduce(function(sum, token) {
+            return sum + Number(token.remain_quota || 0);
+        }, 0);
+        return {
+            available: hasUnlimited ? 'unlimited' : available,
+            used: used,
+            total: hasUnlimited ? 'unlimited' : available + used,
+            count_label: 'Token',
+            count_value: rows.length || 0,
+            source: 'token'
+        };
+    }
+
+    function relayConsoleSummary(consoleId, balance, tokens) {
+        if (balance) {
+            return {
+                available: balance.unlimited_quota ? 'unlimited' : Number(balance.total_available || 0),
+                used: Number(balance.total_used || 0),
+                total: balance.unlimited_quota ? 'unlimited' : Number(balance.total_granted || 0),
+                count_label: 'Token',
+                count_value: (tokens || []).length || 0,
+                source: 'usage'
+            };
+        }
+        const accountUsage = state.relayConsoleAccountUsage[consoleId];
+        if (accountUsage) {
+            return {
+                available: Number(accountUsage.quota || 0),
+                used: Number(accountUsage.used_quota || 0),
+                total: Number(accountUsage.total_quota || 0),
+                count_label: '请求次数',
+                count_value: Number(accountUsage.request_count || 0),
+                source: 'self'
+            };
+        }
+        return relayTokenSummary(tokens);
     }
 
     function looksLikeApiKey(value) {
@@ -246,6 +297,8 @@
             #aiAssistant .ai-btn.primary{background:linear-gradient(135deg,var(--accent),#008ed0);color:#fff}
             #aiAssistant .ai-btn.success{background:linear-gradient(135deg,#00ff88,#00b96b);color:#052d1b}
             #aiAssistant .ai-btn.warn{background:linear-gradient(135deg,#ffa502,#e67e22);color:#1f1300}
+            #aiAssistant .ai-btn.danger{background:rgba(255,71,87,.13);border:1px solid rgba(255,71,87,.38);color:var(--accent-red)}
+            #aiAssistant .ai-btn.danger:hover{background:rgba(255,71,87,.22);color:#fff}
             #aiAssistant .ai-provider-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto}
             #aiAssistant .ai-provider-item{border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);padding:11px;cursor:pointer}
             #aiAssistant .ai-provider-item.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(0,212,255,.16) inset;background:rgba(0,212,255,.06)}
@@ -272,15 +325,19 @@
             #aiAssistant .ai-tier-save{height:30px;min-width:58px;border:1px solid rgba(0,212,255,.30);border-radius:9px;background:rgba(0,212,255,.09);color:var(--accent);box-shadow:0 0 0 1px rgba(0,212,255,.06) inset}
             #aiAssistant .ai-tier-save:hover{background:rgba(0,212,255,.16);border-color:rgba(0,212,255,.52);color:#fff}
             #aiAssistant .ai-feature-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary)}
+            #aiAssistant .ai-model-chip-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+            #aiAssistant .ai-model-chip{display:inline-flex;align-items:center;max-width:180px;height:22px;padding:0 8px;border:1px solid rgba(0,212,255,.22);border-radius:999px;background:rgba(0,212,255,.07);color:var(--text-primary);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            #aiAssistant .ai-model-chip.muted{color:var(--text-secondary);background:rgba(255,255,255,.05);border-color:var(--border)}
             #aiAssistant .ai-code-box{margin-top:10px;border:1px dashed rgba(0,212,255,.35);border-radius:10px;padding:10px;background:rgba(0,212,255,.05);font-size:12px;color:var(--text-primary);line-height:1.8;word-break:break-all}
             #aiAssistant .ai-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+            #aiAssistant .ai-stat-grid.relay{grid-template-columns:repeat(4,minmax(0,1fr))}
             #aiAssistant .ai-stat{border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.035);padding:10px;min-width:0}
             #aiAssistant .ai-stat-label{font-size:12px;color:var(--text-secondary);margin-bottom:5px}
             #aiAssistant .ai-stat-value{font-size:18px;font-weight:800;color:var(--text-primary);font-variant-numeric:tabular-nums}
             #aiAssistant .ai-secret-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;margin-top:10px}
             #aiAssistant .ai-secret-row.provider{grid-template-columns:minmax(0,1fr) auto}
             #aiAssistant .ai-empty{padding:26px;text-align:center;color:var(--text-secondary)}
-            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid{grid-template-columns:1fr}#aiAssistant .ai-secret-row,#aiAssistant .ai-secret-row.provider{grid-template-columns:1fr}}
+            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid,#aiAssistant .ai-stat-grid.relay{grid-template-columns:1fr}#aiAssistant .ai-secret-row,#aiAssistant .ai-secret-row.provider{grid-template-columns:1fr}}
         `;
         document.head.appendChild(style);
     }
@@ -399,6 +456,7 @@
                     <button class="ai-btn primary" data-action="save-provider">${id ? '保存 Provider' : '新增 Provider'}</button>
                     <button class="ai-btn" data-action="new-provider">清空新增</button>
                     ${id ? '<button class="ai-btn" data-action="refresh-provider-models">刷新模型</button>' : ''}
+                    ${id ? '<button class="ai-btn danger" data-action="delete-provider">删除 Provider</button>' : ''}
                 </div>
             </div>
         `;
@@ -429,17 +487,26 @@
         const id = Number(item.id || 0);
         const balance = id ? ((status.latest_balances && status.latest_balances[id]) || status.latest_balance || null) : null;
         const tokens = id ? (state.relayConsoleTokens[id] || []) : [];
+        const summary = relayConsoleSummary(id, balance, tokens);
         const accountOptions = (id ? [] : [{ value: '0', label: '新建 Dream Field' }]).concat(accounts.map(function(account) {
             const label = (account.display_name || account.console_base_url || '中转站') + ' #' + account.id;
             return { value: String(account.id), label: label };
         }));
         const tokenRows = tokens.map(function(token) {
+            const modelKey = relayModelCacheKey(id, token.id);
+            const models = state.relayConsoleModels[modelKey] || [];
+            const modelHtml = models.length
+                ? '<div class="ai-model-chip-list">' + models.slice(0, 18).map(function(model) {
+                    return '<span class="ai-model-chip">' + escapeHtml(model) + '</span>';
+                }).join('') + (models.length > 18 ? '<span class="ai-model-chip muted">+' + (models.length - 18) + '</span>' : '') + '</div>'
+                : '';
             return `
                 <tr>
-                    <td>${escapeHtml(token.name || '-')}<div class="ai-meta">${escapeHtml(token.key_masked || token.id || '')}</div></td>
+                    <td>${escapeHtml(token.name || '-')}<div class="ai-meta">${escapeHtml(token.key_masked || token.id || '')}</div>${modelHtml}</td>
                     <td>${token.unlimited_quota ? '无限' : fmtNumber(token.remain_quota || 0, 0)}</td>
                     <td>${fmtNumber(token.used_quota || 0, 0)}</td>
                     <td>
+                        <button class="ai-tier-save" data-action="relay-load-models" data-token-id="${escapeHtml(token.id)}">模型</button>
                         <button class="ai-tier-save" data-action="relay-sync" data-token-id="${escapeHtml(token.id)}">同步</button>
                         <button class="ai-tier-save" data-action="relay-import-provider" data-token-id="${escapeHtml(token.id)}">导入</button>
                     </td>
@@ -452,10 +519,11 @@
                     <span>中转站控制台</span>
                     <span class="ai-tag ${item.enabled !== false ? 'ok' : 'bad'}">${item.enabled !== false ? '已启用' : '已停用'}</span>
                 </div>
-                <div class="ai-stat-grid">
-                    <div class="ai-stat"><div class="ai-stat-label">可用 quota</div><div class="ai-stat-value">${balance ? fmtNumber(balance.total_available || 0, 0) : '-'}</div></div>
-                    <div class="ai-stat"><div class="ai-stat-label">已用 quota</div><div class="ai-stat-value">${balance ? fmtNumber(balance.total_used || 0, 0) : '-'}</div></div>
-                    <div class="ai-stat"><div class="ai-stat-label">Token</div><div class="ai-stat-value">${tokens.length || '-'}</div></div>
+                <div class="ai-stat-grid relay">
+                    <div class="ai-stat"><div class="ai-stat-label">可用 quota</div><div class="ai-stat-value">${summary.source === 'token' && !tokens.length ? '-' : fmtQuota(summary.available)}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">已用 quota</div><div class="ai-stat-value">${summary.source === 'token' && !tokens.length ? '-' : fmtQuota(summary.used)}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">总 quota</div><div class="ai-stat-value">${summary.source === 'token' && !tokens.length ? '-' : fmtQuota(summary.total)}</div></div>
+                    <div class="ai-stat"><div class="ai-stat-label">${escapeHtml(summary.count_label || 'Token')}</div><div class="ai-stat-value">${summary.source === 'token' && !tokens.length ? '-' : fmtNumber(summary.count_value || 0, 0)}</div></div>
                 </div>
                 <div class="ai-form-grid">
                     ${renderSelectPicker('aiRelayConsoleSelected', '当前中转站', String(id || 0), accountOptions.length ? accountOptions : [{ value: '0', label: '新建 Dream Field' }])}
@@ -478,12 +546,16 @@
                     <button class="ai-btn warn" data-action="relay-load-tokens" ${id ? '' : 'disabled'}>刷新 Token</button>
                 </div>
                 <table class="ai-table" style="margin-top:12px">
-                    <thead><tr><th>Token</th><th>剩余</th><th>已用</th><th>操作</th></tr></thead>
+                    <thead><tr><th>Token / 模型</th><th>剩余</th><th>已用</th><th>操作</th></tr></thead>
                     <tbody>${tokenRows}</tbody>
                 </table>
                 ${item.last_error ? '<div class="ai-meta" style="color:var(--accent-red);margin-top:10px;">最近错误：' + escapeHtml(item.last_error) + '</div>' : ''}
             </div>
         `;
+    }
+
+    function relayModelCacheKey(consoleId, tokenId) {
+        return String(consoleId || 0) + ':' + String(tokenId || '');
     }
 
     function renderBilling() {
@@ -854,6 +926,7 @@
         const data = await api('/admin/api/ai/relay-consoles/' + item.id + '/tokens');
         const payload = unwrapItem(data, {});
         state.relayConsoleTokens[item.id] = Array.isArray(payload.tokens) ? payload.tokens : [];
+        if (payload.account_usage) state.relayConsoleAccountUsage[item.id] = payload.account_usage;
         showToast(state.relayConsoleTokens[item.id].length ? ('已获取 ' + state.relayConsoleTokens[item.id].length + ' 个 Token') : '没有获取到 Token', state.relayConsoleTokens[item.id].length ? undefined : 'error');
         render();
     }
@@ -868,6 +941,21 @@
         });
         showToast('中转站余额已同步');
         await loadAll();
+    }
+
+    async function loadRelayModels(tokenId) {
+        const item = selectedRelayConsole();
+        if (!item || !item.id) throw new Error('请先选择中转站控制台');
+        if (!String(tokenId || '').trim()) throw new Error('缺少 token_id');
+        const data = await api('/admin/api/ai/relay-consoles/' + item.id + '/models', {
+            method: 'POST',
+            body: JSON.stringify({ token_id: String(tokenId || '') })
+        });
+        const payload = unwrapItem(data, {});
+        const models = Array.isArray(payload.models) ? payload.models : [];
+        state.relayConsoleModels[relayModelCacheKey(item.id, tokenId)] = models;
+        showToast(models.length ? ('已获取 ' + models.length + ' 个模型') : '模型列表为空', models.length ? undefined : 'error');
+        render();
     }
 
     async function importRelayProvider(tokenId) {
@@ -952,6 +1040,17 @@
         await loadAll();
     }
 
+    async function deleteProvider() {
+        const provider = selectedProvider();
+        if (!provider || !provider.id) throw new Error('请先选择 Provider');
+        const name = provider.provider_name || ('#' + provider.id);
+        if (!confirm('确定删除 Provider「' + name + '」吗？')) return;
+        await api('/admin/api/ai/providers/' + provider.id, { method: 'DELETE' });
+        state.selectedProviderId = 0;
+        showToast('Provider 已删除');
+        await loadAll();
+    }
+
     async function saveTier(tier) {
         const row = Array.prototype.slice.call(document.querySelectorAll('#aiAssistant tr[data-tier]')).find(function(item) {
             return String(item.dataset.tier || '') === String(tier || '');
@@ -1019,12 +1118,14 @@
         if (action === 'relay-save-credentials') return saveRelayCredentials();
         if (action === 'relay-login') return relayLogin();
         if (action === 'relay-load-tokens') return loadRelayTokens();
+        if (action === 'relay-load-models') return loadRelayModels(target.dataset.tokenId || '');
         if (action === 'relay-sync') return syncRelayBalance(target.dataset.tokenId || '');
         if (action === 'relay-import-provider') return importRelayProvider(target.dataset.tokenId || '');
         if (action === 'save-provider') return saveProvider();
         if (action === 'save-secret') return saveSecret();
         if (action === 'test-provider') return testProvider();
         if (action === 'refresh-provider-models') return refreshProviderModels();
+        if (action === 'delete-provider') return deleteProvider();
         if (action === 'save-tier') return saveTier(target.dataset.tier || '');
         if (action === 'create-redeem') return createRedeem();
     }

@@ -230,6 +230,21 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		item, err := a.aiRelayConsole.ListTokens(ctx, id)
 		writeJSONOrError(w, item, err)
+	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "models" && r.Method == http.MethodPost:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid relay console id"})
+			return
+		}
+		var req aiRelayConsoleSyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		item, err := a.aiRelayConsole.ListModels(ctx, id, req.TokenID)
+		writeJSONOrError(w, item, err)
 	case len(parts) == 3 && parts[0] == "relay-consoles" && parts[2] == "sync" && r.Method == http.MethodPost:
 		id, err := parseID(parts[1])
 		if err != nil {
@@ -285,6 +300,14 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		req.ID = id
 		item, err := a.aiProvider.UpsertAccount(r.Context(), req)
 		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "providers" && r.Method == http.MethodDelete:
+		id, err := parseID(parts[1])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid provider id"})
+			return
+		}
+		err = a.aiProvider.DeleteAccount(r.Context(), id)
+		writeJSONOrError(w, map[string]any{"deleted": true, "id": id}, err)
 	case len(parts) == 3 && parts[0] == "providers" && parts[2] == "secret" && r.Method == http.MethodPost:
 		id, err := parseID(parts[1])
 		if err != nil {
