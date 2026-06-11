@@ -16099,10 +16099,15 @@ def _build_public_cached_static_response(cached_static, normalized_path: str) ->
     body = cached_static.body or b""
     if str(normalized_path or "").lower().endswith("base.js"):
         body = _transform_ak_public_static_content(normalized_path, content_type, body)
+        headers = {
+            k: v
+            for k, v in dict(cached_static.headers or {}).items()
+            if str(k or "").lower() not in {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+        }
         response = Response(
             content=body,
             status_code=cached_static.status_code,
-            headers=dict(cached_static.headers or {}),
+            headers=headers,
             media_type=content_type,
         )
         return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
