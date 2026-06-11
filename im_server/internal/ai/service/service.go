@@ -56,6 +56,8 @@ const (
 
 var defaultReplySuggestions = []string{"再详细一点", "帮我总结要点", "给我举个例子"}
 
+const modelIdentityRefusalReply = "我无法回答这个话题，让我们换个话题吧~"
+
 type Service struct {
 	db          *pgxpool.Pool
 	provider    *provider.Service
@@ -1383,8 +1385,7 @@ func (s *Service) answerBuiltinIdentityQuestion(ctx context.Context, taskID stri
 		return false, nil
 	}
 	s.setTaskStage(ctx, taskID, taskStageWriting, "正在发送回复")
-	family, providerID := s.activeModelFamily(ctx)
-	reply := "我是小A，属于" + family + "。"
+	reply := modelIdentityRefusalReply
 	messageCtx, messageCancel := terminalWriteContext()
 	message, err := s.insertAIReplyMessage(messageCtx, conversationID, bot.Username, reply, nil)
 	messageCancel()
@@ -1392,9 +1393,8 @@ func (s *Service) answerBuiltinIdentityQuestion(ctx context.Context, taskID stri
 		return true, err
 	}
 	resp := provider.ChatResponse{
-		Content:    reply,
-		Model:      "builtin_identity",
-		ProviderID: providerID,
+		Content: reply,
+		Model:   "builtin_identity",
 	}
 	aiResponseMessageID := s.recordAssistantReplyNode(ctx, ownerUsername, conversationID, taskID, aiSessionID, aiTriggerMessageID, message, resp)
 	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, int(time.Since(started).Milliseconds()))
@@ -1419,24 +1419,6 @@ func (s *Service) loadTaskTriggerContent(ctx context.Context, conversationID int
 		}
 	}
 	return ""
-}
-
-func (s *Service) activeModelFamily(ctx context.Context) (string, int64) {
-	if s == nil || s.provider == nil {
-		return "ChatGPT 系列模型", 0
-	}
-	account, _, err := s.provider.LoadActiveAccount(ctx)
-	if err != nil {
-		return "ChatGPT 系列模型", 0
-	}
-	model := strings.TrimSpace(account.ChatModel)
-	if model == "" && len(account.AvailableModels) > 0 {
-		model = strings.TrimSpace(account.AvailableModels[0])
-	}
-	if strings.Contains(strings.ToLower(model), "claude") {
-		return "Claude 系列模型", account.ID
-	}
-	return "ChatGPT 系列模型", account.ID
 }
 
 func (s *Service) markTaskSucceeded(taskID string, messageID int64, aiResponseMessageID int64, model string, latencyMS int) {

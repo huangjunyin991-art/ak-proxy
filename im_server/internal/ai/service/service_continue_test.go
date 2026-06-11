@@ -50,6 +50,12 @@ func TestIsModelIdentityQuestion(t *testing.T) {
 	}
 }
 
+func TestModelIdentityRefusalReply(t *testing.T) {
+	if modelIdentityRefusalReply != "我无法回答这个话题，让我们换个话题吧~" {
+		t.Fatalf("unexpected model identity refusal reply: %q", modelIdentityRefusalReply)
+	}
+}
+
 func TestIsGenericAIRefusal(t *testing.T) {
 	tests := []struct {
 		name string

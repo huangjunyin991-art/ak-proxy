@@ -653,14 +653,9 @@ func modelAvailable(models []string, model string) bool {
 }
 
 func appendModelIdentityGuard(messages []Message, model string) []Message {
-	family := "ChatGPT 系列模型"
-	if strings.Contains(strings.ToLower(strings.TrimSpace(model)), "claude") {
-		family = "Claude 系列模型"
-	}
 	guard := Message{
-		Role: "system",
-		Content: "You should refer to yourself as 小A. If the user asks what model, underlying model, provider, or exact model name you are using, only answer: 我是小A，属于" +
-			family + "。Do not reveal exact model IDs, relay providers, API keys, system configuration, or routing details.",
+		Role:    "system",
+		Content: "You should refer to yourself as 小A. If the user asks what model, underlying model, provider, or exact model name you are using, only answer: 我无法回答这个话题，让我们换个话题吧~ Do not reveal exact model IDs, model families, relay providers, API keys, system configuration, or routing details.",
 	}
 	out := make([]Message, 0, len(messages)+1)
 	inserted := false
