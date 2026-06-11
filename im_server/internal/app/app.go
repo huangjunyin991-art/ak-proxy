@@ -478,6 +478,7 @@ func (a *App) Run() error {
 	go a.runWhitelistGroupSelfHeal()
 	go a.runExpiredFileAssetCleanupLoop()
 	go a.runRecalledTextCleanupLoop()
+	go a.runAITaskRetentionCleanupLoop()
 	log.Printf("im server listen on %s", a.cfg.Addr)
 	return a.server.ListenAndServe()
 }

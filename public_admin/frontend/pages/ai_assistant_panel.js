@@ -27,6 +27,8 @@
         providers: [],
         billingConfig: null,
         billingOverview: null,
+        taskRetention: null,
+        tableStorage: null,
         relayConsoleStatus: null,
         relayConsoleTokens: {},
         relayConsoleModels: {},
@@ -116,6 +118,20 @@
     function fmtQuota(value) {
         if (value === 'unlimited') return '无限';
         return fmtNumber(value || 0, 0);
+    }
+
+    function fmtBytes(value) {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num) || num <= 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = num;
+        let index = 0;
+        while (size >= 1024 && index < units.length - 1) {
+            size = size / 1024;
+            index += 1;
+        }
+        if (index === 0) return Math.round(size) + ' ' + units[index];
+        return (size >= 100 ? size.toFixed(0) : size.toFixed(1)) + ' ' + units[index];
     }
 
     function providerById(id) {
@@ -334,10 +350,16 @@
             #aiAssistant .ai-stat{border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.035);padding:10px;min-width:0}
             #aiAssistant .ai-stat-label{font-size:12px;color:var(--text-secondary);margin-bottom:5px}
             #aiAssistant .ai-stat-value{font-size:18px;font-weight:800;color:var(--text-primary);font-variant-numeric:tabular-nums}
+            #aiAssistant .ai-maintenance-split{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:14px;align-items:start}
+            #aiAssistant .ai-storage-list{display:flex;flex-direction:column;gap:8px;max-height:330px;overflow:auto;padding-right:2px}
+            #aiAssistant .ai-storage-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);padding:10px}
+            #aiAssistant .ai-storage-name{font-size:12px;font-weight:800;color:var(--text-primary);word-break:break-all}
+            #aiAssistant .ai-storage-size{font-size:13px;font-weight:900;color:var(--accent);font-variant-numeric:tabular-nums;white-space:nowrap}
+            #aiAssistant .ai-storage-meta{grid-column:1/-1;font-size:11px;color:var(--text-secondary);line-height:1.6}
             #aiAssistant .ai-secret-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;margin-top:10px}
             #aiAssistant .ai-secret-row.provider{grid-template-columns:minmax(0,1fr) auto}
             #aiAssistant .ai-empty{padding:26px;text-align:center;color:var(--text-secondary)}
-            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid,#aiAssistant .ai-stat-grid.relay{grid-template-columns:1fr}#aiAssistant .ai-secret-row,#aiAssistant .ai-secret-row.provider{grid-template-columns:1fr}}
+            @media (max-width: 1100px){#aiAssistant .ai-admin-grid{grid-template-columns:1fr}#aiAssistant .ai-form-grid{grid-template-columns:1fr}#aiAssistant .ai-stat-grid,#aiAssistant .ai-stat-grid.relay{grid-template-columns:1fr}#aiAssistant .ai-maintenance-split{grid-template-columns:1fr}#aiAssistant .ai-secret-row,#aiAssistant .ai-secret-row.provider{grid-template-columns:1fr}}
         `;
         document.head.appendChild(style);
     }
@@ -480,6 +502,63 @@
             </div>
         `;
     }
+
+    function renderMaintenance() {
+        const retention = state.taskRetention || {};
+        const policy = retention.policy || (retention.status && retention.status.policy) || { enabled: true, retention_days: 30, cleanup_interval_hours: 24, batch_limit: 1000 };
+        const status = retention.status || {};
+        const storage = state.tableStorage || {};
+        const rows = Array.isArray(storage.items) ? storage.items : [];
+        const storageRows = rows.map(function(item) {
+            return `
+                <div class="ai-storage-item">
+                    <div class="ai-storage-name">${escapeHtml(item.table_name || '-')}</div>
+                    <div class="ai-storage-size">${escapeHtml(item.total_pretty || fmtBytes(item.total_bytes))}</div>
+                    <div class="ai-storage-meta">数据 ${escapeHtml(item.heap_pretty || fmtBytes(item.heap_bytes))} · 索引 ${escapeHtml(item.index_pretty || fmtBytes(item.index_bytes))} · 估算行数 ${fmtNumber(item.row_estimate || 0, 0)}</div>
+                </div>
+            `;
+        }).join('') || '<div class="ai-empty">暂无 AI 表占用数据</div>';
+        const lastDeleted = Number(status.last_deleted_tasks || 0) + Number(status.last_deleted_request_logs || 0) + Number(status.last_deleted_reply_suggestions || 0);
+        return `
+            <div class="ai-card">
+                <div class="ai-card-title">
+                    <span>AI 数据维护</span>
+                    <span class="ai-tag ${policy.enabled !== false ? 'ok' : 'warn'}">${policy.enabled !== false ? '自动清理' : '保留全部'}</span>
+                </div>
+                <div class="ai-maintenance-split">
+                    <div>
+                        <div class="ai-stat-grid">
+                            <div class="ai-stat"><div class="ai-stat-label">保留天数</div><div class="ai-stat-value">${fmtNumber(policy.retention_days || 30, 0)}</div></div>
+                            <div class="ai-stat"><div class="ai-stat-label">上次清理</div><div class="ai-stat-value">${lastDeleted ? fmtNumber(lastDeleted, 0) : '-'}</div></div>
+                            <div class="ai-stat"><div class="ai-stat-label">AI 表总占用</div><div class="ai-stat-value">${escapeHtml(storage.total_pretty || fmtBytes(storage.total_bytes))}</div></div>
+                        </div>
+                        <div class="ai-form-grid">
+                            ${renderSelectPicker('aiTaskRetentionEnabled', '诊断清理', policy.enabled === false ? 'false' : 'true', [{ value: 'true', label: '启用' }, { value: 'false', label: '关闭' }])}
+                            <div class="ai-field"><label>保留天数</label><input class="ai-input" id="aiTaskRetentionDays" type="number" min="1" max="3650" value="${Number(policy.retention_days || 30)}"></div>
+                            <div class="ai-field"><label>清理周期（小时）</label><input class="ai-input" id="aiTaskRetentionInterval" type="number" min="1" max="168" value="${Number(policy.cleanup_interval_hours || 24)}"></div>
+                            <div class="ai-field"><label>单批上限</label><input class="ai-input" id="aiTaskRetentionBatch" type="number" min="50" max="10000" step="50" value="${Number(policy.batch_limit || 1000)}"></div>
+                        </div>
+                        <div class="ai-meta" style="margin-top:10px;">
+                            上次：${escapeHtml(fmtTime(status.last_finished_at || status.last_run_at))} · 下次：${escapeHtml(fmtTime(status.next_run_at))}<br>
+                            任务 ${fmtNumber(status.last_deleted_tasks || 0, 0)} · 请求日志 ${fmtNumber(status.last_deleted_request_logs || 0, 0)} · 回复建议 ${fmtNumber(status.last_deleted_reply_suggestions || 0, 0)} · 耗时 ${fmtNumber(status.last_duration_ms || 0, 0)} ms
+                        </div>
+                        ${status.last_error ? '<div class="ai-meta" style="color:var(--accent-red);margin-top:6px;">最近错误：' + escapeHtml(status.last_error) + '</div>' : ''}
+                        ${status.last_message ? '<div class="ai-meta" style="margin-top:6px;">状态：' + escapeHtml(status.last_message) + '</div>' : ''}
+                        <div class="ai-actions">
+                            <button class="ai-btn primary" data-action="save-task-retention">保存维护策略</button>
+                            <button class="ai-btn warn" data-action="run-task-retention">立即清理一批</button>
+                            <button class="ai-btn" data-action="reload-table-storage">刷新表占用</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="ai-meta" style="margin-bottom:8px;">生成时间：${escapeHtml(fmtTime(storage.generated_at))} · 表数量：${fmtNumber(storage.existing_rows || rows.length || 0, 0)}</div>
+                        <div class="ai-storage-list">${storageRows}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     function renderRelayConsole() {
         const status = state.relayConsoleStatus || {};
         const accounts = relayConsoleAccounts();
@@ -749,6 +828,7 @@
                 <div class="ai-admin-grid">
                     <div>
                         ${renderConfig()}
+                        ${renderMaintenance()}
                         ${renderBilling()}
                         ${renderTiers()}
                     </div>
@@ -797,6 +877,8 @@
                 api('/admin/api/ai/providers'),
                 api('/admin/api/ai/billing/config'),
                 api('/admin/api/ai/billing/overview'),
+                api('/admin/api/ai/task-retention'),
+                api('/admin/api/ai/table-storage'),
                 api('/admin/api/ai/relay-consoles'),
                 api('/admin/api/ai/tiers'),
                 api('/admin/api/ai/redeem-codes')
@@ -806,9 +888,11 @@
             state.providers = unwrapItems(results[2]);
             state.billingConfig = unwrapItem(results[3], {});
             state.billingOverview = unwrapItem(results[4], {});
-            state.relayConsoleStatus = unwrapItem(results[5], {});
-            state.tiers = unwrapItems(results[6]);
-            state.redeemCodes = unwrapItems(results[7]);
+            state.taskRetention = unwrapItem(results[5], {});
+            state.tableStorage = unwrapItem(results[6], {});
+            state.relayConsoleStatus = unwrapItem(results[7], {});
+            state.tiers = unwrapItems(results[8]);
+            state.redeemCodes = unwrapItems(results[9]);
             if (!providerById(state.selectedProviderId)) {
                 state.selectedProviderId = Number(state.providers[0] && state.providers[0].id || 0);
             }
@@ -839,6 +923,46 @@
         state.config = unwrapItem(data, payload);
         showToast('AI 运行策略已保存');
         render();
+    }
+
+    function readTaskRetentionPayload() {
+        return {
+            enabled: document.getElementById('aiTaskRetentionEnabled')?.value !== 'false',
+            retention_days: Number(document.getElementById('aiTaskRetentionDays')?.value || 30),
+            cleanup_interval_hours: Number(document.getElementById('aiTaskRetentionInterval')?.value || 24),
+            batch_limit: Number(document.getElementById('aiTaskRetentionBatch')?.value || 1000)
+        };
+    }
+
+    async function loadTaskRetention() {
+        const data = await api('/admin/api/ai/task-retention');
+        state.taskRetention = unwrapItem(data, {});
+        render();
+    }
+
+    async function loadTableStorage() {
+        const data = await api('/admin/api/ai/table-storage');
+        state.tableStorage = unwrapItem(data, {});
+        render();
+    }
+
+    async function saveTaskRetention() {
+        const payload = readTaskRetentionPayload();
+        const data = await api('/admin/api/ai/task-retention', { method: 'POST', body: JSON.stringify(payload) });
+        const policy = unwrapItem(data, payload);
+        state.taskRetention = Object.assign({}, state.taskRetention || {}, {
+            policy: policy,
+            status: Object.assign({}, (state.taskRetention || {}).status || {}, { policy: policy })
+        });
+        showToast('AI 维护策略已保存');
+        await loadTaskRetention();
+    }
+
+    async function runTaskRetentionCleanup() {
+        const data = await api('/admin/api/ai/task-retention/cleanup', { method: 'POST', body: '{}' });
+        const result = unwrapItem(data, {});
+        showToast(result.skipped ? (result.message || '暂未清理') : 'AI 诊断数据已清理');
+        await Promise.all([loadTaskRetention(), loadTableStorage()]);
     }
 
     function readBillingPayload() {
@@ -1113,6 +1237,9 @@
             return;
         }
         if (action === 'save-config') return saveConfig();
+        if (action === 'save-task-retention') return saveTaskRetention();
+        if (action === 'run-task-retention') return runTaskRetentionCleanup();
+        if (action === 'reload-table-storage') return loadTableStorage();
         if (action === 'save-billing-config') return saveBillingConfig();
         if (action === 'relay-save-console') return saveRelayConsole();
         if (action === 'relay-save-credentials') return saveRelayCredentials();

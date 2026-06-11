@@ -8851,6 +8851,38 @@ async def admin_ai_config_update(request: Request):
     return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/config", payload)
 
 
+@app.get("/admin/api/ai/task-retention")
+async def admin_ai_task_retention(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/task-retention")
+
+
+@app.post("/admin/api/ai/task-retention")
+async def admin_ai_task_retention_update(request: Request):
+
+    try:
+
+        payload = await request.json()
+
+    except Exception:
+
+        payload = {}
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/task-retention", payload)
+
+
+@app.post("/admin/api/ai/task-retention/cleanup")
+async def admin_ai_task_retention_cleanup(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "POST", "/im/internal/ai/admin/task-retention/cleanup", {}, timeout=35.0)
+
+
+@app.get("/admin/api/ai/table-storage")
+async def admin_ai_table_storage(request: Request):
+
+    return await _admin_ai_internal_proxy(request, "GET", "/im/internal/ai/admin/table-storage")
+
+
 @app.get("/admin/api/ai/providers")
 async def admin_ai_providers(request: Request):
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -336,6 +337,24 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		item, err := a.ai.SetConfig(r.Context(), req)
 		writeJSONOrError(w, item, err)
+	case len(parts) == 1 && parts[0] == "task-retention" && r.Method == http.MethodGet:
+		a.handleAIAdminTaskRetention(w, r)
+	case len(parts) == 1 && parts[0] == "task-retention" && r.Method == http.MethodPost:
+		var req aiservice.TaskRetentionPolicy
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		item, err := a.ai.SetTaskRetentionPolicy(r.Context(), req)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 2 && parts[0] == "task-retention" && parts[1] == "cleanup" && r.Method == http.MethodPost:
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		item, err := a.ai.RunTaskRetentionCleanup(ctx)
+		writeJSONOrError(w, item, err)
+	case len(parts) == 1 && parts[0] == "table-storage" && r.Method == http.MethodGet:
+		item, err := a.ai.AITableStorage(r.Context())
+		writeJSONOrError(w, item, err)
 	case len(parts) == 2 && parts[0] == "billing" && parts[1] == "config" && r.Method == http.MethodGet:
 		item, err := a.aiBilling.Config(r.Context())
 		writeJSONOrError(w, item, err)
@@ -616,6 +635,56 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"relay_console_low_balance":  relayLowBalance,
 		},
 	})
+}
+
+func (a *App) handleAIAdminTaskRetention(w http.ResponseWriter, r *http.Request) {
+	if a.ai == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": true,
+			"item": map[string]any{
+				"available": false,
+				"message":   "AI service is not initialized",
+			},
+		})
+		return
+	}
+	policy, policyErr := a.ai.TaskRetentionPolicy(r.Context())
+	status, statusErr := a.ai.TaskRetentionStatus(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"item": map[string]any{
+			"available":    policyErr == nil && statusErr == nil,
+			"policy":       policy,
+			"status":       status,
+			"policy_error": errorString(policyErr),
+			"status_error": errorString(statusErr),
+		},
+	})
+}
+
+func (a *App) runAITaskRetentionCleanupLoop() {
+	if a == nil || a.ai == nil {
+		return
+	}
+	runOnce := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		result, err := a.ai.RunTaskRetentionCleanupIfDue(ctx)
+		if err != nil {
+			log.Printf("AI task retention cleanup failed: %v", err)
+			return
+		}
+		if !result.Skipped {
+			log.Printf("AI task retention cleanup done: tasks=%d request_logs=%d suggestions=%d duration_ms=%d",
+				result.DeletedTasks, result.DeletedRequestLogs, result.DeletedReplySuggestions, result.DurationMs)
+		}
+	}
+	runOnce()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		runOnce()
+	}
 }
 
 func (a *App) importRelayConsoleTokenAsProvider(ctx context.Context, req relayconsole.ImportProviderRequest) (provider.Account, error) {

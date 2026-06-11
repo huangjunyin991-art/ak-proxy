@@ -226,7 +226,12 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_task_owner_status ON im_ai_task(owner_username, status, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_task_ai_session ON im_ai_task(ai_session_id, created_at DESC) WHERE ai_session_id > 0`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_task_status_finished ON im_ai_task(status, finished_at, created_at) WHERE finished_at IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_reply_suggestion_task ON im_ai_reply_suggestion(task_id) WHERE task_id <> ''`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_reply_suggestion_created ON im_ai_reply_suggestion(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_context_summary_conversation ON im_ai_context_summary(conversation_id, updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_request_log_task ON im_ai_request_log(task_id) WHERE task_id <> ''`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_request_log_created ON im_ai_request_log(created_at)`,
 	}
 	for index, stmt := range statements {
 		if _, err := s.db.Exec(ctx, stmt); err != nil {
@@ -1427,6 +1432,10 @@ func (s *Service) markTaskSucceeded(taskID string, messageID int64, aiResponseMe
 	_, _ = s.db.Exec(writeCtx, `
 		INSERT INTO im_ai_request_log (task_id, model, status, latency_ms, created_at)
 		VALUES ($1, $2, 'succeeded', $3, NOW())`, taskID, model, latencyMS)
+	_, _ = s.db.Exec(writeCtx, `
+		UPDATE im_ai_reply_suggestion
+		SET task_id = $1, updated_at = NOW()
+		WHERE message_id = $2`, taskID, messageID)
 	tag, err := s.db.Exec(writeCtx, `
 		UPDATE im_ai_task
 		SET status = $2,
