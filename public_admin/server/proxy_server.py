@@ -12531,6 +12531,18 @@ def _iter_client_runtime_asset_paths() -> list[str]:
     return asset_paths
 
 
+def _iter_js_asset_paths_under(root_dir: str) -> list[str]:
+    result = []
+    root_dir = str(root_dir or "").strip()
+    if not root_dir or not os.path.isdir(root_dir):
+        return result
+    for current_root, _, filenames in os.walk(root_dir):
+        for filename in filenames:
+            if str(filename or "").lower().endswith(".js"):
+                result.append(os.path.join(current_root, filename))
+    return result
+
+
 def _build_client_runtime_content() -> tuple[str, list[str]]:
     chunks = []
     missing_required = []
@@ -12559,10 +12571,14 @@ def _build_client_runtime_bootstrap_content() -> str:
 
 
 def _iter_widget_asset_paths() -> list[str]:
+    im_user_plugin_dir = os.path.join(PLUGINS_DIR, "im", "user")
+    notification_user_plugin_dir = os.path.join(PLUGINS_DIR, "notification", "user")
     return [
         __file__,
         AK_NTFY_IDENTITY_SWITCH_PRELUDE_PATH,
         *_iter_client_runtime_asset_paths(),
+        *_iter_js_asset_paths_under(notification_user_plugin_dir),
+        *_iter_js_asset_paths_under(im_user_plugin_dir),
         os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js"),
