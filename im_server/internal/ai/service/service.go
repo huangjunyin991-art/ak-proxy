@@ -44,6 +44,8 @@ const (
 	defaultContextSummaryMinTokens = 12000
 	defaultContextRecentKeepTokens = 4000
 	defaultContextScanMaxCount     = 200
+	defaultChatContextMaxMessages  = 1000
+	defaultChatContextMaxTokens    = 12000
 	defaultChatMaxOutputTokens     = 1000
 	defaultSummaryMaxOutputTokens  = 600
 	defaultSummaryMemoryMaxTokens  = 2000
@@ -249,6 +251,9 @@ func defaultRuntimeConfig() RuntimeConfig {
 		ContextSummaryMinTokens: defaultContextSummaryMinTokens,
 		ContextRecentKeepTokens: defaultContextRecentKeepTokens,
 		ContextScanMaxCount:     defaultContextScanMaxCount,
+		ChatContextMaxMessages:  defaultChatContextMaxMessages,
+		ChatContextMaxTokens:    defaultChatContextMaxTokens,
+		GroupMentionEnabled:     true,
 		ChatMaxOutputTokens:     defaultChatMaxOutputTokens,
 		SummaryMaxOutputTokens:  defaultSummaryMaxOutputTokens,
 		SummaryMemoryMaxTokens:  defaultSummaryMemoryMaxTokens,
@@ -300,6 +305,24 @@ func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
 	}
 	if cfg.ContextScanMaxCount > 1000 {
 		cfg.ContextScanMaxCount = 1000
+	}
+	if cfg.ChatContextMaxMessages <= 0 {
+		cfg.ChatContextMaxMessages = defaultChatContextMaxMessages
+	}
+	if cfg.ChatContextMaxMessages < 50 {
+		cfg.ChatContextMaxMessages = 50
+	}
+	if cfg.ChatContextMaxMessages > 5000 {
+		cfg.ChatContextMaxMessages = 5000
+	}
+	if cfg.ChatContextMaxTokens <= 0 {
+		cfg.ChatContextMaxTokens = defaultChatContextMaxTokens
+	}
+	if cfg.ChatContextMaxTokens < 1000 {
+		cfg.ChatContextMaxTokens = 1000
+	}
+	if cfg.ChatContextMaxTokens > 200000 {
+		cfg.ChatContextMaxTokens = 200000
 	}
 	if cfg.ChatMaxOutputTokens < 0 {
 		cfg.ChatMaxOutputTokens = defaultChatMaxOutputTokens
@@ -759,6 +782,39 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 		return *rejected, nil
 	}
 	return s.queueReplyTask(ctx, ownerUsername, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID, priority, map[string]any{
+		"trigger_message_id": triggerMessageID,
+	})
+}
+
+func (s *Service) TriggerGroupMentionReply(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (Task, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" || conversationID <= 0 || triggerMessageID <= 0 {
+		return Task{}, errors.New("invalid AI mention task")
+	}
+	cfg, err := s.Config(ctx)
+	if err != nil {
+		return Task{}, err
+	}
+	if !cfg.GroupMentionEnabled {
+		message := "群聊 @小A 暂未开启，本次没有消耗额度。"
+		if s.sink != nil {
+			if _, insertErr := s.sink.InsertAITextMessage(context.Background(), conversationID, bot.Username, message); insertErr != nil {
+				log.Printf("insert AI group mention disabled prompt failed: conversation_id=%d err=%v", conversationID, insertErr)
+			}
+		}
+		return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
+	}
+	aiSessionID, aiTriggerMessageID := s.recordTriggerMessageNode(ctx, ownerUsername, conversationID, triggerMessageID)
+	priority, rejected, err := s.precheckReplyTask(ctx, ownerUsername, conversationID)
+	if err != nil {
+		return Task{}, err
+	}
+	if rejected != nil {
+		return *rejected, nil
+	}
+	return s.queueReplyTask(ctx, ownerUsername, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID, priority, map[string]any{
+		"action":             groupMentionAction,
+		"context_mode":       "conversation_mention",
 		"trigger_message_id": triggerMessageID,
 	})
 }
@@ -1295,18 +1351,20 @@ func (s *Service) processTask(taskID string) {
 	var triggerMessageID int64
 	var aiSessionID int64
 	var aiTriggerMessageID int64
+	var payloadRaw string
 	err := s.db.QueryRow(ctx, `
 		UPDATE im_ai_task
 		SET status = $2, stage = $3, stage_text = $4, started_at = NOW(), updated_at = NOW()
 		WHERE task_id = $1 AND status = $5
-		RETURNING conversation_id, owner_username, trigger_message_id, ai_session_id, ai_trigger_message_id`,
-		taskID, taskStatusRunning, taskStagePreparing, taskStageText(taskStagePreparing), taskStatusQueued).Scan(&conversationID, &ownerUsername, &triggerMessageID, &aiSessionID, &aiTriggerMessageID)
+		RETURNING conversation_id, owner_username, trigger_message_id, ai_session_id, ai_trigger_message_id, request_payload::text`,
+		taskID, taskStatusRunning, taskStagePreparing, taskStageText(taskStagePreparing), taskStatusQueued).Scan(&conversationID, &ownerUsername, &triggerMessageID, &aiSessionID, &aiTriggerMessageID, &payloadRaw)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			log.Printf("start AI task failed: task_id=%s err=%v", taskID, err)
 		}
 		return
 	}
+	taskPayload := parseTaskPayload(payloadRaw)
 	started := time.Now()
 	handled, err := s.answerBuiltinIdentityQuestion(ctx, taskID, ownerUsername, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID, started)
 	if err != nil {
@@ -1322,7 +1380,7 @@ func (s *Service) processTask(taskID string) {
 		return
 	}
 	s.setTaskStage(ctx, taskID, taskStageContext, "")
-	messages, err := s.buildContextMessages(ctx, ownerUsername, conversationID, triggerMessageID, cfg, aiSessionID)
+	messages, err := s.buildContextMessages(ctx, ownerUsername, conversationID, triggerMessageID, cfg, aiSessionID, taskPayload)
 	if err != nil {
 		s.failTask(ctx, taskID, conversationID, "context_error", err.Error())
 		return
@@ -1578,7 +1636,10 @@ func (s *Service) failTask(ctx context.Context, taskID string, conversationID in
 	}
 }
 
-func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64, cfg RuntimeConfig, aiSessionID int64) ([]provider.Message, error) {
+func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64, cfg RuntimeConfig, aiSessionID int64, taskPayload map[string]any) ([]provider.Message, error) {
+	if isGroupMentionTask(taskPayload) {
+		return s.buildMentionContextMessages(ctx, ownerUsername, conversationID, triggerMessageID, cfg, taskPayload)
+	}
 	if aiSessionID > 0 {
 		messages, err := s.buildSessionContextMessages(ctx, ownerUsername, aiSessionID, cfg)
 		if err == nil {

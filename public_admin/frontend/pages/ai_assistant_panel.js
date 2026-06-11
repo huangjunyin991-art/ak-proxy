@@ -485,7 +485,7 @@
     }
 
     function renderConfig() {
-        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200, chat_max_output_tokens: 1000, summary_max_output_tokens: 600, summary_memory_max_tokens: 2000 };
+        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200, chat_context_max_messages: 1000, chat_context_max_tokens: 12000, group_mention_enabled: true, chat_max_output_tokens: 1000, summary_max_output_tokens: 600, summary_memory_max_tokens: 2000 };
         return `
             <div class="ai-card">
                 <div class="ai-card-title"><span>运行策略</span><span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已开启' : '已关闭'}</span></div>
@@ -494,6 +494,9 @@
                     <div class="ai-field"><label>超过多少 tokens 后压缩</label><input class="ai-input" id="aiConfigSummaryTokens" type="number" min="2000" step="500" value="${Number(cfg.context_summary_min_tokens || 12000)}"></div>
                     <div class="ai-field"><label>保留最近原文 tokens</label><input class="ai-input" id="aiConfigRecentTokens" type="number" min="800" step="200" value="${Number(cfg.context_recent_keep_tokens || 4000)}"></div>
                     <div class="ai-field"><label>最多扫描消息条数</label><input class="ai-input" id="aiConfigScanMax" type="number" min="50" max="1000" step="10" value="${Number(cfg.context_scan_max_count || 200)}"></div>
+                    ${renderSelectPicker('aiConfigGroupMentionEnabled', '群聊 @小A', cfg.group_mention_enabled !== false ? 'true' : 'false', [{ value: 'true', label: '开启' }, { value: 'false', label: '关闭' }])}
+                    <div class="ai-field"><label>@小A 最多读取消息</label><input class="ai-input" id="aiConfigChatContextMessages" type="number" min="50" max="5000" step="50" value="${Number(cfg.chat_context_max_messages || 1000)}"></div>
+                    <div class="ai-field"><label>@小A 上下文 tokens</label><input class="ai-input" id="aiConfigChatContextTokens" type="number" min="1000" step="500" value="${Number(cfg.chat_context_max_tokens || 12000)}"></div>
                     <div class="ai-field"><label>AI 回复输出上限 tokens</label><input class="ai-input" id="aiConfigChatMaxTokens" type="number" min="0" step="100" value="${Number(cfg.chat_max_output_tokens ?? 1000)}"></div>
                     <div class="ai-field"><label>压缩输出上限 tokens</label><input class="ai-input" id="aiConfigSummaryMaxTokens" type="number" min="0" step="100" value="${Number(cfg.summary_max_output_tokens ?? 600)}"></div>
                     <div class="ai-field"><label>长期记忆总上限 tokens</label><input class="ai-input" id="aiConfigSummaryMemoryTokens" type="number" min="0" step="100" value="${Number(cfg.summary_memory_max_tokens ?? 2000)}"></div>
@@ -915,6 +918,9 @@
             context_summary_min_tokens: Number(document.getElementById('aiConfigSummaryTokens')?.value || 12000),
             context_recent_keep_tokens: Number(document.getElementById('aiConfigRecentTokens')?.value || 4000),
             context_scan_max_count: Number(document.getElementById('aiConfigScanMax')?.value || 200),
+            group_mention_enabled: document.getElementById('aiConfigGroupMentionEnabled')?.value !== 'false',
+            chat_context_max_messages: Number(document.getElementById('aiConfigChatContextMessages')?.value || 1000),
+            chat_context_max_tokens: Number(document.getElementById('aiConfigChatContextTokens')?.value || 12000),
             chat_max_output_tokens: Number(document.getElementById('aiConfigChatMaxTokens')?.value || 0),
             summary_max_output_tokens: Number(document.getElementById('aiConfigSummaryMaxTokens')?.value || 0),
             summary_memory_max_tokens: Number(document.getElementById('aiConfigSummaryMemoryTokens')?.value || 0)

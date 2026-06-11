@@ -2112,7 +2112,7 @@ func (a *App) triggerAIReplyForMessage(ctx context.Context, username string, ite
 		return nil
 	}
 	if !a.ai.IsAIConversation(ctx, item.ConversationID) {
-		return nil
+		return a.triggerAIGroupMentionReply(ctx, username, item)
 	}
 	task, err := a.ai.TriggerReply(ctx, username, item.ConversationID, item.ID)
 	if err != nil {
@@ -2345,8 +2345,29 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 func (a *App) saveMessageMentionsTx(ctx context.Context, tx pgx.Tx, messageID int64, conversationID int64, senderUsername string, req sendMessageRequest) ([]string, bool, error) {
 	normalizedSender := strings.ToLower(strings.TrimSpace(senderUsername))
 	mentionUsernames := make([]string, 0)
-	for _, username := range normalizeUsernames(req.MentionUsernames) {
+	requestedUsernames := normalizeUsernames(req.MentionUsernames)
+	if textMentionsBot(req.MessageType, req.Content) {
+		requestedUsernames = append(requestedUsernames, bot.Username)
+	}
+	for _, username := range normalizeUsernames(requestedUsernames) {
 		if username == "" || username == normalizedSender {
+			continue
+		}
+		if bot.IsBotUsername(username) {
+			tag, err := tx.Exec(ctx, `
+				INSERT INTO im_message_mention (message_id, conversation_id, mentioned_username, mention_all)
+				SELECT $1, $2, $3, FALSE
+				WHERE EXISTS (
+					SELECT 1 FROM im_conversation
+					WHERE id = $2 AND conversation_type = 'group' AND deleted_at IS NULL
+				)
+				ON CONFLICT DO NOTHING`, messageID, conversationID, username)
+			if err != nil {
+				return nil, false, err
+			}
+			if tag.RowsAffected() > 0 {
+				mentionUsernames = append(mentionUsernames, username)
+			}
 			continue
 		}
 		tag, err := tx.Exec(ctx, `

@@ -42,11 +42,11 @@ type conversationMemberSnapshot struct {
 }
 
 type MessageReadProgressSummary struct {
-	TotalCount       int64 `json:"total_count"`
-	ReadCount        int64 `json:"read_count"`
-	UnreadCount      int64 `json:"unread_count"`
-	ProgressPercent  int   `json:"progress_percent"`
-	IsFullyRead      bool  `json:"is_fully_read"`
+	TotalCount      int64 `json:"total_count"`
+	ReadCount       int64 `json:"read_count"`
+	UnreadCount     int64 `json:"unread_count"`
+	ProgressPercent int   `json:"progress_percent"`
+	IsFullyRead     bool  `json:"is_fully_read"`
 }
 
 type MessageReadProgressMember struct {
@@ -56,22 +56,22 @@ type MessageReadProgressMember struct {
 }
 
 type MessageReadProgressDetail struct {
-	MessageID         int64                       `json:"message_id"`
-	ConversationID    int64                       `json:"conversation_id"`
-	ReadProgress      MessageReadProgressSummary  `json:"read_progress"`
-	UnreadMembers     []MessageReadProgressMember `json:"unread_members"`
+	MessageID      int64                       `json:"message_id"`
+	ConversationID int64                       `json:"conversation_id"`
+	ReadProgress   MessageReadProgressSummary  `json:"read_progress"`
+	UnreadMembers  []MessageReadProgressMember `json:"unread_members"`
 }
 
 type SessionMemberItem struct {
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	HonorName   string `json:"honor_name,omitempty"`
-	AvatarKind  string `json:"avatar_kind,omitempty"`
-	AvatarStyle string `json:"avatar_style,omitempty"`
-	AvatarSeed  string `json:"avatar_seed,omitempty"`
-	AvatarURL   string `json:"avatar_url,omitempty"`
-	Role        string `json:"role,omitempty"`
-	MutedUntil  string `json:"muted_until,omitempty"`
+	Username     string `json:"username"`
+	DisplayName  string `json:"display_name"`
+	HonorName    string `json:"honor_name,omitempty"`
+	AvatarKind   string `json:"avatar_kind,omitempty"`
+	AvatarStyle  string `json:"avatar_style,omitempty"`
+	AvatarSeed   string `json:"avatar_seed,omitempty"`
+	AvatarURL    string `json:"avatar_url,omitempty"`
+	Role         string `json:"role,omitempty"`
+	MutedUntil   string `json:"muted_until,omitempty"`
 	MessageCount int64  `json:"message_count,omitempty"`
 }
 
@@ -89,9 +89,9 @@ type SessionSettingsItem struct {
 	ConversationTitle string              `json:"conversation_title,omitempty"`
 	MemberCount       int64               `json:"member_count"`
 	HiddenForAll      bool                `json:"hidden_for_all"`
-	AllMuted         bool                `json:"all_muted"`
-	AllMutedBy       string              `json:"all_muted_by,omitempty"`
-	AllMutedAt       string              `json:"all_muted_at,omitempty"`
+	AllMuted          bool                `json:"all_muted"`
+	AllMutedBy        string              `json:"all_muted_by,omitempty"`
+	AllMutedAt        string              `json:"all_muted_at,omitempty"`
 	IsGroupAdmin      bool                `json:"is_group_admin"`
 	CanManage         bool                `json:"can_manage"`
 	CanManageAdmins   bool                `json:"can_manage_admins"`
@@ -107,9 +107,9 @@ type SessionGroupProfileItem struct {
 	ConversationTitle  string              `json:"conversation_title,omitempty"`
 	MemberCount        int64               `json:"member_count"`
 	HiddenForAll       bool                `json:"hidden_for_all"`
-	AllMuted          bool                `json:"all_muted"`
-	AllMutedBy        string              `json:"all_muted_by,omitempty"`
-	AllMutedAt        string              `json:"all_muted_at,omitempty"`
+	AllMuted           bool                `json:"all_muted"`
+	AllMutedBy         string              `json:"all_muted_by,omitempty"`
+	AllMutedAt         string              `json:"all_muted_at,omitempty"`
 	IsGroupAdmin       bool                `json:"is_group_admin"`
 	CanManage          bool                `json:"can_manage"`
 	MyRole             string              `json:"my_role,omitempty"`
@@ -564,6 +564,9 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 		members[index].AvatarSeed = identity.AvatarSeed
 		members[index].AvatarURL = identity.AvatarURL
 	}
+	if strings.TrimSpace(meta.ConversationType) == "group" {
+		members = appendAIVirtualMember(members)
+	}
 	sort.Slice(members, func(left int, right int) bool {
 		leftName := strings.TrimSpace(members[left].DisplayName)
 		rightName := strings.TrimSpace(members[right].DisplayName)
@@ -628,9 +631,9 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		ConversationTitle:  meta.ConversationTitle,
 		MemberCount:        int64(len(members)),
 		HiddenForAll:       meta.HiddenForAll,
-		AllMuted:          meta.AllMuted,
-		AllMutedBy:        strings.ToLower(strings.TrimSpace(meta.AllMutedBy)),
-		AllMutedAt:        formatOptionalTime(meta.AllMutedAt),
+		AllMuted:           meta.AllMuted,
+		AllMutedBy:         strings.ToLower(strings.TrimSpace(meta.AllMutedBy)),
+		AllMutedAt:         formatOptionalTime(meta.AllMutedAt),
 		IsGroupAdmin:       isGroupAdmin,
 		CanManage:          canManage,
 		MyRole:             myRole,
@@ -640,9 +643,9 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		IsWhitelistManaged: isWhitelistManagedConversation(meta),
 		CanLeave:           canLeave,
 		LeaveBlockReason:   leaveBlockReason,
-		Owner:             buildSessionMemberItemFromIdentity(a.buildUserIdentityItem(ctx, ownerUsername), "owner"),
-		Members: members,
-		Admins:  admins,
+		Owner:              buildSessionMemberItemFromIdentity(a.buildUserIdentityItem(ctx, ownerUsername), "owner"),
+		Members:            members,
+		Admins:             admins,
 	}
 	if strings.TrimSpace(item.ConversationTitle) == "" {
 		item.ConversationTitle = whitelistMainGroupTitle
@@ -1035,6 +1038,9 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
+	if strings.TrimSpace(meta.ConversationType) == "group" {
+		members = appendAIVirtualMember(members)
+	}
 	sort.Slice(members, func(left int, right int) bool {
 		leftName := strings.TrimSpace(members[left].DisplayName)
 		rightName := strings.TrimSpace(members[right].DisplayName)
@@ -1198,9 +1204,9 @@ func (a *App) buildSessionSettingsItem(ctx context.Context, conversationID int64
 		ConversationTitle: meta.ConversationTitle,
 		MemberCount:       memberCount,
 		HiddenForAll:      meta.HiddenForAll,
-		AllMuted:         meta.AllMuted,
-		AllMutedBy:       strings.ToLower(strings.TrimSpace(meta.AllMutedBy)),
-		AllMutedAt:       formatOptionalTime(meta.AllMutedAt),
+		AllMuted:          meta.AllMuted,
+		AllMutedBy:        strings.ToLower(strings.TrimSpace(meta.AllMutedBy)),
+		AllMutedAt:        formatOptionalTime(meta.AllMutedAt),
 		IsGroupAdmin:      isGroupAdmin,
 		CanManage:         isGroupAdmin,
 		CanManageAdmins:   isGroupOwner,
