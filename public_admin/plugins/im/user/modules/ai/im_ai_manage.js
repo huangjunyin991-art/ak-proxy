@@ -45,7 +45,8 @@
                 sessionsError: '',
                 sessionDrawerOpen: false,
                 activeSessionId: 0,
-                sessionMutating: false
+                sessionMutating: false,
+                treeHydrateRequestedAt: 0
             };
             Object.keys(defaults).forEach(function(key) {
                 if (typeof state.aiAssistant[key] === 'undefined') state.aiAssistant[key] = defaults[key];
@@ -202,6 +203,30 @@
 
         getTreeMessageText(item) {
             return String(item && (item.content || item.content_preview || '') || '').trim();
+        },
+
+        isAssistantMessage(item) {
+            return String(item && item.sender_username || '').trim().toLowerCase() === BOT_USERNAME
+                || String(item && item.__akAIRole || '').trim().toLowerCase() === 'assistant';
+        },
+
+        maybeHydrateTreeMessages() {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !state.aiAssistant || !this.isAIConversation() || !Array.isArray(state.activeMessages) || !state.activeMessages.length) return;
+            const hasTreeMessage = state.activeMessages.some(function(item) {
+                return !!(item && item.__akAITreeMessage);
+            });
+            if (hasTreeMessage) return;
+            const hasPlaceholder = state.activeMessages.some(function(item) {
+                return !!(item && item.__akAIPlaceholder);
+            });
+            if (hasPlaceholder) return;
+            const activeTask = state.aiAssistant.activeTask;
+            if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) return;
+            const now = Date.now();
+            if (now - Number(state.aiAssistant.treeHydrateRequestedAt || 0) < 3500) return;
+            state.aiAssistant.treeHydrateRequestedAt = now;
+            this.loadSessionMessages(state.activeConversationId, { forceRefresh: true });
         },
 
         copyText(text) {
@@ -526,30 +551,42 @@
             root.querySelectorAll('.ak-im-ai-tree-actions').forEach(function(node) {
                 if (node && node.parentNode) node.parentNode.removeChild(node);
             });
+            const labels = {
+                copy: '\u590d\u5236\u5185\u5bb9',
+                edit: '\u4fee\u6539\u8fd9\u6761\u6d88\u606f',
+                regenerate: '\u91cd\u65b0\u751f\u6210',
+                prev: '\u4e0a\u4e00\u4e2a\u7248\u672c',
+                next: '\u4e0b\u4e00\u4e2a\u7248\u672c'
+            };
+            let hasTreeMessage = false;
             state.activeMessages.forEach((item) => {
-                if (!item || !item.__akAITreeMessage || item.__akAIPlaceholder) return;
-                const messageId = Number(item.__akAIMessageId || item.id || 0);
+                if (!item || item.__akAIPlaceholder) return;
+                const isTreeMessage = !!item.__akAITreeMessage;
+                if (isTreeMessage) hasTreeMessage = true;
+                const messageId = Number((isTreeMessage ? item.__akAIMessageId : item.id) || item.id || 0);
                 if (!messageId) return;
                 const wrapper = root.querySelector('[data-im-message-id="' + String(messageId) + '"]');
                 const main = wrapper ? wrapper.querySelector('.ak-im-message-main') : null;
                 if (!main) return;
-                const role = String(item.__akAIRole || '').trim().toLowerCase();
+                const role = String(item.__akAIRole || '').trim().toLowerCase() || (this.isAssistantMessage(item) ? 'assistant' : 'user');
                 const versionCount = Number(item.__akAIVersionCount || 1);
                 const versionNo = Number(item.__akAIVersionNo || 1);
                 const busy = this.isAIActionBusy(item.conversation_id || state.activeConversationId);
                 const actions = document.createElement('div');
                 actions.className = 'ak-im-ai-tree-actions';
                 const parts = [];
-                parts.push(this.aiTreeIconButton('copy', messageId, '复制内容', 'copy'));
-                if (role === 'user') {
-                    parts.push(this.aiTreeIconButton('edit', messageId, '重新编辑', 'edit', { disabled: busy }));
+                if (this.getTreeMessageText(item)) {
+                    parts.push(this.aiTreeIconButton('copy', messageId, labels.copy, 'copy'));
                 }
-                if (role === 'assistant' || role === 'user') {
-                    parts.push(this.aiTreeIconButton('regenerate', messageId, '重新生成', 'regenerate', { primary: true, disabled: busy }));
+                if (isTreeMessage && role === 'user') {
+                    parts.push(this.aiTreeIconButton('edit', messageId, labels.edit, 'edit', { disabled: busy }));
                 }
-                if (versionCount > 1) {
+                if (isTreeMessage && (role === 'assistant' || role === 'user')) {
+                    parts.push(this.aiTreeIconButton('regenerate', messageId, labels.regenerate, 'regenerate', { primary: true, disabled: busy }));
+                }
+                if (isTreeMessage && versionCount > 1) {
                     const disabled = busy ? ' disabled aria-disabled="true"' : '';
-                    parts.push('<span class="ak-im-ai-tree-version"><button type="button" data-ak-ai-tree-version-prev="' + messageId + '" title="上一个版本" aria-label="上一个版本"' + disabled + '>' + this.aiTreeIcon('prev') + '</button><span>' + versionNo + '/' + versionCount + '</span><button type="button" data-ak-ai-tree-version-next="' + messageId + '" title="下一个版本" aria-label="下一个版本"' + disabled + '>' + this.aiTreeIcon('next') + '</button></span>');
+                    parts.push('<span class="ak-im-ai-tree-version"><button type="button" data-ak-ai-tree-version-prev="' + messageId + '" title="' + this.escapeHtml(labels.prev) + '" aria-label="' + this.escapeHtml(labels.prev) + '"' + disabled + '>' + this.aiTreeIcon('prev') + '</button><span>' + versionNo + '/' + versionCount + '</span><button type="button" data-ak-ai-tree-version-next="' + messageId + '" title="' + this.escapeHtml(labels.next) + '" aria-label="' + this.escapeHtml(labels.next) + '"' + disabled + '>' + this.aiTreeIcon('next') + '</button></span>');
                 }
                 if (!parts.length) return;
                 actions.innerHTML = parts.join('');
@@ -594,6 +631,7 @@
                     });
                 });
             });
+            if (!hasTreeMessage) this.maybeHydrateTreeMessages();
         },
 
         loadAISessions(force) {

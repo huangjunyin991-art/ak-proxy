@@ -1,6 +1,7 @@
 (function(global) {
     'use strict';
 
+    const AI_ASSISTANT_USERNAME = 'ak_ai_assistant';
     const IMAGE_PREVIEW_REFRESH_DELAY_MS = 3500;
     const ACTIVE_CONVERSATION_REFRESH_MS = 25000;
 
@@ -89,6 +90,16 @@
 
         getAIManage() {
             return this.ctx && typeof this.ctx.getAIManage === 'function' ? this.ctx.getAIManage() : null;
+        },
+
+        isAIConversation(session) {
+            const aiManage = this.getAIManage();
+            if (aiManage && typeof aiManage.isAIConversation === 'function') {
+                try { return !!aiManage.isAIConversation(session); } catch (e) {}
+            }
+            const item = session || this.getActiveSession();
+            const peerUsername = String(item && item.peer_username || '').trim().toLowerCase();
+            return peerUsername === AI_ASSISTANT_USERNAME;
         },
 
         routeCallSocketPayload(data) {
@@ -381,6 +392,7 @@
         canRecallMessage(item) {
             const state = this.getState();
             if (!item || typeof item !== 'object' || !state) return false;
+            if (this.isAIConversation()) return false;
             if (item.__akAITreeMessage) return false;
             if (Number(item.id || 0) <= 0 || this.isLocalTempMessage(item)) return false;
             if (String(item.status || '').toLowerCase() === 'recalled') return false;
@@ -583,6 +595,7 @@
         },
 
         shouldShowReadProgress(item, activeSession) {
+            if (this.isAIConversation(activeSession)) return false;
             const summary = this.getMessageReadProgress(item);
             if (!summary) return false;
             return !!activeSession;
@@ -645,6 +658,14 @@
             const activeSession = this.getActiveSession();
             const activeSessionDisplayName = activeSession ? this.getSessionDisplayName(activeSession) : '内部聊天';
             const isActiveGroupSession = !!activeSession && this.isGroupSession(activeSession);
+            const isAIConversation = this.isAIConversation(activeSession);
+            if (isAIConversation && state.readProgressOpen) {
+                state.readProgressOpen = false;
+                state.readProgressLoading = false;
+                state.readProgressError = '';
+                state.readProgressMessageId = 0;
+                state.readProgressData = null;
+            }
             const activeSessionTitleMarkup = activeSession
                 ? (typeof this.buildSessionTitleMarkup === 'function'
                     ? this.buildSessionTitleMarkup(activeSession)
@@ -750,18 +771,18 @@
                     messageList.appendChild(wrapper);
                     return;
                 }
-                const summary = self.getMessageReadProgress(item);
+                const summary = isAIConversation ? null : self.getMessageReadProgress(item);
                 const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
                 const senderHonorName = String(item && item.sender_honor_name || '').trim();
                 const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isActiveGroupSession ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? activeSessionDisplayName : (senderDisplayName || item.sender_username || '对方')));
-                const defaultMetaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
+                const defaultMetaText = isAIConversation ? '' : (summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : ''));
                 const metaText = self.getLocalMessageMetaText(item, defaultMetaText);
                 const senderMarkup = !isSelf && isActiveGroupSession
                     ? (self.ctx && typeof self.ctx.buildDisplayNameWithHonorMarkup === 'function'
                         ? self.ctx.buildDisplayNameWithHonorMarkup(senderDisplayName || item.sender_username || '群成员', senderHonorName, '群成员')
                         : self.ctx.escapeHtml(senderDisplayName || item.sender_username || '群成员'))
                     : '';
-                const progressMarkup = self.buildReadProgressButtonMarkup(item, activeSession);
+                const progressMarkup = isAIConversation ? '' : self.buildReadProgressButtonMarkup(item, activeSession);
                 const avatarText = displayName || item.sender_username || '成员';
                 const avatarSource = isSelf && state.profile ? state.profile : item;
                 const bubbleClassName = self.getMessageBubbleClassName(item);
@@ -855,6 +876,10 @@
                 messageNavigation.afterRenderMessages(navigationSnapshot);
             } else {
                 messageList.scrollTop = messageList.scrollHeight;
+            }
+            const aiManage = this.getAIManage();
+            if (aiManage && typeof aiManage.renderAIMessageControls === 'function') {
+                try { aiManage.renderAIMessageControls(); } catch (e) {}
             }
             this.scheduleImagePreviewRefresh();
         },
