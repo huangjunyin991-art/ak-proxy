@@ -252,6 +252,28 @@ func (r *Repository) FindByProjectionMessage(ctx context.Context, projectionMess
 	return scanMessage(row)
 }
 
+func (r *Repository) LatestChild(ctx context.Context, sessionID int64, parentID int64, role string) (Message, error) {
+	if r == nil || r.db == nil {
+		return Message{}, errors.New("AI message tree repository is not available")
+	}
+	if sessionID <= 0 || parentID <= 0 {
+		return Message{}, errors.New("invalid AI child message lookup")
+	}
+	normalizedRole := normalizeRole(role)
+	if normalizedRole == "" {
+		return Message{}, errors.New("invalid AI message role")
+	}
+	row := r.db.QueryRow(ctx, `
+		SELECT id, session_id, COALESCE(parent_id, 0), role, content, version_group_id, version_no,
+		       source_message_id, projection_message_id, provider_id, model, finish_reason,
+		       prompt_tokens, completion_tokens, total_tokens, metadata_json, created_at, updated_at
+		FROM im_ai_message
+		WHERE session_id = $1 AND parent_id = $2 AND role = $3
+		ORDER BY version_no DESC, id DESC
+		LIMIT 1`, sessionID, parentID, normalizedRole)
+	return scanMessage(row)
+}
+
 func (r *Repository) ActivePath(ctx context.Context, sessionID int64, leafID int64) ([]Message, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("AI message tree repository is not available")

@@ -534,10 +534,21 @@ func (s *Service) ActivateMessage(ctx context.Context, ownerUsername string, ses
 	if s.messages == nil {
 		s.messages = messagetree.NewRepository(s.db)
 	}
-	if _, err := s.messages.Get(ctx, session.ID, messageID); err != nil {
+	target, err := s.messages.Get(ctx, session.ID, messageID)
+	if err != nil {
 		return SessionMessages{}, err
 	}
-	updated, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, messageID)
+	activeMessageID := target.ID
+	if target.Role == messagetree.RoleUser {
+		child, childErr := s.messages.LatestChild(ctx, session.ID, target.ID, messagetree.RoleAssistant)
+		if childErr != nil && !errors.Is(childErr, pgx.ErrNoRows) {
+			return SessionMessages{}, childErr
+		}
+		if childErr == nil && child.ID > 0 {
+			activeMessageID = child.ID
+		}
+	}
+	updated, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, activeMessageID)
 	if err != nil {
 		return SessionMessages{}, err
 	}
