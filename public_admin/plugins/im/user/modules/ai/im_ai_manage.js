@@ -13,6 +13,7 @@
         ctx: null,
         bootstrapPromise: null,
         sessionPromise: null,
+        sessionsPromise: null,
         taskPollTimer: null,
 
         init(ctx) {
@@ -773,11 +774,14 @@
                     activeSessionId: Number(aiState.activeSessionId || 0)
                 });
             }
+            if (aiState && aiState.sessionsLoading && this.sessionsPromise) {
+                return this.sessionsPromise;
+            }
             if (aiState) {
                 aiState.sessionsLoading = true;
                 aiState.sessionsError = '';
             }
-            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions').then((data) => {
+            this.sessionsPromise = this.ctx.request(this.ctx.httpRoot + '/ai/sessions').then((data) => {
                 return this.applySessionPayload(data);
             }).catch((error) => {
                 if (aiState) aiState.sessionsError = error && error.message ? error.message : 'AI 会话加载失败';
@@ -785,8 +789,10 @@
             }).finally(() => {
                 if (aiState) aiState.sessionsLoading = false;
                 this.renderSessionDrawer();
+                this.sessionsPromise = null;
                 if (typeof this.ctx.render === 'function') this.ctx.render();
             });
+            return this.sessionsPromise;
         },
 
         openSessionDrawer() {
@@ -794,6 +800,12 @@
             if (!state || !this.isAIConversation()) return;
             this.ensureState();
             state.aiAssistant.sessionDrawerOpen = true;
+            global.__AK_AI_SESSION_DRAWER_DEBUG__ = {
+                step: 'open',
+                ts: Date.now(),
+                activeConversationId: Number(state.activeConversationId || 0),
+                activeSessionId: Number(state.aiAssistant.activeSessionId || 0)
+            };
             this.renderSessionDrawer();
             this.loadAISessions(true);
         },
@@ -920,7 +932,15 @@
         renderSessionDrawer() {
             const state = this.ctx && this.ctx.state;
             const root = this.getRootElement();
-            if (!root || !state || !state.aiAssistant || !state.aiAssistant.sessionDrawerOpen || !this.isAIConversation()) {
+            if (!root || !state || !state.aiAssistant || !state.aiAssistant.sessionDrawerOpen) {
+                global.__AK_AI_SESSION_DRAWER_DEBUG__ = {
+                    step: 'skip',
+                    ts: Date.now(),
+                    hasRoot: !!root,
+                    hasState: !!state,
+                    hasAIState: !!(state && state.aiAssistant),
+                    drawerOpen: !!(state && state.aiAssistant && state.aiAssistant.sessionDrawerOpen)
+                };
                 this.removeSessionDrawer();
                 return;
             }
@@ -964,6 +984,22 @@
                 '</div>'
             ].join('');
             this.applySessionDrawerLayout(mask);
+            global.__AK_AI_SESSION_DRAWER_DEBUG__ = {
+                step: 'rendered',
+                ts: Date.now(),
+                itemCount: items.length,
+                loading: !!aiState.sessionsLoading,
+                activeSessionId: activeId,
+                parentTag: mask.parentNode && mask.parentNode.tagName,
+                rect: (function() {
+                    try {
+                        const rect = mask.getBoundingClientRect();
+                        return { width: rect.width, height: rect.height, left: rect.left, top: rect.top };
+                    } catch (e) {
+                        return null;
+                    }
+                })()
+            };
             mask.onclick = (event) => {
                 if (event.target === mask) this.closeSessionDrawer();
             };
@@ -1513,9 +1549,14 @@
             const state = this.ctx && this.ctx.state;
             const elements = this.ctx && this.ctx.elements ? this.ctx.elements : {};
             const statusLine = elements && elements.statusLine;
-            if (!statusLine || !state || !this.isAIConversation()) {
+            const isAIChat = !!(state && this.isAIConversation());
+            if (!statusLine || !state || !isAIChat) {
                 this.removeSuggestionBar();
-                this.removeSessionDrawer();
+                if (state && state.aiAssistant && state.aiAssistant.sessionDrawerOpen && isAIChat) {
+                    this.renderSessionDrawer();
+                } else {
+                    this.removeSessionDrawer();
+                }
                 this.removeTopbarActions();
                 if (statusLine) {
                     statusLine.classList.remove('ak-im-ai-status', 'is-error');
