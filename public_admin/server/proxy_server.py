@@ -14410,10 +14410,6 @@ async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, conten
     normalized_path = str(path or "").strip("/").lower()
     if normalized_path not in PUBLIC_RPC_AUTH_PATCH_PATHS:
         return params, raw_body, {}, False
-    current_key = str(params.get("key") or params.get("Key") or "").strip()
-    current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
-    if not _is_blank_rpc_auth_value(current_key) and not _is_blank_rpc_auth_value(current_user_id):
-        return params, raw_body, {}, False
     username, cached = await _load_public_rpc_cookie_auth(request)
     if not cached:
         logger.warning(f"[PublicRpcAuthPatch/{path}] no_cached_auth username={username or '-'}")
@@ -14421,13 +14417,15 @@ async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, conten
     login_result = cached.get("login_result", {})
     userkey = str(cached.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
     user_id = _rpc_user_id_from_login_result(login_result)
+    current_key = str(params.get("key") or params.get("Key") or "").strip()
+    current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
     patched = False
     next_params = dict(params)
-    if userkey and _is_blank_rpc_auth_value(current_key):
+    if userkey and current_key != userkey:
         next_params["key"] = userkey
         next_params.pop("Key", None)
         patched = True
-    if user_id and _is_blank_rpc_auth_value(current_user_id):
+    if user_id and current_user_id != user_id:
         next_params["UserID"] = user_id
         next_params.pop("userid", None)
         patched = True
