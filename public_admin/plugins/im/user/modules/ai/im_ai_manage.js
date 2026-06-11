@@ -84,12 +84,22 @@
                 '#ak-im-root .ak-im-ai-session-icon-btn{width:30px;height:30px;border:0;border-radius:999px;background:rgba(15,23,42,.06);color:#334155;font-size:12px;font-weight:900;cursor:pointer}',
                 '#ak-im-root .ak-im-ai-session-icon-btn.danger{color:#b91c1c;background:rgba(239,68,68,.10)}',
                 '#ak-im-root .ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
-                '#ak-im-root .ak-im-ai-tree-actions{display:flex;align-items:center;gap:6px;margin-top:5px;min-height:24px;flex-wrap:wrap}',
+                '#ak-im-root .ak-im-ai-tree-actions{display:flex;align-items:center;gap:6px;margin-top:5px;min-height:28px;flex-wrap:wrap}',
                 '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-actions{justify-content:flex-end}',
-                '#ak-im-root .ak-im-ai-tree-btn{height:24px;border:0;border-radius:999px;background:rgba(37,99,235,.10);color:#1d4ed8;padding:0 9px;font-size:11px;font-weight:900;cursor:pointer}',
-                '#ak-im-root .ak-im-ai-tree-btn.secondary{background:rgba(15,23,42,.07);color:#475569}',
-                '#ak-im-root .ak-im-ai-tree-version{display:inline-flex;align-items:center;gap:4px;height:24px;border-radius:999px;background:rgba(15,23,42,.06);padding:0 5px;color:#475569;font-size:11px;font-weight:800}',
-                '#ak-im-root .ak-im-ai-tree-version button{width:20px;height:20px;border:0;border-radius:999px;background:#fff;color:#334155;font-weight:900;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.08)}',
+                '#ak-im-root .ak-im-ai-tree-btn{width:28px;height:28px;border:0;border-radius:999px;background:rgba(15,23,42,.07);color:#475569;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s ease,color .15s ease,transform .12s ease,opacity .12s ease}',
+                '#ak-im-root .ak-im-ai-tree-btn svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}',
+                '#ak-im-root .ak-im-ai-tree-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
+                '#ak-im-root .ak-im-ai-tree-btn:active{transform:translateY(1px)}',
+                '#ak-im-root .ak-im-ai-tree-btn:disabled{opacity:.38;cursor:not-allowed;transform:none;background:rgba(15,23,42,.05);color:#94a3b8}',
+                '#ak-im-root .ak-im-ai-tree-btn.primary{background:rgba(37,99,235,.10);color:#1d4ed8}',
+                '#ak-im-root .ak-im-ai-tree-btn.is-copied{background:rgba(34,197,94,.14);color:#15803d}',
+                '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-btn{background:rgba(20,83,45,.10);color:#166534}',
+                '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-btn:hover{background:rgba(20,83,45,.16);color:#14532d}',
+                '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-btn:disabled{background:rgba(20,83,45,.06);color:rgba(20,83,45,.42)}',
+                '#ak-im-root .ak-im-ai-tree-version{display:inline-flex;align-items:center;gap:4px;height:28px;border-radius:999px;background:rgba(15,23,42,.06);padding:0 4px;color:#475569;font-size:11px;font-weight:800}',
+                '#ak-im-root .ak-im-ai-tree-version button{width:22px;height:22px;border:0;border-radius:999px;background:#fff;color:#334155;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.08)}',
+                '#ak-im-root .ak-im-ai-tree-version button svg{width:13px;height:13px;display:block;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}',
+                '#ak-im-root .ak-im-ai-tree-version button:disabled{opacity:.42;cursor:not-allowed}',
                 '#ak-im-root .ak-im-ai-suggestions{display:flex;align-items:center;gap:7px;padding:7px 10px 0;background:#f7f7f7;border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box;overflow-x:auto;scrollbar-width:none}',
                 '#ak-im-root .ak-im-ai-suggestions::-webkit-scrollbar{display:none}',
                 '#ak-im-root .ak-im-ai-suggestion-label{flex:0 0 auto;color:#7b8494;font-size:12px;white-space:nowrap}',
@@ -153,6 +163,89 @@
             return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
                 return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] || ch;
             });
+        },
+
+        aiTreeIcon(name) {
+            switch (String(name || '').trim()) {
+            case 'copy':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"></path></svg>';
+            case 'edit':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg>';
+            case 'regenerate':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4"></path><path d="M3 12a9 9 0 0 1 15.3-6.4"></path><path d="M18 2v4h-4"></path><path d="M6 22v-4h4"></path></svg>';
+            case 'check':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>';
+            case 'prev':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>';
+            case 'next':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>';
+            default:
+                return '';
+            }
+        },
+
+        aiTreeIconButton(action, messageId, label, iconName, options) {
+            const opts = options && typeof options === 'object' ? options : {};
+            const disabled = opts.disabled ? ' disabled aria-disabled="true"' : '';
+            const extraClass = opts.primary ? ' primary' : '';
+            return '<button type="button" class="ak-im-ai-tree-btn' + extraClass + '" data-ak-ai-tree-' + this.escapeHtml(action) + '="' + Number(messageId || 0) + '" title="' + this.escapeHtml(label) + '" aria-label="' + this.escapeHtml(label) + '"' + disabled + '>' + this.aiTreeIcon(iconName) + '</button>';
+        },
+
+        isAIActionBusy(conversationId) {
+            const state = this.ctx && this.ctx.state;
+            const aiState = state && state.aiAssistant ? state.aiAssistant : null;
+            const activeTask = aiState && aiState.activeTask ? aiState.activeTask : null;
+            if (!activeTask || this.isTerminalTaskStatus(activeTask.status)) return false;
+            const activeConversationId = Number(conversationId || state && state.activeConversationId || 0);
+            return !activeConversationId || Number(activeTask.conversation_id || 0) === activeConversationId;
+        },
+
+        getTreeMessageText(item) {
+            return String(item && (item.content || item.content_preview || '') || '').trim();
+        },
+
+        copyText(text) {
+            const content = String(text == null ? '' : text);
+            if (!content) return Promise.resolve(false);
+            try {
+                if (global.navigator && global.navigator.clipboard && typeof global.navigator.clipboard.writeText === 'function') {
+                    return global.navigator.clipboard.writeText(content).then(function() { return true; }).catch(function() { return false; });
+                }
+            } catch (error) {}
+            return new Promise(function(resolve) {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = content;
+                    ta.setAttribute('readonly', 'readonly');
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    ta.style.top = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    const ok = document.execCommand && document.execCommand('copy');
+                    if (ta.parentNode) ta.parentNode.removeChild(ta);
+                    resolve(!!ok);
+                } catch (error) {
+                    resolve(false);
+                }
+            });
+        },
+
+        setCopyButtonFeedback(button, ok) {
+            if (!button) return;
+            const originalHtml = button.innerHTML;
+            const originalTitle = button.getAttribute('title') || '复制内容';
+            button.classList.toggle('is-copied', !!ok);
+            button.innerHTML = ok ? this.aiTreeIcon('check') : this.aiTreeIcon('copy');
+            button.setAttribute('title', ok ? '已复制' : '复制失败');
+            button.setAttribute('aria-label', ok ? '已复制' : '复制失败');
+            setTimeout(() => {
+                if (!button || !button.isConnected) return;
+                button.classList.remove('is-copied');
+                button.innerHTML = originalHtml || this.aiTreeIcon('copy');
+                button.setAttribute('title', originalTitle);
+                button.setAttribute('aria-label', originalTitle);
+            }, ok ? 1200 : 1600);
         },
 
         loadBootstrap(force) {
@@ -376,7 +469,7 @@
         editTreeMessage(messageId) {
             const item = this.findTreeMessage(messageId);
             if (!item) return Promise.resolve(null);
-            const current = String(item.content || item.content_preview || '').trim();
+            const current = this.getTreeMessageText(item);
             const next = typeof global.prompt === 'function' ? global.prompt('修改这条提问', current) : '';
             const content = String(next || '').trim();
             if (!content || content === current) return Promise.resolve(null);
@@ -387,6 +480,19 @@
         regenerateTreeMessage(messageId) {
             this.removeSuggestionBar();
             return this.runTreeMessageAction(messageId, 'regenerate', null);
+        },
+
+        copyTreeMessage(messageId, button) {
+            const item = this.findTreeMessage(messageId);
+            const content = this.getTreeMessageText(item);
+            if (!item || !content) {
+                this.setCopyButtonFeedback(button, false);
+                return Promise.resolve(false);
+            }
+            return this.copyText(content).then((ok) => {
+                this.setCopyButtonFeedback(button, ok);
+                return ok;
+            });
         },
 
         activateTreeMessage(messageId) {
@@ -430,25 +536,36 @@
                 const role = String(item.__akAIRole || '').trim().toLowerCase();
                 const versionCount = Number(item.__akAIVersionCount || 1);
                 const versionNo = Number(item.__akAIVersionNo || 1);
+                const busy = this.isAIActionBusy(item.conversation_id || state.activeConversationId);
                 const actions = document.createElement('div');
                 actions.className = 'ak-im-ai-tree-actions';
                 const parts = [];
+                parts.push(this.aiTreeIconButton('copy', messageId, '复制内容', 'copy'));
                 if (role === 'user') {
-                    parts.push('<button type="button" class="ak-im-ai-tree-btn secondary" data-ak-ai-tree-edit="' + messageId + '">修改</button>');
+                    parts.push(this.aiTreeIconButton('edit', messageId, '重新编辑', 'edit', { disabled: busy }));
                 }
                 if (role === 'assistant' || role === 'user') {
-                    parts.push('<button type="button" class="ak-im-ai-tree-btn" data-ak-ai-tree-regenerate="' + messageId + '">重新生成</button>');
+                    parts.push(this.aiTreeIconButton('regenerate', messageId, '重新生成', 'regenerate', { primary: true, disabled: busy }));
                 }
                 if (versionCount > 1) {
-                    parts.push('<span class="ak-im-ai-tree-version"><button type="button" data-ak-ai-tree-version-prev="' + messageId + '">‹</button><span>' + versionNo + '/' + versionCount + '</span><button type="button" data-ak-ai-tree-version-next="' + messageId + '">›</button></span>');
+                    const disabled = busy ? ' disabled aria-disabled="true"' : '';
+                    parts.push('<span class="ak-im-ai-tree-version"><button type="button" data-ak-ai-tree-version-prev="' + messageId + '" title="上一个版本" aria-label="上一个版本"' + disabled + '>' + this.aiTreeIcon('prev') + '</button><span>' + versionNo + '/' + versionCount + '</span><button type="button" data-ak-ai-tree-version-next="' + messageId + '" title="下一个版本" aria-label="下一个版本"' + disabled + '>' + this.aiTreeIcon('next') + '</button></span>');
                 }
                 if (!parts.length) return;
                 actions.innerHTML = parts.join('');
                 main.appendChild(actions);
+                actions.querySelectorAll('[data-ak-ai-tree-copy]').forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.copyTreeMessage(button.getAttribute('data-ak-ai-tree-copy'), button);
+                    });
+                });
                 actions.querySelectorAll('[data-ak-ai-tree-edit]').forEach((button) => {
                     button.addEventListener('click', (event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (button.disabled) return;
                         this.editTreeMessage(button.getAttribute('data-ak-ai-tree-edit'));
                     });
                 });
@@ -456,6 +573,7 @@
                     button.addEventListener('click', (event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (button.disabled) return;
                         this.regenerateTreeMessage(button.getAttribute('data-ak-ai-tree-regenerate'));
                     });
                 });
@@ -463,6 +581,7 @@
                     button.addEventListener('click', (event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (button.disabled) return;
                         this.activateAdjacentVersion(button.getAttribute('data-ak-ai-tree-version-prev'), 'prev');
                     });
                 });
@@ -470,6 +589,7 @@
                     button.addEventListener('click', (event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (button.disabled) return;
                         this.activateAdjacentVersion(button.getAttribute('data-ak-ai-tree-version-next'), 'next');
                     });
                 });
