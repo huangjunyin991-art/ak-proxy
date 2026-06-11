@@ -15,6 +15,7 @@ class StaticResourceBrowserPolicySnapshot:
     css_disk_ttl_seconds: int
     media_disk_ttl_seconds: int
     stale_while_revalidate_seconds: int
+    stock_price_rpc_ttl_seconds: int
     version: str
     updated_at: float
 
@@ -45,6 +46,7 @@ class StaticResourceBrowserPolicy:
             'css_disk_ttl_seconds': item.css_disk_ttl_seconds,
             'media_disk_ttl_seconds': item.media_disk_ttl_seconds,
             'stale_while_revalidate_seconds': item.stale_while_revalidate_seconds,
+            'stock_price_rpc_ttl_seconds': item.stock_price_rpc_ttl_seconds,
             'version': item.version,
             'updated_at': item.updated_at,
         }
@@ -54,7 +56,7 @@ class StaticResourceBrowserPolicy:
         for key in (
             'js_browser_max_age_seconds', 'css_browser_max_age_seconds', 'media_browser_max_age_seconds',
             'js_disk_ttl_seconds', 'css_disk_ttl_seconds', 'media_disk_ttl_seconds',
-            'stale_while_revalidate_seconds',
+            'stale_while_revalidate_seconds', 'stock_price_rpc_ttl_seconds',
         ):
             if key in values:
                 current[key] = self._clamp_seconds(values.get(key), key)
@@ -155,6 +157,7 @@ class StaticResourceBrowserPolicy:
             'css_disk_ttl_seconds': self._clamp_seconds(default.get('css_disk_ttl_seconds'), 'css_disk_ttl_seconds'),
             'media_disk_ttl_seconds': self._clamp_seconds(default.get('media_disk_ttl_seconds'), 'media_disk_ttl_seconds'),
             'stale_while_revalidate_seconds': self._clamp_seconds(default.get('stale_while_revalidate_seconds'), 'stale_while_revalidate_seconds'),
+            'stock_price_rpc_ttl_seconds': self._clamp_seconds(default.get('stock_price_rpc_ttl_seconds'), 'stock_price_rpc_ttl_seconds'),
             'version': str(default.get('version') or int(time.time())),
             'updated_at': float(default.get('updated_at') or time.time()),
         }
@@ -176,6 +179,7 @@ class StaticResourceBrowserPolicy:
             'css_disk_ttl_seconds': 7 * 24 * 60 * 60,
             'media_disk_ttl_seconds': 30 * 24 * 60 * 60,
             'stale_while_revalidate_seconds': 7 * 24 * 60 * 60,
+            'stock_price_rpc_ttl_seconds': 24 * 60 * 60,
             'version': str(int(now)),
             'updated_at': now,
         }
@@ -188,6 +192,8 @@ class StaticResourceBrowserPolicy:
             seconds = int(defaults[key])
         if key == 'stale_while_revalidate_seconds':
             return max(0, min(seconds, 30 * 24 * 60 * 60))
+        if key == 'stock_price_rpc_ttl_seconds':
+            return max(0, min(seconds, 365 * 24 * 60 * 60))
         return max(60, min(seconds, 365 * 24 * 60 * 60))
 
     def _extension(self, path: str, content_type: str = '') -> str:

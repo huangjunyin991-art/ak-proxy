@@ -288,6 +288,10 @@
         return Math.max(60, Math.round(Number(value || 0) * 3600));
     }
 
+    function hoursToSecondsAllowZero(value) {
+        return Math.max(0, Math.round(Number(value || 0) * 3600));
+    }
+
     function bytesToMb(value) {
         return Math.max(1, Math.round(Number(value || 0) / 1024 / 1024 * 100) / 100);
     }
@@ -547,13 +551,14 @@
             '<label><span>CSS 服务端缓存（天）</span><input class="monitoring-input" id="staticCacheCssDiskDays" type="number" min="1" step="1"></label>' +
             '<label><span>图片/字体服务端缓存（天）</span><input class="monitoring-input" id="staticCacheMediaDiskDays" type="number" min="1" step="1"></label>' +
             '<label><span>stale-while-revalidate（天）</span><input class="monitoring-input" id="staticCacheStaleDays" type="number" min="0" step="1"></label>' +
+            '<label><span>Public_StockPrice 接口缓存（小时）</span><input class="monitoring-input" id="staticCacheStockPriceHours" type="number" min="0" step="1"></label>' +
             '</div>' +
             '<div class="monitoring-cache-actions">' +
             '<button class="monitoring-btn primary" data-monitoring-action="save-static-cache-policy">保存缓存时间</button>' +
             '<button class="monitoring-btn danger" data-monitoring-action="refresh-static-cache-upstream">立即启用上游新资源</button>' +
             '<button class="monitoring-btn primary" data-monitoring-action="prewarm-static-cache">预热常用页面资源</button>' +
             '<button class="monitoring-btn" data-monitoring-action="refresh-static-cache-entries">刷新缓存条目</button>' +
-            '<span class="monitoring-meta">HTML 继续 no-store；点击启用新资源会清空服务端静态缓存并切换全局资源版本。</span>' +
+            '<span class="monitoring-meta">HTML 继续 no-store；Public_StockPrice 可单独缓存；点击启用新资源会清空服务端静态缓存并切换全局资源版本。</span>' +
             '</div>' +
             '<div class="monitoring-grid" id="monitoringStaticCachePrewarmCards"></div>' +
             '<div class="monitoring-table-wrap monitoring-static-cache-prewarm-table-wrap"><table class="monitoring-table monitoring-static-cache-prewarm-table"><thead><tr><th>页面</th><th>状态</th><th>发现资源</th><th>耗时</th><th>错误</th></tr></thead><tbody id="monitoringStaticCachePrewarmRows"></tbody></table></div>' +
@@ -1977,6 +1982,7 @@
         setInputValue('staticCacheCssDiskDays', secondsToDays(item.css_disk_ttl_seconds));
         setInputValue('staticCacheMediaDiskDays', secondsToDays(item.media_disk_ttl_seconds));
         setInputValue('staticCacheStaleDays', secondsToDays(item.stale_while_revalidate_seconds));
+        setInputValue('staticCacheStockPriceHours', secondsToHours(item.stock_price_rpc_ttl_seconds == null ? 24 * 60 * 60 : item.stock_price_rpc_ttl_seconds));
         var meta = document.getElementById('monitoringStaticCacheMeta');
         if (meta) {
             var version = item.version ? '版本 ' + item.version : '版本 -';
@@ -2303,6 +2309,7 @@
             css_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheCssDiskDays')),
             media_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheMediaDiskDays')),
             stale_while_revalidate_seconds: daysToSecondsAllowZero(inputNumber('staticCacheStaleDays')),
+            stock_price_rpc_ttl_seconds: hoursToSecondsAllowZero(inputNumber('staticCacheStockPriceHours')),
             memory_enabled: inputChecked('staticCacheMemoryEnabled'),
             memory_stats_enabled: inputChecked('staticCacheMemoryStatsEnabled'),
             memory_max_entries: inputNumber('staticCacheMemoryMaxEntries'),

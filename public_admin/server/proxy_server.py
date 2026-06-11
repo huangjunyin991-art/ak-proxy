@@ -203,6 +203,7 @@ from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
 from .performance.request_metrics import RequestMetricsConfigService, RequestMetricsService
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .db.bulk_writer import get_bulk_writer_snapshot
+from .public_rpc_cache import CachedRpcResponse, StockPriceRpcCache
 from .static_resource_cache import (
     StaticResourceCacheConfig,
     StaticResourcePayload,
@@ -2992,7 +2993,32 @@ async def proxy_rpc(path: str, request: Request):
 
     
 
+    stock_price_cache_key = ""
+    stock_price_cache_lock = None
+    stock_price_cache_ttl = 0
     try:
+        cached_stock_response, stock_price_cache_key, stock_price_cache_lock, stock_price_cache_ttl = await _get_stock_price_cached_or_lock(
+            request.method,
+            path,
+            params,
+            raw_body,
+        )
+        if cached_stock_response is not None:
+            total_ms = _elapsed_ms(request_started_at)
+            _record_request_metric(
+                kind="rpc",
+                method=request.method,
+                path="/RPC/" + path,
+                status_code=cached_stock_response.status_code,
+                total_ms=total_ms,
+                upstream_ms=0,
+                exit_name="stock_price_cache",
+                content_type=cached_stock_response.headers.get("content-type", ""),
+                response_bytes=len(cached_stock_response.content or b""),
+            )
+            if cached_stock_response.status_code < 500:
+                _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
+            return _build_proxy_passthrough_response(cached_stock_response)
 
         selected_exit = _select_forward_exit(path)
 
@@ -3010,6 +3036,8 @@ async def proxy_rpc(path: str, request: Request):
 
         )
         upstream_ms = _elapsed_ms(upstream_started_at)
+        if stock_price_cache_key:
+            await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
         if _is_login_forget_rpc(path):
             try:
                 result = response.json()
@@ -3080,6 +3108,9 @@ async def proxy_rpc(path: str, request: Request):
         )
 
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
+    finally:
+        if stock_price_cache_key and stock_price_cache_lock is not None:
+            _AK_STOCK_PRICE_RPC_CACHE.release_lock(stock_price_cache_key, stock_price_cache_lock)
 
 
 
@@ -5996,6 +6027,7 @@ async def admin_startup():
             try:
 
                 await _AK_WEB_STATIC_CACHE_SERVICE.cleanup_expired()
+                await _AK_STOCK_PRICE_RPC_CACHE.cleanup_expired(_get_stock_price_rpc_ttl_seconds())
 
             except Exception:
 
@@ -13759,6 +13791,9 @@ _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER = StaticResourceResponseAdapter(
     _AK_WEB_STATIC_CACHE_CONFIG,
     _AK_WEB_STATIC_CACHE_SERVICE.browser_policy,
 )
+_AK_STOCK_PRICE_RPC_CACHE = StockPriceRpcCache(
+    Path(PUBLIC_ADMIN_DIR) / "runtime_cache" / "public_rpc" / "stock_price"
+)
 _AK_PROXY_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -13835,6 +13870,109 @@ def _user_rpc_trace(message_or_factory):
 
 def _elapsed_ms(started_at: float) -> int:
     return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _is_public_stock_price_rpc(path: str) -> bool:
+    return str(path or "").strip("/").lower() == "public_stockprice"
+
+
+def _get_stock_price_rpc_ttl_seconds() -> int:
+    try:
+        policy = _AK_WEB_STATIC_CACHE_SERVICE.get_browser_policy()
+        return int(policy.get("stock_price_rpc_ttl_seconds") or 0)
+    except Exception:
+        return 24 * 60 * 60
+
+
+def _build_stock_price_cached_response(cached: CachedRpcResponse, ttl_seconds: int) -> httpx.Response:
+    headers = {
+        str(k): str(v)
+        for k, v in dict(cached.headers or {}).items()
+        if str(k).lower() not in {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+    }
+    if cached.content_type and not any(str(k).lower() == "content-type" for k in headers):
+        headers["content-type"] = cached.content_type
+    age_seconds = max(0, int(time.time() - float(cached.created_at or time.time())))
+    headers["X-AK-StockPrice-Cache"] = "HIT"
+    headers["X-AK-StockPrice-Cache-Age"] = str(age_seconds)
+    headers["X-AK-StockPrice-Cache-TTL"] = str(max(0, int(ttl_seconds or 0)))
+    return httpx.Response(
+        int(cached.status_code or 200),
+        headers=headers,
+        content=cached.body or b"",
+    )
+
+
+async def _get_stock_price_cached_or_lock(method: str, path: str, params: dict, raw_body: bytes):
+    if not _is_public_stock_price_rpc(path):
+        return None, "", None, 0
+    ttl_seconds = _get_stock_price_rpc_ttl_seconds()
+    if ttl_seconds <= 0:
+        return None, "", None, ttl_seconds
+    cache_key = _AK_STOCK_PRICE_RPC_CACHE.build_key(method, path, params, raw_body)
+    cached = await _AK_STOCK_PRICE_RPC_CACHE.get(cache_key, ttl_seconds)
+    if cached is not None:
+        return _build_stock_price_cached_response(cached, ttl_seconds), cache_key, None, ttl_seconds
+    lock = await _AK_STOCK_PRICE_RPC_CACHE.get_or_lock(cache_key)
+    await lock.acquire()
+    cached = await _AK_STOCK_PRICE_RPC_CACHE.get(cache_key, ttl_seconds)
+    if cached is not None:
+        return _build_stock_price_cached_response(cached, ttl_seconds), cache_key, lock, ttl_seconds
+    return None, cache_key, lock, ttl_seconds
+
+
+def _is_cacheable_stock_price_response(response: httpx.Response) -> bool:
+    if int(response.status_code or 0) != 200:
+        return False
+    body = response.content or b""
+    if not body:
+        return False
+    if response.headers.get_list("set-cookie"):
+        return False
+    content_type = str(response.headers.get("content-type") or "").lower()
+    body_head = body.lstrip()[:1]
+    if "json" not in content_type and body_head not in (b"{", b"["):
+        return False
+    try:
+        payload = response.json()
+        if isinstance(payload, dict) and payload.get("Error") is True:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+async def _store_stock_price_response(cache_key: str, response: httpx.Response, ttl_seconds: int) -> bool:
+    if not cache_key or ttl_seconds <= 0 or not _is_cacheable_stock_price_response(response):
+        _mark_stock_price_cache_response(response, "BYPASS", ttl_seconds)
+        return False
+    now = time.time()
+    headers = {
+        str(k): str(v)
+        for k, v in response.headers.items()
+        if str(k).lower() not in {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+    }
+    content_type = response.headers.get("content-type", "application/json")
+    cached = CachedRpcResponse(
+        cache_key=cache_key,
+        status_code=int(response.status_code),
+        headers=headers,
+        content_type=content_type,
+        body=response.content or b"",
+        created_at=now,
+        expires_at=now + int(ttl_seconds),
+    )
+    stored = await _AK_STOCK_PRICE_RPC_CACHE.set(cache_key, cached)
+    _mark_stock_price_cache_response(response, "STORE" if stored else "BYPASS", ttl_seconds)
+    return stored
+
+
+def _mark_stock_price_cache_response(response: httpx.Response, state: str, ttl_seconds: int) -> None:
+    try:
+        response.headers["X-AK-StockPrice-Cache"] = str(state or "BYPASS")
+        response.headers["X-AK-StockPrice-Cache-TTL"] = str(max(0, int(ttl_seconds or 0)))
+    except Exception:
+        pass
 
 
 def _should_force_direct_ak_web(site_prefix: str) -> bool:
@@ -15619,13 +15757,31 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
                 )
                 return proxy_response
 
-    response = await forward_request(
-        request.method, path, content_type, params, raw_body, headers,
-        client_ip=_extract_client_ip(request),
-        is_login=is_login_path,
-        selected_exit=selected_exit,
-        force_direct=_ADMIN_AK_FORCE_DIRECT
-    )
+    stock_price_cache_key = ""
+    stock_price_cache_lock = None
+    stock_price_cache_ttl = 0
+    try:
+        cached_stock_response, stock_price_cache_key, stock_price_cache_lock, stock_price_cache_ttl = await _get_stock_price_cached_or_lock(
+            request.method,
+            path,
+            params,
+            raw_body,
+        )
+        if cached_stock_response is not None:
+            response = cached_stock_response
+        else:
+            response = await forward_request(
+                request.method, path, content_type, params, raw_body, headers,
+                client_ip=_extract_client_ip(request),
+                is_login=is_login_path,
+                selected_exit=selected_exit,
+                force_direct=_ADMIN_AK_FORCE_DIRECT
+            )
+            if stock_price_cache_key:
+                await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
+    finally:
+        if stock_price_cache_key and stock_price_cache_lock is not None:
+            _AK_STOCK_PRICE_RPC_CACHE.release_lock(stock_price_cache_key, stock_price_cache_lock)
     set_cookie_values = response.headers.get_list("set-cookie")
     for sc in response.headers.get_list("set-cookie"):
         kv = sc.split(";", 1)[0].strip()

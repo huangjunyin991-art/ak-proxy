@@ -20,6 +20,7 @@ _BROWSER_POLICY_KEYS = {
     'css_disk_ttl_seconds',
     'media_disk_ttl_seconds',
     'stale_while_revalidate_seconds',
+    'stock_price_rpc_ttl_seconds',
 }
 
 _MEMORY_POLICY_KEYS = {
