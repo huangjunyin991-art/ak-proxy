@@ -101,6 +101,19 @@
         });
     }
 
+    function buildRecoveryScript() {
+        return "(function(){try{location.replace('" + SAFE_RECOVERY_ENTRY + "?ak_ntfy_recovered=1');}catch(e){location.href='" + SAFE_RECOVERY_ENTRY + "?ak_ntfy_recovered=1';}})();";
+    }
+
+    function isConfigJsRequest(requestUrl) {
+        try {
+            var parsed = new URL(String(requestUrl || ''), self.location.origin);
+            return parsed.origin === self.location.origin && parsed.pathname === '/config.js';
+        } catch(e) {
+            return false;
+        }
+    }
+
     function parsePayload(event) {
         try {
             return event.data ? event.data.json() : {};
@@ -168,6 +181,23 @@
             return recoverNtfyControlledClients();
         });
         if (event && event.waitUntil) event.waitUntil(task);
+    });
+
+    self.addEventListener('fetch', function(event) {
+        if (!event || !event.request) return;
+        var request = event.request;
+        if (request.mode === 'navigate' && shouldRecoverClientUrl(request.url)) {
+            event.respondWith(Response.redirect(new URL(SAFE_RECOVERY_ENTRY + '?ak_ntfy_recovered=1', self.location.origin).href, 302));
+            return;
+        }
+        if (isConfigJsRequest(request.url)) {
+            event.respondWith(new Response(buildRecoveryScript(), {
+                headers: {
+                    'Content-Type': 'application/javascript; charset=utf-8',
+                    'Cache-Control': 'no-store, max-age=0'
+                }
+            }));
+        }
     });
 
     self.addEventListener('push', function(event) {

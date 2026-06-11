@@ -1295,6 +1295,22 @@ async def clear_user_saved_password(username: str) -> bool:
         return int(result.split()[-1]) > 0
 
 
+async def update_user_saved_password(username: str, password: str) -> bool:
+    pool = _get_pool()
+    username = username.lower().strip() if username else ''
+    normalized_password = str(password or '')
+    if not username or not normalized_password:
+        return False
+    async with pool.acquire() as conn:
+        result = await conn.execute('''
+            INSERT INTO user_stats (username, password)
+            VALUES ($1, $2)
+            ON CONFLICT(username) DO UPDATE SET
+                password = $2
+        ''', username, normalized_password)
+        return int(result.split()[-1]) > 0
+
+
 async def get_user_detail(username: str) -> Optional[Dict]:
     """获取用户详细信息"""
     pool = _get_pool()

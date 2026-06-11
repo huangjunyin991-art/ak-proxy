@@ -960,7 +960,36 @@ def _build_risk_isolation_userkey_response(path: str, params: dict, source: str)
     return JSONResponse({"Error": True, "IsLogin": False})
 
 
-async def _clear_saved_password_after_login_forget_success(api_path: str, params: dict, result: dict, source: str) -> None:
+def _extract_login_forget_new_password(params: dict) -> str:
+    if not isinstance(params, dict):
+        return ""
+    candidates = (
+        "password",
+        "Password",
+        "newPassword",
+        "NewPassword",
+        "new_password",
+        "confirmPassword",
+        "ConfirmPassword",
+        "repassword",
+        "RePassword",
+        "pwd",
+        "Pwd",
+        "Q1",
+        "Q2",
+        "Q3",
+    )
+    for key in candidates:
+        value = params.get(key)
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else ""
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
+async def _sync_saved_password_after_login_forget_success(api_path: str, params: dict, result: dict, source: str) -> None:
     if not _is_login_forget_rpc(api_path):
         return
     if not isinstance(result, dict) or result.get("Error") is not False:
@@ -968,12 +997,18 @@ async def _clear_saved_password_after_login_forget_success(api_path: str, params
     account = _extract_forward_account(params)
     if not account:
         return
+    new_password = _extract_login_forget_new_password(params)
     try:
+        if new_password:
+            updated = await db.update_user_saved_password(account, new_password)
+            if updated:
+                logger.info(f"[LoginForgetPasswordReset] 已更新本地保存密码: account={account}, source={source}")
+            return
         cleared = await db.clear_user_saved_password(account)
         if cleared:
-            logger.info(f"[LoginForgetPasswordReset] 已清空本地保存密码: account={account}, source={source}")
+            logger.info(f"[LoginForgetPasswordReset] 未识别新密码，已清空本地保存密码: account={account}, source={source}")
     except Exception as e:
-        logger.warning(f"[LoginForgetPasswordReset] 清空本地保存密码失败: account={account}, source={source}, error={e}")
+        logger.warning(f"[LoginForgetPasswordReset] 同步本地保存密码失败: account={account}, source={source}, has_new_password={bool(new_password)}, error={e}")
 
 
 async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
@@ -1018,6 +1053,50 @@ async def _record_account_password_fail_and_maybe_ban_ip(client_ip: str, usernam
         logger.warning(f"[LoginPasswordFailGuard] IP账号密码错误计数 ip={decision.ip} account={username} count={decision.count}/{decision.threshold}")
     elif decision.code == "password_failure_banned":
         logger.warning(f"[LoginPasswordFailGuard] 自动封禁IP ip={decision.ip} account={username} count={decision.count} reason={decision.reason}")
+
+
+LOCAL_PASSWORD_MISMATCH_UPSTREAM_PROBE_THRESHOLD = 3
+
+
+async def _count_recent_password_failures_for_login_guard(client_ip: str, username: str) -> int:
+    normalized_username = str(username or "").strip().lower()
+    if not normalized_username or normalized_username == "unknown":
+        return 0
+    try:
+        return int(await db.count_recent_login_password_failures(normalized_username, client_ip or "", hours=24) or 0)
+    except Exception as exc:
+        logger.warning(f"[LoginPasswordGuard] 读取连续密码错误次数失败，保持本地阻断: account={normalized_username}, IP={client_ip}, error={exc}")
+        return 0
+
+
+async def _should_probe_upstream_after_local_password_mismatch(client_ip: str, username: str) -> tuple[bool, int, int]:
+    """
+    本地保存密码可能过期：连续 N 次本地前置校验失败后，放行一次上游登录探测。
+
+    这里按同 IP + 同账号、最近一次成功登录后的密码错误次数计算；第 3/6/9... 次才放行，
+    避免把本地前置校验退化成每次都打上游。
+    """
+    normalized_username = str(username or "").strip().lower()
+    if not normalized_username or normalized_username == "unknown":
+        return False, 0, 1
+    previous_failures = await _count_recent_password_failures_for_login_guard(client_ip, normalized_username)
+    attempt_no = int(previous_failures or 0) + 1
+    should_probe = (
+        attempt_no >= LOCAL_PASSWORD_MISMATCH_UPSTREAM_PROBE_THRESHOLD
+        and attempt_no % LOCAL_PASSWORD_MISMATCH_UPSTREAM_PROBE_THRESHOLD == 0
+    )
+    return should_probe, int(previous_failures or 0), attempt_no
+
+
+async def _should_verify_saved_password_with_upstream_after_failures(client_ip: str, username: str) -> tuple[bool, int]:
+    """
+    如果用户前几次输错后又输入本地保存密码，不能直接走 userkey 快速通道。
+
+    上游密码可能已经被修改，而本地旧密码仍然匹配；此时必须向上游验证一次，
+    让上游密码错误也进入同一条连续错误计数链。
+    """
+    previous_failures = await _count_recent_password_failures_for_login_guard(client_ip, username)
+    return previous_failures > 0, previous_failures
 
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
@@ -2265,6 +2344,11 @@ async def proxy_login(request: Request):
     response = None
 
     local_password_mismatch = False
+    upstream_password_probe = False
+    local_password_probe_previous_failures = 0
+    local_password_probe_attempt_no = 1
+    saved_password_upstream_verify = False
+    saved_password_upstream_previous_failures = 0
     fastpath_result = None
 
     try:
@@ -2275,18 +2359,56 @@ async def proxy_login(request: Request):
 
             local_password_mismatch = True
 
-            result = {"Error": True, "Msg": "賬戶或密碼不正確"}
+            (
+                upstream_password_probe,
+                local_password_probe_previous_failures,
+                local_password_probe_attempt_no,
+            ) = await _should_probe_upstream_after_local_password_mismatch(client_ip, account)
 
-            logger.warning(f"[LoginPasswordGuard] 本地密码校验失败，已阻断上游登录: account={account}, IP={client_ip}")
+            if upstream_password_probe:
+                logger.warning(
+                    f"[LoginPasswordGuard] 本地密码连续错误达到阈值，放行一次上游探测: "
+                    f"account={account}, IP={client_ip}, previous_failures={local_password_probe_previous_failures}, "
+                    f"attempt_no={local_password_probe_attempt_no}"
+                )
+                upstream_started_at = time.perf_counter()
+                response = await forward_request(
+
+                    request.method, "Login", content_type, params, raw_body, dict(request.headers),
+
+                    client_ip=client_ip, is_login=True
+
+                )
+                upstream_ms = _elapsed_ms(upstream_started_at)
+
+                result = response.json()
+            else:
+                result = {"Error": True, "Msg": "賬戶或密碼不正確"}
+
+                logger.warning(
+                    f"[LoginPasswordGuard] 本地密码校验失败，已阻断上游登录: "
+                    f"account={account}, IP={client_ip}, previous_failures={local_password_probe_previous_failures}, "
+                    f"attempt_no={local_password_probe_attempt_no}, threshold={LOCAL_PASSWORD_MISMATCH_UPSTREAM_PROBE_THRESHOLD}"
+                )
 
         else:
             if saved_password:
-                fastpath_result = await _try_ak_userkey_login_fastpath(
-                    account,
-                    password,
-                    dict(request.headers),
-                    client_ip=client_ip,
-                )
+                (
+                    saved_password_upstream_verify,
+                    saved_password_upstream_previous_failures,
+                ) = await _should_verify_saved_password_with_upstream_after_failures(client_ip, account)
+                if saved_password_upstream_verify:
+                    logger.warning(
+                        f"[LoginPasswordGuard] 本地保存密码匹配但存在连续密码错误，跳过userKey快速通道并验证上游: "
+                        f"account={account}, IP={client_ip}, previous_failures={saved_password_upstream_previous_failures}"
+                    )
+                else:
+                    fastpath_result = await _try_ak_userkey_login_fastpath(
+                        account,
+                        password,
+                        dict(request.headers),
+                        client_ip=client_ip,
+                    )
             if fastpath_result is not None and fastpath_result.success:
                 result = fastpath_result.login_payload
                 logger.info(f"[Login] userKey快速通道命中: {account}")
@@ -2428,7 +2550,18 @@ async def proxy_login(request: Request):
 
             is_success=is_success, password=password,
 
-            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", ""), "local_password_mismatch": local_password_mismatch}),
+            extra_data=json.dumps({
+                "status": "success" if is_success else "failed",
+                "msg": result.get("Msg", ""),
+                "local_password_mismatch": local_password_mismatch,
+                "upstream_password_probe": upstream_password_probe,
+                "local_password_probe_previous_failures": local_password_probe_previous_failures,
+                "local_password_probe_attempt_no": local_password_probe_attempt_no,
+                "saved_password_upstream_verify": saved_password_upstream_verify,
+                "saved_password_upstream_previous_failures": saved_password_upstream_previous_failures,
+                "saved_password_stale_refreshed": bool(is_success and local_password_mismatch and upstream_password_probe),
+                "saved_password_upstream_verified": bool(is_success and saved_password_upstream_verify),
+            }, ensure_ascii=False),
             password_failure=password_failure,
 
         )
@@ -2880,7 +3013,7 @@ async def proxy_rpc(path: str, request: Request):
         if _is_login_forget_rpc(path):
             try:
                 result = response.json()
-                await _clear_saved_password_after_login_forget_success(path, params, result, "rpc")
+                await _sync_saved_password_after_login_forget_success(path, params, result, "rpc")
             except Exception as e:
                 logger.warning(f"[LoginForgetPasswordReset] 处理改密返回失败: account={_extract_forward_account(params)}, source=rpc, error={e}")
         if ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer):
@@ -15503,7 +15636,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         result = response.json()
         should_persist = bool(set_cookie_values)
         is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
-        await _clear_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")
+        await _sync_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")
         if is_login_success:
             account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
             password = (params.get("password") or session.get("password") or "").strip()
