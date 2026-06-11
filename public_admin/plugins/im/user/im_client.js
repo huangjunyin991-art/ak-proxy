@@ -6736,7 +6736,18 @@
         state.view = 'chat';
         state.homeTab = 'chats';
         state.activeMessages = [];
-        applyPersistedConversationMessages(targetConversationId);
+        const shouldUseAIContextMessages = (function() {
+            const aiManageModule = getAIManageModule();
+            if (aiManageModule && typeof aiManageModule.isAIConversation === 'function') {
+                try {
+                    return !!aiManageModule.isAIConversation(fallbackSession);
+                } catch (e) {}
+            }
+            return String(fallbackSession && fallbackSession.peer_username || '').trim().toLowerCase() === 'ak_ai_assistant';
+        })();
+        if (!shouldUseAIContextMessages) {
+            applyPersistedConversationMessages(targetConversationId);
+        }
         state.activeMessagesLoading = true;
         render();
         return loadMessages(targetConversationId);
