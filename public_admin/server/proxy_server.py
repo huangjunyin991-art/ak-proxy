@@ -14841,6 +14841,25 @@ def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
     return pattern.sub(lambda m: f"url({m.group('quote')}{_AK_WEB_STATIC_CACHE_SERVICE.version_url(_rewrite_site_root_url(m.group('url'), site_prefix))}{m.group('quote')})", text)
 
 
+def _rewrite_public_css_roots(text: str) -> str:
+    pattern = re.compile(r'url\((?P<quote>["\']?)(?P<url>/[^)"\']+)(?P=quote)\)', re.IGNORECASE)
+
+    def rewrite_url(raw_url: str) -> str:
+        url = str(raw_url or "")
+        if not url or not url.startswith("/") or url.startswith("//"):
+            return url
+        for prefix in (_AK_WEB_PREFIX, _AK_NATIVE_WEB_PREFIX):
+            if url == prefix:
+                url = "/"
+                break
+            if url.startswith(prefix + "/"):
+                url = url[len(prefix):] or "/"
+                break
+        return _AK_WEB_STATIC_CACHE_SERVICE.version_url(url)
+
+    return pattern.sub(lambda m: f"url({m.group('quote')}{rewrite_url(m.group('url'))}{m.group('quote')})", text)
+
+
 def _inject_account_login_submit_interval(text: str) -> tuple[str, bool]:
     marker = "window.__akAccountLoginIntervalInstalled"
     if not text or marker in text:
@@ -16086,7 +16105,7 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         return content
     if "text/css" in lowered_content_type:
         text = content.decode("utf-8", errors="replace")
-        return _rewrite_site_css_roots(text, _AK_WEB_PREFIX).encode("utf-8")
+        return _rewrite_public_css_roots(text).encode("utf-8")
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
@@ -16097,7 +16116,8 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
 def _build_public_cached_static_response(cached_static, normalized_path: str) -> Response:
     content_type = cached_static.content_type or "application/octet-stream"
     body = cached_static.body or b""
-    if str(normalized_path or "").lower().endswith("base.js"):
+    lowered_content_type = str(content_type or "").lower()
+    if str(normalized_path or "").lower().endswith("base.js") or "text/css" in lowered_content_type:
         body = _transform_ak_public_static_content(normalized_path, content_type, body)
         headers = {
             k: v
