@@ -21,6 +21,12 @@ type Session struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
+type State struct {
+	OwnerUsername   string    `json:"owner_username"`
+	ActiveSessionID int64     `json:"active_session_id"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type CreateInput struct {
 	OwnerUsername  string         `json:"owner_username"`
 	ConversationID int64          `json:"conversation_id,omitempty"`

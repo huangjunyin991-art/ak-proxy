@@ -405,8 +405,12 @@ func (s *Service) EnsureConversation(ctx context.Context, ownerUsername string, 
 	if err != nil {
 		return err
 	}
-	_, err = s.ensureLegacySession(ctx, ownerUsername, conversationID)
-	return err
+	legacySession, err := s.ensureLegacySession(ctx, ownerUsername, conversationID)
+	if err != nil {
+		return err
+	}
+	s.ensureDefaultActiveSession(ctx, ownerUsername, legacySession)
+	return nil
 }
 
 func (s *Service) IsAIConversation(ctx context.Context, conversationID int64) bool {
@@ -416,6 +420,102 @@ func (s *Service) IsAIConversation(ctx context.Context, conversationID int64) bo
 	var exists bool
 	_ = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM im_ai_conversation WHERE conversation_id = $1)`, conversationID).Scan(&exists)
 	return exists
+}
+
+func (s *Service) ListSessions(ctx context.Context, ownerUsername string, includeArchived bool) (SessionList, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" {
+		return SessionList{}, errors.New("missing AI session owner")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	items, err := s.sessions.List(ctx, ownerUsername, includeArchived)
+	if err != nil {
+		return SessionList{}, err
+	}
+	var activeSession *aisession.Session
+	active, err := s.sessions.GetActive(ctx, ownerUsername)
+	if err == nil {
+		activeSession = &active
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return SessionList{}, err
+	}
+	if activeSession == nil {
+		for _, item := range items {
+			if item.Status != aisession.StatusActive {
+				continue
+			}
+			if selected, setErr := s.sessions.SetActive(ctx, ownerUsername, item.ID); setErr == nil {
+				activeSession = &selected
+			}
+			break
+		}
+	}
+	activeID := int64(0)
+	if activeSession != nil {
+		activeID = activeSession.ID
+	}
+	return SessionList{Items: items, ActiveSessionID: activeID, ActiveSession: activeSession}, nil
+}
+
+func (s *Service) CreateSession(ctx context.Context, ownerUsername string, input SessionCreateInput) (SessionList, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" {
+		return SessionList{}, errors.New("missing AI session owner")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	item, err := s.sessions.Create(ctx, aisession.CreateInput{
+		OwnerUsername: ownerUsername,
+		Title:         input.Title,
+		Metadata: map[string]any{
+			"source": "ai_native_session",
+		},
+	})
+	if err != nil {
+		return SessionList{}, err
+	}
+	if _, err := s.sessions.SetActive(ctx, ownerUsername, item.ID); err != nil {
+		return SessionList{}, err
+	}
+	return s.ListSessions(ctx, ownerUsername, false)
+}
+
+func (s *Service) UpdateSession(ctx context.Context, ownerUsername string, id int64, input SessionUpdateInput) (SessionList, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" || id <= 0 {
+		return SessionList{}, errors.New("invalid AI session update")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	_, err := s.sessions.Update(ctx, aisession.UpdateInput{
+		ID:            id,
+		OwnerUsername: ownerUsername,
+		Title:         input.Title,
+		Status:        input.Status,
+		Pinned:        input.Pinned,
+	})
+	if err != nil {
+		return SessionList{}, err
+	}
+	return s.ListSessions(ctx, ownerUsername, false)
+}
+
+func (s *Service) ActivateSession(ctx context.Context, ownerUsername string, id int64) (SessionList, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" || id <= 0 {
+		return SessionList{}, errors.New("invalid active AI session")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	if _, err := s.sessions.SetActive(ctx, ownerUsername, id); err != nil {
+		return SessionList{}, err
+	}
+	return s.ListSessions(ctx, ownerUsername, false)
 }
 
 func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (Task, error) {
@@ -525,6 +625,40 @@ func (s *Service) ensureLegacySession(ctx context.Context, ownerUsername string,
 	return s.sessions.EnsureForConversation(ctx, ownerUsername, conversationID, bot.DisplayName)
 }
 
+func (s *Service) ensureDefaultActiveSession(ctx context.Context, ownerUsername string, fallback aisession.Session) {
+	if s == nil || s.sessions == nil || fallback.ID <= 0 {
+		return
+	}
+	if _, err := s.sessions.GetActive(ctx, ownerUsername); err == nil {
+		return
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		log.Printf("AI active session lookup failed: username=%s err=%v", ownerUsername, err)
+		return
+	}
+	if _, err := s.sessions.SetActive(ctx, ownerUsername, fallback.ID); err != nil {
+		log.Printf("AI default active session save failed: username=%s session_id=%d err=%v", ownerUsername, fallback.ID, err)
+	}
+}
+
+func (s *Service) activeSessionForConversation(ctx context.Context, ownerUsername string, conversationID int64) (aisession.Session, error) {
+	if s == nil || s.db == nil {
+		return aisession.Session{}, errors.New("AI service is not available")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	if active, err := s.sessions.GetActive(ctx, ownerUsername); err == nil {
+		return active, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		log.Printf("AI active session lookup failed: conversation_id=%d username=%s err=%v", conversationID, ownerUsername, err)
+	}
+	legacy, err := s.ensureLegacySession(ctx, ownerUsername, conversationID)
+	if err == nil {
+		s.ensureDefaultActiveSession(ctx, ownerUsername, legacy)
+	}
+	return legacy, err
+}
+
 func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (int64, int64) {
 	if s == nil || s.db == nil || triggerMessageID <= 0 {
 		return 0, 0
@@ -532,7 +666,7 @@ func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername st
 	if s.messages == nil {
 		s.messages = messagetree.NewRepository(s.db)
 	}
-	session, err := s.ensureLegacySession(ctx, ownerUsername, conversationID)
+	session, err := s.activeSessionForConversation(ctx, ownerUsername, conversationID)
 	if err != nil {
 		log.Printf("AI trigger session sync failed: conversation_id=%d username=%s err=%v", conversationID, ownerUsername, err)
 		return 0, 0
@@ -765,7 +899,7 @@ func (s *Service) processTask(taskID string) {
 		return
 	}
 	s.setTaskStage(ctx, taskID, taskStageContext, "")
-	messages, err := s.buildContextMessages(ctx, ownerUsername, conversationID, triggerMessageID, cfg)
+	messages, err := s.buildContextMessages(ctx, ownerUsername, conversationID, triggerMessageID, cfg, aiSessionID)
 	if err != nil {
 		s.failTask(ctx, taskID, conversationID, "context_error", err.Error())
 		return
@@ -975,7 +1109,16 @@ func (s *Service) failTask(ctx context.Context, taskID string, conversationID in
 	}
 }
 
-func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64, cfg RuntimeConfig) ([]provider.Message, error) {
+func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64, cfg RuntimeConfig, aiSessionID int64) ([]provider.Message, error) {
+	if aiSessionID > 0 {
+		messages, err := s.buildSessionContextMessages(ctx, ownerUsername, aiSessionID, cfg)
+		if err == nil {
+			return messages, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("AI session context fallback: session_id=%d conversation_id=%d err=%v", aiSessionID, conversationID, err)
+		}
+	}
 	summary := ""
 	_ = s.db.QueryRow(ctx, `
 		SELECT summary_text
@@ -1037,6 +1180,88 @@ func (s *Service) buildContextMessages(ctx context.Context, ownerUsername string
 		messages = append(messages, provider.Message{Role: role, Content: truncate(item.Content, 4000)})
 	}
 	if latestUserMessageIsContinuePrompt(items) {
+		messages = append(messages, provider.Message{
+			Role:    "system",
+			Content: "用户希望你接着上一条未完成的回答继续。请直接从断点继续，不要重复已经说过的内容。",
+		})
+	}
+	return messages, nil
+}
+
+func (s *Service) buildSessionContextMessages(ctx context.Context, ownerUsername string, aiSessionID int64, cfg RuntimeConfig) ([]provider.Message, error) {
+	if s == nil || s.db == nil || aiSessionID <= 0 {
+		return nil, pgx.ErrNoRows
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	session, err := s.sessions.Get(ctx, ownerUsername, aiSessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session.ActiveMessageID <= 0 {
+		return nil, pgx.ErrNoRows
+	}
+	path, err := s.messages.ActivePath(ctx, session.ID, session.ActiveMessageID)
+	if err != nil {
+		return nil, err
+	}
+	type contextNode struct {
+		Role    string
+		Content string
+	}
+	nodes := make([]contextNode, 0, len(path))
+	usedTokens := 0
+	for index := len(path) - 1; index >= 0; index-- {
+		item := path[index]
+		content := strings.TrimSpace(item.Content)
+		if content == "" {
+			continue
+		}
+		role := "user"
+		switch strings.TrimSpace(item.Role) {
+		case messagetree.RoleAssistant:
+			role = "assistant"
+			content = stripGeneratedContinueHint(content)
+			if isGenericAIRefusal(content) {
+				continue
+			}
+		case messagetree.RoleUser:
+			role = "user"
+		default:
+			continue
+		}
+		contentTokens := estimateTextTokens(content)
+		if usedTokens+contentTokens > cfg.ContextRecentKeepTokens {
+			if len(nodes) > 0 {
+				break
+			}
+			content = truncateToEstimatedTokens(content, cfg.ContextRecentKeepTokens)
+			contentTokens = estimateTextTokens(content)
+		}
+		nodes = append(nodes, contextNode{Role: role, Content: content})
+		usedTokens += contentTokens
+	}
+	if len(nodes) == 0 {
+		return nil, pgx.ErrNoRows
+	}
+	for left, right := 0, len(nodes)-1; left < right; left, right = left+1, right-1 {
+		nodes[left], nodes[right] = nodes[right], nodes[left]
+	}
+	messages := []provider.Message{{Role: "system", Content: buildChatSystemPrompt("", cfg)}}
+	recentItems := make([]contextMessageItem, 0, len(nodes))
+	for _, item := range nodes {
+		messages = append(messages, provider.Message{Role: item.Role, Content: truncate(item.Content, 4000)})
+		sender := ownerUsername
+		if item.Role == "assistant" {
+			sender = bot.Username
+		}
+		recentItems = append(recentItems, contextMessageItem{Sender: sender, Content: item.Content})
+	}
+	if latestUserMessageIsContinuePrompt(recentItems) {
 		messages = append(messages, provider.Message{
 			Role:    "system",
 			Content: "用户希望你接着上一条未完成的回答继续。请直接从断点继续，不要重复已经说过的内容。",

@@ -43,6 +43,14 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_session_owner_status_updated ON im_ai_session(owner_username, status, pinned DESC, updated_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_session_conversation ON im_ai_session(conversation_id) WHERE conversation_id IS NOT NULL`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_ai_session_owner_conversation_unique ON im_ai_session(owner_username, conversation_id) WHERE conversation_id IS NOT NULL AND status <> 'deleted'`,
+		`CREATE TABLE IF NOT EXISTS im_ai_user_session_state (
+			owner_username TEXT PRIMARY KEY,
+			active_session_id BIGINT REFERENCES im_ai_session(id) ON DELETE SET NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`ALTER TABLE im_ai_user_session_state ADD COLUMN IF NOT EXISTS active_session_id BIGINT REFERENCES im_ai_session(id) ON DELETE SET NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_user_session_state_active ON im_ai_user_session_state(active_session_id) WHERE active_session_id IS NOT NULL`,
 	}
 	for index, stmt := range statements {
 		if _, err := r.db.Exec(ctx, stmt); err != nil {
@@ -235,6 +243,51 @@ func (r *Repository) SetActiveMessage(ctx context.Context, ownerUsername string,
 		OwnerUsername:   ownerUsername,
 		ActiveMessageID: &activeMessageID,
 	})
+}
+
+func (r *Repository) GetActive(ctx context.Context, ownerUsername string) (Session, error) {
+	if r == nil || r.db == nil {
+		return Session{}, errors.New("AI session repository is not available")
+	}
+	owner := normalizeUsername(ownerUsername)
+	if owner == "" {
+		return Session{}, errors.New("missing session owner")
+	}
+	row := r.db.QueryRow(ctx, `
+		SELECT s.id, s.owner_username, COALESCE(s.conversation_id, 0), s.title, s.status, s.pinned,
+		       s.active_message_id, s.metadata_json, s.created_at, s.updated_at
+		FROM im_ai_user_session_state us
+		JOIN im_ai_session s ON s.id = us.active_session_id
+		WHERE us.owner_username = $1 AND s.owner_username = $1 AND s.status = $2
+		LIMIT 1`, owner, StatusActive)
+	return scanSession(row)
+}
+
+func (r *Repository) SetActive(ctx context.Context, ownerUsername string, id int64) (Session, error) {
+	if r == nil || r.db == nil {
+		return Session{}, errors.New("AI session repository is not available")
+	}
+	owner := normalizeUsername(ownerUsername)
+	if owner == "" || id <= 0 {
+		return Session{}, errors.New("invalid active AI session")
+	}
+	item, err := r.Get(ctx, owner, id)
+	if err != nil {
+		return Session{}, err
+	}
+	if item.Status != StatusActive {
+		return Session{}, errors.New("only active AI sessions can be selected")
+	}
+	_, err = r.db.Exec(ctx, `
+		INSERT INTO im_ai_user_session_state (owner_username, active_session_id, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (owner_username) DO UPDATE
+		SET active_session_id = EXCLUDED.active_session_id,
+		    updated_at = NOW()`, owner, item.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	return item, nil
 }
 
 type scanner interface {

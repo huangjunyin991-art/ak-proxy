@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"im_server/internal/ai/billing"
+	aisession "im_server/internal/ai/session"
 	"im_server/internal/entitlement"
 )
 
@@ -46,6 +47,22 @@ type RuntimeConfig struct {
 	ChatMaxOutputTokens     int  `json:"chat_max_output_tokens"`
 	SummaryMaxOutputTokens  int  `json:"summary_max_output_tokens"`
 	SummaryMemoryMaxTokens  int  `json:"summary_memory_max_tokens"`
+}
+
+type SessionList struct {
+	Items           []aisession.Session `json:"items"`
+	ActiveSessionID int64               `json:"active_session_id"`
+	ActiveSession   *aisession.Session  `json:"active_session,omitempty"`
+}
+
+type SessionCreateInput struct {
+	Title string `json:"title"`
+}
+
+type SessionUpdateInput struct {
+	Title  *string `json:"title,omitempty"`
+	Status *string `json:"status,omitempty"`
+	Pinned *bool   `json:"pinned,omitempty"`
 }
 
 type Task struct {

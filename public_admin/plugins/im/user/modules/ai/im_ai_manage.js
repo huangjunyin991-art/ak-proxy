@@ -5,6 +5,7 @@
     const STYLE_ID = 'ak-im-ai-manage-style';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
+    const SESSION_LIST_STALE_MS = 20000;
     const THINKING_TEXT = '\u8bf7\u7a0d\u7b49\uff0c\u8ba9\u6211\u60f3\u60f3...';
 
     const aiManageModule = {
@@ -37,6 +38,18 @@
                     message: ''
                 };
             }
+            const defaults = {
+                sessions: [],
+                sessionsLoadedAt: 0,
+                sessionsLoading: false,
+                sessionsError: '',
+                sessionDrawerOpen: false,
+                activeSessionId: 0,
+                sessionMutating: false
+            };
+            Object.keys(defaults).forEach(function(key) {
+                if (typeof state.aiAssistant[key] === 'undefined') state.aiAssistant[key] = defaults[key];
+            });
         },
 
         ensureStyle() {
@@ -53,6 +66,24 @@
                 '#ak-im-root .ak-im-ai-status-action{border:0;background:transparent;color:#2563eb;font-size:12px;font-weight:700;padding:0 2px;cursor:pointer;white-space:nowrap}',
                 '#ak-im-root .ak-im-ai-status.is-error{background:rgba(255,71,87,.08);color:#b91c1c}',
                 '#ak-im-root .ak-im-ai-status.is-error .ak-im-ai-status-pill{background:rgba(255,71,87,.12);color:#b91c1c}',
+                '#ak-im-root .ak-im-ai-session-mask{position:absolute;inset:0;z-index:78;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
+                '#ak-im-root .ak-im-ai-session-panel{width:100%;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column}',
+                '#ak-im-root .ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
+                '#ak-im-root .ak-im-ai-session-title{min-width:0;font-size:16px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '#ak-im-root .ak-im-ai-session-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}',
+                '#ak-im-root .ak-im-ai-session-btn{height:32px;border:1px solid rgba(37,99,235,.16);border-radius:999px;background:#eef4ff;color:#1d4ed8;padding:0 12px;font-size:12px;font-weight:900;cursor:pointer}',
+                '#ak-im-root .ak-im-ai-session-btn.secondary{background:#f1f5f9;color:#334155;border-color:rgba(15,23,42,.08)}',
+                '#ak-im-root .ak-im-ai-session-btn:disabled{opacity:.5;cursor:not-allowed}',
+                '#ak-im-root .ak-im-ai-session-list{padding:8px 10px 14px;overflow:auto;box-sizing:border-box}',
+                '#ak-im-root .ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:52px;border:1px solid transparent;border-radius:12px;background:transparent;padding:8px 9px;margin:3px 0;box-sizing:border-box;text-align:left;cursor:pointer}',
+                '#ak-im-root .ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.20);box-shadow:0 6px 18px rgba(15,23,42,.07)}',
+                '#ak-im-root .ak-im-ai-session-main{min-width:0}',
+                '#ak-im-root .ak-im-ai-session-name{font-size:14px;font-weight:900;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '#ak-im-root .ak-im-ai-session-meta{margin-top:4px;color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '#ak-im-root .ak-im-ai-session-row-actions{display:flex;align-items:center;gap:6px}',
+                '#ak-im-root .ak-im-ai-session-icon-btn{width:30px;height:30px;border:0;border-radius:999px;background:rgba(15,23,42,.06);color:#334155;font-size:12px;font-weight:900;cursor:pointer}',
+                '#ak-im-root .ak-im-ai-session-icon-btn.danger{color:#b91c1c;background:rgba(239,68,68,.10)}',
+                '#ak-im-root .ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
                 '#ak-im-root .ak-im-ai-suggestions{display:flex;align-items:center;gap:7px;padding:7px 10px 0;background:#f7f7f7;border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box;overflow-x:auto;scrollbar-width:none}',
                 '#ak-im-root .ak-im-ai-suggestions::-webkit-scrollbar{display:none}',
                 '#ak-im-root .ak-im-ai-suggestion-label{flex:0 0 auto;color:#7b8494;font-size:12px;white-space:nowrap}',
@@ -151,6 +182,253 @@
             return this.bootstrapPromise;
         },
 
+        normalizeSessionPayload(data) {
+            const payload = data && data.item && Array.isArray(data.item.items) ? data.item : data;
+            const items = Array.isArray(payload && payload.items) ? payload.items : [];
+            const activeSession = payload && payload.active_session ? payload.active_session : null;
+            const activeSessionId = Number(payload && payload.active_session_id || activeSession && activeSession.id || 0);
+            return {
+                items: items,
+                activeSessionId: activeSessionId,
+                activeSession: activeSession
+            };
+        },
+
+        applySessionPayload(data) {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !state.aiAssistant) return this.normalizeSessionPayload(data);
+            const payload = this.normalizeSessionPayload(data);
+            state.aiAssistant.sessions = payload.items;
+            state.aiAssistant.activeSessionId = payload.activeSessionId;
+            state.aiAssistant.sessionsLoadedAt = Date.now();
+            state.aiAssistant.sessionsError = '';
+            return payload;
+        },
+
+        loadAISessions(force) {
+            const state = this.ctx && this.ctx.state;
+            if (!this.ctx || typeof this.ctx.request !== 'function' || !this.ctx.httpRoot) return Promise.resolve(null);
+            this.ensureState();
+            const aiState = state && state.aiAssistant;
+            if (!force && aiState && Array.isArray(aiState.sessions) && aiState.sessions.length && Date.now() - Number(aiState.sessionsLoadedAt || 0) < SESSION_LIST_STALE_MS) {
+                return Promise.resolve({
+                    items: aiState.sessions,
+                    activeSessionId: Number(aiState.activeSessionId || 0)
+                });
+            }
+            if (aiState) {
+                aiState.sessionsLoading = true;
+                aiState.sessionsError = '';
+            }
+            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions').then((data) => {
+                return this.applySessionPayload(data);
+            }).catch((error) => {
+                if (aiState) aiState.sessionsError = error && error.message ? error.message : 'AI 会话加载失败';
+                return null;
+            }).finally(() => {
+                if (aiState) aiState.sessionsLoading = false;
+                this.renderSessionDrawer();
+                if (typeof this.ctx.render === 'function') this.ctx.render();
+            });
+        },
+
+        openSessionDrawer() {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !this.isAIConversation()) return;
+            this.ensureState();
+            state.aiAssistant.sessionDrawerOpen = true;
+            this.renderSessionDrawer();
+            this.loadAISessions(true);
+        },
+
+        closeSessionDrawer() {
+            const state = this.ctx && this.ctx.state;
+            if (state && state.aiAssistant) state.aiAssistant.sessionDrawerOpen = false;
+            this.removeSessionDrawer();
+        },
+
+        removeSessionDrawer() {
+            const root = this.getRootElement();
+            const mask = root ? root.querySelector('.ak-im-ai-session-mask') : null;
+            if (mask && mask.parentNode) mask.parentNode.removeChild(mask);
+        },
+
+        sessionTitle(item) {
+            const title = String(item && item.title || '').trim();
+            return title || '新对话';
+        },
+
+        sessionMeta(item) {
+            const updatedAt = item && item.updated_at ? Date.parse(item.updated_at) : 0;
+            if (!updatedAt) return '上下文';
+            const diff = Math.max(0, Date.now() - updatedAt);
+            if (diff < 60000) return '刚刚更新';
+            if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+            return Math.floor(diff / 86400000) + ' 天前';
+        },
+
+        createAISession() {
+            const state = this.ctx && this.ctx.state;
+            if (!this.ctx || typeof this.ctx.request !== 'function' || !state || !state.aiAssistant || state.aiAssistant.sessionMutating) return Promise.resolve(null);
+            state.aiAssistant.sessionMutating = true;
+            this.renderSessionDrawer();
+            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions', {
+                method: 'POST',
+                body: JSON.stringify({ title: '新对话' })
+            }).then((data) => {
+                this.applySessionPayload(data);
+                return data;
+            }).catch((error) => {
+                if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : '新建 AI 会话失败');
+                return null;
+            }).finally(() => {
+                state.aiAssistant.sessionMutating = false;
+                this.renderSessionDrawer();
+                if (typeof this.ctx.render === 'function') this.ctx.render();
+            });
+        },
+
+        activateAISession(id) {
+            const sessionId = Number(id || 0);
+            const state = this.ctx && this.ctx.state;
+            if (!sessionId || !this.ctx || typeof this.ctx.request !== 'function' || !state || !state.aiAssistant) return Promise.resolve(null);
+            if (Number(state.aiAssistant.activeSessionId || 0) === sessionId) {
+                this.closeSessionDrawer();
+                return Promise.resolve(null);
+            }
+            state.aiAssistant.sessionMutating = true;
+            this.renderSessionDrawer();
+            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions/' + encodeURIComponent(sessionId) + '/activate', {
+                method: 'POST',
+                body: '{}'
+            }).then((data) => {
+                this.applySessionPayload(data);
+                this.closeSessionDrawer();
+                return data;
+            }).catch((error) => {
+                if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : '切换 AI 会话失败');
+                return null;
+            }).finally(() => {
+                state.aiAssistant.sessionMutating = false;
+                this.renderSessionDrawer();
+                if (typeof this.ctx.render === 'function') this.ctx.render();
+            });
+        },
+
+        renameAISession(id, currentTitle) {
+            const sessionId = Number(id || 0);
+            if (!sessionId || !this.ctx || typeof this.ctx.request !== 'function') return Promise.resolve(null);
+            const nextTitle = typeof global.prompt === 'function' ? global.prompt('输入会话名称', this.sessionTitle({ title: currentTitle })) : '';
+            const title = String(nextTitle || '').trim();
+            if (!title) return Promise.resolve(null);
+            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions/' + encodeURIComponent(sessionId), {
+                method: 'PATCH',
+                body: JSON.stringify({ title: title })
+            }).then((data) => {
+                this.applySessionPayload(data);
+                this.renderSessionDrawer();
+                return data;
+            }).catch((error) => {
+                if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : '重命名 AI 会话失败');
+                return null;
+            });
+        },
+
+        archiveAISession(id) {
+            const sessionId = Number(id || 0);
+            if (!sessionId || !this.ctx || typeof this.ctx.request !== 'function') return Promise.resolve(null);
+            const ok = typeof global.confirm === 'function' ? global.confirm('归档这个 AI 会话？') : true;
+            if (!ok) return Promise.resolve(null);
+            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions/' + encodeURIComponent(sessionId), {
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'archived' })
+            }).then((data) => {
+                this.applySessionPayload(data);
+                this.renderSessionDrawer();
+                return data;
+            }).catch((error) => {
+                if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : '归档 AI 会话失败');
+                return null;
+            });
+        },
+
+        renderSessionDrawer() {
+            const state = this.ctx && this.ctx.state;
+            const root = this.getRootElement();
+            if (!root || !state || !state.aiAssistant || !state.aiAssistant.sessionDrawerOpen || !this.isAIConversation()) {
+                this.removeSessionDrawer();
+                return;
+            }
+            this.ensureStyle();
+            let mask = root.querySelector('.ak-im-ai-session-mask');
+            if (!mask) {
+                mask = document.createElement('div');
+                mask.className = 'ak-im-ai-session-mask';
+                root.appendChild(mask);
+            }
+            const aiState = state.aiAssistant;
+            const activeId = Number(aiState.activeSessionId || 0);
+            const items = Array.isArray(aiState.sessions) ? aiState.sessions : [];
+            const listHtml = items.length ? items.map((item) => {
+                const id = Number(item && item.id || 0);
+                const active = id && id === activeId;
+                return [
+                    '<div class="ak-im-ai-session-row' + (active ? ' is-active' : '') + '" data-ak-ai-session-id="' + id + '">',
+                    '<div class="ak-im-ai-session-main">',
+                    '<div class="ak-im-ai-session-name">' + this.escapeHtml(this.sessionTitle(item)) + '</div>',
+                    '<div class="ak-im-ai-session-meta">' + this.escapeHtml(active ? '当前上下文' : this.sessionMeta(item)) + '</div>',
+                    '</div>',
+                    '<div class="ak-im-ai-session-row-actions">',
+                    '<button type="button" class="ak-im-ai-session-icon-btn" data-ak-ai-session-rename="' + id + '" title="重命名">改</button>',
+                    '<button type="button" class="ak-im-ai-session-icon-btn danger" data-ak-ai-session-archive="' + id + '" title="归档">归</button>',
+                    '</div>',
+                    '</div>'
+                ].join('');
+            }).join('') : '<div class="ak-im-ai-session-empty">' + (aiState.sessionsLoading ? '正在加载 AI 会话...' : '暂无 AI 会话') + '</div>';
+            mask.innerHTML = [
+                '<div class="ak-im-ai-session-panel" role="dialog" aria-modal="true" aria-label="AI 会话管理">',
+                '<div class="ak-im-ai-session-head">',
+                '<div class="ak-im-ai-session-title">AI 会话</div>',
+                '<div class="ak-im-ai-session-actions">',
+                '<button type="button" class="ak-im-ai-session-btn" data-ak-ai-session-new="1"' + (aiState.sessionMutating ? ' disabled' : '') + '>新建</button>',
+                '<button type="button" class="ak-im-ai-session-btn secondary" data-ak-ai-session-close="1">关闭</button>',
+                '</div>',
+                '</div>',
+                '<div class="ak-im-ai-session-list">',
+                aiState.sessionsError ? '<div class="ak-im-ai-session-empty">' + this.escapeHtml(aiState.sessionsError) + '</div>' : listHtml,
+                '</div>',
+                '</div>'
+            ].join('');
+            mask.onclick = (event) => {
+                if (event.target === mask) this.closeSessionDrawer();
+            };
+            const closeBtn = mask.querySelector('[data-ak-ai-session-close]');
+            if (closeBtn) closeBtn.addEventListener('click', () => this.closeSessionDrawer());
+            const newBtn = mask.querySelector('[data-ak-ai-session-new]');
+            if (newBtn) newBtn.addEventListener('click', () => this.createAISession());
+            mask.querySelectorAll('[data-ak-ai-session-id]').forEach((row) => {
+                row.addEventListener('click', (event) => {
+                    if (event.target && event.target.closest && event.target.closest('[data-ak-ai-session-rename],[data-ak-ai-session-archive]')) return;
+                    this.activateAISession(row.getAttribute('data-ak-ai-session-id'));
+                });
+            });
+            mask.querySelectorAll('[data-ak-ai-session-rename]').forEach((button) => {
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    const id = button.getAttribute('data-ak-ai-session-rename');
+                    const item = items.find(function(entry) { return Number(entry && entry.id || 0) === Number(id || 0); });
+                    this.renameAISession(id, item && item.title);
+                });
+            });
+            mask.querySelectorAll('[data-ak-ai-session-archive]').forEach((button) => {
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    this.archiveAISession(button.getAttribute('data-ak-ai-session-archive'));
+                });
+            });
+        },
+
         openAssistant() {
             const state = this.ctx && this.ctx.state;
             if (!this.ctx || !state || typeof this.ctx.request !== 'function') return Promise.resolve(null);
@@ -169,6 +447,11 @@
                 if (bootstrap) {
                     state.aiAssistant.bootstrap = bootstrap;
                     state.aiAssistant.bootstrapLoadedAt = Date.now();
+                }
+                if (data && data.sessions) {
+                    this.applySessionPayload(data.sessions);
+                } else {
+                    this.loadAISessions(true);
                 }
                 state.aiAssistant.message = '';
                 const sessionItem = {
@@ -598,6 +881,7 @@
             const statusLine = elements && elements.statusLine;
             if (!statusLine || !state || !this.isAIConversation()) {
                 this.removeSuggestionBar();
+                this.removeSessionDrawer();
                 if (statusLine) {
                     statusLine.classList.remove('ak-im-ai-status', 'is-error');
                     if (statusLine.dataset.akAiStatus === '1') {
@@ -658,9 +942,15 @@
                 '<span class="ak-im-ai-status-main"><span class="ak-im-ai-status-pill">AI</span><span>' + this.escapeHtml(mainText) + '</span></span>' +
                 '<span class="ak-im-ai-status-side">' +
                 (!activeTask && quotaText ? '<span class="ak-im-ai-status-quota">' + this.escapeHtml(quotaText) + '</span>' : '') +
+                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-sessions="1">会话</button>' +
                 '<button type="button" class="ak-im-ai-status-action" data-ak-ai-redeem="1">兑换</button>' +
                 '<button type="button" class="ak-im-ai-status-action" data-ak-ai-refresh="1">刷新</button>' +
                 '</span>';
+            const sessionsBtn = statusLine.querySelector('[data-ak-ai-sessions]');
+            if (sessionsBtn && !sessionsBtn.dataset.bound) {
+                sessionsBtn.dataset.bound = '1';
+                sessionsBtn.addEventListener('click', () => this.openSessionDrawer());
+            }
             const refreshBtn = statusLine.querySelector('[data-ak-ai-refresh]');
             if (refreshBtn && !refreshBtn.dataset.bound) {
                 refreshBtn.dataset.bound = '1';
@@ -672,6 +962,7 @@
                 redeemBtn.addEventListener('click', () => this.showRedeemDialog());
             }
             this.renderSuggestions();
+            this.renderSessionDrawer();
         }
     };
 

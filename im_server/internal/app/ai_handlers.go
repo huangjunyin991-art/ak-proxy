@@ -25,6 +25,16 @@ type aiRedeemRequest struct {
 	Code string `json:"code"`
 }
 
+type aiSessionCreateRequest struct {
+	Title string `json:"title"`
+}
+
+type aiSessionUpdateRequest struct {
+	Title  *string `json:"title,omitempty"`
+	Status *string `json:"status,omitempty"`
+	Pinned *bool   `json:"pinned,omitempty"`
+}
+
 type aiProviderSecretRequest struct {
 	Secret string `json:"secret"`
 }
@@ -53,6 +63,12 @@ func (a *App) handleAIRoutes(w http.ResponseWriter, r *http.Request) {
 		a.handleAIBootstrap(w, r, username)
 	case path == "/session" && r.Method == http.MethodPost:
 		a.handleAISession(w, r, username)
+	case path == "/sessions" && r.Method == http.MethodGet:
+		a.handleAISessions(w, r, username)
+	case path == "/sessions" && r.Method == http.MethodPost:
+		a.handleAISessionCreate(w, r, username)
+	case strings.HasPrefix(path, "/sessions/"):
+		a.handleAISessionItem(w, r, username, path)
 	case path == "/redeem" && r.Method == http.MethodPost:
 		a.handleAIRedeem(w, r, username)
 	case strings.HasPrefix(path, "/tasks/") && r.Method == http.MethodGet:
@@ -91,12 +107,91 @@ func (a *App) handleAISession(w http.ResponseWriter, r *http.Request, username s
 		return
 	}
 	bootstrap, _ := a.ai.Bootstrap(r.Context(), username)
+	sessions, _ := a.ai.ListSessions(r.Context(), username, false)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"conversation_id":  conversationID,
 		"bot_username":     bot.Username,
 		"bot_display_name": bot.DisplayName,
 		"bootstrap":        bootstrap,
+		"sessions":         sessions,
 	})
+}
+
+func (a *App) handleAISessions(w http.ResponseWriter, r *http.Request, username string) {
+	if a.ai == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "AI service is not available"})
+		return
+	}
+	includeArchived := r.URL.Query().Get("include_archived") == "1"
+	item, err := a.ai.ListSessions(r.Context(), username, includeArchived)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *App) handleAISessionCreate(w http.ResponseWriter, r *http.Request, username string) {
+	if a.ai == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "AI service is not available"})
+		return
+	}
+	var req aiSessionCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	item, err := a.ai.CreateSession(r.Context(), username, aiservice.SessionCreateInput{Title: req.Title})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *App) handleAISessionItem(w http.ResponseWriter, r *http.Request, username string, path string) {
+	if a.ai == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "AI service is not available"})
+		return
+	}
+	parts := splitPath(path)
+	if len(parts) < 2 || parts[0] != "sessions" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "AI session not found"})
+		return
+	}
+	id, err := parseID(parts[1])
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid AI session id"})
+		return
+	}
+	if len(parts) == 2 && r.Method == http.MethodPatch {
+		var req aiSessionUpdateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		item, err := a.ai.UpdateSession(r.Context(), username, id, aiservice.SessionUpdateInput{
+			Title:  req.Title,
+			Status: req.Status,
+			Pinned: req.Pinned,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
+	if len(parts) == 3 && parts[2] == "activate" && r.Method == http.MethodPost {
+		item, err := a.ai.ActivateSession(r.Context(), username, id)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "AI session route not found"})
 }
 
 func (a *App) handleAIRedeem(w http.ResponseWriter, r *http.Request, username string) {
