@@ -2842,6 +2842,8 @@ async def proxy_rpc(path: str, request: Request):
         "public_ep_sellrecords1",
         "public_ep_sellrecords2",
         "public_ep_sellrecords3",
+        "mnemonic_get12",
+        "mnemonic_confirm",
     }
     normalized_path = path.strip("/").lower()
     if normalized_path in trace_rpc_paths:
@@ -14429,16 +14431,28 @@ async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, conten
         next_params["UserID"] = user_id
         next_params.pop("userid", None)
         patched = True
-    if not patched:
-        return params, raw_body, {}, False
     next_raw_body = raw_body
-    if request.method in ["POST", "PUT"]:
+    if patched and request.method in ["POST", "PUT"]:
         next_raw_body = _rewrite_raw_body_with_params(content_type, next_params)
-    logger.warning(
-        f"[PublicRpcAuthPatch/{path}] username={username or '-'} "
-        f"key_fp={fingerprint_log_secret(userkey)} userId={user_id or '-'}"
-    )
-    return next_params, next_raw_body, dict(cached.get("cookies") or {}), True
+    cached_cookies = dict(cached.get("cookies") or {})
+    if patched:
+        logger.warning(
+            f"[PublicRpcAuthPatch/{path}] username={username or '-'} "
+            f"key_fp={fingerprint_log_secret(userkey)} userId={user_id or '-'} "
+            f"cookies={_summarize_cookie_names(cached_cookies)}"
+        )
+    elif cached_cookies:
+        logger.warning(
+            f"[PublicRpcAuthCookie/{path}] username={username or '-'} "
+            f"key_fp={fingerprint_log_secret(userkey)} userId={user_id or '-'} "
+            f"cookies={_summarize_cookie_names(cached_cookies)}"
+        )
+    else:
+        logger.warning(
+            f"[PublicRpcAuthCookie/{path}] no_upstream_cookies username={username or '-'} "
+            f"key_fp={fingerprint_log_secret(userkey)} userId={user_id or '-'}"
+        )
+    return next_params, next_raw_body, cached_cookies, patched
 
 
 def _extract_userkey(data):
@@ -14872,6 +14886,43 @@ def _rewrite_base_js_native_rpc_roots(text: str) -> tuple[str, bool]:
     return rewritten, rewritten != text
 
 
+def _patch_base_js_mnemonic_complete_redirect(text: str) -> tuple[str, bool]:
+    if "__akHandleMnemonicComplete" in text:
+        return text, False
+    handler = (
+        "(function(){try{if(window.__akMnemonicCompletePatch)return;window.__akMnemonicCompletePatch=1;"
+        "window.__akHandleMnemonicComplete=function(json,option){try{"
+        "var msg=String((json&&json.Msg)||''),url=String((option&&option.url)||'');"
+        "if(url.toLowerCase().indexOf('mnemonic_get12')<0)return false;"
+        "if(msg.indexOf('\\u9a8c\\u8bc1\\u5b8c\\u6210')<0)return false;"
+        "try{if(window.APP&&APP.GLOBAL&&typeof APP.GLOBAL.updateUserModel==='function'){APP.GLOBAL.updateUserModel({IsMnemonic:true});}"
+        "else if(window.localStorage){var raw=localStorage.getItem('AK_user_model')||'{}',m={};try{m=JSON.parse(raw)||{};}catch(_e){}m.IsMnemonic=true;localStorage.setItem('AK_user_model',JSON.stringify(m));}}catch(_e2){}"
+        "var target='';try{var sp=new URLSearchParams(location.search);target=sp.get('url')||'';}catch(_e3){}"
+        "if(!target)target='/pages/home.html?first=true';"
+        "try{var u=new URL(target,location.origin);target=u.origin===location.origin?(u.pathname+u.search+u.hash):'/pages/home.html?first=true';}catch(_e4){target='/pages/home.html?first=true';}"
+        "setTimeout(function(){try{location.replace(target);}catch(_e5){location.href=target;}},0);"
+        "return true;}catch(_e6){return false;}};}catch(_e7){}})();"
+    )
+    pattern = re.compile(
+        r"if\s*\(\s*json\.Error\s*&&\s*json\.IsLogin\s*===\s*false\s*\)\s*\{\s*"
+        r"console\.log\s*\(\s*json\s*\)\s*"
+        r"APP\.GLOBAL\.gotoLogin\s*\(\s*\)\s*;\s*"
+        r"return\s*;\s*"
+        r"\}",
+        flags=re.MULTILINE,
+    )
+    replacement = (
+        "if (json.Error && json.IsLogin === false) {"
+        "if(window.__akHandleMnemonicComplete&&window.__akHandleMnemonicComplete(json,option))return;"
+        "console.log(json);APP.GLOBAL.gotoLogin();return;"
+        "}"
+    )
+    patched, count = pattern.subn(replacement, text, count=1)
+    if count <= 0:
+        patched = text
+    return handler + patched, True
+
+
 def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True) -> tuple[str, bool]:
     if rewrite_rpc_to_admin:
         text, rewritten = _rewrite_base_js_rpc_roots(text)
@@ -14883,9 +14934,10 @@ def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True)
     else:
         text, rewritten = _rewrite_base_js_native_rpc_roots(text)
         rpc_rewrite_body = "function akBaseRw(url){return url;}"
+    text, mnemonic_patched = _patch_base_js_mnemonic_complete_redirect(text)
     marker = "[AKBaseNoLogin]"
     if marker in text:
-        return text, rewritten
+        return text, rewritten or mnemonic_patched
     probe = (
         "(function(){"
         "try{if(window.__akBaseNoLoginProbeInstalled)return;window.__akBaseNoLoginProbeInstalled=true;"
@@ -16042,6 +16094,26 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
     return content
 
 
+def _build_public_cached_static_response(cached_static, normalized_path: str) -> Response:
+    content_type = cached_static.content_type or "application/octet-stream"
+    body = cached_static.body or b""
+    if str(normalized_path or "").lower().endswith("base.js"):
+        body = _transform_ak_public_static_content(normalized_path, content_type, body)
+        response = Response(
+            content=body,
+            status_code=cached_static.status_code,
+            headers=dict(cached_static.headers or {}),
+            media_type=content_type,
+        )
+        return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
+            response,
+            "HIT",
+            cached_static.path,
+            content_type,
+        )
+    return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+
+
 def _filter_ak_static_query(query: str) -> str:
     query_parts = [
         p for p in str(query or "").split("&")
@@ -16235,7 +16307,7 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
                     content_type=cached_static.content_type,
                     response_bytes=len(cached_static.body or b""),
                 )
-                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+                return _build_public_cached_static_response(cached_static, normalized_path)
             static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(cache_request)
             await static_cache_lock.acquire()
             cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
@@ -16252,7 +16324,7 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
                     content_type=cached_static.content_type,
                     response_bytes=len(cached_static.body or b""),
                 )
-                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+                return _build_public_cached_static_response(cached_static, normalized_path)
 
         fwd_headers = _build_ak_site_forward_headers(request)
         proxy_url = None
