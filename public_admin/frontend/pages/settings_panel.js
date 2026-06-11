@@ -670,20 +670,58 @@
             });
         }
 
+        function setLbText(id, value) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        }
+
+        function normalizeLbNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function getLbAvailability(data) {
+            const exits = Array.isArray(data.exits) ? data.exits : [];
+            const total = normalizeLbNumber(data.total_exits, exits.length);
+            let available = normalizeLbNumber(data.available_exits, NaN);
+            if (!Number.isFinite(available)) {
+                available = exits.filter(ex => ex && ex.healthy && !ex.frozen).length;
+            }
+            let disabled = normalizeLbNumber(data.disabled_exits, NaN);
+            if (!Number.isFinite(disabled)) {
+                disabled = Math.max(0, total - available);
+            }
+            let ratio = normalizeLbNumber(data.available_ratio, NaN);
+            if (!Number.isFinite(ratio)) {
+                ratio = total > 0 ? (available / total) * 100 : 0;
+            }
+            ratio = Math.max(0, Math.min(100, ratio));
+            return { total, available, disabled, ratio };
+        }
+
+        function formatLbPercent(value) {
+            const num = normalizeLbNumber(value, 0);
+            return Number.isInteger(num) ? String(num) : num.toFixed(1).replace(/\.0$/, '');
+        }
+
         function renderLbStatus(data) {
             if (!data || data.error) return;
             const policy = data.policy || {};
-            document.getElementById('lbTotalExits').textContent = data.total_exits;
-            document.getElementById('lbHealthyExits').textContent = data.healthy_exits;
-            document.getElementById('lbTotalActive').textContent = data.total_active;
-            document.getElementById('lbLoginLimit').textContent = data.max_login_per_min;
-            document.getElementById('lbLatencyStrategy').textContent = policy.latency_strategy_enabled === false ? '最少连接' : '延迟优先';
-            document.getElementById('lbPerSecondLimit').textContent = `${policy.per_exit_rate_per_second || 3} req/s/节点`;
-            document.getElementById('lbProbeInterval').textContent = `${Math.round((policy.latency_probe_interval_seconds || 1800) / 60)} 分钟`;
+            const availability = getLbAvailability(data);
+            const availableRatioText = `${formatLbPercent(availability.ratio)}%`;
+            setLbText('lbTotalExits', availability.total);
+            setLbText('lbHealthyExits', data.healthy_exits);
+            setLbText('lbAvailableExits', availability.available);
+            setLbText('lbDisabledExits', availability.disabled);
+            setLbText('lbAvailableRatio', availableRatioText);
+            setLbText('lbTotalActive', data.total_active);
+            setLbText('lbLoginLimit', data.max_login_per_min);
+            setLbText('lbLatencyStrategy', policy.latency_strategy_enabled === false ? '最少连接' : '延迟优先');
+            setLbText('lbPerSecondLimit', `${policy.per_exit_rate_per_second || 3} req/s/节点`);
+            setLbText('lbProbeInterval', `${Math.round((policy.latency_probe_interval_seconds || 1800) / 60)} 分钟`);
             const connectFreezeEl = document.getElementById('lbConnectFailureFreeze');
             if (connectFreezeEl) connectFreezeEl.textContent = formatLbDuration(getLbConnectFailureFreezeSeconds(policy));
-            document.getElementById('lbSummary').textContent =
-                `${data.healthy_exits}/${data.total_exits} 健康 | ${data.total_active} 活跃连接`;
+            setLbText('lbSummary', `可用 ${availability.available}/${availability.total} (${availableRatioText}) | 禁用 ${availability.disabled} | ${data.total_active} 活跃连接`);
 
             const container = document.getElementById('lbExitCards');
             if (!data.exits || data.exits.length === 0) {

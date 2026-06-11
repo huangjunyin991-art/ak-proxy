@@ -29,14 +29,48 @@ class DispatcherStatusService:
             status = {}
         exits = status.get("exits") if isinstance(status, dict) else []
         light_exits = [pick_fields(item, LIGHT_EXIT_FIELDS) for item in exits if isinstance(item, dict)]
+        total_exits = self._to_int(status.get("total_exits"), len(light_exits))
+        available_exits = self._to_optional_int(status.get("available_exits"))
+        if available_exits is None:
+            available_exits = sum(1 for item in light_exits if item.get("healthy") and not item.get("frozen"))
+        disabled_exits = self._to_optional_int(status.get("disabled_exits"))
+        if disabled_exits is None:
+            disabled_exits = max(0, total_exits - available_exits)
+        available_ratio = self._to_optional_float(status.get("available_ratio"))
+        if available_ratio is None:
+            available_ratio = round((available_exits / total_exits) * 100, 1) if total_exits else 0
         return {
-            "total_exits": status.get("total_exits", 0),
+            "total_exits": total_exits,
             "healthy_exits": status.get("healthy_exits", 0),
+            "available_exits": available_exits,
+            "disabled_exits": disabled_exits,
+            "available_ratio": available_ratio,
             "total_active": status.get("total_active", 0),
             "max_login_per_min": status.get("max_login_per_min", 0),
             "policy": status.get("policy", {}),
             "exits": light_exits,
         }
+
+    @staticmethod
+    def _to_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _to_optional_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _to_optional_float(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     async def get_meta_status(self, force_refresh: bool = False) -> dict[str, Any]:
         return await self._meta_cache.get(force_refresh=force_refresh)

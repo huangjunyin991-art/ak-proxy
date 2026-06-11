@@ -4467,7 +4467,7 @@
                         </div>
 
                         <!-- 概览统计 -->
-                        <div id="lbStatsRow" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;">
+                        <div id="lbStatsRow" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-bottom: 10px;">
                             <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
                                 <div style="color: var(--text-secondary); font-size: 11px;">总出口</div>
                                 <div style="color: var(--accent); font-size: 20px; font-weight: bold;" id="lbTotalExits">-</div>
@@ -4475,6 +4475,18 @@
                             <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
                                 <div style="color: var(--text-secondary); font-size: 11px;">健康出口</div>
                                 <div style="color: var(--accent-green); font-size: 20px; font-weight: bold;" id="lbHealthyExits">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">可用出口</div>
+                                <div style="color: #00d4ff; font-size: 20px; font-weight: bold;" id="lbAvailableExits">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">禁用出口</div>
+                                <div style="color: #ff4757; font-size: 20px; font-weight: bold;" id="lbDisabledExits">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">可用比例</div>
+                                <div style="color: var(--accent-yellow); font-size: 20px; font-weight: bold;" id="lbAvailableRatio">-</div>
                             </div>
                             <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
                                 <div style="color: var(--text-secondary); font-size: 11px;">总活跃连接</div>

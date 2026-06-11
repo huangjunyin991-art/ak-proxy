@@ -1111,11 +1111,18 @@ class OutboundDispatcher:
                     "client": ex.client_snapshot(),
                 })
 
+            total_exits = len(self.exits)
             healthy_count = sum(1 for ex in self.exits if ex.healthy)
+            available_count = sum(1 for ex in self.exits if ex.healthy and not ex.is_frozen)
+            disabled_count = max(0, total_exits - available_count)
+            available_ratio = round((available_count / total_exits) * 100, 1) if total_exits else 0
             total_active = sum(ex.active for ex in self.exits)
             return {
-                "total_exits": len(self.exits),
+                "total_exits": total_exits,
                 "healthy_exits": healthy_count,
+                "available_exits": available_count,
+                "disabled_exits": disabled_count,
+                "available_ratio": available_ratio,
                 "total_active": total_active,
                 "max_login_per_min": self.MAX_LOGIN_PER_MIN,
                 "policy": self.policy_config.to_dict() if self.policy_config is not None else {},
