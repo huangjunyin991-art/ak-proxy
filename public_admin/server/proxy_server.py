@@ -16450,6 +16450,16 @@ async def ak_public_content_proxy(request: Request, asset_path: str):
     return await _proxy_ak_public_static_asset(request, "content", asset_path)
 
 
+def _split_proxied_ak_static_path(path: str) -> tuple[str, str]:
+    cleaned = str(path or "").strip("/")
+    if "/" not in cleaned:
+        return "", ""
+    prefix, asset_path = cleaned.split("/", 1)
+    if prefix in _AK_PUBLIC_STATIC_PREFIXES and asset_path:
+        return prefix, asset_path
+    return "", ""
+
+
 @app.api_route("/admin/ak-site/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
@@ -16482,6 +16492,13 @@ async def ak_web_proxy(request: Request, path: str):
     accept = request.headers.get("accept", "")
     cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
     if not session:
+        static_prefix, static_asset_path = _split_proxied_ak_static_path(path)
+        if request.method in {"GET", "HEAD"} and static_prefix:
+            logger.warning(
+                f"[AkWebStaticFallback/{path}] no_session bs={bs_id} source={bs_source} "
+                f"cookie_bs={cookie_bs} referer={referer}"
+            )
+            return await _proxy_ak_public_static_asset(request, static_prefix, static_asset_path)
         logger.warning(f"[AkWebProxy/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"}, status_code=401)
     if session and not session.get("auth_ticket_validated") and "pages/account/login" not in path:
