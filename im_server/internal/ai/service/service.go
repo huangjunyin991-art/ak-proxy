@@ -822,6 +822,44 @@ func (s *Service) ensureDefaultActiveSession(ctx context.Context, ownerUsername 
 	}
 }
 
+func isDefaultSessionTitle(title string) bool {
+	normalized := strings.TrimSpace(title)
+	if normalized == "" || normalized == "新对话" || normalized == bot.DisplayName {
+		return true
+	}
+	lower := strings.ToLower(normalized)
+	return lower == "ai assistant" || lower == "ak ai assistant"
+}
+
+func titleFromFirstQuestion(content string) string {
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
+	if normalized == "" {
+		return ""
+	}
+	runes := []rune(normalized)
+	if len(runes) <= 32 {
+		return normalized
+	}
+	return string(runes[:32]) + "..."
+}
+
+func (s *Service) nameSessionFromFirstQuestion(ctx context.Context, ownerUsername string, session aisession.Session, content string) {
+	if s == nil || s.sessions == nil || session.ID <= 0 || !isDefaultSessionTitle(session.Title) {
+		return
+	}
+	title := titleFromFirstQuestion(content)
+	if title == "" {
+		return
+	}
+	if _, err := s.sessions.Update(ctx, aisession.UpdateInput{
+		ID:            session.ID,
+		OwnerUsername: ownerUsername,
+		Title:         &title,
+	}); err != nil {
+		log.Printf("AI session auto title failed: session_id=%d username=%s err=%v", session.ID, ownerUsername, err)
+	}
+}
+
 func (s *Service) activeSessionForConversation(ctx context.Context, ownerUsername string, conversationID int64) (aisession.Session, error) {
 	if s == nil || s.db == nil {
 		return aisession.Session{}, errors.New("AI service is not available")
@@ -997,6 +1035,9 @@ func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername st
 	if err != nil {
 		log.Printf("AI trigger message tree append failed: session_id=%d message_id=%d err=%v", session.ID, triggerMessageID, err)
 		return session.ID, 0
+	}
+	if session.ActiveMessageID <= 0 {
+		s.nameSessionFromFirstQuestion(ctx, ownerUsername, session, content)
 	}
 	if _, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, item.ID); err != nil {
 		log.Printf("AI trigger active message save failed: session_id=%d message_id=%d err=%v", session.ID, item.ID, err)

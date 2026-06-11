@@ -1753,6 +1753,7 @@
             closeSettingsPanel: closeSettingsPanel,
             openSessionActionSheet: openSessionActionSheet,
             openAIAssistant: openAIAssistant,
+            getAIManage: getAIManageModule,
             loadMessages: loadMessages,
             restorePersistedConversationMessages: applyPersistedConversationMessages,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
@@ -7042,6 +7043,10 @@
             state.activeMessagesLoading = false;
             render();
             return Promise.resolve(null);
+        }
+        const aiManageModule = getAIManageModule();
+        if (aiManageModule && typeof aiManageModule.shouldUseSessionMessages === 'function' && aiManageModule.shouldUseSessionMessages(targetConversationId) && typeof aiManageModule.loadSessionMessages === 'function') {
+            return aiManageModule.loadSessionMessages(targetConversationId, options);
         }
         const forceRefresh = !!(options && options.forceRefresh);
         const restoredPersistedMessages = forceRefresh ? false : applyPersistedConversationMessages(targetConversationId);

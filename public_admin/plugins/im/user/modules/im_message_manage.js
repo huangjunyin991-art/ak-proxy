@@ -53,6 +53,7 @@
             const state = this.getState();
             const activeConversationId = Number(state && state.activeConversationId || 0);
             if (!state || !activeConversationId) return;
+            if (this.isAIConversation()) return;
             this.setCachedMessages(activeConversationId, state.activeMessages);
             const messageSync = this.getMessageSync();
             if (messageSync && typeof messageSync.saveConversation === 'function') {

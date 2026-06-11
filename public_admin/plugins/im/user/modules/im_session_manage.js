@@ -152,6 +152,7 @@
         },
 
         getUnreadCount(item) {
+            if (this.isAIAssistantSession(item)) return 0;
             return Number(item && (item.unread_count || item.unread || 0) || 0);
         },
 
@@ -178,14 +179,27 @@
             return item;
         },
 
+        getAIAssistantPreview() {
+            const state = this.ctx && this.ctx.state ? this.ctx.state : {};
+            if (state.aiAssistant && state.aiAssistant.message) {
+                return String(state.aiAssistant.message || '').trim();
+            }
+            const aiManage = this.ctx && typeof this.ctx.getAIManage === 'function' ? this.ctx.getAIManage() : null;
+            const title = aiManage && typeof aiManage.getActiveContextTitle === 'function'
+                ? String(aiManage.getActiveContextTitle() || '').trim()
+                : '';
+            if (title) return '当前上下文：' + title;
+            return AI_ASSISTANT_PREVIEW;
+        },
+
         renderAIAssistantEntry(sessionList, source) {
             if (!sessionList || !this.ctx || typeof this.ctx.openAIAssistant !== 'function') return;
             const state = this.ctx.state || {};
             const item = this.buildAIAssistantSessionItem(source);
             const conversationId = Number(item.conversation_id || 0);
-            const unreadCount = this.getUnreadCount(item);
+            const unreadCount = 0;
             const isOpening = !!(state.aiAssistant && state.aiAssistant.opening);
-            const preview = conversationId ? this.getSessionPreview(source || item) : (state.aiAssistant && state.aiAssistant.message ? state.aiAssistant.message : AI_ASSISTANT_PREVIEW);
+            const preview = this.getAIAssistantPreview();
             const timeText = conversationId ? this.ctx.formatSessionTime(item.last_message_at || item.updated_at || item.created_at) : (isOpening ? AI_ASSISTANT_OPENING : 'AI');
             const node = document.createElement('div');
             node.className = 'ak-im-session-item is-ai-assistant' + (conversationId && conversationId === state.activeConversationId ? ' ak-active' : '') + (isOpening ? ' is-opening' : '');
