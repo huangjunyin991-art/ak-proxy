@@ -19,9 +19,10 @@ class StaticResourceCachePolicy:
         path = self._normalized_path(request.path or urlsplit(request.url).path)
         if not path or path.endswith('/') or path.startswith('/rpc/'):
             return False
-        if path.startswith('/pages/') and path.endswith('.html'):
+        is_cacheable_html = self._is_cacheable_html_path(path)
+        if path.startswith('/pages/') and path.endswith('.html') and not is_cacheable_html:
             return False
-        if os.path.splitext(path)[1] not in self.config.allowed_extensions:
+        if not is_cacheable_html and os.path.splitext(path)[1] not in self.config.allowed_extensions:
             return False
         query = parse_qs(urlsplit(request.url).query, keep_blank_values=True)
         return not any(str(key).lower() in self.config.denied_query_keys for key in query.keys())
@@ -35,7 +36,9 @@ class StaticResourceCachePolicy:
         if not body or len(body) > self.config.max_body_bytes:
             return False
         content_type = str(payload.content_type or '').lower()
-        if 'text/html' in content_type or 'application/json' in content_type:
+        if 'text/html' in content_type and not self._is_cacheable_html_path(request.path):
+            return False
+        if 'application/json' in content_type:
             return False
         headers = {str(k).lower(): str(v) for k, v in dict(payload.policy_headers or {}).items()}
         if 'set-cookie' in headers:
@@ -48,3 +51,12 @@ class StaticResourceCachePolicy:
     def _normalized_path(self, path: str) -> str:
         value = str(path or '').split('?', 1)[0].lower()
         return value if value.startswith('/') else '/' + value
+
+    def _is_cacheable_html_path(self, path: str) -> bool:
+        normalized = self._normalized_path(path)
+        allowed_paths = {
+            self._normalized_path(item)
+            for item in getattr(self.config, 'cacheable_html_paths', set())
+            if str(item or '').strip()
+        }
+        return normalized in allowed_paths

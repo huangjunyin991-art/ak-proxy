@@ -23,6 +23,7 @@ class StaticResourceCacheConfig:
         '.woff', '.woff2', '.ttf', '.otf', '.eot',
         '.mp3', '.mp4', '.webm', '.wasm', '.map',
     })
+    cacheable_html_paths: set[str] = field(default_factory=set)
     denied_query_keys: set[str] = field(default_factory=lambda: {
         'token', 'auth', 'session', 'sid', 'key', 'userkey', 'userid', 'user_id', 'bs',
     })

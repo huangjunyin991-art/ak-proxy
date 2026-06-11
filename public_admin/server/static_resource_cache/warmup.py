@@ -12,6 +12,7 @@ DEFAULT_PREWARM_PAGES = (
     "/pages/ace.list.html",
     "/pages/center/security-settings.html",
     "/pages/center/financial_management.html",
+    "/pages/subpages/notice.html",
 )
 
 STATIC_RESOURCE_EXTENSIONS = {

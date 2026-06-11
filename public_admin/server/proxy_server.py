@@ -13864,7 +13864,8 @@ _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 _AK_PUBLIC_STATIC_CACHE_NAMESPACE = "/public-static-v2"
 _AK_WEB_STATIC_CACHE_CONFIG = StaticResourceCacheConfig(
-    root_dir=Path(PUBLIC_ADMIN_DIR) / "runtime_cache" / "static_resources"
+    root_dir=Path(PUBLIC_ADMIN_DIR) / "runtime_cache" / "static_resources",
+    cacheable_html_paths={"/pages/subpages/notice.html"},
 )
 _AK_WEB_STATIC_CACHE_SERVICE = create_static_resource_cache_service(_AK_WEB_STATIC_CACHE_CONFIG)
 _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER = StaticResourceResponseAdapter(
@@ -16668,6 +16669,168 @@ _AK_STATIC_WARMUP_SERVICE = StaticResourceWarmupService(
     fetch_page=_fetch_ak_static_warmup_page,
     cache_asset=_fetch_and_cache_ak_static_warmup_asset,
 )
+
+
+def _transform_ak_public_page_html(text: str, request: Request) -> str:
+    public_origin = _request_public_origin(request).rstrip("/") or "https://ak2025.vip"
+    public_host = str(urlsplit(public_origin).netloc or "").strip()
+    rewritten = str(text or "")
+    for base in (
+        "https://www.akapi1.com",
+        "https://www.akapi3.com",
+        "http://www.akapi1.com",
+        "http://www.akapi3.com",
+    ):
+        rewritten = rewritten.replace(base, public_origin)
+    if public_host:
+        rewritten = rewritten.replace("www.akapi1.com", public_host)
+        rewritten = rewritten.replace("www.akapi3.com", public_host)
+    rewritten = rewritten.replace(
+        "/content/js/base.js?v=28",
+        "/content/js/base.js?v=28&ak_static_v=public-rpc-20260611-mnemonic",
+    )
+    rewritten = rewritten.replace(
+        "/assets/css/vue-component.css",
+        "/assets/css/vue-component.css?ak_static_v=public-css-20260611",
+    )
+    loader = '<script src="/admin/api/ak-client-runtime-loader"></script>'
+    if loader not in rewritten:
+        if "<head>" in rewritten:
+            rewritten = rewritten.replace("<head>", "<head>" + loader, 1)
+        elif "<head " in rewritten:
+            idx = rewritten.index("<head ")
+            ins = rewritten.index(">", idx) + 1
+            rewritten = rewritten[:ins] + loader + rewritten[ins:]
+        else:
+            rewritten = loader + rewritten
+    return rewritten
+
+
+async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
+    request_started_at = time.perf_counter()
+    normalized_path = str(page_path or "").strip("/").lower()
+    if not normalized_path.startswith("pages/") or not normalized_path.endswith(".html") or ".." in normalized_path.split("/"):
+        return Response(status_code=404)
+    query = _filter_ak_static_query(str(request.url.query or ""))
+    target_url = f"{_AK_BASE}/{normalized_path}"
+    if query:
+        target_url += "?" + query
+    cache_request = _build_ak_web_static_cache_request(
+        request.method,
+        _AK_PUBLIC_STATIC_CACHE_NAMESPACE,
+        target_url,
+        normalized_path,
+    )
+    static_cache_lock = None
+    try:
+        if cache_request:
+            cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
+            if cached_static:
+                _record_request_metric(
+                    kind="static_asset",
+                    method=request.method,
+                    path="/" + normalized_path,
+                    status_code=cached_static.status_code,
+                    total_ms=_elapsed_ms(request_started_at),
+                    cache_state="HIT",
+                    content_type=cached_static.content_type,
+                    response_bytes=len(cached_static.body or b""),
+                )
+                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+            static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(cache_request)
+            await static_cache_lock.acquire()
+            cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
+            if cached_static:
+                _AK_WEB_STATIC_CACHE_SERVICE.release_lock(cache_request, static_cache_lock)
+                static_cache_lock = None
+                _record_request_metric(
+                    kind="static_asset",
+                    method=request.method,
+                    path="/" + normalized_path,
+                    status_code=cached_static.status_code,
+                    total_ms=_elapsed_ms(request_started_at),
+                    cache_state="HIT",
+                    content_type=cached_static.content_type,
+                    response_bytes=len(cached_static.body or b""),
+                )
+                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+
+        selected_exit = _get_direct_exit() if _should_force_direct_ak_web(_AK_WEB_PREFIX) else _select_forward_exit(normalized_path or "page")
+        proxy_url = selected_exit.proxy_url if selected_exit and selected_exit.proxy_url else None
+        client = await _ak_web_client_pool.get_client(proxy_url=proxy_url)
+        try:
+            upstream_started_at = time.perf_counter()
+            resp = await client.get(target_url, headers=_build_ak_static_warmup_headers())
+            upstream_ms = _elapsed_ms(upstream_started_at)
+        except Exception:
+            await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="public_page_cache_error")
+            raise
+        content_type = resp.headers.get("content-type", "")
+        raw_text = resp.content.decode("utf-8", errors="replace")
+        content = _transform_ak_public_page_html(raw_text, request).encode("utf-8")
+        headers = {
+            k: v
+            for k, v in resp.headers.items()
+            if k.lower() not in {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+        }
+        response = Response(
+            content=content,
+            status_code=resp.status_code,
+            headers=headers,
+            media_type=content_type or "text/html; charset=utf-8",
+        )
+        static_cache_state = "BYPASS"
+        if cache_request:
+            stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
+                cache_request,
+                StaticResourcePayload(
+                    status_code=resp.status_code,
+                    headers=dict(response.headers),
+                    policy_headers=dict(resp.headers),
+                    content_type=content_type or "text/html; charset=utf-8",
+                    body=content,
+                ),
+            )
+            static_cache_state = "MISS" if stored_static else "BYPASS"
+            _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
+                response,
+                static_cache_state,
+                cache_request.path,
+                content_type or "text/html; charset=utf-8",
+            )
+        _record_request_metric(
+            kind="static_asset",
+            method=request.method,
+            path="/" + normalized_path,
+            status_code=resp.status_code,
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=upstream_ms,
+            cache_state=static_cache_state,
+            exit_name=selected_exit.name if selected_exit else "",
+            content_type=content_type or "text/html; charset=utf-8",
+            response_bytes=len(content or b""),
+        )
+        return response
+    except Exception as e:
+        logger.error(f"[AkPublicPageCache] {normalized_path}: {e}")
+        _record_request_metric(
+            kind="static_asset",
+            method=request.method,
+            path="/" + normalized_path,
+            status_code=502,
+            total_ms=_elapsed_ms(request_started_at),
+            cache_state="ERROR",
+            error=type(e).__name__,
+        )
+        return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
+    finally:
+        if static_cache_lock:
+            _AK_WEB_STATIC_CACHE_SERVICE.release_lock(cache_request, static_cache_lock)
+
+
+@app.api_route("/pages/subpages/notice.html", methods=["GET", "HEAD"])
+async def ak_public_notice_page_proxy(request: Request):
+    return await _proxy_ak_public_cacheable_page(request, "pages/subpages/notice.html")
 
 
 async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_path: str):
