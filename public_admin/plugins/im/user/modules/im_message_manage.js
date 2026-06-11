@@ -646,6 +646,7 @@
             const messageList = elements.messageList;
             const inputEl = elements.inputEl;
             if (!messageList) return;
+            const aiManage = this.getAIManage();
             const messageNavigation = this.getMessageNavigation();
             const navigationSnapshot = messageNavigation && typeof messageNavigation.beforeRenderMessages === 'function'
                 ? messageNavigation.beforeRenderMessages()
@@ -659,6 +660,11 @@
             const activeSessionDisplayName = activeSession ? this.getSessionDisplayName(activeSession) : '内部聊天';
             const isActiveGroupSession = !!activeSession && this.isGroupSession(activeSession);
             const isAIConversation = this.isAIConversation(activeSession);
+            const shouldPinAIBottom = isAIConversation && aiManage && typeof aiManage.shouldPinConversationToBottom === 'function' && aiManage.shouldPinConversationToBottom(state.activeConversationId);
+            if (shouldPinAIBottom && navigationSnapshot) {
+                navigationSnapshot.shouldScrollBottom = true;
+                navigationSnapshot.forceBottom = true;
+            }
             if (isAIConversation && state.readProgressOpen) {
                 state.readProgressOpen = false;
                 state.readProgressLoading = false;
@@ -877,10 +883,10 @@
             } else {
                 messageList.scrollTop = messageList.scrollHeight;
             }
-            const aiManage = this.getAIManage();
             if (aiManage && typeof aiManage.renderAIMessageControls === 'function') {
                 try { aiManage.renderAIMessageControls(); } catch (e) {}
             }
+            if (shouldPinAIBottom) this.forceScrollToBottom(1800);
             this.scheduleImagePreviewRefresh();
         },
 

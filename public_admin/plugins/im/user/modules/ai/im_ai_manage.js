@@ -46,7 +46,8 @@
                 sessionDrawerOpen: false,
                 activeSessionId: 0,
                 sessionMutating: false,
-                treeHydrateRequestedAt: 0
+                treeHydrateRequestedAt: 0,
+                pinBottomUntil: 0
             };
             Object.keys(defaults).forEach(function(key) {
                 if (typeof state.aiAssistant[key] === 'undefined') state.aiAssistant[key] = defaults[key];
@@ -210,6 +211,28 @@
                 || String(item && item.__akAIRole || '').trim().toLowerCase() === 'assistant';
         },
 
+        keepConversationPinnedToBottom(durationMs) {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !state.aiAssistant) return;
+            const duration = Math.max(1200, Number(durationMs || 0) || 3000);
+            state.aiAssistant.pinBottomUntil = Math.max(Number(state.aiAssistant.pinBottomUntil || 0), Date.now() + duration);
+            if (typeof this.ctx.forceScrollToBottom === 'function') this.ctx.forceScrollToBottom(duration);
+        },
+
+        shouldPinConversationToBottom(conversationId) {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !this.isAIConversation()) return false;
+            const targetConversationId = Number(conversationId || state.activeConversationId || 0);
+            if (!targetConversationId || targetConversationId !== Number(state.activeConversationId || 0)) return false;
+            const aiState = state.aiAssistant || {};
+            if (Number(aiState.pinBottomUntil || 0) > Date.now()) return true;
+            const activeTask = aiState.activeTask && Number(aiState.activeTask.conversation_id || 0) === targetConversationId ? aiState.activeTask : null;
+            if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) return true;
+            return (Array.isArray(state.activeMessages) ? state.activeMessages : []).some(function(item) {
+                return !!(item && item.__akAIPlaceholder);
+            });
+        },
+
         maybeHydrateTreeMessages() {
             const state = this.ctx && this.ctx.state;
             if (!state || !state.aiAssistant || !this.isAIConversation() || !Array.isArray(state.activeMessages) || !state.activeMessages.length) return;
@@ -221,8 +244,6 @@
                 return !!(item && item.__akAIPlaceholder);
             });
             if (hasPlaceholder) return;
-            const activeTask = state.aiAssistant.activeTask;
-            if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) return;
             const now = Date.now();
             if (now - Number(state.aiAssistant.treeHydrateRequestedAt || 0) < 3500) return;
             state.aiAssistant.treeHydrateRequestedAt = now;
@@ -426,7 +447,8 @@
                 return this.loadAISessions(true).then(() => this.getActiveAISessionId());
             };
             state.activeMessagesLoading = true;
-            if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+            const hasCurrentMessages = Array.isArray(state.activeMessages) && state.activeMessages.length > 0;
+            if (!hasCurrentMessages && typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
             return ensureSession().then((sessionId) => {
                 if (!sessionId) {
                     state.activeMessages = [];
@@ -437,6 +459,7 @@
                 return this.ctx.request(this.ctx.httpRoot + '/ai/sessions/' + encodeURIComponent(sessionId) + '/messages').then((data) => {
                     this.applySessionMessagesPayload(data, targetConversationId);
                     if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+                    if (this.shouldPinConversationToBottom(targetConversationId)) this.keepConversationPinnedToBottom(2400);
                     this.renderAIMessageControls();
                     const activeTask = state.aiAssistant && state.aiAssistant.activeTask && Number(state.aiAssistant.activeTask.conversation_id || 0) === targetConversationId
                         ? state.aiAssistant.activeTask
@@ -544,6 +567,18 @@
             return this.activateTreeMessage(nextId);
         },
 
+        getLatestActionMessageId() {
+            const state = this.ctx && this.ctx.state;
+            const items = state && Array.isArray(state.activeMessages) ? state.activeMessages : [];
+            for (let index = items.length - 1; index >= 0; index -= 1) {
+                const item = items[index];
+                if (!item || item.__akAIPlaceholder || !item.__akAITreeMessage) continue;
+                const messageId = Number(item.__akAIMessageId || item.id || 0);
+                if (messageId > 0) return messageId;
+            }
+            return 0;
+        },
+
         renderAIMessageControls() {
             const root = this.getRootElement();
             const state = this.ctx && this.ctx.state;
@@ -559,6 +594,7 @@
                 next: '\u4e0b\u4e00\u4e2a\u7248\u672c'
             };
             let hasTreeMessage = false;
+            const latestActionMessageId = this.getLatestActionMessageId();
             state.activeMessages.forEach((item) => {
                 if (!item || item.__akAIPlaceholder) return;
                 const isTreeMessage = !!item.__akAITreeMessage;
@@ -578,10 +614,11 @@
                 if (this.getTreeMessageText(item)) {
                     parts.push(this.aiTreeIconButton('copy', messageId, labels.copy, 'copy'));
                 }
-                if (isTreeMessage && role === 'user') {
+                const canMutateLatest = isTreeMessage && messageId === latestActionMessageId;
+                if (canMutateLatest && role === 'user') {
                     parts.push(this.aiTreeIconButton('edit', messageId, labels.edit, 'edit', { disabled: busy }));
                 }
-                if (isTreeMessage && (role === 'assistant' || role === 'user')) {
+                if (canMutateLatest && (role === 'assistant' || role === 'user')) {
                     parts.push(this.aiTreeIconButton('regenerate', messageId, labels.regenerate, 'regenerate', { primary: true, disabled: busy }));
                 }
                 if (isTreeMessage && versionCount > 1) {
@@ -972,8 +1009,10 @@
             const taskId = String(task && task.task_id || '').trim();
             const tempId = this.getThinkingTempId(taskId);
             if (!this.ctx || !state || !conversationId || !tempId || typeof this.ctx.insertLocalMessage !== 'function') return;
+            this.keepConversationPinnedToBottom(6000);
             if (this.hasThinkingPlaceholder(tempId)) {
                 this.updateThinkingPlaceholder(task);
+                this.keepConversationPinnedToBottom(6000);
                 return;
             }
             const thinkingText = this.getTaskStageText(task);
@@ -999,7 +1038,7 @@
                 __akAITaskId: taskId
             });
             if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
-            if (typeof this.ctx.forceScrollToBottom === 'function') this.ctx.forceScrollToBottom(500);
+            this.keepConversationPinnedToBottom(6000);
         },
 
         clearThinkingPlaceholder(taskId) {
@@ -1053,6 +1092,7 @@
             if (this.isTerminalTaskStatus(status)) {
                 this.clearTaskPoll();
                 this.clearThinkingPlaceholder(state.aiAssistant.activeTask.task_id);
+                this.keepConversationPinnedToBottom(status === 'succeeded' ? 6000 : 2400);
                 const clearDelay = status === 'succeeded' ? 2200 : 4800;
                 state.aiAssistant.activeTaskClearingAt = Date.now() + clearDelay;
                 setTimeout(() => {
@@ -1069,6 +1109,7 @@
                 }
             } else {
                 this.removeSuggestionBar();
+                this.keepConversationPinnedToBottom(8000);
                 this.showThinkingPlaceholder(state.aiAssistant.activeTask);
                 if (!(options && options.skipPoll)) this.scheduleTaskPoll(task.task_id, this.resolveTaskPollDelay(state.aiAssistant.activeTask));
             }
