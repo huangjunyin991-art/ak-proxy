@@ -70,6 +70,13 @@
                 '#ak-im-root .ak-im-ai-status-action{border:0;background:transparent;color:#2563eb;font-size:12px;font-weight:700;padding:0 2px;cursor:pointer;white-space:nowrap}',
                 '#ak-im-root .ak-im-ai-status.is-error{background:rgba(255,71,87,.08);color:#b91c1c}',
                 '#ak-im-root .ak-im-ai-status.is-error .ak-im-ai-status-pill{background:rgba(255,71,87,.12);color:#b91c1c}',
+                '#ak-im-root .ak-im-topbar.ak-im-ai-topbar-enabled{grid-template-columns:52px minmax(0,1fr) 78px;column-gap:4px}',
+                '#ak-im-root .ak-im-ai-topbar-actions{grid-column:3;grid-row:1;justify-self:end;display:flex;align-items:center;justify-content:flex-end;gap:5px;z-index:2}',
+                '#ak-im-root .ak-im-ai-topbar-btn{width:34px;height:34px;border:0;border-radius:999px;background:rgba(15,23,42,.06);color:#1f2937;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s ease,color .15s ease,transform .12s ease,opacity .12s ease}',
+                '#ak-im-root .ak-im-ai-topbar-btn svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}',
+                '#ak-im-root .ak-im-ai-topbar-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
+                '#ak-im-root .ak-im-ai-topbar-btn:active{transform:translateY(1px)}',
+                '#ak-im-root .ak-im-ai-topbar-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}',
                 '#ak-im-root .ak-im-ai-session-mask{position:absolute;inset:0;z-index:78;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
                 '#ak-im-root .ak-im-ai-session-panel{width:100%;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column}',
                 '#ak-im-root .ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
@@ -179,6 +186,10 @@
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4"></path><path d="M3 12a9 9 0 0 1 15.3-6.4"></path><path d="M18 2v4h-4"></path><path d="M6 22v-4h4"></path></svg>';
             case 'check':
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>';
+            case 'sessions':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"></path><path d="M5 12h14"></path><path d="M5 17h9"></path><path d="M3.5 7h.01"></path><path d="M3.5 12h.01"></path><path d="M3.5 17h.01"></path></svg>';
+            case 'new-session':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>';
             case 'prev':
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>';
             case 'next':
@@ -622,6 +633,7 @@
         renderAIMessageControls() {
             const root = this.getRootElement();
             const state = this.ctx && this.ctx.state;
+            this.renderTopbarActions();
             if (!root || !state || !this.isAIConversation() || !Array.isArray(state.activeMessages)) return;
             root.querySelectorAll('.ak-im-ai-tree-actions').forEach(function(node) {
                 if (node && node.parentNode) node.parentNode.removeChild(node);
@@ -1235,6 +1247,59 @@
             return this.ctx && this.ctx.elements && this.ctx.elements.root ? this.ctx.elements.root : document.getElementById('ak-im-root');
         },
 
+        removeTopbarActions() {
+            const root = this.getRootElement();
+            const actions = root ? root.querySelector('.ak-im-ai-topbar-actions') : null;
+            if (actions && actions.parentNode) actions.parentNode.removeChild(actions);
+            const topbar = root ? root.querySelector('.ak-im-chat-screen .ak-im-topbar') : null;
+            if (topbar) topbar.classList.remove('ak-im-ai-topbar-enabled');
+        },
+
+        renderTopbarActions() {
+            const root = this.getRootElement();
+            const state = this.ctx && this.ctx.state;
+            const topbar = root ? root.querySelector('.ak-im-chat-screen .ak-im-topbar') : null;
+            if (!root || !topbar || !state || !this.isAIConversation()) {
+                this.removeTopbarActions();
+                return;
+            }
+            this.ensureState();
+            this.ensureStyle();
+            topbar.classList.add('ak-im-ai-topbar-enabled');
+            let actions = topbar.querySelector('.ak-im-ai-topbar-actions');
+            if (!actions) {
+                actions = document.createElement('div');
+                actions.className = 'ak-im-ai-topbar-actions';
+                topbar.appendChild(actions);
+            }
+            const aiState = state.aiAssistant || {};
+            const busy = !!aiState.sessionMutating;
+            const contextLabel = '\u5207\u6362\u4e0a\u4e0b\u6587';
+            const newLabel = '\u65b0\u5efa\u4e0a\u4e0b\u6587';
+            actions.innerHTML = [
+                '<button type="button" class="ak-im-ai-topbar-btn" data-ak-ai-topbar-sessions="1" title="' + contextLabel + '" aria-label="' + contextLabel + '"' + (busy ? ' disabled' : '') + '>' + this.aiTreeIcon('sessions') + '</button>',
+                '<button type="button" class="ak-im-ai-topbar-btn" data-ak-ai-topbar-new="1" title="' + newLabel + '" aria-label="' + newLabel + '"' + (busy ? ' disabled' : '') + '>' + this.aiTreeIcon('new-session') + '</button>'
+            ].join('');
+            const sessionsBtn = actions.querySelector('[data-ak-ai-topbar-sessions]');
+            if (sessionsBtn) {
+                sessionsBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (sessionsBtn.disabled) return;
+                    this.openSessionDrawer();
+                });
+            }
+            const newBtn = actions.querySelector('[data-ak-ai-topbar-new]');
+            if (newBtn) {
+                newBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (newBtn.disabled) return;
+                    this.createAISession();
+                });
+            }
+        },
+
         removeSuggestionBar() {
             const root = this.getRootElement();
             const bar = root ? root.querySelector('.ak-im-ai-suggestions') : null;
@@ -1404,6 +1469,7 @@
             if (!statusLine || !state || !this.isAIConversation()) {
                 this.removeSuggestionBar();
                 this.removeSessionDrawer();
+                this.removeTopbarActions();
                 if (statusLine) {
                     statusLine.classList.remove('ak-im-ai-status', 'is-error');
                     if (statusLine.dataset.akAiStatus === '1') {
@@ -1414,6 +1480,7 @@
                 return;
             }
             this.ensureState();
+            this.renderTopbarActions();
             const aiState = state.aiAssistant || {};
             if (!aiState.bootstrapLoading && (!aiState.bootstrap || Date.now() - Number(aiState.bootstrapLoadedAt || 0) > 15000)) {
                 this.loadBootstrap(true);
