@@ -3,7 +3,7 @@
 
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
-    const STYLE_VERSION = 'ai-session-drawer-body-layer-20260611';
+    const STYLE_VERSION = 'ai-session-drawer-top-layer-20260611';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
     const SESSION_LIST_STALE_MS = 20000;
@@ -87,7 +87,7 @@
                 '#ak-im-root .ak-im-ai-topbar-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
                 '#ak-im-root .ak-im-ai-topbar-btn:active{transform:translateY(1px)}',
                 '#ak-im-root .ak-im-ai-topbar-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}',
-                '.ak-im-ai-session-mask{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
+                '.ak-im-ai-session-mask{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
                 '.ak-im-ai-session-panel{width:100%;max-width:560px;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
                 '.ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
                 '.ak-im-ai-session-title{min-width:0;font-size:16px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -834,7 +834,7 @@
             mask.style.top = '0';
             mask.style.right = '0';
             mask.style.bottom = '0';
-            mask.style.zIndex = '2147483646';
+            mask.style.zIndex = '2147483647';
             mask.style.display = 'flex';
             mask.style.alignItems = 'flex-end';
             mask.style.justifyContent = 'center';
