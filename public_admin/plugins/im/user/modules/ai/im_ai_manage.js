@@ -4,6 +4,7 @@
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
     const STYLE_VERSION = 'ai-session-drawer-top-layer-20260611';
+    const DRAWER_DEBUG_VERSION = 'drawer-debug-20260611-1';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
     const SESSION_LIST_STALE_MS = 20000;
@@ -21,7 +22,31 @@
             this.ensureState();
             this.ensureStyle();
             this.ensurePlusEntryButton();
+            this.logSessionDrawer('init', {
+                styleVersion: STYLE_VERSION,
+                debugVersion: DRAWER_DEBUG_VERSION
+            });
             this.loadBootstrap(false);
+        },
+
+        logSessionDrawer(step, extra) {
+            const record = Object.assign({
+                step: String(step || ''),
+                ts: Date.now(),
+                styleVersion: STYLE_VERSION,
+                debugVersion: DRAWER_DEBUG_VERSION
+            }, extra || {});
+            try {
+                const logs = Array.isArray(global.__AK_AI_SESSION_DRAWER_LOGS__) ? global.__AK_AI_SESSION_DRAWER_LOGS__ : [];
+                logs.push(record);
+                while (logs.length > 80) logs.shift();
+                global.__AK_AI_SESSION_DRAWER_LOGS__ = logs;
+                global.__AK_AI_SESSION_DRAWER_DEBUG__ = record;
+                const method = /error|fail|skip|blocked/i.test(record.step) ? 'warn' : 'info';
+                if (global.console && typeof global.console[method] === 'function') {
+                    global.console[method]('[AKAI SessionDrawer]', record);
+                }
+            } catch (e) {}
         },
 
         ensureState() {
@@ -765,26 +790,52 @@
 
         loadAISessions(force) {
             const state = this.ctx && this.ctx.state;
-            if (!this.ctx || typeof this.ctx.request !== 'function' || !this.ctx.httpRoot) return Promise.resolve(null);
+            if (!this.ctx || typeof this.ctx.request !== 'function' || !this.ctx.httpRoot) {
+                this.logSessionDrawer('sessions-blocked-no-request', {
+                    hasCtx: !!this.ctx,
+                    hasRequest: !!(this.ctx && typeof this.ctx.request === 'function'),
+                    httpRoot: this.ctx && this.ctx.httpRoot
+                });
+                return Promise.resolve(null);
+            }
             this.ensureState();
             const aiState = state && state.aiAssistant;
             if (!force && aiState && Array.isArray(aiState.sessions) && aiState.sessions.length && Date.now() - Number(aiState.sessionsLoadedAt || 0) < SESSION_LIST_STALE_MS) {
+                this.logSessionDrawer('sessions-cache-hit', {
+                    itemCount: aiState.sessions.length,
+                    activeSessionId: Number(aiState.activeSessionId || 0)
+                });
                 return Promise.resolve({
                     items: aiState.sessions,
                     activeSessionId: Number(aiState.activeSessionId || 0)
                 });
             }
             if (aiState && aiState.sessionsLoading && this.sessionsPromise) {
+                this.logSessionDrawer('sessions-reuse-pending', {
+                    activeSessionId: Number(aiState.activeSessionId || 0)
+                });
                 return this.sessionsPromise;
             }
             if (aiState) {
                 aiState.sessionsLoading = true;
                 aiState.sessionsError = '';
             }
+            this.logSessionDrawer('sessions-request-start', {
+                force: !!force,
+                httpRoot: this.ctx.httpRoot
+            });
             this.sessionsPromise = this.ctx.request(this.ctx.httpRoot + '/ai/sessions').then((data) => {
-                return this.applySessionPayload(data);
+                const payload = this.applySessionPayload(data);
+                this.logSessionDrawer('sessions-request-success', {
+                    itemCount: Array.isArray(payload && payload.items) ? payload.items.length : 0,
+                    activeSessionId: Number(payload && payload.activeSessionId || 0)
+                });
+                return payload;
             }).catch((error) => {
                 if (aiState) aiState.sessionsError = error && error.message ? error.message : 'AI 会话加载失败';
+                this.logSessionDrawer('sessions-request-error', {
+                    message: error && error.message ? error.message : String(error || '')
+                });
                 return null;
             }).finally(() => {
                 if (aiState) aiState.sessionsLoading = false;
@@ -797,15 +848,22 @@
 
         openSessionDrawer() {
             const state = this.ctx && this.ctx.state;
-            if (!state || !this.isAIConversation()) return;
+            const isAIChat = !!(state && this.isAIConversation());
+            if (!state || !isAIChat) {
+                this.logSessionDrawer('open-blocked', {
+                    hasState: !!state,
+                    isAIChat: isAIChat,
+                    activeConversationId: Number(state && state.activeConversationId || 0),
+                    view: state && state.view
+                });
+                return;
+            }
             this.ensureState();
             state.aiAssistant.sessionDrawerOpen = true;
-            global.__AK_AI_SESSION_DRAWER_DEBUG__ = {
-                step: 'open',
-                ts: Date.now(),
+            this.logSessionDrawer('open', {
                 activeConversationId: Number(state.activeConversationId || 0),
                 activeSessionId: Number(state.aiAssistant.activeSessionId || 0)
-            };
+            });
             this.renderSessionDrawer();
             this.loadAISessions(true);
         },
@@ -813,13 +871,23 @@
         closeSessionDrawer() {
             const state = this.ctx && this.ctx.state;
             if (state && state.aiAssistant) state.aiAssistant.sessionDrawerOpen = false;
+            this.logSessionDrawer('close', {
+                activeConversationId: Number(state && state.activeConversationId || 0)
+            });
             this.removeSessionDrawer();
         },
 
         removeSessionDrawer() {
             const root = this.getRootElement();
             const mask = document.querySelector('.ak-im-ai-session-mask[data-ak-ai-session-layer="1"]') || (root ? root.querySelector('.ak-im-ai-session-mask') : null);
-            if (mask && mask.parentNode) mask.parentNode.removeChild(mask);
+            if (mask && mask.parentNode) {
+                this.logSessionDrawer('remove', {
+                    parentTag: mask.parentNode && mask.parentNode.tagName
+                });
+                mask.parentNode.removeChild(mask);
+            } else {
+                this.logSessionDrawer('remove-miss');
+            }
         },
 
         getSessionDrawerHost() {
@@ -844,11 +912,15 @@
             mask.style.boxSizing = 'border-box';
             mask.style.background = 'rgba(15,23,42,.22)';
             mask.style.backdropFilter = 'blur(3px)';
+            mask.style.visibility = 'visible';
+            mask.style.opacity = '1';
+            mask.style.pointerEvents = 'auto';
             const panel = mask.querySelector('.ak-im-ai-session-panel');
             if (!panel) return;
             panel.style.width = '100%';
             panel.style.maxWidth = '560px';
             panel.style.maxHeight = 'min(70vh, 520px)';
+            panel.style.minHeight = '260px';
             panel.style.borderRadius = '18px 18px 0 0';
             panel.style.background = '#f8fafc';
             panel.style.boxShadow = '0 -18px 46px rgba(15,23,42,.18)';
@@ -856,6 +928,9 @@
             panel.style.display = 'flex';
             panel.style.flexDirection = 'column';
             panel.style.boxSizing = 'border-box';
+            panel.style.visibility = 'visible';
+            panel.style.opacity = '1';
+            panel.style.pointerEvents = 'auto';
         },
 
         sessionTitle(item) {
@@ -933,20 +1008,19 @@
             const state = this.ctx && this.ctx.state;
             const root = this.getRootElement();
             if (!root || !state || !state.aiAssistant || !state.aiAssistant.sessionDrawerOpen) {
-                global.__AK_AI_SESSION_DRAWER_DEBUG__ = {
-                    step: 'skip',
-                    ts: Date.now(),
+                this.logSessionDrawer('render-skip', {
                     hasRoot: !!root,
                     hasState: !!state,
                     hasAIState: !!(state && state.aiAssistant),
                     drawerOpen: !!(state && state.aiAssistant && state.aiAssistant.sessionDrawerOpen)
-                };
+                });
                 this.removeSessionDrawer();
                 return;
             }
             this.ensureStyle();
             const host = this.getSessionDrawerHost() || root;
             let mask = document.querySelector('.ak-im-ai-session-mask[data-ak-ai-session-layer="1"]') || root.querySelector('.ak-im-ai-session-mask');
+            const hadMask = !!mask;
             if (!mask) {
                 mask = document.createElement('div');
                 mask.className = 'ak-im-ai-session-mask';
@@ -984,12 +1058,11 @@
                 '</div>'
             ].join('');
             this.applySessionDrawerLayout(mask);
-            global.__AK_AI_SESSION_DRAWER_DEBUG__ = {
-                step: 'rendered',
-                ts: Date.now(),
+            this.logSessionDrawer('rendered', {
                 itemCount: items.length,
                 loading: !!aiState.sessionsLoading,
                 activeSessionId: activeId,
+                hadMask: hadMask,
                 parentTag: mask.parentNode && mask.parentNode.tagName,
                 rect: (function() {
                     try {
@@ -998,8 +1071,17 @@
                     } catch (e) {
                         return null;
                     }
+                })(),
+                panelRect: (function() {
+                    try {
+                        const panel = mask.querySelector('.ak-im-ai-session-panel');
+                        const rect = panel && panel.getBoundingClientRect();
+                        return rect ? { width: rect.width, height: rect.height, left: rect.left, top: rect.top } : null;
+                    } catch (e) {
+                        return null;
+                    }
                 })()
-            };
+            });
             mask.onclick = (event) => {
                 if (event.target === mask) this.closeSessionDrawer();
             };
@@ -1368,6 +1450,11 @@
                 sessionsBtn.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
+                    this.logSessionDrawer('topbar-sessions-click', {
+                        disabled: !!sessionsBtn.disabled,
+                        activeConversationId: Number(state.activeConversationId || 0),
+                        activeSessionId: Number(state.aiAssistant && state.aiAssistant.activeSessionId || 0)
+                    });
                     if (sessionsBtn.disabled) return;
                     this.openSessionDrawer();
                 });
