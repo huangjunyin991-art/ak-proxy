@@ -42,11 +42,6 @@
                 while (logs.length > 80) logs.shift();
                 global.__AK_AI_SESSION_DRAWER_LOGS__ = logs;
                 global.__AK_AI_SESSION_DRAWER_DEBUG__ = record;
-                const method = /error|fail|blocked/i.test(record.step) ? 'warn' : 'info';
-                const shouldPrint = global.__AK_AI_SESSION_DRAWER_DEBUG_ENABLED__ === true || method === 'warn';
-                if (shouldPrint && global.console && typeof global.console[method] === 'function') {
-                    global.console[method]('[AKAI SessionDrawer]', record);
-                }
             } catch (e) {}
         },
 
@@ -121,14 +116,18 @@
                 '.ak-im-ai-session-btn{height:30px;border:1px solid rgba(37,99,235,.16);border-radius:999px;background:#eef4ff;color:#1d4ed8;padding:0 11px;font-size:12px;font-weight:900;cursor:pointer}',
                 '.ak-im-ai-session-btn.secondary{background:#f1f5f9;color:#334155;border-color:rgba(15,23,42,.08)}',
                 '.ak-im-ai-session-btn:disabled{opacity:.5;cursor:not-allowed}',
-                '.ak-im-ai-session-list{padding:7px 8px 9px;overflow:auto;box-sizing:border-box}',
-                '.ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:7px;width:100%;min-height:62px;border:1px solid transparent;border-radius:14px;background:transparent;padding:10px 10px;margin:4px 0;box-sizing:border-box;text-align:left;cursor:pointer;transition:background .15s ease,border-color .15s ease,box-shadow .15s ease}',
-                '.ak-im-ai-session-row:hover{background:#fff;border-color:rgba(148,163,184,.30)}',
-                '.ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.24);box-shadow:0 8px 22px rgba(15,23,42,.08)}',
+                '.ak-im-ai-session-list{padding:8px 9px 11px;overflow:auto;box-sizing:border-box}',
+                '.ak-im-ai-session-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:7px;width:100%;min-height:66px;border:1px solid rgba(148,163,184,.13);border-radius:14px;background:linear-gradient(180deg,#fff,#f8fbff);padding:11px 11px 11px 14px;margin:7px 0;box-sizing:border-box;text-align:left;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease}',
+                '.ak-im-ai-session-row:before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:0 999px 999px 0;background:rgba(148,163,184,.34);transition:background .16s ease,top .16s ease,bottom .16s ease}',
+                '.ak-im-ai-session-row:hover{background:#fff;border-color:rgba(37,99,235,.22);box-shadow:0 10px 24px rgba(15,23,42,.10);transform:translateY(-1px)}',
+                '.ak-im-ai-session-row:hover:before{background:#60a5fa;top:9px;bottom:9px}',
+                '.ak-im-ai-session-row.is-active{background:linear-gradient(180deg,#fff,#f4f8ff);border-color:rgba(37,99,235,.34);box-shadow:0 10px 26px rgba(37,99,235,.14)}',
+                '.ak-im-ai-session-row.is-active:before{background:#2563eb;top:8px;bottom:8px}',
                 '.ak-im-ai-session-main{min-width:0}',
                 '.ak-im-ai-session-line{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}',
                 '.ak-im-ai-session-name{min-width:0;font-size:14px;font-weight:900;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '.ak-im-ai-session-count{flex:0 0 auto;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:rgba(15,23,42,.06);color:#475569;padding:0 7px;font-size:11px;font-weight:800;white-space:nowrap}',
+                '.ak-im-ai-session-count{flex:0 0 auto;height:21px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:rgba(15,23,42,.06);color:#475569;padding:0 7px;font-size:11px;font-weight:800;white-space:nowrap}',
+                '.ak-im-ai-session-row.is-active .ak-im-ai-session-count{background:rgba(37,99,235,.12);color:#1d4ed8}',
                 '.ak-im-ai-session-meta{margin-top:4px;color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-ai-session-preview{margin-top:5px;color:#334155;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
@@ -1037,9 +1036,31 @@
             });
         },
 
+        isActiveAISessionEmpty() {
+            const state = this.ctx && this.ctx.state;
+            const aiState = state && state.aiAssistant ? state.aiAssistant : null;
+            const activeId = Number(aiState && aiState.activeSessionId || 0);
+            if (!activeId) return false;
+            const item = this.getActiveAISessionItem();
+            if (item) return this.sessionMessageCount(item) <= 0;
+            if (aiState.sessionsLoading || state.activeMessagesLoading) return false;
+            const messages = Array.isArray(state && state.activeMessages) ? state.activeMessages : [];
+            const hasTreeMessages = messages.some(function(message) {
+                return !!(message && message.__akAITreeMessage);
+            });
+            return !hasTreeMessages;
+        },
+
         createAISession() {
             const state = this.ctx && this.ctx.state;
             if (!this.ctx || typeof this.ctx.request !== 'function' || !state || !state.aiAssistant || state.aiAssistant.sessionMutating) return Promise.resolve(null);
+            if (this.isActiveAISessionEmpty()) {
+                this.logSessionDrawer('new-session-skip-empty-active', {
+                    activeSessionId: Number(state.aiAssistant.activeSessionId || 0)
+                });
+                if (state.aiAssistant.sessionDrawerOpen) this.renderSessionDrawer();
+                return Promise.resolve(null);
+            }
             state.aiAssistant.sessionMutating = true;
             this.renderSessionDrawer();
             return this.ctx.request(this.ctx.httpRoot + '/ai/sessions', {
@@ -1121,6 +1142,7 @@
             const activeId = Number(aiState.activeSessionId || 0);
             const items = Array.isArray(aiState.sessions) ? aiState.sessions : [];
             const visibleItems = this.visibleAISessions(items, activeId);
+            const newDisabled = !!aiState.sessionMutating || this.isActiveAISessionEmpty();
             const listHtml = visibleItems.length ? visibleItems.map((item) => {
                 const id = Number(item && item.id || 0);
                 const active = id && id === activeId;
@@ -1144,7 +1166,7 @@
                 '<div class="ak-im-ai-session-head">',
                 '<div class="ak-im-ai-session-title">历史上下文</div>',
                 '<div class="ak-im-ai-session-actions">',
-                '<button type="button" class="ak-im-ai-session-btn" data-ak-ai-session-new="1"' + (aiState.sessionMutating ? ' disabled' : '') + '>新建</button>',
+                '<button type="button" class="ak-im-ai-session-btn" data-ak-ai-session-new="1"' + (newDisabled ? ' disabled' : '') + '>新建</button>',
                 '<button type="button" class="ak-im-ai-session-btn secondary" data-ak-ai-session-close="1">关闭</button>',
                 '</div>',
                 '</div>',
@@ -1536,11 +1558,12 @@
             }
             const aiState = state.aiAssistant || {};
             const busy = !!aiState.sessionMutating;
+            const newDisabled = busy || this.isActiveAISessionEmpty();
             const contextLabel = '\u5207\u6362\u4e0a\u4e0b\u6587';
             const newLabel = '\u65b0\u5efa\u4e0a\u4e0b\u6587';
             actions.innerHTML = [
                 '<button type="button" class="ak-im-ai-topbar-btn" data-ak-ai-topbar-sessions="1" title="' + contextLabel + '" aria-label="' + contextLabel + '"' + (busy ? ' disabled' : '') + '>' + this.aiTreeIcon('sessions') + '</button>',
-                '<button type="button" class="ak-im-ai-topbar-btn" data-ak-ai-topbar-new="1" title="' + newLabel + '" aria-label="' + newLabel + '"' + (busy ? ' disabled' : '') + '>' + this.aiTreeIcon('new-session') + '</button>'
+                '<button type="button" class="ak-im-ai-topbar-btn" data-ak-ai-topbar-new="1" title="' + newLabel + '" aria-label="' + newLabel + '"' + (newDisabled ? ' disabled' : '') + '>' + this.aiTreeIcon('new-session') + '</button>'
             ].join('');
             const sessionsBtn = actions.querySelector('[data-ak-ai-topbar-sessions]');
             if (sessionsBtn) {
