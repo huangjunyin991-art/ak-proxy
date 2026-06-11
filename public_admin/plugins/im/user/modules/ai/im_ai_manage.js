@@ -152,16 +152,16 @@
                 '#ak-im-root .ak-im-ai-suggestion-label{flex:0 0 auto;color:#7b8494;font-size:12px;white-space:nowrap}',
                 '#ak-im-root .ak-im-ai-suggestion-chip{flex:0 0 auto;max-width:52vw;height:30px;border:1px solid rgba(37,99,235,.18);border-radius:999px;background:#fff;color:#1f2937;padding:0 11px;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 3px rgba(15,23,42,.05);cursor:pointer}',
                 '#ak-im-root .ak-im-ai-suggestion-chip:active{transform:translateY(1px);background:#eef4ff}',
-                '#ak-im-root .ak-im-ai-redeem-mask{position:absolute;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.28);backdrop-filter:blur(4px);box-sizing:border-box}',
-                '#ak-im-root .ak-im-ai-redeem-card{width:min(360px,100%);border:1px solid rgba(15,23,42,.10);border-radius:14px;background:#fff;box-shadow:0 18px 48px rgba(15,23,42,.22);padding:16px;box-sizing:border-box}',
-                '#ak-im-root .ak-im-ai-redeem-title{font-size:16px;font-weight:800;color:#111827;margin-bottom:6px}',
-                '#ak-im-root .ak-im-ai-redeem-sub{font-size:12px;line-height:1.6;color:#64748b;margin-bottom:12px}',
-                '#ak-im-root .ak-im-ai-redeem-input{width:100%;height:40px;border:1px solid #d8dee9;border-radius:10px;background:#f8fafc;color:#111827;padding:0 11px;outline:none;font-size:14px;box-sizing:border-box}',
-                '#ak-im-root .ak-im-ai-redeem-input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}',
-                '#ak-im-root .ak-im-ai-redeem-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:14px}',
-                '#ak-im-root .ak-im-ai-redeem-btn{height:36px;border:0;border-radius:10px;padding:0 13px;background:#eef2f7;color:#334155;font-weight:800;cursor:pointer}',
-                '#ak-im-root .ak-im-ai-redeem-btn.primary{background:#2563eb;color:#fff}',
-                '#ak-im-root .ak-im-ai-redeem-btn:disabled{opacity:.55;cursor:not-allowed}',
+                '.ak-im-ai-redeem-mask{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
+                '.ak-im-ai-redeem-card{width:min(360px,calc(100vw - 36px));max-width:360px;border:1px solid rgba(15,23,42,.10);border-radius:14px;background:#fff;box-shadow:0 18px 48px rgba(15,23,42,.22);padding:16px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
+                '.ak-im-ai-redeem-title{font-size:16px;font-weight:800;color:#111827;margin-bottom:6px;white-space:normal}',
+                '.ak-im-ai-redeem-sub{font-size:12px;line-height:1.6;color:#64748b;margin-bottom:12px;white-space:normal}',
+                '.ak-im-ai-redeem-input{display:block;width:100%;height:40px;border:1px solid #d8dee9;border-radius:10px;background:#f8fafc;color:#111827;padding:0 11px;outline:none;font-size:14px;box-sizing:border-box}',
+                '.ak-im-ai-redeem-input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}',
+                '.ak-im-ai-redeem-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:14px}',
+                '.ak-im-ai-redeem-btn{height:36px;border:0;border-radius:10px;padding:0 13px;background:#eef2f7;color:#334155;font-weight:800;cursor:pointer;white-space:nowrap}',
+                '.ak-im-ai-redeem-btn.primary{background:#2563eb;color:#fff}',
+                '.ak-im-ai-redeem-btn:disabled{opacity:.55;cursor:not-allowed}',
                 '#ak-im-root .ak-im-bubble.ak-im-bubble-ai-thinking{min-width:min(188px,64vw);max-width:min(260px,74vw);padding:9px 12px;white-space:normal;overflow:visible}',
                 '#ak-im-root .ak-im-ai-thinking{display:flex;align-items:center;gap:10px;min-width:0;color:#475569}',
                 '#ak-im-root .ak-im-ai-thinking-dots{display:inline-flex;align-items:center;gap:4px;width:26px;min-width:26px;height:16px;flex:0 0 26px}',
@@ -1667,7 +1667,7 @@
 
         closeRedeemDialog() {
             const root = this.getRootElement();
-            const mask = root ? root.querySelector('.ak-im-ai-redeem-mask') : null;
+            const mask = document.querySelector('.ak-im-ai-redeem-mask[data-ak-ai-redeem-layer="1"]') || (root ? root.querySelector('.ak-im-ai-redeem-mask') : null);
             if (mask && mask.parentNode) mask.parentNode.removeChild(mask);
         },
 
@@ -1678,6 +1678,7 @@
             this.closeRedeemDialog();
             const mask = document.createElement('div');
             mask.className = 'ak-im-ai-redeem-mask';
+            mask.setAttribute('data-ak-ai-redeem-layer', '1');
             mask.innerHTML = [
                 '<div class="ak-im-ai-redeem-card" role="dialog" aria-modal="true" aria-label="兑换 AI 权益">',
                 '<div class="ak-im-ai-redeem-title">兑换 AI 权益</div>',
@@ -1704,8 +1705,38 @@
                     if (event.key === 'Escape') this.closeRedeemDialog();
                 });
             }
-            root.appendChild(mask);
+            this.applyRedeemDialogLayout(mask);
+            (document.body || root).appendChild(mask);
             if (input) setTimeout(() => input.focus(), 30);
+        },
+
+        applyRedeemDialogLayout(mask) {
+            if (!mask) return;
+            mask.style.position = 'fixed';
+            mask.style.left = '0';
+            mask.style.top = '0';
+            mask.style.right = '0';
+            mask.style.bottom = '0';
+            mask.style.zIndex = '2147483647';
+            mask.style.display = 'flex';
+            mask.style.alignItems = 'center';
+            mask.style.justifyContent = 'center';
+            mask.style.padding = '18px';
+            mask.style.boxSizing = 'border-box';
+            mask.style.background = 'rgba(15,23,42,.22)';
+            mask.style.backdropFilter = 'blur(3px)';
+            const card = mask.querySelector('.ak-im-ai-redeem-card');
+            if (!card) return;
+            card.style.width = 'min(360px, calc(100vw - 36px))';
+            card.style.maxWidth = '360px';
+            card.style.boxSizing = 'border-box';
+            card.style.whiteSpace = 'normal';
+            const input = card.querySelector('.ak-im-ai-redeem-input');
+            if (input) {
+                input.style.display = 'block';
+                input.style.width = '100%';
+                input.style.boxSizing = 'border-box';
+            }
         },
 
         redeemCode(code, submitButton) {
