@@ -27,6 +27,29 @@ func TestIsContinueOnlyPrompt(t *testing.T) {
 	}
 }
 
+func TestIsModelIdentityQuestion(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "plain chinese", text: "你是什么模型", want: true},
+		{name: "chinese with punctuation", text: "你当前用的是什么模型？", want: true},
+		{name: "gpt question", text: "你是 GPT 吗", want: true},
+		{name: "english model", text: "what model are you?", want: true},
+		{name: "normal chat", text: "帮我写一个登录页", want: false},
+		{name: "model comparison", text: "帮我整理主流AI模型产品对比", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isModelIdentityQuestion(tt.text); got != tt.want {
+				t.Fatalf("isModelIdentityQuestion(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsGenericAIRefusal(t *testing.T) {
 	tests := []struct {
 		name string

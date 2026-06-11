@@ -1301,6 +1301,14 @@ func (s *Service) processTask(taskID string) {
 		return
 	}
 	started := time.Now()
+	handled, err := s.answerBuiltinIdentityQuestion(ctx, taskID, ownerUsername, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID, started)
+	if err != nil {
+		s.failTask(ctx, taskID, conversationID, "message_write_error", err.Error())
+		return
+	}
+	if handled {
+		return
+	}
 	cfg, err := s.Config(ctx)
 	if err != nil {
 		s.failTask(ctx, taskID, conversationID, "config_error", err.Error())
@@ -1367,6 +1375,68 @@ func (s *Service) processTask(taskID string) {
 	}
 	go s.refreshContextSummary(ownerUsername, conversationID)
 	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, latencyMS)
+}
+
+func (s *Service) answerBuiltinIdentityQuestion(ctx context.Context, taskID string, ownerUsername string, conversationID int64, triggerMessageID int64, aiSessionID int64, aiTriggerMessageID int64, started time.Time) (bool, error) {
+	content := s.loadTaskTriggerContent(ctx, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID)
+	if !isModelIdentityQuestion(content) {
+		return false, nil
+	}
+	s.setTaskStage(ctx, taskID, taskStageWriting, "正在发送回复")
+	family, providerID := s.activeModelFamily(ctx)
+	reply := "我是小A，属于" + family + "。"
+	messageCtx, messageCancel := terminalWriteContext()
+	message, err := s.insertAIReplyMessage(messageCtx, conversationID, bot.Username, reply, nil)
+	messageCancel()
+	if err != nil {
+		return true, err
+	}
+	resp := provider.ChatResponse{
+		Content:    reply,
+		Model:      "builtin_identity",
+		ProviderID: providerID,
+	}
+	aiResponseMessageID := s.recordAssistantReplyNode(ctx, ownerUsername, conversationID, taskID, aiSessionID, aiTriggerMessageID, message, resp)
+	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, int(time.Since(started).Milliseconds()))
+	return true, nil
+}
+
+func (s *Service) loadTaskTriggerContent(ctx context.Context, conversationID int64, triggerMessageID int64, aiSessionID int64, aiTriggerMessageID int64) string {
+	if s == nil {
+		return ""
+	}
+	if aiSessionID > 0 && aiTriggerMessageID > 0 {
+		if s.messages == nil {
+			s.messages = messagetree.NewRepository(s.db)
+		}
+		if item, err := s.messages.Get(ctx, aiSessionID, aiTriggerMessageID); err == nil {
+			return item.Content
+		}
+	}
+	if conversationID > 0 && triggerMessageID > 0 {
+		if content, err := s.loadIMMessageContent(ctx, conversationID, triggerMessageID); err == nil {
+			return content
+		}
+	}
+	return ""
+}
+
+func (s *Service) activeModelFamily(ctx context.Context) (string, int64) {
+	if s == nil || s.provider == nil {
+		return "ChatGPT 系列模型", 0
+	}
+	account, _, err := s.provider.LoadActiveAccount(ctx)
+	if err != nil {
+		return "ChatGPT 系列模型", 0
+	}
+	model := strings.TrimSpace(account.ChatModel)
+	if model == "" && len(account.AvailableModels) > 0 {
+		model = strings.TrimSpace(account.AvailableModels[0])
+	}
+	if strings.Contains(strings.ToLower(model), "claude") {
+		return "Claude 系列模型", account.ID
+	}
+	return "ChatGPT 系列模型", account.ID
 }
 
 func (s *Service) markTaskSucceeded(taskID string, messageID int64, aiResponseMessageID int64, model string, latencyMS int) {
@@ -1972,6 +2042,53 @@ func isContinueOnlyPrompt(value string) bool {
 	default:
 		return false
 	}
+}
+
+func isModelIdentityQuestion(value string) bool {
+	text := compactText(value)
+	if text == "" {
+		return false
+	}
+	exact := map[string]struct{}{
+		"你是什么模型":            {},
+		"你是啥模型":             {},
+		"你用的是什么模型":          {},
+		"你用什么模型":            {},
+		"你当前是什么模型":          {},
+		"当前是什么模型":           {},
+		"模型是什么":             {},
+		"你的模型是什么":           {},
+		"你属于什么模型":           {},
+		"你是哪家模型":            {},
+		"你是gpt吗":            {},
+		"你是chatgpt吗":        {},
+		"你是claude吗":         {},
+		"whatareyou":        {},
+		"whatmodelareyou":   {},
+		"whichmodelareyou":  {},
+		"whatmodeldoyouuse": {},
+	}
+	if _, ok := exact[text]; ok {
+		return true
+	}
+	modelWords := []string{"模型", "model", "gpt", "chatgpt", "claude"}
+	askWords := []string{"什么", "啥", "哪", "哪个", "使用", "用的", "属于", "areyou", "doyouuse"}
+	hasModel := false
+	for _, word := range modelWords {
+		if strings.Contains(text, compactText(word)) {
+			hasModel = true
+			break
+		}
+	}
+	if !hasModel {
+		return false
+	}
+	for _, word := range askWords {
+		if strings.Contains(text, compactText(word)) {
+			return true
+		}
+	}
+	return false
 }
 
 func isGenericAIRefusal(value string) bool {
