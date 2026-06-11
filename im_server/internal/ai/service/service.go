@@ -865,6 +865,11 @@ func (s *Service) sessionMessages(ctx context.Context, session aisession.Session
 	if s.messages == nil {
 		s.messages = messagetree.NewRepository(s.db)
 	}
+	normalizedSession, err := s.normalizeActiveMessageLeaf(ctx, session)
+	if err != nil {
+		return SessionMessages{}, err
+	}
+	session = normalizedSession
 	result := SessionMessages{
 		Session:         session,
 		ActiveMessageID: session.ActiveMessageID,
@@ -906,6 +911,45 @@ func (s *Service) sessionMessages(ctx context.Context, session aisession.Session
 	return result, nil
 }
 
+func (s *Service) normalizeActiveMessageLeaf(ctx context.Context, session aisession.Session) (aisession.Session, error) {
+	if s == nil || s.db == nil || session.ID <= 0 || session.ActiveMessageID <= 0 {
+		return session, nil
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	target, err := s.messages.Get(ctx, session.ID, session.ActiveMessageID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return session, nil
+		}
+		return session, err
+	}
+	if target.Role != messagetree.RoleUser {
+		return session, nil
+	}
+	child, err := s.messages.LatestChild(ctx, session.ID, target.ID, messagetree.RoleAssistant)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return session, nil
+		}
+		return session, err
+	}
+	if child.ID <= 0 || child.ID == session.ActiveMessageID {
+		return session, nil
+	}
+	session.ActiveMessageID = child.ID
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	updated, err := s.sessions.SetActiveMessage(ctx, session.OwnerUsername, session.ID, child.ID)
+	if err != nil {
+		log.Printf("AI active message leaf normalize persist failed: session_id=%d from_message_id=%d to_message_id=%d err=%v", session.ID, target.ID, child.ID, err)
+		return session, nil
+	}
+	return updated, nil
+}
+
 func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (int64, int64) {
 	if s == nil || s.db == nil || triggerMessageID <= 0 {
 		return 0, 0
@@ -917,6 +961,11 @@ func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername st
 	if err != nil {
 		log.Printf("AI trigger session sync failed: conversation_id=%d username=%s err=%v", conversationID, ownerUsername, err)
 		return 0, 0
+	}
+	if normalized, normalizeErr := s.normalizeActiveMessageLeaf(ctx, session); normalizeErr == nil {
+		session = normalized
+	} else {
+		log.Printf("AI trigger active leaf normalize failed: session_id=%d err=%v", session.ID, normalizeErr)
 	}
 	if existing, err := s.messages.FindBySourceMessage(ctx, session.ID, triggerMessageID, messagetree.RoleUser); err == nil {
 		if _, updateErr := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, existing.ID); updateErr != nil {
@@ -1447,6 +1496,10 @@ func (s *Service) buildSessionContextMessages(ctx context.Context, ownerUsername
 		s.messages = messagetree.NewRepository(s.db)
 	}
 	session, err := s.sessions.Get(ctx, ownerUsername, aiSessionID)
+	if err != nil {
+		return nil, err
+	}
+	session, err = s.normalizeActiveMessageLeaf(ctx, session)
 	if err != nil {
 		return nil, err
 	}
