@@ -13929,10 +13929,6 @@ def _is_cacheable_stock_price_response(response: httpx.Response) -> bool:
         return False
     if response.headers.get_list("set-cookie"):
         return False
-    content_type = str(response.headers.get("content-type") or "").lower()
-    body_head = body.lstrip()[:1]
-    if "json" not in content_type and body_head not in (b"{", b"["):
-        return False
     try:
         payload = response.json()
         if isinstance(payload, dict) and payload.get("Error") is True:

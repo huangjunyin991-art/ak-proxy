@@ -2,11 +2,11 @@ import asyncio
 import hashlib
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional
-
-from ..runtime_performance import run_blocking_static_cache
 
 
 @dataclass(frozen=True)
@@ -31,17 +31,14 @@ class StockPriceRpcCache:
         self._writes = 0
         self._expired = 0
         self._rejected = 0
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="stock-price-rpc-cache")
 
     def build_key(self, method: str, path: str, params: dict[str, Any] | None, raw_body: bytes | None) -> str:
-        normalized_params = self._normalize_params(params or {})
-        raw_hash = ""
-        if not normalized_params and raw_body:
-            raw_hash = hashlib.sha256(raw_body or b"").hexdigest()
+        # Public_StockPrice is public market data. Upstream callers often add user
+        # auth and version fields, but those must not split the shared price cache.
         material = {
-            "method": str(method or "GET").upper(),
             "path": str(path or "").strip("/").lower(),
-            "params": normalized_params,
-            "raw_body_sha256": raw_hash,
+            "scope": "global",
         }
         encoded = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -58,7 +55,7 @@ class StockPriceRpcCache:
                 return cached
             self._items.pop(cache_key, None)
             self._expired += 1
-        cached = await run_blocking_static_cache(self._read_disk_sync, cache_key)
+        cached = await self._run_io(self._read_disk_sync, cache_key)
         if cached is not None and self._is_fresh(cached, ttl_seconds):
             self._items[cache_key] = cached
             self._hits += 1
@@ -77,7 +74,7 @@ class StockPriceRpcCache:
             return False
         self._items[cache_key] = response
         try:
-            await run_blocking_static_cache(self._write_disk_sync, cache_key, response)
+            await self._run_io(self._write_disk_sync, cache_key, response)
             self._writes += 1
             return True
         except Exception:
@@ -86,7 +83,7 @@ class StockPriceRpcCache:
 
     async def delete(self, cache_key: str) -> None:
         self._items.pop(cache_key, None)
-        await run_blocking_static_cache(self._delete_disk_sync, cache_key)
+        await self._run_io(self._delete_disk_sync, cache_key)
 
     async def get_or_lock(self, cache_key: str) -> asyncio.Lock:
         lock = self._locks.get(cache_key)
@@ -115,7 +112,7 @@ class StockPriceRpcCache:
             if not self._is_fresh(cached, ttl_seconds, now=now):
                 self._items.pop(cache_key, None)
                 removed += 1
-        removed += await run_blocking_static_cache(self._cleanup_expired_disk_sync, ttl_seconds, now)
+        removed += await self._run_io(self._cleanup_expired_disk_sync, ttl_seconds, now)
         if removed:
             self._expired += removed
         return removed
@@ -143,6 +140,10 @@ class StockPriceRpcCache:
             "rejected": self._rejected,
             "hit_ratio_pct": round((self._hits / lookups) * 100, 1) if lookups else 0.0,
         }
+
+    async def _run_io(self, func, *args):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, partial(func, *args))
 
     def _is_fresh(self, response: CachedRpcResponse, ttl_seconds: int, now: float | None = None) -> bool:
         if ttl_seconds <= 0:
@@ -227,17 +228,3 @@ class StockPriceRpcCache:
             self._delete_disk_sync(cache_key)
             removed += 1
         return removed
-
-    def _normalize_params(self, params: dict[str, Any]) -> dict[str, Any]:
-        normalized: dict[str, Any] = {}
-        for key in sorted(params.keys(), key=lambda item: str(item)):
-            value = params[key]
-            if value is None:
-                normalized[str(key)] = ""
-            elif isinstance(value, (str, int, float, bool)):
-                normalized[str(key)] = value
-            elif isinstance(value, (list, tuple)):
-                normalized[str(key)] = [str(item) for item in value]
-            else:
-                normalized[str(key)] = str(value)
-        return normalized
