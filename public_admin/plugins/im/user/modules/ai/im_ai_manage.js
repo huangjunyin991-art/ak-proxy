@@ -61,18 +61,21 @@
             const style = document.createElement('style');
             style.id = STYLE_ID;
             style.textContent = [
-                '#ak-im-root .ak-im-ai-status{display:flex!important;align-items:center;justify-content:space-between;gap:8px;min-height:26px;padding:4px 10px;margin:0;color:#3b4758;font-size:12px;line-height:1.3;background:linear-gradient(90deg,rgba(70,130,255,.10),rgba(39,196,134,.10));border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box}',
+                '#ak-im-root .ak-im-ai-status{display:flex!important;align-items:center;justify-content:space-between;gap:8px;min-height:26px;padding:4px 10px;margin:0;color:#3b4758;font-size:12px;line-height:1.3;background:#f8fafc;border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box}',
                 '#ak-im-root .ak-im-ai-status-main{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}',
                 '#ak-im-root .ak-im-ai-status-pill{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:18px;padding:0 7px;border-radius:999px;background:rgba(36,97,235,.13);color:#1f4ed8;font-size:11px;font-weight:700;white-space:nowrap}',
-                '#ak-im-root .ak-im-ai-status-side{display:flex;align-items:center;gap:8px;flex:0 0 auto}',
+                '#ak-im-root .ak-im-ai-status-side{display:flex;align-items:center;gap:5px;flex:0 0 auto}',
                 '#ak-im-root .ak-im-ai-status-quota{color:#5b6472;font-variant-numeric:tabular-nums}',
                 '#ak-im-root .ak-im-ai-status-task{color:#2563eb;font-weight:700}',
-                '#ak-im-root .ak-im-ai-status-action{border:0;background:transparent;color:#2563eb;font-size:12px;font-weight:700;padding:0 2px;cursor:pointer;white-space:nowrap}',
+                '#ak-im-root .ak-im-ai-status-action{width:24px;height:24px;border:0;border-radius:999px;background:transparent;color:#2563eb;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap}',
+                '#ak-im-root .ak-im-ai-status-action svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}',
+                '#ak-im-root .ak-im-ai-status-action:hover{background:rgba(37,99,235,.10)}',
                 '#ak-im-root .ak-im-ai-status.is-error{background:rgba(255,71,87,.08);color:#b91c1c}',
                 '#ak-im-root .ak-im-ai-status.is-error .ak-im-ai-status-pill{background:rgba(255,71,87,.12);color:#b91c1c}',
-                '#ak-im-root .ak-im-topbar.ak-im-ai-topbar-enabled{grid-template-columns:52px minmax(0,1fr) 78px;column-gap:4px}',
-                '#ak-im-root .ak-im-ai-topbar-actions{grid-column:3;grid-row:1;justify-self:end;display:flex;align-items:center;justify-content:flex-end;gap:5px;z-index:2}',
-                '#ak-im-root .ak-im-ai-topbar-btn{width:34px;height:34px;border:0;border-radius:999px;background:rgba(15,23,42,.06);color:#1f2937;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s ease,color .15s ease,transform .12s ease,opacity .12s ease}',
+                '#ak-im-root .ak-im-topbar.ak-im-ai-topbar-enabled{grid-template-columns:52px minmax(0,1fr) 84px;column-gap:4px;position:relative}',
+                '#ak-im-root .ak-im-topbar.ak-im-ai-topbar-enabled .ak-im-chat-menu{display:none!important}',
+                '#ak-im-root .ak-im-ai-topbar-actions{grid-column:3;grid-row:1;justify-self:end;display:flex;align-items:center;justify-content:flex-end;gap:4px;z-index:2}',
+                '#ak-im-root .ak-im-ai-topbar-btn{width:34px;height:34px;border:0;border-radius:999px;background:transparent;color:#1f2937;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s ease,color .15s ease,transform .12s ease,opacity .12s ease}',
                 '#ak-im-root .ak-im-ai-topbar-btn svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}',
                 '#ak-im-root .ak-im-ai-topbar-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
                 '#ak-im-root .ak-im-ai-topbar-btn:active{transform:translateY(1px)}',
@@ -190,6 +193,10 @@
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"></path><path d="M5 12h14"></path><path d="M5 17h9"></path><path d="M3.5 7h.01"></path><path d="M3.5 12h.01"></path><path d="M3.5 17h.01"></path></svg>';
             case 'new-session':
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>';
+            case 'redeem':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"></path><path d="M2 7h20v5H2z"></path><path d="M12 7v14"></path><path d="M12 7H7.5A2.5 2.5 0 1 1 10 4.5c0 1.6 2 2.5 2 2.5Z"></path><path d="M12 7h4.5A2.5 2.5 0 1 0 14 4.5c0 1.6-2 2.5-2 2.5Z"></path></svg>';
+            case 'refresh':
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4"></path><path d="M3 12a9 9 0 0 1 15.3-6.4"></path><path d="M18 2v4h-4"></path><path d="M6 22v-4h4"></path></svg>';
             case 'prev':
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>';
             case 'next':
@@ -1247,6 +1254,26 @@
             return this.ctx && this.ctx.elements && this.ctx.elements.root ? this.ctx.elements.root : document.getElementById('ak-im-root');
         },
 
+        getActiveAISessionItem() {
+            const state = this.ctx && this.ctx.state;
+            const aiState = state && state.aiAssistant ? state.aiAssistant : null;
+            const activeId = Number(aiState && aiState.activeSessionId || 0);
+            const items = Array.isArray(aiState && aiState.sessions) ? aiState.sessions : [];
+            if (!activeId) return null;
+            return items.find(function(item) {
+                return Number(item && item.id || 0) === activeId;
+            }) || null;
+        },
+
+        getActiveContextTitle() {
+            const item = this.getActiveAISessionItem();
+            const title = String(item && item.title || '').trim();
+            if (title) return title;
+            const state = this.ctx && this.ctx.state;
+            const activeId = Number(state && state.aiAssistant && state.aiAssistant.activeSessionId || 0);
+            return activeId ? '\u5f53\u524d\u4e0a\u4e0b\u6587' : '\u0041\u0049 \u4e0a\u4e0b\u6587';
+        },
+
         removeTopbarActions() {
             const root = this.getRootElement();
             const actions = root ? root.querySelector('.ak-im-ai-topbar-actions') : null;
@@ -1266,6 +1293,8 @@
             this.ensureState();
             this.ensureStyle();
             topbar.classList.add('ak-im-ai-topbar-enabled');
+            const subtitle = root.querySelector('.ak-im-chat-subtitle');
+            if (subtitle) subtitle.textContent = this.getActiveContextTitle();
             let actions = topbar.querySelector('.ak-im-ai-topbar-actions');
             if (!actions) {
                 actions = document.createElement('div');
@@ -1481,6 +1510,7 @@
             }
             this.ensureState();
             this.renderTopbarActions();
+            setTimeout(() => this.renderTopbarActions(), 0);
             const aiState = state.aiAssistant || {};
             if (!aiState.bootstrapLoading && (!aiState.bootstrap || Date.now() - Number(aiState.bootstrapLoadedAt || 0) > 15000)) {
                 this.loadBootstrap(true);
@@ -1527,19 +1557,15 @@
             statusLine.classList.add('ak-im-ai-status');
             statusLine.classList.toggle('is-error', isError);
             statusLine.dataset.akAiStatus = '1';
+            const redeemLabel = '\u5151\u6362\u6743\u76ca';
+            const refreshLabel = '\u5237\u65b0\u989d\u5ea6';
             statusLine.innerHTML =
                 '<span class="ak-im-ai-status-main"><span class="ak-im-ai-status-pill">AI</span><span>' + this.escapeHtml(mainText) + '</span></span>' +
                 '<span class="ak-im-ai-status-side">' +
                 (!activeTask && quotaText ? '<span class="ak-im-ai-status-quota">' + this.escapeHtml(quotaText) + '</span>' : '') +
-                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-sessions="1">会话</button>' +
-                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-redeem="1">兑换</button>' +
-                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-refresh="1">刷新</button>' +
+                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-redeem="1" title="' + redeemLabel + '" aria-label="' + redeemLabel + '">' + this.aiTreeIcon('redeem') + '</button>' +
+                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-refresh="1" title="' + refreshLabel + '" aria-label="' + refreshLabel + '">' + this.aiTreeIcon('refresh') + '</button>' +
                 '</span>';
-            const sessionsBtn = statusLine.querySelector('[data-ak-ai-sessions]');
-            if (sessionsBtn && !sessionsBtn.dataset.bound) {
-                sessionsBtn.dataset.bound = '1';
-                sessionsBtn.addEventListener('click', () => this.openSessionDrawer());
-            }
             const refreshBtn = statusLine.querySelector('[data-ak-ai-refresh]');
             if (refreshBtn && !refreshBtn.dataset.bound) {
                 refreshBtn.dataset.bound = '1';
