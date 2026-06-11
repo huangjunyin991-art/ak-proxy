@@ -9,16 +9,20 @@ const (
 )
 
 type Session struct {
-	ID              int64          `json:"id"`
-	OwnerUsername   string         `json:"owner_username"`
-	ConversationID  int64          `json:"conversation_id,omitempty"`
-	Title           string         `json:"title"`
-	Status          string         `json:"status"`
-	Pinned          bool           `json:"pinned"`
-	ActiveMessageID int64          `json:"active_message_id,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID                 int64          `json:"id"`
+	OwnerUsername      string         `json:"owner_username"`
+	ConversationID     int64          `json:"conversation_id,omitempty"`
+	Title              string         `json:"title"`
+	Status             string         `json:"status"`
+	Pinned             bool           `json:"pinned"`
+	ActiveMessageID    int64          `json:"active_message_id,omitempty"`
+	MessageCount       int            `json:"message_count,omitempty"`
+	FirstUserContent   string         `json:"first_user_content,omitempty"`
+	LastMessagePreview string         `json:"last_message_preview,omitempty"`
+	LastMessageAt      *time.Time     `json:"last_message_at,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
 }
 
 type State struct {

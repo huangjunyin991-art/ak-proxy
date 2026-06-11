@@ -434,6 +434,7 @@ func (s *Service) ListSessions(ctx context.Context, ownerUsername string, includ
 	if err != nil {
 		return SessionList{}, err
 	}
+	s.enrichSessionListItems(ctx, items)
 	var activeSession *aisession.Session
 	active, err := s.sessions.GetActive(ctx, ownerUsername)
 	if err == nil {
@@ -455,8 +456,77 @@ func (s *Service) ListSessions(ctx context.Context, ownerUsername string, includ
 	activeID := int64(0)
 	if activeSession != nil {
 		activeID = activeSession.ID
+		for _, item := range items {
+			if item.ID == activeID {
+				copy := item
+				activeSession = &copy
+				break
+			}
+		}
 	}
 	return SessionList{Items: items, ActiveSessionID: activeID, ActiveSession: activeSession}, nil
+}
+
+func (s *Service) enrichSessionListItems(ctx context.Context, items []aisession.Session) {
+	if s == nil || s.db == nil || len(items) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(items))
+	for _, item := range items {
+		if item.ID > 0 {
+			ids = append(ids, item.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT session_id,
+		       COUNT(*)::int AS message_count,
+		       COALESCE((array_agg(content ORDER BY created_at ASC, id ASC) FILTER (WHERE role = 'user'))[1], '') AS first_user_content,
+		       COALESCE((array_agg(content ORDER BY created_at DESC, id DESC))[1], '') AS last_message_preview,
+		       MAX(created_at) AS last_message_at
+		FROM im_ai_message
+		WHERE session_id = ANY($1::bigint[])
+		GROUP BY session_id`, ids)
+	if err != nil {
+		log.Printf("AI session list enrichment failed: err=%v", err)
+		return
+	}
+	defer rows.Close()
+	type summary struct {
+		count       int
+		firstUser   string
+		lastPreview string
+		lastAt      time.Time
+	}
+	byID := make(map[int64]summary, len(ids))
+	for rows.Next() {
+		var sessionID int64
+		var item summary
+		if err := rows.Scan(&sessionID, &item.count, &item.firstUser, &item.lastPreview, &item.lastAt); err != nil {
+			log.Printf("AI session list enrichment scan failed: err=%v", err)
+			return
+		}
+		item.firstUser = truncate(strings.Join(strings.Fields(strings.TrimSpace(item.firstUser)), " "), 120)
+		item.lastPreview = truncate(strings.Join(strings.Fields(strings.TrimSpace(item.lastPreview)), " "), 160)
+		byID[sessionID] = item
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("AI session list enrichment rows failed: err=%v", err)
+		return
+	}
+	for index := range items {
+		item, ok := byID[items[index].ID]
+		if !ok {
+			continue
+		}
+		items[index].MessageCount = item.count
+		items[index].FirstUserContent = item.firstUser
+		items[index].LastMessagePreview = item.lastPreview
+		lastAt := item.lastAt
+		items[index].LastMessageAt = &lastAt
+	}
 }
 
 func (s *Service) CreateSession(ctx context.Context, ownerUsername string, input SessionCreateInput) (SessionList, error) {

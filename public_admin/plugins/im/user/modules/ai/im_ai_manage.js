@@ -3,8 +3,8 @@
 
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
-    const STYLE_VERSION = 'ai-session-drawer-top-layer-20260611';
-    const DRAWER_DEBUG_VERSION = 'drawer-debug-20260611-1';
+    const STYLE_VERSION = 'ai-session-drawer-history-list-20260611';
+    const DRAWER_DEBUG_VERSION = 'drawer-history-20260611-1';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
     const SESSION_LIST_STALE_MS = 20000;
@@ -42,8 +42,9 @@
                 while (logs.length > 80) logs.shift();
                 global.__AK_AI_SESSION_DRAWER_LOGS__ = logs;
                 global.__AK_AI_SESSION_DRAWER_DEBUG__ = record;
-                const method = /error|fail|skip|blocked/i.test(record.step) ? 'warn' : 'info';
-                if (global.console && typeof global.console[method] === 'function') {
+                const method = /error|fail|blocked/i.test(record.step) ? 'warn' : 'info';
+                const shouldPrint = global.__AK_AI_SESSION_DRAWER_DEBUG_ENABLED__ === true || method === 'warn';
+                if (shouldPrint && global.console && typeof global.console[method] === 'function') {
                     global.console[method]('[AKAI SessionDrawer]', record);
                 }
             } catch (e) {}
@@ -121,11 +122,15 @@
                 '.ak-im-ai-session-btn.secondary{background:#f1f5f9;color:#334155;border-color:rgba(15,23,42,.08)}',
                 '.ak-im-ai-session-btn:disabled{opacity:.5;cursor:not-allowed}',
                 '.ak-im-ai-session-list{padding:8px 10px 14px;overflow:auto;box-sizing:border-box}',
-                '.ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:8px;width:100%;min-height:52px;border:1px solid transparent;border-radius:12px;background:transparent;padding:8px 9px;margin:3px 0;box-sizing:border-box;text-align:left;cursor:pointer}',
-                '.ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.20);box-shadow:0 6px 18px rgba(15,23,42,.07)}',
+                '.ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:7px;width:100%;min-height:62px;border:1px solid transparent;border-radius:14px;background:transparent;padding:10px 10px;margin:4px 0;box-sizing:border-box;text-align:left;cursor:pointer;transition:background .15s ease,border-color .15s ease,box-shadow .15s ease}',
+                '.ak-im-ai-session-row:hover{background:#fff;border-color:rgba(148,163,184,.30)}',
+                '.ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.24);box-shadow:0 8px 22px rgba(15,23,42,.08)}',
                 '.ak-im-ai-session-main{min-width:0}',
-                '.ak-im-ai-session-name{font-size:14px;font-weight:900;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-line{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}',
+                '.ak-im-ai-session-name{min-width:0;font-size:14px;font-weight:900;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-count{flex:0 0 auto;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:rgba(15,23,42,.06);color:#475569;padding:0 7px;font-size:11px;font-weight:800;white-space:nowrap}',
                 '.ak-im-ai-session-meta{margin-top:4px;color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-preview{margin-top:5px;color:#334155;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
                 '#ak-im-root .ak-im-ai-tree-actions{display:flex;align-items:center;gap:6px;margin-top:5px;min-height:28px;flex-wrap:wrap}',
                 '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-actions{justify-content:flex-end}',
@@ -933,19 +938,81 @@
             panel.style.pointerEvents = 'auto';
         },
 
-        sessionTitle(item) {
-            const title = String(item && item.title || '').trim();
-            return title || '新对话';
+        compactSessionText(value, limit) {
+            const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+            const max = Math.max(8, Number(limit || 0) || 40);
+            const chars = Array.from(text);
+            return chars.length > max ? chars.slice(0, max).join('') + '...' : text;
         },
 
-        sessionMeta(item) {
-            const updatedAt = item && item.updated_at ? Date.parse(item.updated_at) : 0;
+        isDefaultSessionTitle(title) {
+            const normalized = String(title || '').trim();
+            if (!normalized) return true;
+            const lower = normalized.toLowerCase();
+            return normalized === '新对话'
+                || normalized === '小A'
+                || lower === 'ai assistant'
+                || lower === 'ak ai assistant'
+                || lower === 'ak ai 助手';
+        },
+
+        sessionMessageCount(item) {
+            return Math.max(0, Number(item && item.message_count || 0) || 0);
+        },
+
+        sessionTitle(item) {
+            const rawTitle = String(item && item.title || '').trim();
+            if (rawTitle && !this.isDefaultSessionTitle(rawTitle)) {
+                return this.compactSessionText(rawTitle, 32);
+            }
+            const firstQuestion = this.compactSessionText(item && item.first_user_content || '', 32);
+            if (firstQuestion) return firstQuestion;
+            const preview = this.compactSessionText(item && item.last_message_preview || '', 32);
+            if (preview) return preview;
+            return '新对话';
+        },
+
+        sessionPreview(item) {
+            const preview = this.compactSessionText(item && item.last_message_preview || '', 58);
+            const firstQuestion = this.compactSessionText(item && item.first_user_content || '', 58);
+            const title = this.sessionTitle(item);
+            if (preview && preview !== title) return preview;
+            if (firstQuestion && firstQuestion !== title) return firstQuestion;
+            return '';
+        },
+
+        sessionTimeMeta(item) {
+            const sourceTime = item && (item.last_message_at || item.updated_at || item.created_at);
+            const updatedAt = sourceTime ? Date.parse(sourceTime) : 0;
             if (!updatedAt) return '上下文';
             const diff = Math.max(0, Date.now() - updatedAt);
             if (diff < 60000) return '刚刚更新';
             if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
             if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
             return Math.floor(diff / 86400000) + ' 天前';
+        },
+
+        sessionMeta(item, active) {
+            const parts = [];
+            const count = this.sessionMessageCount(item);
+            if (active) parts.push('当前上下文');
+            if (count > 0) parts.push(count + ' 条消息');
+            parts.push(this.sessionTimeMeta(item));
+            return parts.join(' · ');
+        },
+
+        visibleAISessions(items, activeId) {
+            const source = Array.isArray(items) ? items : [];
+            const seen = {};
+            return source.filter((item) => {
+                const id = Number(item && item.id || 0);
+                if (!id || seen[id]) return false;
+                seen[id] = true;
+                if (id === Number(activeId || 0)) return true;
+                if (this.sessionMessageCount(item) > 0) return true;
+                const title = String(item && item.title || '').trim();
+                return !!title && !this.isDefaultSessionTitle(title);
+            });
         },
 
         createAISession() {
@@ -1031,14 +1098,21 @@
             const aiState = state.aiAssistant;
             const activeId = Number(aiState.activeSessionId || 0);
             const items = Array.isArray(aiState.sessions) ? aiState.sessions : [];
-            const listHtml = items.length ? items.map((item) => {
+            const visibleItems = this.visibleAISessions(items, activeId);
+            const listHtml = visibleItems.length ? visibleItems.map((item) => {
                 const id = Number(item && item.id || 0);
                 const active = id && id === activeId;
+                const count = this.sessionMessageCount(item);
+                const preview = this.sessionPreview(item);
                 return [
                     '<div class="ak-im-ai-session-row' + (active ? ' is-active' : '') + '" data-ak-ai-session-id="' + id + '">',
                     '<div class="ak-im-ai-session-main">',
+                    '<div class="ak-im-ai-session-line">',
                     '<div class="ak-im-ai-session-name">' + this.escapeHtml(this.sessionTitle(item)) + '</div>',
-                    '<div class="ak-im-ai-session-meta">' + this.escapeHtml(active ? '当前上下文' : this.sessionMeta(item)) + '</div>',
+                    count > 0 ? '<div class="ak-im-ai-session-count">' + count + '</div>' : '',
+                    '</div>',
+                    '<div class="ak-im-ai-session-meta">' + this.escapeHtml(this.sessionMeta(item, active)) + '</div>',
+                    preview ? '<div class="ak-im-ai-session-preview">' + this.escapeHtml(preview) + '</div>' : '',
                     '</div>',
                     '</div>'
                 ].join('');
@@ -1060,6 +1134,7 @@
             this.applySessionDrawerLayout(mask);
             this.logSessionDrawer('rendered', {
                 itemCount: items.length,
+                visibleItemCount: visibleItems.length,
                 loading: !!aiState.sessionsLoading,
                 activeSessionId: activeId,
                 hadMask: hadMask,
