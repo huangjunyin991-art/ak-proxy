@@ -61,6 +61,8 @@ type Service struct {
 	provider    *provider.Service
 	entitlement *entitlement.Service
 	billing     *billing.Service
+	sessions    *aisession.Repository
+	messages    *messagetree.Repository
 	sink        MessageSink
 	slots       chan struct{}
 }
@@ -85,6 +87,8 @@ func New(db *pgxpool.Pool, providerService *provider.Service, entitlementService
 		db:          db,
 		provider:    providerService,
 		entitlement: entitlementService,
+		sessions:    aisession.NewRepository(db),
+		messages:    messagetree.NewRepository(db),
 		slots:       make(chan struct{}, concurrency),
 	}
 }
@@ -114,10 +118,16 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	if err := aisession.NewRepository(s.db).EnsureSchema(ctx); err != nil {
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	if err := s.sessions.EnsureSchema(ctx); err != nil {
 		return err
 	}
-	if err := messagetree.NewRepository(s.db).EnsureSchema(ctx); err != nil {
+	if err := s.messages.EnsureSchema(ctx); err != nil {
 		return err
 	}
 	statements := []string{
@@ -154,6 +164,9 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 		)`,
 		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'queued'`,
 		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS stage_text TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS ai_session_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS ai_trigger_message_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE im_ai_task ADD COLUMN IF NOT EXISTS ai_response_message_id BIGINT NOT NULL DEFAULT 0`,
 		`CREATE TABLE IF NOT EXISTS im_ai_reply_suggestion (
 			message_id BIGINT PRIMARY KEY REFERENCES im_message(id) ON DELETE CASCADE,
 			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
@@ -210,6 +223,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_task_owner_status ON im_ai_task(owner_username, status, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_task_ai_session ON im_ai_task(ai_session_id, created_at DESC) WHERE ai_session_id > 0`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_context_summary_conversation ON im_ai_context_summary(conversation_id, updated_at DESC)`,
 	}
 	for index, stmt := range statements {
@@ -388,6 +402,10 @@ func (s *Service) EnsureConversation(ctx context.Context, ownerUsername string, 
 		SET owner_username = EXCLUDED.owner_username,
 		    bot_username = EXCLUDED.bot_username,
 		    updated_at = NOW()`, conversationID, ownerUsername, bot.Username)
+	if err != nil {
+		return err
+	}
+	_, err = s.ensureLegacySession(ctx, ownerUsername, conversationID)
 	return err
 }
 
@@ -446,6 +464,7 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 			return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
 		}
 	}
+	aiSessionID, aiTriggerMessageID := s.recordTriggerMessageNode(ctx, ownerUsername, conversationID, triggerMessageID)
 	taskID, err := newTaskID()
 	if err != nil {
 		return Task{}, err
@@ -456,9 +475,15 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 	var createdAt time.Time
 	stageText := taskStageText(taskStageQueued)
 	err = s.db.QueryRow(ctx, `
-		INSERT INTO im_ai_task (task_id, conversation_id, owner_username, trigger_message_id, status, feature_key, queue_priority, request_payload, stage, stage_text, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, NOW(), NOW())
-		RETURNING created_at`, taskID, conversationID, ownerUsername, triggerMessageID, taskStatusQueued, entitlement.FeatureAIChat, precheck.Snapshot.Priority, string(payload), taskStageQueued, stageText).Scan(&createdAt)
+		INSERT INTO im_ai_task (
+			task_id, conversation_id, owner_username, trigger_message_id, status, feature_key,
+			queue_priority, request_payload, stage, stage_text, ai_session_id, ai_trigger_message_id,
+			created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, NOW(), NOW())
+		RETURNING created_at`,
+		taskID, conversationID, ownerUsername, triggerMessageID, taskStatusQueued, entitlement.FeatureAIChat,
+		precheck.Snapshot.Priority, string(payload), taskStageQueued, stageText, aiSessionID, aiTriggerMessageID).Scan(&createdAt)
 	if err != nil {
 		return Task{}, err
 	}
@@ -488,6 +513,173 @@ func newTaskID() (string, error) {
 		return "", err
 	}
 	return "ait_" + hex.EncodeToString(buf), nil
+}
+
+func (s *Service) ensureLegacySession(ctx context.Context, ownerUsername string, conversationID int64) (aisession.Session, error) {
+	if s == nil || s.db == nil {
+		return aisession.Session{}, errors.New("AI service is not available")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	return s.sessions.EnsureForConversation(ctx, ownerUsername, conversationID, bot.DisplayName)
+}
+
+func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (int64, int64) {
+	if s == nil || s.db == nil || triggerMessageID <= 0 {
+		return 0, 0
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	session, err := s.ensureLegacySession(ctx, ownerUsername, conversationID)
+	if err != nil {
+		log.Printf("AI trigger session sync failed: conversation_id=%d username=%s err=%v", conversationID, ownerUsername, err)
+		return 0, 0
+	}
+	if existing, err := s.messages.FindBySourceMessage(ctx, session.ID, triggerMessageID, messagetree.RoleUser); err == nil {
+		if _, updateErr := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, existing.ID); updateErr != nil {
+			log.Printf("AI trigger active message update failed: session_id=%d message_id=%d err=%v", session.ID, existing.ID, updateErr)
+		}
+		return session.ID, existing.ID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		log.Printf("AI trigger source lookup failed: session_id=%d source_message_id=%d err=%v", session.ID, triggerMessageID, err)
+		return session.ID, 0
+	}
+	content, err := s.loadIMMessageContent(ctx, conversationID, triggerMessageID)
+	if err != nil {
+		log.Printf("AI trigger message load failed: conversation_id=%d message_id=%d err=%v", conversationID, triggerMessageID, err)
+		return session.ID, 0
+	}
+	item, err := s.messages.Append(ctx, messagetree.AppendInput{
+		SessionID:       session.ID,
+		ParentID:        session.ActiveMessageID,
+		Role:            messagetree.RoleUser,
+		Content:         content,
+		VersionGroupID:  sourceMessageVersionGroup("user", triggerMessageID),
+		VersionNo:       1,
+		SourceMessageID: triggerMessageID,
+		Metadata: map[string]any{
+			"conversation_id": conversationID,
+			"source":          "legacy_im_message",
+		},
+	})
+	if err != nil {
+		log.Printf("AI trigger message tree append failed: session_id=%d message_id=%d err=%v", session.ID, triggerMessageID, err)
+		return session.ID, 0
+	}
+	if _, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, item.ID); err != nil {
+		log.Printf("AI trigger active message save failed: session_id=%d message_id=%d err=%v", session.ID, item.ID, err)
+	}
+	return session.ID, item.ID
+}
+
+func (s *Service) recordAssistantReplyNode(ctx context.Context, ownerUsername string, conversationID int64, taskID string, aiSessionID int64, parentMessageID int64, message MessageRef, resp provider.ChatResponse) int64 {
+	if s == nil || s.db == nil || message.ID <= 0 {
+		return 0
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	if existing, err := s.messages.FindByProjectionMessage(ctx, message.ID); err == nil {
+		return existing.ID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		log.Printf("AI reply projection lookup failed: im_message_id=%d err=%v", message.ID, err)
+	}
+	session, err := s.ensureLegacySession(ctx, ownerUsername, conversationID)
+	if err != nil {
+		log.Printf("AI reply session sync failed: task_id=%s conversation_id=%d username=%s err=%v", taskID, conversationID, ownerUsername, err)
+		return 0
+	}
+	if aiSessionID > 0 && session.ID != aiSessionID {
+		if loaded, loadErr := s.sessions.Get(ctx, ownerUsername, aiSessionID); loadErr == nil {
+			session = loaded
+		}
+	}
+	if parentMessageID <= 0 {
+		log.Printf("AI reply message tree append skipped without trigger node: task_id=%s session_id=%d im_message_id=%d", taskID, session.ID, message.ID)
+		return 0
+	}
+	item, err := s.messages.Append(ctx, messagetree.AppendInput{
+		SessionID:           session.ID,
+		ParentID:            parentMessageID,
+		Role:                messagetree.RoleAssistant,
+		Content:             strings.TrimSpace(message.Content),
+		VersionGroupID:      assistantAnswerVersionGroup(parentMessageID),
+		ProjectionMessageID: message.ID,
+		ProviderID:          resp.ProviderID,
+		Model:               resp.Model,
+		FinishReason:        resp.FinishReason,
+		PromptTokens:        resp.Usage.PromptTokens,
+		CompletionTokens:    resp.Usage.CompletionTokens,
+		TotalTokens:         resp.Usage.TotalTokens,
+		Metadata: map[string]any{
+			"task_id":             taskID,
+			"conversation_id":     conversationID,
+			"upstream_request_id": resp.UpstreamRequestID,
+			"source":              "legacy_ai_reply",
+		},
+	})
+	if err != nil {
+		log.Printf("AI reply message tree append failed: task_id=%s session_id=%d im_message_id=%d err=%v", taskID, session.ID, message.ID, err)
+		return 0
+	}
+	if err := s.messages.SetProjection(ctx, messagetree.ProjectionInput{
+		AIMessageID:    item.ID,
+		ConversationID: conversationID,
+		MessageID:      message.ID,
+		Visible:        true,
+	}); err != nil {
+		log.Printf("AI reply projection save failed: task_id=%s ai_message_id=%d im_message_id=%d err=%v", taskID, item.ID, message.ID, err)
+	}
+	if _, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, item.ID); err != nil {
+		log.Printf("AI reply active message save failed: task_id=%s session_id=%d message_id=%d err=%v", taskID, session.ID, item.ID, err)
+	}
+	return item.ID
+}
+
+func (s *Service) loadIMMessageContent(ctx context.Context, conversationID int64, messageID int64) (string, error) {
+	var messageType string
+	var contentPayload string
+	var contentPreview string
+	err := s.db.QueryRow(ctx, `
+		SELECT message_type, content_payload, content_preview
+		FROM im_message
+		WHERE conversation_id = $1 AND id = $2 AND deleted_at IS NULL`, conversationID, messageID).Scan(&messageType, &contentPayload, &contentPreview)
+	if err != nil {
+		return "", err
+	}
+	return legacyAIMessageContent(messageType, contentPayload, contentPreview), nil
+}
+
+func legacyAIMessageContent(messageType string, contentPayload string, contentPreview string) string {
+	messageType = strings.TrimSpace(strings.ToLower(messageType))
+	contentPayload = strings.TrimSpace(contentPayload)
+	contentPreview = strings.TrimSpace(contentPreview)
+	if messageType == "text" && contentPayload != "" {
+		return contentPayload
+	}
+	if contentPreview != "" {
+		return contentPreview
+	}
+	if contentPayload != "" {
+		return contentPayload
+	}
+	return "[非文本消息]"
+}
+
+func sourceMessageVersionGroup(role string, messageID int64) string {
+	return fmt.Sprintf("im_%s_%d", strings.ToLower(strings.TrimSpace(role)), messageID)
+}
+
+func assistantAnswerVersionGroup(parentMessageID int64) string {
+	if parentMessageID <= 0 {
+		return "ai_answer_orphan"
+	}
+	return fmt.Sprintf("ai_answer_%d", parentMessageID)
 }
 
 func terminalWriteContext() (context.Context, context.CancelFunc) {
@@ -552,12 +744,14 @@ func (s *Service) processTask(taskID string) {
 	defer cancel()
 	var ownerUsername string
 	var triggerMessageID int64
+	var aiSessionID int64
+	var aiTriggerMessageID int64
 	err := s.db.QueryRow(ctx, `
 		UPDATE im_ai_task
 		SET status = $2, stage = $3, stage_text = $4, started_at = NOW(), updated_at = NOW()
 		WHERE task_id = $1 AND status = $5
-		RETURNING conversation_id, owner_username, trigger_message_id`,
-		taskID, taskStatusRunning, taskStagePreparing, taskStageText(taskStagePreparing), taskStatusQueued).Scan(&conversationID, &ownerUsername, &triggerMessageID)
+		RETURNING conversation_id, owner_username, trigger_message_id, ai_session_id, ai_trigger_message_id`,
+		taskID, taskStatusRunning, taskStagePreparing, taskStageText(taskStagePreparing), taskStatusQueued).Scan(&conversationID, &ownerUsername, &triggerMessageID, &aiSessionID, &aiTriggerMessageID)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			log.Printf("start AI task failed: task_id=%s err=%v", taskID, err)
@@ -603,6 +797,7 @@ func (s *Service) processTask(taskID string) {
 		s.failTask(ctx, taskID, conversationID, "message_write_error", err.Error())
 		return
 	}
+	aiResponseMessageID := s.recordAssistantReplyNode(ctx, ownerUsername, conversationID, taskID, aiSessionID, aiTriggerMessageID, message, resp)
 	quotaCtx, quotaCancel := terminalWriteContext()
 	if _, err := s.entitlement.Consume(quotaCtx, ownerUsername, entitlement.FeatureAIChat, taskID, 1, "ai_chat_success"); err != nil {
 		log.Printf("AI quota consume failed: task_id=%s username=%s err=%v", taskID, ownerUsername, err)
@@ -629,10 +824,10 @@ func (s *Service) processTask(taskID string) {
 		billingCancel()
 	}
 	go s.refreshContextSummary(ownerUsername, conversationID)
-	s.markTaskSucceeded(taskID, message.ID, resp.Model, latencyMS)
+	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, latencyMS)
 }
 
-func (s *Service) markTaskSucceeded(taskID string, messageID int64, model string, latencyMS int) {
+func (s *Service) markTaskSucceeded(taskID string, messageID int64, aiResponseMessageID int64, model string, latencyMS int) {
 	writeCtx, writeCancel := terminalWriteContext()
 	defer writeCancel()
 	_, _ = s.db.Exec(writeCtx, `
@@ -640,8 +835,14 @@ func (s *Service) markTaskSucceeded(taskID string, messageID int64, model string
 		VALUES ($1, $2, 'succeeded', $3, NOW())`, taskID, model, latencyMS)
 	tag, err := s.db.Exec(writeCtx, `
 		UPDATE im_ai_task
-		SET status = $2, response_message_id = $3, stage = $4, stage_text = $5, finished_at = NOW(), updated_at = NOW()
-		WHERE task_id = $1 AND status = $6`, taskID, taskStatusSucceeded, messageID, taskStageFinished, taskStageText(taskStageFinished), taskStatusRunning)
+		SET status = $2,
+		    response_message_id = $3,
+		    ai_response_message_id = $4,
+		    stage = $5,
+		    stage_text = $6,
+		    finished_at = NOW(),
+		    updated_at = NOW()
+		WHERE task_id = $1 AND status = $7`, taskID, taskStatusSucceeded, messageID, aiResponseMessageID, taskStageFinished, taskStageText(taskStageFinished), taskStatusRunning)
 	if err != nil {
 		log.Printf("mark AI task succeeded failed: task_id=%s err=%v", taskID, err)
 		return

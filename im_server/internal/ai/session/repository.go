@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,6 +42,7 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 		`ALTER TABLE im_ai_session ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_session_owner_status_updated ON im_ai_session(owner_username, status, pinned DESC, updated_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_session_conversation ON im_ai_session(conversation_id) WHERE conversation_id IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_ai_session_owner_conversation_unique ON im_ai_session(owner_username, conversation_id) WHERE conversation_id IS NOT NULL AND status <> 'deleted'`,
 	}
 	for index, stmt := range statements {
 		if _, err := r.db.Exec(ctx, stmt); err != nil {
@@ -48,6 +50,56 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (r *Repository) EnsureForConversation(ctx context.Context, ownerUsername string, conversationID int64, title string) (Session, error) {
+	if r == nil || r.db == nil {
+		return Session{}, errors.New("AI session repository is not available")
+	}
+	owner := normalizeUsername(ownerUsername)
+	if owner == "" || conversationID <= 0 {
+		return Session{}, errors.New("invalid conversation session")
+	}
+	item, err := r.GetByConversation(ctx, owner, conversationID)
+	if err == nil {
+		return item, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, err
+	}
+	item, err = r.Create(ctx, CreateInput{
+		OwnerUsername:  owner,
+		ConversationID: conversationID,
+		Title:          title,
+		Metadata: map[string]any{
+			"source": "legacy_im_ai_conversation",
+		},
+	})
+	if err == nil {
+		return item, nil
+	}
+	// A concurrent request may have created the session after our first lookup.
+	if fallback, lookupErr := r.GetByConversation(ctx, owner, conversationID); lookupErr == nil {
+		return fallback, nil
+	}
+	return Session{}, err
+}
+
+func (r *Repository) GetByConversation(ctx context.Context, ownerUsername string, conversationID int64) (Session, error) {
+	if r == nil || r.db == nil {
+		return Session{}, errors.New("AI session repository is not available")
+	}
+	owner := normalizeUsername(ownerUsername)
+	if owner == "" || conversationID <= 0 {
+		return Session{}, errors.New("invalid conversation session lookup")
+	}
+	row := r.db.QueryRow(ctx, `
+		SELECT id, owner_username, COALESCE(conversation_id, 0), title, status, pinned, active_message_id, metadata_json, created_at, updated_at
+		FROM im_ai_session
+		WHERE owner_username = $1 AND conversation_id = $2 AND status <> $3
+		ORDER BY updated_at DESC, id DESC
+		LIMIT 1`, owner, conversationID, StatusDeleted)
+	return scanSession(row)
 }
 
 func (r *Repository) Create(ctx context.Context, input CreateInput) (Session, error) {

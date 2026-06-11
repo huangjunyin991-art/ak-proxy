@@ -58,6 +58,7 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_ai_message_version_unique ON im_ai_message(session_id, version_group_id, version_no) WHERE version_group_id <> ''`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_message_session_parent ON im_ai_message(session_id, parent_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_message_session_created ON im_ai_message(session_id, created_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_ai_message_source ON im_ai_message(session_id, source_message_id, role) WHERE source_message_id > 0`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_message_projection ON im_ai_message(projection_message_id) WHERE projection_message_id > 0`,
 		`CREATE TABLE IF NOT EXISTS im_ai_message_projection (
 			ai_message_id BIGINT PRIMARY KEY REFERENCES im_ai_message(id) ON DELETE CASCADE,
@@ -160,6 +161,46 @@ func (r *Repository) List(ctx context.Context, sessionID int64) ([]Message, erro
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (r *Repository) FindBySourceMessage(ctx context.Context, sessionID int64, sourceMessageID int64, role string) (Message, error) {
+	if r == nil || r.db == nil {
+		return Message{}, errors.New("AI message tree repository is not available")
+	}
+	if sessionID <= 0 || sourceMessageID <= 0 {
+		return Message{}, errors.New("invalid AI source message lookup")
+	}
+	normalizedRole := normalizeRole(role)
+	if normalizedRole == "" {
+		return Message{}, errors.New("invalid AI message role")
+	}
+	row := r.db.QueryRow(ctx, `
+		SELECT id, session_id, COALESCE(parent_id, 0), role, content, version_group_id, version_no,
+		       source_message_id, projection_message_id, provider_id, model, finish_reason,
+		       prompt_tokens, completion_tokens, total_tokens, metadata_json, created_at, updated_at
+		FROM im_ai_message
+		WHERE session_id = $1 AND source_message_id = $2 AND role = $3
+		ORDER BY id DESC
+		LIMIT 1`, sessionID, sourceMessageID, normalizedRole)
+	return scanMessage(row)
+}
+
+func (r *Repository) FindByProjectionMessage(ctx context.Context, projectionMessageID int64) (Message, error) {
+	if r == nil || r.db == nil {
+		return Message{}, errors.New("AI message tree repository is not available")
+	}
+	if projectionMessageID <= 0 {
+		return Message{}, errors.New("invalid AI projection message lookup")
+	}
+	row := r.db.QueryRow(ctx, `
+		SELECT id, session_id, COALESCE(parent_id, 0), role, content, version_group_id, version_no,
+		       source_message_id, projection_message_id, provider_id, model, finish_reason,
+		       prompt_tokens, completion_tokens, total_tokens, metadata_json, created_at, updated_at
+		FROM im_ai_message
+		WHERE projection_message_id = $1
+		ORDER BY id DESC
+		LIMIT 1`, projectionMessageID)
+	return scanMessage(row)
 }
 
 func (r *Repository) ActivePath(ctx context.Context, sessionID int64, leafID int64) ([]Message, error) {
