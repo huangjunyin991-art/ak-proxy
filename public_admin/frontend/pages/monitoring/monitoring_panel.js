@@ -1795,7 +1795,8 @@
         var policyCache = state.data.staticCache || {};
         return {
             policy: policyCache.memory_policy || runtimeCache.memory_policy || {},
-            cache: runtimeCache.memory_cache || policyCache.memory_cache || {}
+            cache: runtimeCache.memory_cache || policyCache.memory_cache || {},
+            hydration: runtimeCache.memory_hydration || policyCache.memory_hydration || {}
         };
     }
 
@@ -1805,6 +1806,7 @@
         var snapshot = staticCacheRuntimeSnapshot();
         var policy = snapshot.policy || {};
         var cache = snapshot.cache || {};
+        var hydration = snapshot.hydration || {};
         if (!policy.max_entries && !cache.max_entries) {
             setHtmlIfChanged(target, renderCard('L1 内存缓存', '读取中', '等待运行态刷新'));
             return;
@@ -1816,12 +1818,18 @@
         var usageText = maxBytes > 0 ? formatBytes(usedBytes) + ' / ' + formatBytes(maxBytes) : formatBytes(usedBytes);
         var hitText = statsEnabled ? formatPercent(cache.hit_ratio_pct) : '已关闭';
         var hitSub = statsEnabled
-            ? 'hit ' + formatNumber(cache.hits) + '；miss ' + formatNumber(cache.misses)
+            ? '内存 hit ' + formatNumber(cache.hits) + '；miss ' + formatNumber(cache.misses)
             : '缓存继续工作，不再累计 hit/miss';
+        var hydrationTs = Number(hydration.ts || 0);
+        var hydrationText = hydrationTs ? formatNumber(hydration.loaded || 0) + ' 个' : '未执行';
+        var hydrationSub = hydrationTs
+            ? '原因 ' + (hydration.reason || '-') + '；耗时 ' + formatMs(hydration.duration_ms || 0) + '；跳过 ' + formatNumber((hydration.capacity_skipped || 0) + (hydration.oversized || 0))
+            : '启动或保存策略后会从磁盘回填 L1';
         setHtmlIfChanged(target,
             renderCard('L1 内存缓存', enabled ? '已启用' : '已关闭', enabled ? '条目 ' + formatNumber(cache.entries) + ' / ' + formatNumber(policy.max_entries || cache.max_entries) + '；' + usageText : '请求会回退到磁盘缓存') +
             renderCard('实时统计', statsEnabled ? '已启用' : '已关闭', hitSub) +
-            renderCard('L1 命中率', hitText, '写入 ' + (statsEnabled ? formatNumber(cache.writes) : '-') + '；单资源上限 ' + formatBytes(policy.max_body_bytes || cache.max_body_bytes)) +
+            renderCard('内存命中率', hitText, '写入 ' + (statsEnabled ? formatNumber(cache.writes) : '-') + '；单资源上限 ' + formatBytes(policy.max_body_bytes || cache.max_body_bytes)) +
+            renderCard('磁盘回填 L1', hydrationText, hydrationSub) +
             renderCard('L1 淘汰', statsEnabled ? formatNumber(cache.evictions) : '-', '过期 ' + (statsEnabled ? formatNumber(cache.expired) : '-') + '；拒绝 ' + (statsEnabled ? formatNumber(cache.rejected) : '-'))
         );
     }

@@ -1,8 +1,10 @@
+import asyncio
 from pathlib import Path
 
 from .config import StaticResourceCacheConfig
 from .models import StaticResourcePayload, StaticResourceRequest
 from .policy import StaticResourceCachePolicy
+from .service import create_static_resource_cache_service
 
 
 def _policy() -> StaticResourceCachePolicy:
@@ -65,3 +67,38 @@ def test_cacheable_html_still_rejects_sensitive_query():
     )
 
     assert not _policy().can_read(request)
+
+
+def test_hydrate_memory_from_disk_restores_cached_asset(tmp_path):
+    service = create_static_resource_cache_service(
+        StaticResourceCacheConfig(
+            root_dir=tmp_path,
+            memory_max_entries=8,
+            memory_max_bytes=1024 * 1024,
+            memory_max_body_bytes=128 * 1024,
+        )
+    )
+    request = StaticResourceRequest(
+        method="GET",
+        namespace="/public-static-v2",
+        url="https://k937.com/assets/images/center/icon6.svg",
+        path="/assets/images/center/icon6.svg",
+    )
+    payload = StaticResourcePayload(
+        status_code=200,
+        headers={"content-type": "image/svg+xml"},
+        policy_headers={"content-type": "image/svg+xml"},
+        content_type="image/svg+xml",
+        body=b"<svg></svg>",
+    )
+
+    async def _run():
+        assert await service.store_payload(request, payload)
+        service.memory_cache.clear()
+        assert service.memory_cache.snapshot()["entries"] == 0
+        hydration = await service.hydrate_memory_from_disk(reason="test")
+        assert hydration["loaded"] == 1
+        assert service.memory_cache.snapshot()["entries"] == 1
+        assert await service.get(request) is not None
+
+    asyncio.run(_run())

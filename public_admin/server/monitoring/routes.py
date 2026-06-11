@@ -218,7 +218,10 @@ def create_monitoring_router(
             return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
         try:
             payload = await request.json()
-            return {"success": True, "item": cache_service.update_browser_policy(payload or {})}
+            cache_service.update_browser_policy(payload or {})
+            if hasattr(cache_service, "hydrate_memory_from_disk"):
+                await cache_service.hydrate_memory_from_disk(reason="policy_update")
+            return {"success": True, "item": cache_service.get_browser_policy()}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 

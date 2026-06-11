@@ -5971,6 +5971,18 @@ async def admin_startup():
     except Exception as e:
         logger.warning(f"[BlockingPools] init failed, fallback to env defaults: {e}")
 
+    try:
+        hydration = await _AK_WEB_STATIC_CACHE_SERVICE.hydrate_memory_from_disk(reason="startup")
+        logger.info(
+            "[StaticCache] L1 memory hydrated from disk: "
+            f"loaded={hydration.get('loaded', 0)} "
+            f"already={hydration.get('already_memory', 0)} "
+            f"fresh={hydration.get('fresh', 0)} "
+            f"duration_ms={hydration.get('duration_ms', 0)}"
+        )
+    except Exception as e:
+        logger.warning(f"[StaticCache] L1 memory hydration skipped: {e}")
+
     await _load_tokens_from_db()
 
     if operation_auth_service is not None:

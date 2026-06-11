@@ -52,6 +52,7 @@ class StaticResourceCacheService:
         self.browser_policy = StaticResourceBrowserPolicy(config.root_dir)
         self._locks: dict[str, asyncio.Lock] = {}
         self._last_lock_cleanup = {"removed": 0, "remaining": 0, "ts": 0.0}
+        self._last_memory_hydration: dict = {}
 
     def can_read(self, request: StaticResourceRequest) -> bool:
         return self.policy.can_read(request)
@@ -150,6 +151,55 @@ class StaticResourceCacheService:
         except Exception:
             return 0
 
+    async def hydrate_memory_from_disk(self, reason: str = 'manual') -> dict:
+        started = time.perf_counter()
+        result = {
+            'reason': str(reason or 'manual'),
+            'enabled': self.memory_cache.enabled,
+            'loaded': 0,
+            'already_memory': 0,
+            'rejected': 0,
+            'bytes': 0,
+            'scanned': 0,
+            'fresh': 0,
+            'expired': 0,
+            'oversized': 0,
+            'capacity_skipped': 0,
+            'errors': 0,
+            'ts': time.time(),
+            'duration_ms': 0,
+        }
+        if not self.memory_cache.enabled:
+            result['duration_ms'] = round((time.perf_counter() - started) * 1000, 1)
+            self._last_memory_hydration = result
+            return result
+        try:
+            loaded = await self.store.load_fresh_entries(
+                self.memory_cache.max_entries,
+                self.memory_cache.max_body_bytes,
+                self.memory_cache.max_bytes,
+            )
+            summary = loaded.get('summary') if isinstance(loaded, dict) else {}
+            if isinstance(summary, dict):
+                for key in ('scanned', 'fresh', 'expired', 'oversized', 'capacity_skipped', 'errors', 'bytes'):
+                    result[key] = int(summary.get(key) or 0)
+            items = loaded.get('items') if isinstance(loaded, dict) else []
+            for resource in reversed(items or []):
+                if self.memory_cache.contains(resource.cache_key):
+                    result['already_memory'] += 1
+                    continue
+                if self.memory_cache.set(resource.cache_key, resource):
+                    result['loaded'] += 1
+                else:
+                    result['rejected'] += 1
+        except Exception as exc:
+            result['errors'] += 1
+            result['error'] = str(exc)[:300]
+        result['duration_ms'] = round((time.perf_counter() - started) * 1000, 1)
+        result['memory_entries'] = self.memory_cache.snapshot().get('entries', 0)
+        self._last_memory_hydration = result
+        return result
+
     async def describe_entries(self, limit: int = 80) -> dict:
         now = time.time()
         try:
@@ -192,6 +242,7 @@ class StaticResourceCacheService:
         return {
             "lock_count": len(self._locks),
             "last_lock_cleanup": dict(self._last_lock_cleanup),
+            "memory_hydration": dict(self._last_memory_hydration),
             "memory_policy": self.memory_policy.to_dict(),
             "memory_cache": self.memory_cache.snapshot(),
             "browser_policy": self.get_browser_policy(),
@@ -201,6 +252,7 @@ class StaticResourceCacheService:
         result = self.browser_policy.to_dict()
         result['memory_policy'] = self.memory_policy.to_dict()
         result['memory_cache'] = self.memory_cache.snapshot()
+        result['memory_hydration'] = dict(self._last_memory_hydration)
         return result
 
     def update_browser_policy(self, values: dict) -> dict:
@@ -216,6 +268,14 @@ class StaticResourceCacheService:
         self.browser_policy.refresh_version()
         removed = self.browser_policy.clear_storage()
         memory_removed = self.memory_cache.clear()
+        self._last_memory_hydration = {
+            'reason': 'refresh_upstream',
+            'enabled': self.memory_cache.enabled,
+            'loaded': 0,
+            'ts': time.time(),
+            'duration_ms': 0,
+            'memory_entries': 0,
+        }
         result = self.get_browser_policy()
         result['removed_entries'] = removed
         result['removed_memory_entries'] = memory_removed
