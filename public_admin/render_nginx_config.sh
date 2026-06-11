@@ -24,6 +24,13 @@ if [ -z "$NTFY_DOMAIN" ]; then
     NTFY_DOMAIN="ntfy.$ADMIN_DOMAIN"
 fi
 
+ADMIN_DOMAIN_LOWER="$(printf '%s' "$ADMIN_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+NTFY_DOMAIN_LOWER="$(printf '%s' "$NTFY_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+if [ "$ADMIN_DOMAIN_LOWER" = "$NTFY_DOMAIN_LOWER" ]; then
+    echo "[ERROR] NTFY_DOMAIN 不能与 ADMIN_DOMAIN 相同，否则主站会被 ntfy Web UI 接管"
+    exit 1
+fi
+
 if echo "$ADMIN_DOMAIN" | grep -Eq '^[a-zA-Z0-9.-]+$' && echo "$NTFY_DOMAIN" | grep -Eq '^[a-zA-Z0-9.-]+$'; then
     true
 else

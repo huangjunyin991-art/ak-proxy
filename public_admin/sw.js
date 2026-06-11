@@ -1,10 +1,11 @@
 (function() {
     'use strict';
 
-    var VERSION = '20260609-01';
+    var VERSION = '20260611-ntfy-recovery-01';
     var CACHE_NAME = 'ak-notify-sw-state';
     var STATE_URL = '/__ak_notify_sw_state__';
     var SAFE_NOTIFICATION_ENTRY = '/pages/home.html?first=true';
+    var SAFE_RECOVERY_ENTRY = '/pages/account/login.html';
     var SENSITIVE_QUERY_KEYS = {
         ak_im_open: true,
         im_switch_ts: true,
@@ -45,6 +46,56 @@
                     headers: {'Content-Type': 'application/json'}
                 }));
             });
+        }).catch(function() {
+            return null;
+        });
+    }
+
+    function clearForeignCaches() {
+        if (!self.caches || !caches.keys) return Promise.resolve([]);
+        return caches.keys().then(function(names) {
+            return Promise.all(names.map(function(name) {
+                if (name === CACHE_NAME) return Promise.resolve(false);
+                return caches.delete(name);
+            }));
+        }).catch(function() {
+            return [];
+        });
+    }
+
+    function shouldRecoverClientUrl(value) {
+        try {
+            var parsed = new URL(String(value || ''), self.location.origin);
+            if (parsed.origin !== self.location.origin) return false;
+            var path = parsed.pathname || '/';
+            return path === '/'
+                || path === '/app'
+                || path.indexOf('/app/') === 0
+                || path === '/account'
+                || path.indexOf('/account/') === 0
+                || path === '/settings'
+                || path.indexOf('/settings/') === 0
+                || path === '/subscription'
+                || path.indexOf('/subscription/') === 0
+                || path === '/login'
+                || path === '/signup';
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function recoverNtfyControlledClients() {
+        if (!self.clients || !self.clients.matchAll) return Promise.resolve(null);
+        return self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(list) {
+            return Promise.all(list.map(function(client) {
+                try {
+                    if (client && shouldRecoverClientUrl(client.url) && client.navigate) {
+                        return client.navigate(new URL(SAFE_RECOVERY_ENTRY, self.location.origin).href);
+                    }
+                } catch(e) {
+                }
+                return null;
+            }));
         }).catch(function() {
             return null;
         });
@@ -105,9 +156,16 @@
     });
 
     self.addEventListener('activate', function(event) {
-        var task = writeState({activated_at: nowIso()}).then(function() {
+        var task = clearForeignCaches().then(function() {
+            return writeState({
+                activated_at: nowIso(),
+                recovered_foreign_sw_caches: true
+            });
+        }).then(function() {
             if (self.clients && self.clients.claim) return self.clients.claim();
             return null;
+        }).then(function() {
+            return recoverNtfyControlledClients();
         });
         if (event && event.waitUntil) event.waitUntil(task);
     });
