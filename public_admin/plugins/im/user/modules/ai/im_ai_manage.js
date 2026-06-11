@@ -3,7 +3,7 @@
 
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
-    const STYLE_VERSION = 'ai-session-drawer-fixed-20260611';
+    const STYLE_VERSION = 'ai-session-drawer-body-layer-20260611';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
     const SESSION_LIST_STALE_MS = 20000;
@@ -86,21 +86,21 @@
                 '#ak-im-root .ak-im-ai-topbar-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
                 '#ak-im-root .ak-im-ai-topbar-btn:active{transform:translateY(1px)}',
                 '#ak-im-root .ak-im-ai-topbar-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}',
-                '#ak-im-root .ak-im-ai-session-mask{position:fixed;inset:0;z-index:78;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
-                '#ak-im-root .ak-im-ai-session-panel{width:100%;max-width:560px;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column}',
-                '#ak-im-root .ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
-                '#ak-im-root .ak-im-ai-session-title{min-width:0;font-size:16px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '#ak-im-root .ak-im-ai-session-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}',
-                '#ak-im-root .ak-im-ai-session-btn{height:32px;border:1px solid rgba(37,99,235,.16);border-radius:999px;background:#eef4ff;color:#1d4ed8;padding:0 12px;font-size:12px;font-weight:900;cursor:pointer}',
-                '#ak-im-root .ak-im-ai-session-btn.secondary{background:#f1f5f9;color:#334155;border-color:rgba(15,23,42,.08)}',
-                '#ak-im-root .ak-im-ai-session-btn:disabled{opacity:.5;cursor:not-allowed}',
-                '#ak-im-root .ak-im-ai-session-list{padding:8px 10px 14px;overflow:auto;box-sizing:border-box}',
-                '#ak-im-root .ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:8px;width:100%;min-height:52px;border:1px solid transparent;border-radius:12px;background:transparent;padding:8px 9px;margin:3px 0;box-sizing:border-box;text-align:left;cursor:pointer}',
-                '#ak-im-root .ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.20);box-shadow:0 6px 18px rgba(15,23,42,.07)}',
-                '#ak-im-root .ak-im-ai-session-main{min-width:0}',
-                '#ak-im-root .ak-im-ai-session-name{font-size:14px;font-weight:900;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '#ak-im-root .ak-im-ai-session-meta{margin-top:4px;color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '#ak-im-root .ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
+                '.ak-im-ai-session-mask{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
+                '.ak-im-ai-session-panel{width:100%;max-width:560px;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
+                '.ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
+                '.ak-im-ai-session-title{min-width:0;font-size:16px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}',
+                '.ak-im-ai-session-btn{height:32px;border:1px solid rgba(37,99,235,.16);border-radius:999px;background:#eef4ff;color:#1d4ed8;padding:0 12px;font-size:12px;font-weight:900;cursor:pointer}',
+                '.ak-im-ai-session-btn.secondary{background:#f1f5f9;color:#334155;border-color:rgba(15,23,42,.08)}',
+                '.ak-im-ai-session-btn:disabled{opacity:.5;cursor:not-allowed}',
+                '.ak-im-ai-session-list{padding:8px 10px 14px;overflow:auto;box-sizing:border-box}',
+                '.ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:8px;width:100%;min-height:52px;border:1px solid transparent;border-radius:12px;background:transparent;padding:8px 9px;margin:3px 0;box-sizing:border-box;text-align:left;cursor:pointer}',
+                '.ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.20);box-shadow:0 6px 18px rgba(15,23,42,.07)}',
+                '.ak-im-ai-session-main{min-width:0}',
+                '.ak-im-ai-session-name{font-size:14px;font-weight:900;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-meta{margin-top:4px;color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
                 '#ak-im-root .ak-im-ai-tree-actions{display:flex;align-items:center;gap:6px;margin-top:5px;min-height:28px;flex-wrap:wrap}',
                 '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-actions{justify-content:flex-end}',
                 '#ak-im-root .ak-im-ai-tree-btn{width:28px;height:28px;border:0;border-radius:999px;background:rgba(15,23,42,.07);color:#475569;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s ease,color .15s ease,transform .12s ease,opacity .12s ease}',
@@ -806,14 +806,44 @@
 
         removeSessionDrawer() {
             const root = this.getRootElement();
-            const mask = root ? root.querySelector('.ak-im-ai-session-mask') : null;
+            const mask = document.querySelector('.ak-im-ai-session-mask[data-ak-ai-session-layer="1"]') || (root ? root.querySelector('.ak-im-ai-session-mask') : null);
             if (mask && mask.parentNode) mask.parentNode.removeChild(mask);
         },
 
         getSessionDrawerHost() {
-            const root = this.getRootElement();
-            if (!root) return null;
-            return root.querySelector('.ak-im-chat-screen') || root.querySelector('.ak-im-shell') || root;
+            return document.body || document.documentElement;
+        },
+
+        applySessionDrawerLayout(mask) {
+            if (!mask) return;
+            mask.setAttribute('data-ak-ai-session-layer', '1');
+            mask.style.position = 'fixed';
+            mask.style.left = '0';
+            mask.style.top = '0';
+            mask.style.right = '0';
+            mask.style.bottom = '0';
+            mask.style.zIndex = '2147483646';
+            mask.style.display = 'flex';
+            mask.style.alignItems = 'flex-end';
+            mask.style.justifyContent = 'center';
+            mask.style.width = '100vw';
+            mask.style.height = '100dvh';
+            mask.style.minHeight = '100vh';
+            mask.style.boxSizing = 'border-box';
+            mask.style.background = 'rgba(15,23,42,.22)';
+            mask.style.backdropFilter = 'blur(3px)';
+            const panel = mask.querySelector('.ak-im-ai-session-panel');
+            if (!panel) return;
+            panel.style.width = '100%';
+            panel.style.maxWidth = '560px';
+            panel.style.maxHeight = 'min(70vh, 520px)';
+            panel.style.borderRadius = '18px 18px 0 0';
+            panel.style.background = '#f8fafc';
+            panel.style.boxShadow = '0 -18px 46px rgba(15,23,42,.18)';
+            panel.style.overflow = 'hidden';
+            panel.style.display = 'flex';
+            panel.style.flexDirection = 'column';
+            panel.style.boxSizing = 'border-box';
         },
 
         sessionTitle(item) {
@@ -896,7 +926,7 @@
             }
             this.ensureStyle();
             const host = this.getSessionDrawerHost() || root;
-            let mask = root.querySelector('.ak-im-ai-session-mask');
+            let mask = document.querySelector('.ak-im-ai-session-mask[data-ak-ai-session-layer="1"]') || root.querySelector('.ak-im-ai-session-mask');
             if (!mask) {
                 mask = document.createElement('div');
                 mask.className = 'ak-im-ai-session-mask';
@@ -933,6 +963,7 @@
                 '</div>',
                 '</div>'
             ].join('');
+            this.applySessionDrawerLayout(mask);
             mask.onclick = (event) => {
                 if (event.target === mask) this.closeSessionDrawer();
             };
