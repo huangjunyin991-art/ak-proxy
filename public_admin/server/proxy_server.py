@@ -13598,6 +13598,7 @@ _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
+_AK_PUBLIC_STATIC_CACHE_NAMESPACE = "/public-static-v2"
 _AK_WEB_STATIC_CACHE_CONFIG = StaticResourceCacheConfig(
     root_dir=Path(PUBLIC_ADMIN_DIR) / "runtime_cache" / "static_resources"
 )
@@ -14755,8 +14756,17 @@ def _rewrite_base_js_native_rpc_roots(text: str) -> tuple[str, bool]:
     return rewritten, rewritten != text
 
 
-def _inject_base_js_no_login_probe(text: str) -> tuple[str, bool]:
-    text, rewritten = _rewrite_base_js_rpc_roots(text)
+def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True) -> tuple[str, bool]:
+    if rewrite_rpc_to_admin:
+        text, rewritten = _rewrite_base_js_rpc_roots(text)
+        rpc_rewrite_body = (
+            "function akBaseRw(url){try{var s=String(url||'');if(!s)return s;var x=new URL(s,location.href),p=(x.pathname||'');"
+            "if(p.indexOf('/RPC/')!==0)return s;return '/admin/ak-rpc/'+p.slice(5)+x.search+x.hash;}"
+            "catch(_e){var s2=String(url||'');if(s2.indexOf('/RPC/')===0)return '/admin/ak-rpc/'+s2.slice(5);return s2;}}"
+        )
+    else:
+        text, rewritten = _rewrite_base_js_native_rpc_roots(text)
+        rpc_rewrite_body = "function akBaseRw(url){return url;}"
     marker = "[AKBaseNoLogin]"
     if marker in text:
         return text, rewritten
@@ -14767,7 +14777,7 @@ def _inject_base_js_no_login_probe(text: str) -> tuple[str, bool]:
         "function akBaseBody(body){try{if(body==null)return null;if(typeof body==='string')return body.slice(0,500);if(typeof URLSearchParams!=='undefined'&&body instanceof URLSearchParams)return body.toString().slice(0,500);if(typeof FormData!=='undefined'&&body instanceof FormData){var out=[];body.forEach(function(v,k){out.push([k,typeof v==='string'?v:String(v)]);});return JSON.stringify(out).slice(0,500);}if(typeof body==='object')return JSON.stringify(body).slice(0,500);return String(body).slice(0,500);}catch(_e){try{return String(body).slice(0,500);}catch(__e){return '[unserializable]';}}}"
         "function akBaseHasNoLogin(body){try{if(body==null)return false;var txt=typeof body==='string'?body:String(body),norm=txt.toLowerCase().replace(/\\s+/g,'');if(txt.indexOf('用戶未登錄')>=0)return true;return norm.indexOf('\\\"islogin\\\":false')>=0&&norm.indexOf('\\\"error\\\":true')>=0;}catch(_e){return false;}}"
         "function akBaseEmit(meta){try{if(window.console&&typeof console.warn==='function'){console.warn('[AKBaseNoLogin]',meta);}}catch(_e){}}"
-        "function akBaseRw(url){try{var s=String(url||'');if(!s)return s;var x=new URL(s,location.href),p=(x.pathname||'');if(p.indexOf('/RPC/')!==0)return s;return '/admin/ak-rpc/'+p.slice(5)+x.search+x.hash;}catch(_e){var s2=String(url||'');if(s2.indexOf('/RPC/')===0)return '/admin/ak-rpc/'+s2.slice(5);return s2;}}"
+        + rpc_rewrite_body +
         "var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;"
         "XMLHttpRequest.prototype.open=function(method,url){var nextUrl=akBaseRw(url||'');this.__akBaseMethod=method||'GET';this.__akBaseUrl=nextUrl||'';return xo.apply(this,[method,nextUrl].concat([].slice.call(arguments,2)));};"
         "XMLHttpRequest.prototype.send=function(body){try{this.__akBaseBody=akBaseBody(body);}catch(_e){}if(!this.__akBaseNoLoginBound){this.__akBaseNoLoginBound=true;this.addEventListener('loadend',function(){try{var resp=this.responseText||this.response||'';if(!akBaseHasNoLogin(resp))return;akBaseEmit({transport:'xhr',method:this.__akBaseMethod||'',optionUrl:this.__akBaseUrl||'',actualUrl:this.responseURL||'',status:this.status||0,data:this.__akBaseBody||null,userkey:akBaseUserKey(),responseHead:String(resp).slice(0,300),current:location.href});}catch(__e){}});}return xs.apply(this,arguments);};"
@@ -15911,7 +15921,7 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         return _rewrite_site_css_roots(text, _AK_WEB_PREFIX).encode("utf-8")
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
-        text, _ = _inject_base_js_no_login_probe(text)
+        text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
         return text.encode("utf-8")
     return content
 
@@ -15999,7 +16009,7 @@ async def _fetch_and_cache_ak_static_warmup_asset(asset_path: str) -> WarmupAsse
     if not normalized_path:
         return WarmupAssetResult(asset_path, "BYPASS", error="unsupported_path")
     target_url = _build_ak_static_target_url(normalized_path, query)
-    cache_request = _build_ak_web_static_cache_request("GET", _AK_WEB_PREFIX, target_url, normalized_path)
+    cache_request = _build_ak_web_static_cache_request("GET", _AK_PUBLIC_STATIC_CACHE_NAMESPACE, target_url, normalized_path)
     if not cache_request:
         return WarmupAssetResult(normalized_path, "BYPASS", error="not_cacheable")
     static_cache_lock = None
@@ -16090,7 +16100,7 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
     target_url = _build_ak_public_static_target_url(normalized_path, request)
     cache_request = _build_ak_web_static_cache_request(
         request.method,
-        _AK_WEB_PREFIX,
+        _AK_PUBLIC_STATIC_CACHE_NAMESPACE,
         target_url,
         normalized_path,
     )
