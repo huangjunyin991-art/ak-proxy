@@ -3,6 +3,7 @@
 
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
+    const STYLE_VERSION = 'ai-session-drawer-fixed-20260611';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
     const SESSION_LIST_STALE_MS = 20000;
@@ -57,9 +58,14 @@
         },
 
         ensureStyle() {
-            if (document.getElementById(STYLE_ID)) return;
-            const style = document.createElement('style');
-            style.id = STYLE_ID;
+            let style = document.getElementById(STYLE_ID);
+            if (style && style.getAttribute('data-ak-ai-style-version') === STYLE_VERSION) return;
+            if (!style) {
+                style = document.createElement('style');
+                style.id = STYLE_ID;
+                (document.head || document.documentElement).appendChild(style);
+            }
+            style.setAttribute('data-ak-ai-style-version', STYLE_VERSION);
             style.textContent = [
                 '#ak-im-root .ak-im-ai-status{display:flex!important;align-items:center;justify-content:space-between;gap:8px;min-height:26px;padding:4px 10px;margin:0;color:#3b4758;font-size:12px;line-height:1.3;background:#f8fafc;border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box}',
                 '#ak-im-root .ak-im-ai-status-main{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}',
@@ -80,8 +86,8 @@
                 '#ak-im-root .ak-im-ai-topbar-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
                 '#ak-im-root .ak-im-ai-topbar-btn:active{transform:translateY(1px)}',
                 '#ak-im-root .ak-im-ai-topbar-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}',
-                '#ak-im-root .ak-im-ai-session-mask{position:absolute;inset:0;z-index:78;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
-                '#ak-im-root .ak-im-ai-session-panel{width:100%;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column}',
+                '#ak-im-root .ak-im-ai-session-mask{position:fixed;inset:0;z-index:78;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
+                '#ak-im-root .ak-im-ai-session-panel{width:100%;max-width:560px;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column}',
                 '#ak-im-root .ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
                 '#ak-im-root .ak-im-ai-session-title{min-width:0;font-size:16px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '#ak-im-root .ak-im-ai-session-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}',
@@ -135,7 +141,6 @@
                 '#ak-im-root .ak-im-ai-thinking-text{display:block;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.45}',
                 '@keyframes ak-im-ai-thinking{0%,100%{opacity:.36;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}'
             ].join('\n');
-            (document.head || document.documentElement).appendChild(style);
         },
 
         ensurePlusEntryButton() {
@@ -805,6 +810,12 @@
             if (mask && mask.parentNode) mask.parentNode.removeChild(mask);
         },
 
+        getSessionDrawerHost() {
+            const root = this.getRootElement();
+            if (!root) return null;
+            return root.querySelector('.ak-im-chat-screen') || root.querySelector('.ak-im-shell') || root;
+        },
+
         sessionTitle(item) {
             const title = String(item && item.title || '').trim();
             return title || '新对话';
@@ -884,11 +895,14 @@
                 return;
             }
             this.ensureStyle();
+            const host = this.getSessionDrawerHost() || root;
             let mask = root.querySelector('.ak-im-ai-session-mask');
             if (!mask) {
                 mask = document.createElement('div');
                 mask.className = 'ak-im-ai-session-mask';
-                root.appendChild(mask);
+                host.appendChild(mask);
+            } else if (mask.parentNode !== host) {
+                host.appendChild(mask);
             }
             const aiState = state.aiAssistant;
             const activeId = Number(aiState.activeSessionId || 0);
