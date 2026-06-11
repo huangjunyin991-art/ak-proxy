@@ -2822,6 +2822,20 @@ async def proxy_rpc(path: str, request: Request):
     risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "rpc")
     if risk_isolation_response is not None:
         return risk_isolation_response
+    auth_cookie_header = ""
+    params, raw_body, patched_auth_cookies, auth_patched = await _patch_public_rpc_auth_from_cookie(
+        path,
+        request,
+        content_type,
+        params,
+        raw_body,
+    )
+    if patched_auth_cookies:
+        auth_cookie_header = _build_cookie_header(patched_auth_cookies)
+    if auth_patched:
+        risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "rpc_cookie_auth")
+        if risk_isolation_response is not None:
+            return risk_isolation_response
 
     trace_rpc_paths = {
         "public_ace",
@@ -2848,9 +2862,12 @@ async def proxy_rpc(path: str, request: Request):
         selected_exit = _select_forward_exit(path)
 
         upstream_started_at = time.perf_counter()
+        forward_headers = dict(request.headers)
+        if auth_cookie_header:
+            forward_headers["cookie"] = auth_cookie_header
         response = await forward_request(
 
-            request.method, path, content_type, params, raw_body, dict(request.headers),
+            request.method, path, content_type, params, raw_body, forward_headers,
 
             client_ip=client_ip,
 
@@ -14323,6 +14340,107 @@ def _build_proxy_passthrough_response(response: httpx.Response) -> Response:
         media_type=response.headers.get("content-type", "application/octet-stream"),
     )
     return _mirror_upstream_set_cookies(proxy_response, response.headers)
+
+
+PUBLIC_RPC_AUTH_PATCH_PATHS = {
+    "public_ep_sellrecords1",
+    "public_ep_sellrecords2",
+    "public_ep_sellrecords3",
+    "question_get1",
+    "check_answer",
+    "check_transactionpassword",
+    "mnemonic_get12",
+    "mnemonic_confirm",
+    "logout",
+}
+
+
+def _is_blank_rpc_auth_value(value) -> bool:
+    text = str(value or "").strip().lower()
+    return text in {"", "123", "undefined", "null", "none"}
+
+
+def _rpc_user_id_from_login_result(login_result: dict) -> str:
+    if not isinstance(login_result, dict):
+        return ""
+    user_data = login_result.get("UserData")
+    if not isinstance(user_data, dict):
+        return ""
+    for key in ("Id", "ID", "UserID", "userid"):
+        value = user_data.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
+def _rewrite_raw_body_with_params(content_type: str, params: dict) -> bytes:
+    if "application/json" in str(content_type or "").lower():
+        return json.dumps(params, ensure_ascii=False).encode("utf-8")
+    return urlencode(params).encode("utf-8")
+
+
+async def _load_public_rpc_cookie_auth(request: Request) -> tuple[str, dict]:
+    username = online_manager.normalize_username(
+        request.cookies.get("ak_username")
+        or request.cookies.get("ak_im_username")
+        or ""
+    )
+    if not username:
+        return "", {}
+    cached = _ak_auth_cache.get(username)
+    if not cached or time.time() >= float(cached.get("expires") or 0):
+        try:
+            cached = await db.load_ak_auth_state(username, check_expiry=True) or {}
+        except Exception as e:
+            logger.warning(f"[PublicRpcAuthPatch] load_auth_failed username={username}: {e}")
+            cached = {}
+    if cached:
+        if not cached.get("expires"):
+            expires_at = cached.get("expires_at")
+            try:
+                cached["expires"] = expires_at.timestamp() if expires_at else time.time() + _BROWSE_SESSION_TTL
+            except Exception:
+                cached["expires"] = time.time() + _BROWSE_SESSION_TTL
+        _ak_auth_cache[username] = cached
+    return username, cached or {}
+
+
+async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, content_type: str,
+                                             params: dict, raw_body: bytes) -> tuple[dict, bytes, dict, bool]:
+    normalized_path = str(path or "").strip("/").lower()
+    if normalized_path not in PUBLIC_RPC_AUTH_PATCH_PATHS:
+        return params, raw_body, {}, False
+    current_key = str(params.get("key") or params.get("Key") or "").strip()
+    current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
+    if not _is_blank_rpc_auth_value(current_key) and not _is_blank_rpc_auth_value(current_user_id):
+        return params, raw_body, {}, False
+    username, cached = await _load_public_rpc_cookie_auth(request)
+    if not cached:
+        logger.warning(f"[PublicRpcAuthPatch/{path}] no_cached_auth username={username or '-'}")
+        return params, raw_body, {}, False
+    login_result = cached.get("login_result", {})
+    userkey = str(cached.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
+    user_id = _rpc_user_id_from_login_result(login_result)
+    patched = False
+    next_params = dict(params)
+    if userkey and _is_blank_rpc_auth_value(current_key):
+        next_params["key"] = userkey
+        next_params.pop("Key", None)
+        patched = True
+    if user_id and _is_blank_rpc_auth_value(current_user_id):
+        next_params["UserID"] = user_id
+        next_params.pop("userid", None)
+        patched = True
+    if not patched:
+        return params, raw_body, {}, False
+    next_raw_body = raw_body
+    if request.method in ["POST", "PUT"]:
+        next_raw_body = _rewrite_raw_body_with_params(content_type, next_params)
+    logger.warning(
+        f"[PublicRpcAuthPatch/{path}] username={username or '-'} "
+        f"key_fp={fingerprint_log_secret(userkey)} userId={user_id or '-'}"
+    )
+    return next_params, next_raw_body, dict(cached.get("cookies") or {}), True
 
 
 def _extract_userkey(data):
