@@ -12447,6 +12447,8 @@ _WIDGET_CACHE_MAX_AGE = 31536000
 
 _WIDGET_REVALIDATE_MAX_AGE = 300
 
+_WIDGET_LOADER_SHORT_CACHE_MAX_AGE = 300
+
 _WIDGET_ASSET_VERSION_CACHE_TTL_SECONDS = 2.0
 
 _WIDGET_ASSET_VERSION_CACHE = {"expires_at": 0.0, "value": ""}
@@ -12648,7 +12650,7 @@ def _version_widget_asset_url(url: str, asset_version: str = "") -> str:
 def _rewrite_widget_asset_url(url: str, asset_version: str = "") -> str:
     try:
         if urlsplit(url).path.lower() == "/chat/widget.js":
-            return "/admin/api/ak-client-runtime-loader"
+            return _version_widget_asset_url("/admin/api/ak-client-runtime-loader", asset_version)
     except Exception:
         return url
     return _version_widget_asset_url(url, asset_version)
@@ -12668,13 +12670,69 @@ def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
     )
 
 
-def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
-    return {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0",
+_WIDGET_LOADER_NTFY_QUERY_KEYS = {
+    "ak_im_open",
+    "im_username",
+    "im_switch_ts",
+    "im_switch_nonce",
+    "im_switch_sig",
+    "ts",
+    "nonce",
+    "sig",
+}
+
+
+def _url_has_widget_ntfy_query(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        parsed = urlsplit(text)
+        query = parsed.query
+        if not query and text.startswith("?"):
+            query = text[1:]
+        params = parse_qs(query, keep_blank_values=True)
+        return any(str(key or "").lower() in _WIDGET_LOADER_NTFY_QUERY_KEYS for key in params.keys())
+    except Exception:
+        lowered = text.lower()
+        return any((key + "=") in lowered for key in _WIDGET_LOADER_NTFY_QUERY_KEYS)
+
+
+def _is_widget_loader_ntfy_request(request: Request | None) -> bool:
+    if request is None:
+        return False
+    try:
+        if _url_has_widget_ntfy_query(str(request.url)):
+            return True
+    except Exception:
+        pass
+    try:
+        if _url_has_widget_ntfy_query(str(request.headers.get("referer") or "")):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _build_widget_loader_headers(request: Request | None, asset_version: str, ntfy_request: bool) -> dict[str, str]:
+    try:
+        requested_version = str(request.query_params.get("v") or "").strip() if request is not None else ""
+    except Exception:
+        requested_version = ""
+    headers = {
+        "ETag": f'W/"widget-loader-{asset_version}"',
         "X-AK-Widget-Version": asset_version,
+        "X-AK-Widget-Loader-Cache": "bypass-ntfy" if ntfy_request else ("versioned" if requested_version == asset_version else "short"),
     }
+    if ntfy_request:
+        headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        headers["Pragma"] = "no-cache"
+        headers["Expires"] = "0"
+    elif requested_version == asset_version:
+        headers["Cache-Control"] = f"public, max-age={_WIDGET_CACHE_MAX_AGE}, immutable"
+    else:
+        headers["Cache-Control"] = f"public, max-age={_WIDGET_LOADER_SHORT_CACHE_MAX_AGE}, must-revalidate"
+    return headers
 
 
 def _build_ntfy_im_username_switch_prelude() -> str:
@@ -12728,19 +12786,33 @@ async def _get_client_runtime_content(asset_version: str) -> tuple[str, list[str
     return await run_blocking_asset_file(_refresh_client_runtime_content_cache, asset_version)
 
 
-def _build_ntfy_loader_context_prelude(request: Request | None = None) -> str:
+def _build_ntfy_loader_context_prelude(request: Request | None = None, include_referrer: bool = True) -> str:
     referer = ""
-    try:
-        referer = str(request.headers.get("referer") or "").strip() if request is not None else ""
-    except Exception:
-        referer = ""
+    if include_referrer:
+        try:
+            referer = str(request.headers.get("referer") or "").strip() if request is not None else ""
+        except Exception:
+            referer = ""
     return "window.__AK_NTFY_LOADER_REFERRER__ = " + json.dumps(referer, ensure_ascii=False) + ";\n"
 
 
 async def _build_widget_loader_response(request: Request | None = None) -> Response:
+    request_started_at = time.perf_counter()
+    version_started_at = time.perf_counter()
     asset_version = _get_widget_asset_version()
+    version_ms = max(0.0, (time.perf_counter() - version_started_at) * 1000)
+    ntfy_request = _is_widget_loader_ntfy_request(request)
+    headers = _build_widget_loader_headers(request, asset_version, ntfy_request)
+    try:
+        if not ntfy_request and request is not None and request.headers.get("if-none-match") == headers.get("ETag"):
+            headers["Server-Timing"] = f"ak_version;dur={version_ms:.1f}, ak_total;dur={max(0.0, (time.perf_counter() - request_started_at) * 1000):.1f}"
+            return Response(status_code=304, headers=headers)
+    except Exception:
+        pass
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
+    bootstrap_started_at = time.perf_counter()
     bootstrap_content = await _get_widget_bootstrap_content(asset_version)
+    bootstrap_ms = max(0.0, (time.perf_counter() - bootstrap_started_at) * 1000)
     loader = (
         "(function(){"
         "try{"
@@ -12776,13 +12848,21 @@ async def _build_widget_loader_response(request: Request | None = None) -> Respo
     )
     if bootstrap_content:
         loader = bootstrap_content + "\n;\n" + loader
+    ntfy_started_at = time.perf_counter()
     ntfy_prelude = await _get_widget_ntfy_prelude(asset_version)
+    ntfy_ms = max(0.0, (time.perf_counter() - ntfy_started_at) * 1000)
     if ntfy_prelude:
-        loader = _build_ntfy_loader_context_prelude(request) + ntfy_prelude + "\n;\n" + loader
+        loader = _build_ntfy_loader_context_prelude(request, include_referrer=ntfy_request) + ntfy_prelude + "\n;\n" + loader
+    headers["Server-Timing"] = (
+        f"ak_version;dur={version_ms:.1f}, "
+        f"ak_bootstrap;dur={bootstrap_ms:.1f}, "
+        f"ak_ntfy;dur={ntfy_ms:.1f}, "
+        f"ak_total;dur={max(0.0, (time.perf_counter() - request_started_at) * 1000):.1f}"
+    )
     return Response(
         content=loader,
         media_type="application/javascript",
-        headers=_build_widget_loader_headers(asset_version),
+        headers=headers,
     )
 
 
