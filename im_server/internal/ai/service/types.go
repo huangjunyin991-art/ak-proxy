@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"im_server/internal/ai/billing"
+	messagetree "im_server/internal/ai/message_tree"
 	aisession "im_server/internal/ai/session"
 	"im_server/internal/entitlement"
 )
@@ -63,6 +64,28 @@ type SessionUpdateInput struct {
 	Title  *string `json:"title,omitempty"`
 	Status *string `json:"status,omitempty"`
 	Pinned *bool   `json:"pinned,omitempty"`
+}
+
+type SessionMessages struct {
+	Session         aisession.Session    `json:"session"`
+	ActiveMessageID int64                `json:"active_message_id"`
+	Items           []SessionMessageItem `json:"items"`
+}
+
+type SessionMessageItem struct {
+	messagetree.Message
+	VersionCount int              `json:"version_count"`
+	Versions     []MessageVersion `json:"versions,omitempty"`
+}
+
+type MessageVersion struct {
+	ID        int64     `json:"id"`
+	VersionNo int       `json:"version_no"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type MessageEditInput struct {
+	Content string `json:"content"`
 }
 
 type Task struct {

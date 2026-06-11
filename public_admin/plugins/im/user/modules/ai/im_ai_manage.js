@@ -84,6 +84,12 @@
                 '#ak-im-root .ak-im-ai-session-icon-btn{width:30px;height:30px;border:0;border-radius:999px;background:rgba(15,23,42,.06);color:#334155;font-size:12px;font-weight:900;cursor:pointer}',
                 '#ak-im-root .ak-im-ai-session-icon-btn.danger{color:#b91c1c;background:rgba(239,68,68,.10)}',
                 '#ak-im-root .ak-im-ai-session-empty{padding:26px 12px;color:#64748b;font-size:13px;text-align:center;line-height:1.6}',
+                '#ak-im-root .ak-im-ai-tree-actions{display:flex;align-items:center;gap:6px;margin-top:5px;min-height:24px;flex-wrap:wrap}',
+                '#ak-im-root .ak-im-message-row.ak-self .ak-im-ai-tree-actions{justify-content:flex-end}',
+                '#ak-im-root .ak-im-ai-tree-btn{height:24px;border:0;border-radius:999px;background:rgba(37,99,235,.10);color:#1d4ed8;padding:0 9px;font-size:11px;font-weight:900;cursor:pointer}',
+                '#ak-im-root .ak-im-ai-tree-btn.secondary{background:rgba(15,23,42,.07);color:#475569}',
+                '#ak-im-root .ak-im-ai-tree-version{display:inline-flex;align-items:center;gap:4px;height:24px;border-radius:999px;background:rgba(15,23,42,.06);padding:0 5px;color:#475569;font-size:11px;font-weight:800}',
+                '#ak-im-root .ak-im-ai-tree-version button{width:20px;height:20px;border:0;border-radius:999px;background:#fff;color:#334155;font-weight:900;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.08)}',
                 '#ak-im-root .ak-im-ai-suggestions{display:flex;align-items:center;gap:7px;padding:7px 10px 0;background:#f7f7f7;border-top:1px solid rgba(15,23,42,.06);box-sizing:border-box;overflow-x:auto;scrollbar-width:none}',
                 '#ak-im-root .ak-im-ai-suggestions::-webkit-scrollbar{display:none}',
                 '#ak-im-root .ak-im-ai-suggestion-label{flex:0 0 auto;color:#7b8494;font-size:12px;white-space:nowrap}',
@@ -205,6 +211,271 @@
             return payload;
         },
 
+        shouldUseSessionMessages(conversationId) {
+            const state = this.ctx && this.ctx.state;
+            const activeConversationId = Number(conversationId || state && state.activeConversationId || 0);
+            if (!activeConversationId) return false;
+            const activeSession = this.ctx && typeof this.ctx.getActiveSession === 'function' ? this.ctx.getActiveSession() : null;
+            if (activeSession && Number(activeSession.conversation_id || 0) === activeConversationId) {
+                return this.isAIConversation(activeSession);
+            }
+            return this.isAIConversation();
+        },
+
+        getActiveAISessionId() {
+            const state = this.ctx && this.ctx.state;
+            const aiState = state && state.aiAssistant ? state.aiAssistant : null;
+            const activeId = Number(aiState && aiState.activeSessionId || 0);
+            if (activeId > 0) return activeId;
+            const items = Array.isArray(aiState && aiState.sessions) ? aiState.sessions : [];
+            for (let index = 0; index < items.length; index += 1) {
+                const id = Number(items[index] && items[index].id || 0);
+                if (id > 0) return id;
+            }
+            return 0;
+        },
+
+        normalizeSessionMessagesPayload(data) {
+            const payload = data && data.messages && Array.isArray(data.messages.items) ? data.messages : data;
+            return {
+                session: payload && payload.session ? payload.session : null,
+                activeMessageId: Number(payload && payload.active_message_id || 0),
+                items: Array.isArray(payload && payload.items) ? payload.items : []
+            };
+        },
+
+        treeMessageToChatItem(item, conversationId, index) {
+            const message = item && item.Message ? item.Message : item;
+            const role = String(message && message.role || '').trim().toLowerCase();
+            const isAssistant = role === 'assistant';
+            const isUser = role === 'user';
+            const senderUsername = isAssistant ? BOT_USERNAME : String(this.ctx && this.ctx.state && this.ctx.state.username || '');
+            const displayName = isAssistant ? '\u5c0f\u0041' : String(this.ctx && this.ctx.state && (this.ctx.state.displayName || this.ctx.state.username) || '');
+            const content = String(message && message.content || '');
+            const versions = Array.isArray(item && item.versions) ? item.versions : [];
+            const metadata = message && message.metadata && typeof message.metadata === 'object' ? message.metadata : {};
+            const suggestions = Array.isArray(metadata.suggestions) ? metadata.suggestions : [];
+            return {
+                id: Number(message && message.id || 0),
+                conversation_id: Number(conversationId || 0),
+                sender_username: senderUsername,
+                sender_display_name: displayName,
+                seq_no: Number(index || 0) + 1,
+                message_type: 'text',
+                content: content,
+                content_preview: content,
+                status: 'sent',
+                sent_at: message && message.created_at ? message.created_at : new Date().toISOString(),
+                avatar_kind: isAssistant ? 'generated' : undefined,
+                avatar_style: isAssistant ? 'thumbs' : undefined,
+                avatar_seed: isAssistant ? 'ak-ai-assistant' : undefined,
+                ai_suggestions: suggestions,
+                __akAITreeMessage: true,
+                __akAIMessageId: Number(message && message.id || 0),
+                __akAISessionId: Number(message && message.session_id || 0),
+                __akAIRole: role,
+                __akAICanEdit: isUser,
+                __akAICanRegenerate: isAssistant || isUser,
+                __akAIVersionNo: Number(message && message.version_no || 1),
+                __akAIVersionCount: Math.max(1, Number(item && item.version_count || versions.length || 1) || 1),
+                __akAIVersions: versions
+            };
+        },
+
+        applySessionMessagesPayload(data, conversationId) {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !state.aiAssistant) return this.normalizeSessionMessagesPayload(data);
+            const payload = this.normalizeSessionMessagesPayload(data);
+            if (payload.session && payload.session.id) {
+                state.aiAssistant.activeSessionId = Number(payload.session.id || 0);
+            }
+            state.aiAssistant.activeMessageId = payload.activeMessageId;
+            state.aiAssistant.sessionMessagesLoadedAt = Date.now();
+            const messages = payload.items.map((item, index) => this.treeMessageToChatItem(item, conversationId || state.activeConversationId, index));
+            state.activeMessages = messages;
+            state.activeMessagesLoading = false;
+            return payload;
+        },
+
+        loadSessionMessages(conversationId, options) {
+            const state = this.ctx && this.ctx.state;
+            if (!this.ctx || typeof this.ctx.request !== 'function' || !state || !state.aiAssistant) return Promise.resolve(null);
+            const targetConversationId = Number(conversationId || state.activeConversationId || 0);
+            if (!targetConversationId) return Promise.resolve(null);
+            const ensureSession = () => {
+                const activeId = this.getActiveAISessionId();
+                if (activeId > 0) return Promise.resolve(activeId);
+                return this.loadAISessions(true).then(() => this.getActiveAISessionId());
+            };
+            state.activeMessagesLoading = true;
+            if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+            return ensureSession().then((sessionId) => {
+                if (!sessionId) {
+                    state.activeMessages = [];
+                    state.activeMessagesLoading = false;
+                    if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+                    return null;
+                }
+                return this.ctx.request(this.ctx.httpRoot + '/ai/sessions/' + encodeURIComponent(sessionId) + '/messages').then((data) => {
+                    this.applySessionMessagesPayload(data, targetConversationId);
+                    if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+                    this.renderAIMessageControls();
+                    const activeTask = state.aiAssistant && state.aiAssistant.activeTask && Number(state.aiAssistant.activeTask.conversation_id || 0) === targetConversationId
+                        ? state.aiAssistant.activeTask
+                        : null;
+                    if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) {
+                        this.showThinkingPlaceholder(activeTask);
+                    } else {
+                        this.renderSuggestions();
+                    }
+                    return data;
+                });
+            }).catch((error) => {
+                state.activeMessagesLoading = false;
+                state.aiAssistant.sessionsError = error && error.message ? error.message : 'AI 会话消息加载失败';
+                if (typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+                return null;
+            });
+        },
+
+        findTreeMessage(messageId) {
+            const state = this.ctx && this.ctx.state;
+            const targetId = Number(messageId || 0);
+            if (!state || !targetId || !Array.isArray(state.activeMessages)) return null;
+            for (let index = 0; index < state.activeMessages.length; index += 1) {
+                const item = state.activeMessages[index];
+                if (item && Number(item.__akAIMessageId || item.id || 0) === targetId) return item;
+            }
+            return null;
+        },
+
+        runTreeMessageAction(messageId, action, body) {
+            const state = this.ctx && this.ctx.state;
+            const sessionId = Number(state && state.aiAssistant && state.aiAssistant.activeSessionId || 0);
+            const targetId = Number(messageId || 0);
+            if (!this.ctx || typeof this.ctx.request !== 'function' || !sessionId || !targetId) return Promise.resolve(null);
+            return this.ctx.request(this.ctx.httpRoot + '/ai/sessions/' + encodeURIComponent(sessionId) + '/messages/' + encodeURIComponent(targetId) + '/' + encodeURIComponent(action), {
+                method: 'POST',
+                body: body ? JSON.stringify(body) : '{}'
+            }).then((data) => {
+                const payload = data && data.messages ? data.messages : data;
+                this.applySessionMessagesPayload(payload, state.activeConversationId);
+                if (data && data.ai_task && data.ai_task.task_id) {
+                    this.setActiveTask(data.ai_task);
+                } else if (typeof this.ctx.renderMessages === 'function') {
+                    this.ctx.renderMessages();
+                }
+                this.renderAIMessageControls();
+                return data;
+            }).catch((error) => {
+                if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : 'AI 消息操作失败');
+                return null;
+            });
+        },
+
+        editTreeMessage(messageId) {
+            const item = this.findTreeMessage(messageId);
+            if (!item) return Promise.resolve(null);
+            const current = String(item.content || item.content_preview || '').trim();
+            const next = typeof global.prompt === 'function' ? global.prompt('修改这条提问', current) : '';
+            const content = String(next || '').trim();
+            if (!content || content === current) return Promise.resolve(null);
+            this.removeSuggestionBar();
+            return this.runTreeMessageAction(messageId, 'edit', { content: content });
+        },
+
+        regenerateTreeMessage(messageId) {
+            this.removeSuggestionBar();
+            return this.runTreeMessageAction(messageId, 'regenerate', null);
+        },
+
+        activateTreeMessage(messageId) {
+            return this.runTreeMessageAction(messageId, 'activate', null).then((data) => {
+                if (!data && this.ctx && typeof this.ctx.renderMessages === 'function') this.ctx.renderMessages();
+                return data;
+            });
+        },
+
+        activateAdjacentVersion(messageId, direction) {
+            const item = this.findTreeMessage(messageId);
+            const versions = Array.isArray(item && item.__akAIVersions) ? item.__akAIVersions : [];
+            if (!item || versions.length <= 1) return Promise.resolve(null);
+            const currentId = Number(item.__akAIMessageId || item.id || 0);
+            let currentIndex = -1;
+            versions.forEach(function(version, index) {
+                if (Number(version && version.id || 0) === currentId) currentIndex = index;
+            });
+            if (currentIndex < 0) currentIndex = 0;
+            const step = String(direction || '') === 'prev' ? -1 : 1;
+            const nextIndex = (currentIndex + step + versions.length) % versions.length;
+            const nextId = Number(versions[nextIndex] && versions[nextIndex].id || 0);
+            if (!nextId || nextId === currentId) return Promise.resolve(null);
+            return this.activateTreeMessage(nextId);
+        },
+
+        renderAIMessageControls() {
+            const root = this.getRootElement();
+            const state = this.ctx && this.ctx.state;
+            if (!root || !state || !this.isAIConversation() || !Array.isArray(state.activeMessages)) return;
+            root.querySelectorAll('.ak-im-ai-tree-actions').forEach(function(node) {
+                if (node && node.parentNode) node.parentNode.removeChild(node);
+            });
+            state.activeMessages.forEach((item) => {
+                if (!item || !item.__akAITreeMessage || item.__akAIPlaceholder) return;
+                const messageId = Number(item.__akAIMessageId || item.id || 0);
+                if (!messageId) return;
+                const wrapper = root.querySelector('[data-im-message-id="' + String(messageId) + '"]');
+                const main = wrapper ? wrapper.querySelector('.ak-im-message-main') : null;
+                if (!main) return;
+                const role = String(item.__akAIRole || '').trim().toLowerCase();
+                const versionCount = Number(item.__akAIVersionCount || 1);
+                const versionNo = Number(item.__akAIVersionNo || 1);
+                const actions = document.createElement('div');
+                actions.className = 'ak-im-ai-tree-actions';
+                const parts = [];
+                if (role === 'user') {
+                    parts.push('<button type="button" class="ak-im-ai-tree-btn secondary" data-ak-ai-tree-edit="' + messageId + '">修改</button>');
+                }
+                if (role === 'assistant' || role === 'user') {
+                    parts.push('<button type="button" class="ak-im-ai-tree-btn" data-ak-ai-tree-regenerate="' + messageId + '">重新生成</button>');
+                }
+                if (versionCount > 1) {
+                    parts.push('<span class="ak-im-ai-tree-version"><button type="button" data-ak-ai-tree-version-prev="' + messageId + '">‹</button><span>' + versionNo + '/' + versionCount + '</span><button type="button" data-ak-ai-tree-version-next="' + messageId + '">›</button></span>');
+                }
+                if (!parts.length) return;
+                actions.innerHTML = parts.join('');
+                main.appendChild(actions);
+                actions.querySelectorAll('[data-ak-ai-tree-edit]').forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.editTreeMessage(button.getAttribute('data-ak-ai-tree-edit'));
+                    });
+                });
+                actions.querySelectorAll('[data-ak-ai-tree-regenerate]').forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.regenerateTreeMessage(button.getAttribute('data-ak-ai-tree-regenerate'));
+                    });
+                });
+                actions.querySelectorAll('[data-ak-ai-tree-version-prev]').forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.activateAdjacentVersion(button.getAttribute('data-ak-ai-tree-version-prev'), 'prev');
+                    });
+                });
+                actions.querySelectorAll('[data-ak-ai-tree-version-next]').forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.activateAdjacentVersion(button.getAttribute('data-ak-ai-tree-version-next'), 'next');
+                    });
+                });
+            });
+        },
+
         loadAISessions(force) {
             const state = this.ctx && this.ctx.state;
             if (!this.ctx || typeof this.ctx.request !== 'function' || !this.ctx.httpRoot) return Promise.resolve(null);
@@ -278,6 +549,9 @@
                 body: JSON.stringify({ title: '新对话' })
             }).then((data) => {
                 this.applySessionPayload(data);
+                if (Number(state.activeConversationId || 0) > 0 && this.isAIConversation()) {
+                    this.loadSessionMessages(state.activeConversationId, { forceRefresh: true });
+                }
                 return data;
             }).catch((error) => {
                 if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : '新建 AI 会话失败');
@@ -305,6 +579,9 @@
             }).then((data) => {
                 this.applySessionPayload(data);
                 this.closeSessionDrawer();
+                if (Number(state.activeConversationId || 0) > 0) {
+                    this.loadSessionMessages(state.activeConversationId, { forceRefresh: true });
+                }
                 return data;
             }).catch((error) => {
                 if (typeof global.alert === 'function') global.alert(error && error.message ? error.message : '切换 AI 会话失败');
@@ -699,12 +976,18 @@
             const task = item.ai_task || (meta && meta.response && meta.response.ai_task) || null;
             if (task && task.task_id && Number(item.conversation_id || 0) === Number(state.activeConversationId || 0)) {
                 this.setActiveTask(task);
+                if (this.isAIConversation()) {
+                    setTimeout(() => this.loadSessionMessages(item.conversation_id, { forceRefresh: true }), 120);
+                }
                 return;
             }
             const activeTask = state.aiAssistant && state.aiAssistant.activeTask ? state.aiAssistant.activeTask : null;
             if (activeTask && String(item.sender_username || '').trim().toLowerCase() === BOT_USERNAME && Number(item.conversation_id || 0) === Number(activeTask.conversation_id || 0)) {
                 this.clearThinkingPlaceholder(activeTask.task_id);
                 this.setActiveTask(Object.assign({}, activeTask, { status: 'succeeded', message: 'AI 已回复' }), { skipPoll: true });
+                if (this.isAIConversation()) {
+                    setTimeout(() => this.loadSessionMessages(item.conversation_id, { forceRefresh: true }), 160);
+                }
                 setTimeout(() => this.renderSuggestions(), 0);
             }
         },
@@ -963,6 +1246,7 @@
             }
             this.renderSuggestions();
             this.renderSessionDrawer();
+            this.renderAIMessageControls();
         }
     };
 

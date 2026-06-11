@@ -87,6 +87,10 @@
             return this.ctx && typeof this.ctx.getCallManage === 'function' ? this.ctx.getCallManage() : null;
         },
 
+        getAIManage() {
+            return this.ctx && typeof this.ctx.getAIManage === 'function' ? this.ctx.getAIManage() : null;
+        },
+
         routeCallSocketPayload(data) {
             const callManage = this.getCallManage();
             if (callManage && typeof callManage.handleSocketPayload === 'function') {
@@ -377,6 +381,7 @@
         canRecallMessage(item) {
             const state = this.getState();
             if (!item || typeof item !== 'object' || !state) return false;
+            if (item.__akAITreeMessage) return false;
             if (Number(item.id || 0) <= 0 || this.isLocalTempMessage(item)) return false;
             if (String(item.status || '').toLowerCase() === 'recalled') return false;
             if (String(item.sender_username || '') !== String(state.username || '')) return false;
@@ -955,6 +960,10 @@
                 state.activeMessagesLoading = false;
                 this.ctx.render();
                 return Promise.resolve(null);
+            }
+            const aiManage = this.getAIManage();
+            if (aiManage && typeof aiManage.shouldUseSessionMessages === 'function' && aiManage.shouldUseSessionMessages(targetConversationId) && typeof aiManage.loadSessionMessages === 'function') {
+                return aiManage.loadSessionMessages(targetConversationId, options);
             }
             const self = this;
             const forceRefresh = !!(options && options.forceRefresh);

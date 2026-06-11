@@ -163,6 +163,55 @@ func (r *Repository) List(ctx context.Context, sessionID int64) ([]Message, erro
 	return items, rows.Err()
 }
 
+func (r *Repository) Get(ctx context.Context, sessionID int64, id int64) (Message, error) {
+	if r == nil || r.db == nil {
+		return Message{}, errors.New("AI message tree repository is not available")
+	}
+	if sessionID <= 0 || id <= 0 {
+		return Message{}, errors.New("invalid AI message lookup")
+	}
+	row := r.db.QueryRow(ctx, `
+		SELECT id, session_id, COALESCE(parent_id, 0), role, content, version_group_id, version_no,
+		       source_message_id, projection_message_id, provider_id, model, finish_reason,
+		       prompt_tokens, completion_tokens, total_tokens, metadata_json, created_at, updated_at
+		FROM im_ai_message
+		WHERE session_id = $1 AND id = $2`, sessionID, id)
+	return scanMessage(row)
+}
+
+func (r *Repository) VersionSiblings(ctx context.Context, sessionID int64, versionGroupID string) ([]Message, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("AI message tree repository is not available")
+	}
+	if sessionID <= 0 {
+		return nil, errors.New("missing AI session")
+	}
+	versionGroupID = strings.TrimSpace(versionGroupID)
+	if versionGroupID == "" {
+		return nil, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT id, session_id, COALESCE(parent_id, 0), role, content, version_group_id, version_no,
+		       source_message_id, projection_message_id, provider_id, model, finish_reason,
+		       prompt_tokens, completion_tokens, total_tokens, metadata_json, created_at, updated_at
+		FROM im_ai_message
+		WHERE session_id = $1 AND version_group_id = $2
+		ORDER BY version_no ASC, id ASC`, sessionID, versionGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]Message, 0)
+	for rows.Next() {
+		item, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (r *Repository) FindBySourceMessage(ctx context.Context, sessionID int64, sourceMessageID int64, role string) (Message, error) {
 	if r == nil || r.db == nil {
 		return Message{}, errors.New("AI message tree repository is not available")

@@ -35,6 +35,10 @@ type aiSessionUpdateRequest struct {
 	Pinned *bool   `json:"pinned,omitempty"`
 }
 
+type aiMessageEditRequest struct {
+	Content string `json:"content"`
+}
+
 type aiProviderSecretRequest struct {
 	Secret string `json:"secret"`
 }
@@ -97,12 +101,8 @@ func (a *App) handleAISession(w http.ResponseWriter, r *http.Request, username s
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "AI service is not available"})
 		return
 	}
-	conversationID, err := a.ensureDirectConversation(r.Context(), username, bot.Username)
+	conversationID, err := a.ensureAIConversation(r.Context(), username)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	if err := a.ai.EnsureConversation(r.Context(), username, conversationID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
@@ -115,6 +115,19 @@ func (a *App) handleAISession(w http.ResponseWriter, r *http.Request, username s
 		"bootstrap":        bootstrap,
 		"sessions":         sessions,
 	})
+}
+
+func (a *App) ensureAIConversation(ctx context.Context, username string) (int64, error) {
+	conversationID, err := a.ensureDirectConversation(ctx, username, bot.Username)
+	if err != nil {
+		return 0, err
+	}
+	if a.ai != nil {
+		if err := a.ai.EnsureConversation(ctx, username, conversationID); err != nil {
+			return 0, err
+		}
+	}
+	return conversationID, nil
 }
 
 func (a *App) handleAISessions(w http.ResponseWriter, r *http.Request, username string) {
@@ -163,6 +176,60 @@ func (a *App) handleAISessionItem(w http.ResponseWriter, r *http.Request, userna
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid AI session id"})
 		return
+	}
+	if len(parts) == 3 && parts[2] == "messages" && r.Method == http.MethodGet {
+		item, err := a.ai.SessionMessages(r.Context(), username, id)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
+	if len(parts) == 5 && parts[2] == "messages" && r.Method == http.MethodPost {
+		messageID, err := parseID(parts[3])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid AI message id"})
+			return
+		}
+		action := strings.TrimSpace(parts[4])
+		if action == "activate" {
+			item, err := a.ai.ActivateMessage(r.Context(), username, id, messageID)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+			return
+		}
+		conversationID, err := a.ensureAIConversation(r.Context(), username)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		switch action {
+		case "regenerate":
+			messages, task, err := a.ai.RegenerateReply(r.Context(), username, conversationID, id, messageID)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "ai_task": task})
+			return
+		case "edit":
+			var req aiMessageEditRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+				return
+			}
+			messages, task, err := a.ai.EditMessageAndReply(r.Context(), username, conversationID, id, messageID, aiservice.MessageEditInput{Content: req.Content})
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "ai_task": task})
+			return
+		}
 	}
 	if len(parts) == 2 && r.Method == http.MethodPatch {
 		var req aiSessionUpdateRequest

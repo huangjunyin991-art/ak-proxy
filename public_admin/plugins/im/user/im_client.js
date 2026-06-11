@@ -2196,6 +2196,7 @@
                 return ensureLazyModule('callManage');
             },
             getActiveSession: getActiveSession,
+            getAIManage: getAIManageModule,
             isGroupSession: isGroupSession,
             getSessionManage: getSessionManageModule,
             getGroupManage: getGroupManageModule,

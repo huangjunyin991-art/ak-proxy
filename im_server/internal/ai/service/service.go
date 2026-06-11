@@ -518,40 +518,193 @@ func (s *Service) ActivateSession(ctx context.Context, ownerUsername string, id 
 	return s.ListSessions(ctx, ownerUsername, false)
 }
 
+func (s *Service) SessionMessages(ctx context.Context, ownerUsername string, id int64) (SessionMessages, error) {
+	session, err := s.loadOwnedSession(ctx, ownerUsername, id)
+	if err != nil {
+		return SessionMessages{}, err
+	}
+	return s.sessionMessages(ctx, session)
+}
+
+func (s *Service) ActivateMessage(ctx context.Context, ownerUsername string, sessionID int64, messageID int64) (SessionMessages, error) {
+	session, err := s.loadOwnedSession(ctx, ownerUsername, sessionID)
+	if err != nil {
+		return SessionMessages{}, err
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	if _, err := s.messages.Get(ctx, session.ID, messageID); err != nil {
+		return SessionMessages{}, err
+	}
+	updated, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, messageID)
+	if err != nil {
+		return SessionMessages{}, err
+	}
+	if _, err := s.sessions.SetActive(ctx, ownerUsername, session.ID); err != nil {
+		return SessionMessages{}, err
+	}
+	return s.sessionMessages(ctx, updated)
+}
+
+func (s *Service) EditMessageAndReply(ctx context.Context, ownerUsername string, conversationID int64, sessionID int64, messageID int64, input MessageEditInput) (SessionMessages, Task, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	content := strings.TrimSpace(input.Content)
+	if ownerUsername == "" || conversationID <= 0 || sessionID <= 0 || messageID <= 0 || content == "" {
+		return SessionMessages{}, Task{}, errors.New("invalid AI message edit")
+	}
+	session, err := s.loadOwnedSession(ctx, ownerUsername, sessionID)
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	original, err := s.messages.Get(ctx, session.ID, messageID)
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	if original.Role != messagetree.RoleUser {
+		return SessionMessages{}, Task{}, errors.New("only user messages can be edited")
+	}
+	versionGroupID := strings.TrimSpace(original.VersionGroupID)
+	if versionGroupID == "" {
+		versionGroupID = sourceMessageVersionGroup("user_edit", original.ID)
+	}
+	edited, err := s.messages.Append(ctx, messagetree.AppendInput{
+		SessionID:      session.ID,
+		ParentID:       original.ParentID,
+		Role:           messagetree.RoleUser,
+		Content:        content,
+		VersionGroupID: versionGroupID,
+		Metadata: map[string]any{
+			"source":              "ai_message_edit",
+			"edited_from_message": original.ID,
+			"conversation_id":     conversationID,
+		},
+	})
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	if _, err := s.sessions.SetActive(ctx, ownerUsername, session.ID); err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	updated, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, edited.ID)
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	task, err := s.triggerReplyForTreeMessage(ctx, ownerUsername, conversationID, updated.ID, edited.ID, map[string]any{
+		"action":                 "edit_and_reply",
+		"edited_from_message_id": original.ID,
+	})
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	messages, msgErr := s.sessionMessages(ctx, updated)
+	if msgErr != nil {
+		return SessionMessages{}, Task{}, msgErr
+	}
+	return messages, task, nil
+}
+
+func (s *Service) RegenerateReply(ctx context.Context, ownerUsername string, conversationID int64, sessionID int64, messageID int64) (SessionMessages, Task, error) {
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" || conversationID <= 0 || sessionID <= 0 || messageID <= 0 {
+		return SessionMessages{}, Task{}, errors.New("invalid AI regeneration")
+	}
+	session, err := s.loadOwnedSession(ctx, ownerUsername, sessionID)
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	target, err := s.messages.Get(ctx, session.ID, messageID)
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	parent := target
+	if target.Role == messagetree.RoleAssistant {
+		if target.ParentID <= 0 {
+			return SessionMessages{}, Task{}, errors.New("assistant message has no parent")
+		}
+		parent, err = s.messages.Get(ctx, session.ID, target.ParentID)
+		if err != nil {
+			return SessionMessages{}, Task{}, err
+		}
+	}
+	if parent.Role != messagetree.RoleUser {
+		return SessionMessages{}, Task{}, errors.New("regeneration must start from a user message")
+	}
+	if _, err := s.sessions.SetActive(ctx, ownerUsername, session.ID); err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	updated, err := s.sessions.SetActiveMessage(ctx, ownerUsername, session.ID, parent.ID)
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	task, err := s.triggerReplyForTreeMessage(ctx, ownerUsername, conversationID, updated.ID, parent.ID, map[string]any{
+		"action":            "regenerate",
+		"source_message_id": target.ID,
+	})
+	if err != nil {
+		return SessionMessages{}, Task{}, err
+	}
+	messages, msgErr := s.sessionMessages(ctx, updated)
+	if msgErr != nil {
+		return SessionMessages{}, Task{}, msgErr
+	}
+	return messages, task, nil
+}
+
 func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (Task, error) {
 	ownerUsername = normalizeUsername(ownerUsername)
 	if ownerUsername == "" || conversationID <= 0 {
 		return Task{}, errors.New("invalid AI task")
 	}
+	aiSessionID, aiTriggerMessageID := s.recordTriggerMessageNode(ctx, ownerUsername, conversationID, triggerMessageID)
+	priority, rejected, err := s.precheckReplyTask(ctx, ownerUsername, conversationID)
+	if err != nil {
+		return Task{}, err
+	}
+	if rejected != nil {
+		return *rejected, nil
+	}
+	return s.queueReplyTask(ctx, ownerUsername, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID, priority, map[string]any{
+		"trigger_message_id": triggerMessageID,
+	})
+}
+
+func (s *Service) precheckReplyTask(ctx context.Context, ownerUsername string, conversationID int64) (int, *Task, error) {
 	if s.sink == nil {
-		return Task{}, errors.New("AI message sink is not configured")
+		return 0, nil, errors.New("AI message sink is not configured")
 	}
 	cfg, err := s.Config(ctx)
 	if err != nil {
-		return Task{}, err
+		return 0, nil, err
 	}
 	if !cfg.Enabled {
 		message := "AI 助手暂未开启，本次没有消耗额度。"
 		if _, err := s.sink.InsertAITextMessage(context.Background(), conversationID, bot.Username, message); err != nil {
 			log.Printf("insert AI disabled prompt failed: conversation_id=%d err=%v", conversationID, err)
 		}
-		return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
+		return 0, &Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
 	}
 	precheck, err := s.entitlement.Precheck(ctx, ownerUsername, entitlement.FeatureAIChat)
 	if err != nil {
-		return Task{}, err
+		return 0, nil, err
 	}
 	if !precheck.Allowed {
 		message := friendlyPrecheckMessage(precheck)
 		if _, err := s.sink.InsertAITextMessage(context.Background(), conversationID, bot.Username, message); err != nil {
 			log.Printf("insert AI quota prompt failed: conversation_id=%d err=%v", conversationID, err)
 		}
-		return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
+		return 0, &Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
 	}
 	if s.billing != nil {
 		billingPrecheck, err := s.billing.Precheck(ctx, ownerUsername, precheck.Snapshot.Tier)
 		if err != nil {
-			return Task{}, err
+			return 0, nil, err
 		}
 		if !billingPrecheck.Allowed {
 			message := billingPrecheck.Message
@@ -561,17 +714,35 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 			if _, err := s.sink.InsertAITextMessage(context.Background(), conversationID, bot.Username, message); err != nil {
 				log.Printf("insert AI billing prompt failed: conversation_id=%d err=%v", conversationID, err)
 			}
-			return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
+			return 0, &Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
 		}
 	}
-	aiSessionID, aiTriggerMessageID := s.recordTriggerMessageNode(ctx, ownerUsername, conversationID, triggerMessageID)
+	return precheck.Snapshot.Priority, nil, nil
+}
+
+func (s *Service) triggerReplyForTreeMessage(ctx context.Context, ownerUsername string, conversationID int64, aiSessionID int64, aiTriggerMessageID int64, payload map[string]any) (Task, error) {
+	priority, rejected, err := s.precheckReplyTask(ctx, ownerUsername, conversationID)
+	if err != nil {
+		return Task{}, err
+	}
+	if rejected != nil {
+		return *rejected, nil
+	}
+	return s.queueReplyTask(ctx, ownerUsername, conversationID, 0, aiSessionID, aiTriggerMessageID, priority, payload)
+}
+
+func (s *Service) queueReplyTask(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64, aiSessionID int64, aiTriggerMessageID int64, priority int, payload map[string]any) (Task, error) {
 	taskID, err := newTaskID()
 	if err != nil {
 		return Task{}, err
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"trigger_message_id": triggerMessageID,
-	})
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["trigger_message_id"] = triggerMessageID
+	payload["ai_session_id"] = aiSessionID
+	payload["ai_trigger_message_id"] = aiTriggerMessageID
+	payloadRaw, _ := json.Marshal(payload)
 	var createdAt time.Time
 	stageText := taskStageText(taskStageQueued)
 	err = s.db.QueryRow(ctx, `
@@ -583,7 +754,7 @@ func (s *Service) TriggerReply(ctx context.Context, ownerUsername string, conver
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, NOW(), NOW())
 		RETURNING created_at`,
 		taskID, conversationID, ownerUsername, triggerMessageID, taskStatusQueued, entitlement.FeatureAIChat,
-		precheck.Snapshot.Priority, string(payload), taskStageQueued, stageText, aiSessionID, aiTriggerMessageID).Scan(&createdAt)
+		priority, string(payloadRaw), taskStageQueued, stageText, aiSessionID, aiTriggerMessageID).Scan(&createdAt)
 	if err != nil {
 		return Task{}, err
 	}
@@ -657,6 +828,71 @@ func (s *Service) activeSessionForConversation(ctx context.Context, ownerUsernam
 		s.ensureDefaultActiveSession(ctx, ownerUsername, legacy)
 	}
 	return legacy, err
+}
+
+func (s *Service) loadOwnedSession(ctx context.Context, ownerUsername string, id int64) (aisession.Session, error) {
+	if s == nil || s.db == nil {
+		return aisession.Session{}, errors.New("AI service is not available")
+	}
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" || id <= 0 {
+		return aisession.Session{}, errors.New("invalid AI session")
+	}
+	if s.sessions == nil {
+		s.sessions = aisession.NewRepository(s.db)
+	}
+	return s.sessions.Get(ctx, ownerUsername, id)
+}
+
+func (s *Service) sessionMessages(ctx context.Context, session aisession.Session) (SessionMessages, error) {
+	if s == nil || s.db == nil {
+		return SessionMessages{}, errors.New("AI service is not available")
+	}
+	if session.ID <= 0 {
+		return SessionMessages{}, errors.New("invalid AI session")
+	}
+	if s.messages == nil {
+		s.messages = messagetree.NewRepository(s.db)
+	}
+	result := SessionMessages{
+		Session:         session,
+		ActiveMessageID: session.ActiveMessageID,
+		Items:           []SessionMessageItem{},
+	}
+	if session.ActiveMessageID <= 0 {
+		return result, nil
+	}
+	path, err := s.messages.ActivePath(ctx, session.ID, session.ActiveMessageID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return result, nil
+		}
+		return SessionMessages{}, err
+	}
+	items := make([]SessionMessageItem, 0, len(path))
+	for _, message := range path {
+		view := SessionMessageItem{Message: message, VersionCount: 1}
+		if strings.TrimSpace(message.VersionGroupID) != "" {
+			siblings, err := s.messages.VersionSiblings(ctx, session.ID, message.VersionGroupID)
+			if err != nil {
+				return SessionMessages{}, err
+			}
+			if len(siblings) > 0 {
+				view.VersionCount = len(siblings)
+				view.Versions = make([]MessageVersion, 0, len(siblings))
+				for _, sibling := range siblings {
+					view.Versions = append(view.Versions, MessageVersion{
+						ID:        sibling.ID,
+						VersionNo: sibling.VersionNo,
+						CreatedAt: sibling.CreatedAt,
+					})
+				}
+			}
+		}
+		items = append(items, view)
+	}
+	result.Items = items
+	return result, nil
 }
 
 func (s *Service) recordTriggerMessageNode(ctx context.Context, ownerUsername string, conversationID int64, triggerMessageID int64) (int64, int64) {
@@ -754,6 +990,7 @@ func (s *Service) recordAssistantReplyNode(ctx context.Context, ownerUsername st
 			"task_id":             taskID,
 			"conversation_id":     conversationID,
 			"upstream_request_id": resp.UpstreamRequestID,
+			"suggestions":         message.Suggestions,
 			"source":              "legacy_ai_reply",
 		},
 	})
