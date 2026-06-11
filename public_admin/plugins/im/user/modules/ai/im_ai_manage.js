@@ -3,7 +3,7 @@
 
     const BOT_USERNAME = 'ak_ai_assistant';
     const STYLE_ID = 'ak-im-ai-manage-style';
-    const STYLE_VERSION = 'ai-session-drawer-history-list-20260611';
+    const STYLE_VERSION = 'ai-session-popover-history-list-20260611';
     const DRAWER_DEBUG_VERSION = 'drawer-history-20260611-1';
     const MAX_TASK_POLL_MS = 130000;
     const MAX_TASK_POLL_ERRORS = 6;
@@ -113,15 +113,15 @@
                 '#ak-im-root .ak-im-ai-topbar-btn:hover{background:rgba(37,99,235,.12);color:#1d4ed8}',
                 '#ak-im-root .ak-im-ai-topbar-btn:active{transform:translateY(1px)}',
                 '#ak-im-root .ak-im-ai-topbar-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}',
-                '.ak-im-ai-session-mask{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(3px);box-sizing:border-box}',
-                '.ak-im-ai-session-panel{width:100%;max-width:560px;max-height:min(70vh,520px);border-radius:18px 18px 0 0;background:#f8fafc;box-shadow:0 -18px 46px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
-                '.ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;background:#fff;border-bottom:1px solid rgba(15,23,42,.07)}',
-                '.ak-im-ai-session-title{min-width:0;font-size:16px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-ai-session-mask{position:fixed;inset:0;z-index:2147483647;display:block;background:rgba(15,23,42,.035);box-sizing:border-box}',
+                '.ak-im-ai-session-panel{position:fixed;width:min(360px,calc(100vw - 24px));max-height:min(62vh,460px);border:1px solid rgba(148,163,184,.22);border-radius:16px;background:#fbfdff;box-shadow:0 18px 48px rgba(15,23,42,.18),0 2px 8px rgba(15,23,42,.08);overflow:hidden;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
+                '.ak-im-ai-session-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px 9px;background:rgba(255,255,255,.96);border-bottom:1px solid rgba(15,23,42,.06)}',
+                '.ak-im-ai-session-title{min-width:0;font-size:15px;font-weight:900;color:#101827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-ai-session-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}',
-                '.ak-im-ai-session-btn{height:32px;border:1px solid rgba(37,99,235,.16);border-radius:999px;background:#eef4ff;color:#1d4ed8;padding:0 12px;font-size:12px;font-weight:900;cursor:pointer}',
+                '.ak-im-ai-session-btn{height:30px;border:1px solid rgba(37,99,235,.16);border-radius:999px;background:#eef4ff;color:#1d4ed8;padding:0 11px;font-size:12px;font-weight:900;cursor:pointer}',
                 '.ak-im-ai-session-btn.secondary{background:#f1f5f9;color:#334155;border-color:rgba(15,23,42,.08)}',
                 '.ak-im-ai-session-btn:disabled{opacity:.5;cursor:not-allowed}',
-                '.ak-im-ai-session-list{padding:8px 10px 14px;overflow:auto;box-sizing:border-box}',
+                '.ak-im-ai-session-list{padding:7px 8px 9px;overflow:auto;box-sizing:border-box}',
                 '.ak-im-ai-session-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:7px;width:100%;min-height:62px;border:1px solid transparent;border-radius:14px;background:transparent;padding:10px 10px;margin:4px 0;box-sizing:border-box;text-align:left;cursor:pointer;transition:background .15s ease,border-color .15s ease,box-shadow .15s ease}',
                 '.ak-im-ai-session-row:hover{background:#fff;border-color:rgba(148,163,184,.30)}',
                 '.ak-im-ai-session-row.is-active{background:#fff;border-color:rgba(37,99,235,.24);box-shadow:0 8px 22px rgba(15,23,42,.08)}',
@@ -899,6 +899,19 @@
             return document.body || document.documentElement;
         },
 
+        getSessionDrawerAnchorRect() {
+            const root = this.getRootElement();
+            const button = root ? root.querySelector('[data-ak-ai-topbar-sessions]') : document.querySelector('[data-ak-ai-topbar-sessions]');
+            if (!button || typeof button.getBoundingClientRect !== 'function') return null;
+            try {
+                const rect = button.getBoundingClientRect();
+                if (!rect || !rect.width || !rect.height) return null;
+                return rect;
+            } catch (e) {
+                return null;
+            }
+        },
+
         applySessionDrawerLayout(mask) {
             if (!mask) return;
             mask.setAttribute('data-ak-ai-session-layer', '1');
@@ -908,27 +921,36 @@
             mask.style.right = '0';
             mask.style.bottom = '0';
             mask.style.zIndex = '2147483647';
-            mask.style.display = 'flex';
-            mask.style.alignItems = 'flex-end';
-            mask.style.justifyContent = 'center';
+            mask.style.display = 'block';
             mask.style.width = '100vw';
             mask.style.height = '100dvh';
             mask.style.minHeight = '100vh';
             mask.style.boxSizing = 'border-box';
-            mask.style.background = 'rgba(15,23,42,.22)';
-            mask.style.backdropFilter = 'blur(3px)';
+            mask.style.background = 'rgba(15,23,42,.035)';
+            mask.style.backdropFilter = 'none';
             mask.style.visibility = 'visible';
             mask.style.opacity = '1';
             mask.style.pointerEvents = 'auto';
             const panel = mask.querySelector('.ak-im-ai-session-panel');
             if (!panel) return;
-            panel.style.width = '100%';
-            panel.style.maxWidth = '560px';
-            panel.style.maxHeight = 'min(70vh, 520px)';
-            panel.style.minHeight = '260px';
-            panel.style.borderRadius = '18px 18px 0 0';
-            panel.style.background = '#f8fafc';
-            panel.style.boxShadow = '0 -18px 46px rgba(15,23,42,.18)';
+            const viewportWidth = Math.max(320, global.innerWidth || document.documentElement.clientWidth || 360);
+            const viewportHeight = Math.max(420, global.innerHeight || document.documentElement.clientHeight || 640);
+            const panelWidth = Math.min(360, Math.max(296, viewportWidth - 24));
+            const anchor = this.getSessionDrawerAnchorRect();
+            const top = Math.max(10, Math.min((anchor ? anchor.bottom + 8 : 58), viewportHeight - 180));
+            const right = Math.max(10, Math.min(anchor ? viewportWidth - anchor.right : 12, viewportWidth - panelWidth - 10));
+            const maxHeight = Math.max(220, Math.min(460, viewportHeight - top - 12));
+            panel.style.position = 'fixed';
+            panel.style.top = top + 'px';
+            panel.style.right = right + 'px';
+            panel.style.width = panelWidth + 'px';
+            panel.style.maxWidth = 'calc(100vw - 24px)';
+            panel.style.maxHeight = maxHeight + 'px';
+            panel.style.minHeight = '0';
+            panel.style.border = '1px solid rgba(148,163,184,.22)';
+            panel.style.borderRadius = '16px';
+            panel.style.background = '#fbfdff';
+            panel.style.boxShadow = '0 18px 48px rgba(15,23,42,.18), 0 2px 8px rgba(15,23,42,.08)';
             panel.style.overflow = 'hidden';
             panel.style.display = 'flex';
             panel.style.flexDirection = 'column';
@@ -1118,7 +1140,7 @@
                 ].join('');
             }).join('') : '<div class="ak-im-ai-session-empty">' + (aiState.sessionsLoading ? '正在加载 AI 会话...' : '暂无 AI 会话') + '</div>';
             mask.innerHTML = [
-                '<div class="ak-im-ai-session-panel" role="dialog" aria-modal="true" aria-label="AI 历史上下文">',
+                '<div class="ak-im-ai-session-panel" role="dialog" aria-modal="false" aria-label="AI 历史上下文">',
                 '<div class="ak-im-ai-session-head">',
                 '<div class="ak-im-ai-session-title">历史上下文</div>',
                 '<div class="ak-im-ai-session-actions">',
