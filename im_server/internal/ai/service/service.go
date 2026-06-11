@@ -14,7 +14,9 @@ import (
 
 	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
+	messagetree "im_server/internal/ai/message_tree"
 	"im_server/internal/ai/provider"
+	aisession "im_server/internal/ai/session"
 	"im_server/internal/entitlement"
 
 	"github.com/jackc/pgx/v5"
@@ -111,6 +113,12 @@ func (s *Service) QueueConcurrency() int {
 func (s *Service) EnsureSchema(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
+	}
+	if err := aisession.NewRepository(s.db).EnsureSchema(ctx); err != nil {
+		return err
+	}
+	if err := messagetree.NewRepository(s.db).EnsureSchema(ctx); err != nil {
+		return err
 	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS im_ai_config (
