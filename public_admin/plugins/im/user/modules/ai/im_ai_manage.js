@@ -47,7 +47,9 @@
                 activeSessionId: 0,
                 sessionMutating: false,
                 treeHydrateRequestedAt: 0,
-                pinBottomUntil: 0
+                pinBottomUntil: 0,
+                editingMessageId: 0,
+                editingOriginalContent: ''
             };
             Object.keys(defaults).forEach(function(key) {
                 if (typeof state.aiAssistant[key] === 'undefined') state.aiAssistant[key] = defaults[key];
@@ -514,18 +516,54 @@
             });
         },
 
+        clearEditingState() {
+            const state = this.ctx && this.ctx.state;
+            if (!state || !state.aiAssistant) return;
+            state.aiAssistant.editingMessageId = 0;
+            state.aiAssistant.editingOriginalContent = '';
+        },
+
         editTreeMessage(messageId) {
             const item = this.findTreeMessage(messageId);
             if (!item) return Promise.resolve(null);
             const current = this.getTreeMessageText(item);
-            const next = typeof global.prompt === 'function' ? global.prompt('修改这条提问', current) : '';
-            const content = String(next || '').trim();
-            if (!content || content === current) return Promise.resolve(null);
+            if (!current) return Promise.resolve(null);
             this.removeSuggestionBar();
-            return this.runTreeMessageAction(messageId, 'edit', { content: content });
+            const state = this.ctx && this.ctx.state;
+            if (state && state.aiAssistant) {
+                state.aiAssistant.editingMessageId = Number(messageId || 0);
+                state.aiAssistant.editingOriginalContent = current;
+            }
+            if (this.ctx && typeof this.ctx.setComposerText === 'function') this.ctx.setComposerText(current);
+            return Promise.resolve(null);
+        },
+
+        handleComposerSubmit(content) {
+            const state = this.ctx && this.ctx.state;
+            const aiState = state && state.aiAssistant ? state.aiAssistant : null;
+            const messageId = Number(aiState && aiState.editingMessageId || 0);
+            if (!messageId || !this.isAIConversation()) return Promise.resolve(false);
+            const nextContent = String(content || '').trim();
+            const originalContent = String(aiState.editingOriginalContent || '').trim();
+            if (!nextContent) return Promise.resolve(true);
+            if (nextContent === originalContent) {
+                this.clearEditingState();
+                if (this.ctx && typeof this.ctx.clearComposerText === 'function') this.ctx.clearComposerText();
+                return this.regenerateTreeMessage(messageId).then(function() { return true; });
+            }
+            this.removeSuggestionBar();
+            this.clearEditingState();
+            if (this.ctx && typeof this.ctx.clearComposerText === 'function') this.ctx.clearComposerText();
+            return this.runTreeMessageAction(messageId, 'edit', { content: nextContent }).then(function() {
+                return true;
+            });
         },
 
         regenerateTreeMessage(messageId) {
+            const state = this.ctx && this.ctx.state;
+            const wasEditing = Number(state && state.aiAssistant && state.aiAssistant.editingMessageId || 0) > 0;
+            this.clearEditingState();
+            if (wasEditing && this.ctx && typeof this.ctx.clearComposerText === 'function') this.ctx.clearComposerText();
             this.removeSuggestionBar();
             return this.runTreeMessageAction(messageId, 'regenerate', null);
         },
@@ -567,12 +605,14 @@
             return this.activateTreeMessage(nextId);
         },
 
-        getLatestActionMessageId() {
+        getLatestUserActionMessageId() {
             const state = this.ctx && this.ctx.state;
             const items = state && Array.isArray(state.activeMessages) ? state.activeMessages : [];
             for (let index = items.length - 1; index >= 0; index -= 1) {
                 const item = items[index];
                 if (!item || item.__akAIPlaceholder || !item.__akAITreeMessage) continue;
+                const role = String(item.__akAIRole || '').trim().toLowerCase();
+                if (role !== 'user') continue;
                 const messageId = Number(item.__akAIMessageId || item.id || 0);
                 if (messageId > 0) return messageId;
             }
@@ -588,13 +628,13 @@
             });
             const labels = {
                 copy: '\u590d\u5236\u5185\u5bb9',
-                edit: '\u4fee\u6539\u8fd9\u6761\u6d88\u606f',
+                edit: '\u4fee\u6539\u540e\u91cd\u65b0\u751f\u6210',
                 regenerate: '\u91cd\u65b0\u751f\u6210',
                 prev: '\u4e0a\u4e00\u4e2a\u7248\u672c',
                 next: '\u4e0b\u4e00\u4e2a\u7248\u672c'
             };
             let hasTreeMessage = false;
-            const latestActionMessageId = this.getLatestActionMessageId();
+            const latestUserActionMessageId = this.getLatestUserActionMessageId();
             state.activeMessages.forEach((item) => {
                 if (!item || item.__akAIPlaceholder) return;
                 const isTreeMessage = !!item.__akAITreeMessage;
@@ -611,14 +651,14 @@
                 const actions = document.createElement('div');
                 actions.className = 'ak-im-ai-tree-actions';
                 const parts = [];
-                if (this.getTreeMessageText(item)) {
+                if (role === 'assistant' && this.getTreeMessageText(item)) {
                     parts.push(this.aiTreeIconButton('copy', messageId, labels.copy, 'copy'));
                 }
-                const canMutateLatest = isTreeMessage && messageId === latestActionMessageId;
+                const canMutateLatest = isTreeMessage && role === 'user' && messageId === latestUserActionMessageId;
                 if (canMutateLatest && role === 'user') {
                     parts.push(this.aiTreeIconButton('edit', messageId, labels.edit, 'edit', { disabled: busy }));
                 }
-                if (canMutateLatest && (role === 'assistant' || role === 'user')) {
+                if (canMutateLatest) {
                     parts.push(this.aiTreeIconButton('regenerate', messageId, labels.regenerate, 'regenerate', { primary: true, disabled: busy }));
                 }
                 if (isTreeMessage && versionCount > 1) {

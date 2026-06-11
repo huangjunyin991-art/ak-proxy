@@ -2558,6 +2558,15 @@
                 } catch (e) {}
                 return true;
             },
+            clearComposerText: function() {
+                if (!inputEl) return false;
+                inputEl.value = '';
+                state.inputValue = '';
+                handleComposerInput('');
+                syncInputHeight();
+                syncComposerState();
+                return true;
+            },
             renderMessages: function() {
                 const messageManageModule = getMessageManageModule();
                 if (messageManageModule && typeof messageManageModule.renderMessages === 'function') {
@@ -7089,6 +7098,21 @@
 
     function sendCurrentMessage() {
         const content = inputEl ? String(inputEl.value || '').trim() : '';
+        const aiManageModule = getAIManageModule();
+        if (content && aiManageModule && typeof aiManageModule.handleComposerSubmit === 'function') {
+            const handled = aiManageModule.handleComposerSubmit(content);
+            if (handled && typeof handled.then === 'function') {
+                return handled.then(function(ok) {
+                    if (ok) return null;
+                    return sendCurrentMessageAfterAIEditCheck(content);
+                });
+            }
+            if (handled) return Promise.resolve(null);
+        }
+        return sendCurrentMessageAfterAIEditCheck(content);
+    }
+
+    function sendCurrentMessageAfterAIEditCheck(content) {
         const groupAdminsModule = getGroupAdminsModule();
         if (content && groupAdminsModule && typeof groupAdminsModule.handleComposerCommand === 'function' && groupAdminsModule.handleComposerCommand(content)) {
             if (inputEl) inputEl.value = '';
