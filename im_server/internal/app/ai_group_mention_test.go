@@ -33,6 +33,9 @@ func TestAppendAIVirtualMember(t *testing.T) {
 	if items[1].Username != "ak_ai_assistant" || items[1].Role != "ai" {
 		t.Fatalf("unexpected virtual AI member: %+v", items[1])
 	}
+	if items[1].DisplayName != "小A" {
+		t.Fatalf("AI identity should use a verified role badge, not display name text: %+v", items[1])
+	}
 	items = appendAIVirtualMember(items)
 	if len(items) != 2 {
 		t.Fatalf("virtual AI member should not be duplicated, got %d items", len(items))

@@ -785,8 +785,10 @@
                 const defaultMetaText = isAIConversation ? '' : (summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : ''));
                 const metaText = self.getLocalMessageMetaText(item, defaultMetaText);
                 const senderMarkup = !isSelf && isActiveGroupSession
-                    ? (self.ctx && typeof self.ctx.buildDisplayNameWithHonorMarkup === 'function'
-                        ? self.ctx.buildDisplayNameWithHonorMarkup(senderDisplayName || item.sender_username || '群成员', senderHonorName, '群成员')
+                    ? (self.ctx && typeof self.ctx.buildIdentityNameMarkup === 'function'
+                        ? self.ctx.buildIdentityNameMarkup(item, senderDisplayName || item.sender_username || '群成员', senderHonorName, '群成员', { aiBadgeClassName: 'ak-im-message-ai-badge' })
+                        : self.ctx && typeof self.ctx.buildDisplayNameWithHonorMarkup === 'function'
+                            ? self.ctx.buildDisplayNameWithHonorMarkup(senderDisplayName || item.sender_username || '群成员', senderHonorName, '群成员')
                         : self.ctx.escapeHtml(senderDisplayName || item.sender_username || '群成员'))
                     : '';
                 const progressMarkup = isAIConversation ? '' : self.buildReadProgressButtonMarkup(item, activeSession);

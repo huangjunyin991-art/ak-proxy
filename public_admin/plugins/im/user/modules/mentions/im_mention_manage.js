@@ -83,6 +83,18 @@
             return String(member && (member.display_name || member.username) || '').trim();
         },
 
+        isAISystemIdentity(member) {
+            if (this.ctx && typeof this.ctx.isAISystemIdentity === 'function') return this.ctx.isAISystemIdentity(member);
+            const username = String(member && member.username || '').trim().toLowerCase();
+            const role = String(member && member.role || '').trim().toLowerCase();
+            return username === 'ak_ai_assistant' || (role === 'ai' && username === 'ak_ai_assistant');
+        },
+
+        buildAIBadgeMarkup() {
+            if (this.ctx && typeof this.ctx.buildAIBadgeMarkup === 'function') return this.ctx.buildAIBadgeMarkup('ak-im-mention-ai-badge');
+            return '<span class="ak-im-ai-verified-badge ak-im-mention-ai-badge" title="系统AI身份" aria-label="系统AI身份"><span class="ak-im-ai-verified-dot" aria-hidden="true"></span>官方AI</span>';
+        },
+
         bindInputEvents() {
             const inputEl = this.getElements().inputEl;
             if (!inputEl || inputEl.__akMentionBound) return;
@@ -203,9 +215,10 @@
             this.getFilteredMembers().forEach(function(member) {
                 const username = String(member && member.username || '').trim().toLowerCase();
                 const displayName = this.getDisplayName(member) || username;
+                const isAI = this.isAISystemIdentity(member);
                 const avatarUrl = this.getAvatarUrl(member);
                 const avatar = avatarUrl ? '<img class="ak-im-mention-avatar" src="' + this.escapeHtml(avatarUrl) + '" alt="">' : '<span class="ak-im-mention-avatar">' + this.escapeHtml(displayName.slice(0, 1) || '@') + '</span>';
-                parts.push('<button class="ak-im-mention-item" type="button" data-im-mention-username="' + this.escapeHtml(username) + '">' + avatar + '<span class="ak-im-mention-main"><span class="ak-im-mention-name">' + this.escapeHtml(displayName) + '</span><span class="ak-im-mention-sub">' + this.escapeHtml(username) + '</span></span></button>');
+                parts.push('<button class="ak-im-mention-item' + (isAI ? ' is-ai-system' : '') + '" type="button" data-im-mention-username="' + this.escapeHtml(username) + '">' + avatar + '<span class="ak-im-mention-main"><span class="ak-im-mention-name"><span class="ak-im-mention-name-text">' + this.escapeHtml(displayName) + '</span>' + (isAI ? this.buildAIBadgeMarkup() : '') + '</span><span class="ak-im-mention-sub">' + this.escapeHtml(username) + '</span></span></button>');
             }.bind(this));
             if (!parts.length) return '<div class="ak-im-mention-empty">没有匹配的成员</div>';
             return parts.join('');

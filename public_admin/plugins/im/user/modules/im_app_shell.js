@@ -53,6 +53,8 @@
                 #ak-im-root .ak-im-chat-subtitle{margin-top:2px;font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-name-with-honor{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;vertical-align:middle}
                 #ak-im-root .ak-im-name-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+                #ak-im-root .ak-im-ai-verified-badge{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 7px;border-radius:999px;border:1px solid rgba(14,165,233,.35);background:linear-gradient(180deg,rgba(236,253,245,.98),rgba(224,242,254,.98));color:#0369a1;font-size:10px;font-weight:800;line-height:1;white-space:nowrap;box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 3px 8px rgba(14,165,233,.12)}
+                #ak-im-root .ak-im-ai-verified-dot{width:6px;height:6px;border-radius:999px;background:#06b6d4;box-shadow:0 0 0 3px rgba(6,182,212,.14);flex:0 0 auto}
                 #ak-im-root .ak-im-honor-badge{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;max-width:112px;min-height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-honor-badge.ak-im-honor-badge--rich{max-width:none;min-height:0;padding:0;background:transparent;color:inherit;line-height:0;overflow:visible}
                 #ak-im-root .ak-im-honor-badge-svg{display:block;width:50px;height:20px;flex:0 0 auto}
@@ -146,6 +148,7 @@
                 #ak-im-root .ak-im-contact-avatar{width:46px;height:46px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
                 #ak-im-root .ak-im-contact-body{min-width:0;flex:1}
                 #ak-im-root .ak-im-contact-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;min-width:0}
+                #ak-im-root .ak-im-contact-name .ak-im-ai-verified-badge{margin-left:6px}
                 #ak-im-root .ak-im-contact-meta{margin-top:3px;font-size:12px;color:#9ca3af;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-contact-list-section + .ak-im-contact-list-section{margin-top:8px}
                 #ak-im-root .ak-im-contact-list-section-title{padding:12px 16px 8px;background:#f7f7f7;font-size:12px;font-weight:600;color:#6b7280;line-height:1.5}
@@ -330,6 +333,7 @@
                 #ak-im-root .ak-im-message-main{display:flex;flex-direction:column;align-items:flex-start;max-width:min(78%, 420px)}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-message-main{align-items:flex-end}
                 #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4;display:flex;align-items:center;min-width:0}
+                #ak-im-root .ak-im-message-sender .ak-im-ai-verified-badge{margin-left:6px;height:16px;padding:0 6px;font-size:9px}
                 #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-image{padding:4px;background:#ffffff;box-shadow:0 2px 8px rgba(15,23,42,.06);border-radius:16px;overflow:hidden;white-space:normal}
@@ -411,11 +415,15 @@
                 #ak-im-root .ak-im-mention-panel{position:absolute;left:52px;right:52px;bottom:calc(62px + env(safe-area-inset-bottom, 0px));z-index:4;display:none;max-height:min(312px,42vh);overflow:auto;border-radius:16px;background:rgba(255,255,255,.98);box-shadow:0 12px 34px rgba(15,23,42,.18);padding:6px}
                 #ak-im-root .ak-im-mention-panel.is-open{display:block}
                 #ak-im-root .ak-im-mention-item{width:100%;border:none;background:transparent;border-radius:12px;padding:8px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer;color:#111827}
+                #ak-im-root .ak-im-mention-item.is-ai-system{background:linear-gradient(90deg,rgba(236,253,245,.88),rgba(239,246,255,.88));box-shadow:0 0 0 1px rgba(14,165,233,.14) inset}
                 #ak-im-root .ak-im-mention-item:active{background:#f3f4f6}
+                #ak-im-root .ak-im-mention-item.is-ai-system:active{background:linear-gradient(90deg,rgba(220,252,231,.95),rgba(219,234,254,.95))}
                 #ak-im-root .ak-im-mention-avatar{width:34px;height:34px;border-radius:10px;background:#e5e7eb;color:#374151;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:0 0 auto;object-fit:cover}
                 #ak-im-root .ak-im-mention-all .ak-im-mention-avatar{background:#dcfce7;color:#16a34a}
                 #ak-im-root .ak-im-mention-main{min-width:0;display:flex;flex-direction:column;gap:2px}
-                #ak-im-root .ak-im-mention-name{font-size:14px;font-weight:600;color:#111827;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-mention-name{font-size:14px;font-weight:600;color:#111827;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;min-width:0}
+                #ak-im-root .ak-im-mention-name-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+                #ak-im-root .ak-im-mention-ai-badge{height:17px;padding:0 6px;font-size:9px;flex:0 0 auto}
                 #ak-im-root .ak-im-mention-sub{font-size:11px;color:#6b7280;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-mention-empty{padding:14px 12px;color:#94a3b8;font-size:13px;text-align:center}
                 #ak-im-root .ak-im-hold-to-talk{display:none;width:100%;min-height:38px;border:none;border-radius:18px;background:#ffffff;color:#111827;font-size:15px;line-height:1.4;align-items:center;justify-content:center;padding:0 16px;box-shadow:0 1px 1px rgba(15,23,42,.06);cursor:pointer}
@@ -541,9 +549,11 @@
                 #ak-im-root .ak-im-member-item{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;min-width:0;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
                 #ak-im-root .ak-im-member-honor{width:100%;min-height:18px;display:flex;align-items:flex-end;justify-content:center}
                 #ak-im-root .ak-im-member-avatar{width:56px;height:56px;border-radius:16px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:18px;font-weight:700}
+                #ak-im-root .ak-im-member-item.is-ai-system .ak-im-member-avatar{box-shadow:0 0 0 2px rgba(14,165,233,.22),0 8px 18px rgba(14,165,233,.16)}
                 #ak-im-root .ak-im-member-body{width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px}
                 #ak-im-root .ak-im-member-name{font-size:13px;font-weight:600;color:#111827;line-height:1.5;display:block;max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-member-role{font-size:11px;color:#07c160;line-height:1.4}
+                #ak-im-root .ak-im-member-ai-badge{height:16px;padding:0 6px;font-size:9px}
                 #ak-im-root .ak-im-member-honor-badge{max-width:none;min-height:16px;padding:0 4px;font-size:9px}
                 #ak-im-root .ak-im-member-honor-badge.ak-im-honor-badge--rich .ak-im-honor-badge-svg{width:44px;height:18px}
                 #ak-im-root .ak-im-group-info-hero{background:#ffffff;padding:20px 16px 16px;display:flex;flex-direction:column;align-items:center;gap:8px}

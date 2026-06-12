@@ -2174,6 +2174,9 @@
             getAvatarUrl: getAvatarUrl,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
+            buildIdentityNameMarkup: buildIdentityNameMarkup,
+            isAISystemIdentity: isAISystemIdentity,
+            buildAIBadgeMarkup: buildAIBadgeMarkup,
             buildMessageBubbleMarkup: buildMessageBubbleMarkup,
             getMessageBubbleClassName: getMessageBubbleClassName,
             getMessageBubbleClickHandler: getMessageBubbleClickHandler,
@@ -2350,7 +2353,9 @@
             escapeHtml: escapeHtml,
             getAvatarUrl: getAvatarUrl,
             getActiveSession: getActiveSession,
-            isGroupSession: isGroupSession
+            isGroupSession: isGroupSession,
+            isAISystemIdentity: isAISystemIdentity,
+            buildAIBadgeMarkup: buildAIBadgeMarkup
         });
     }
 
@@ -4048,6 +4053,24 @@
         return '<span class="' + badgeClassName + '">' + escapeHtml(normalizedHonorName) + '</span>';
     }
 
+    function isAISystemIdentity(itemOrUsername) {
+        const username = typeof itemOrUsername === 'string'
+            ? String(itemOrUsername || '').trim().toLowerCase()
+            : String(itemOrUsername && itemOrUsername.username || itemOrUsername && itemOrUsername.sender_username || '').trim().toLowerCase();
+        const role = typeof itemOrUsername === 'string' ? '' : String(itemOrUsername && itemOrUsername.role || '').trim().toLowerCase();
+        return username === 'ak_ai_assistant' || (role === 'ai' && username === 'ak_ai_assistant');
+    }
+
+    function buildAIBadgeMarkup(extraClassName) {
+        const className = ('ak-im-ai-verified-badge ' + String(extraClassName || '')).trim();
+        return '<span class="' + escapeHtml(className) + '" title="系统AI身份" aria-label="系统AI身份"><span class="ak-im-ai-verified-dot" aria-hidden="true"></span>官方AI</span>';
+    }
+
+    function buildIdentityNameMarkup(item, displayName, honorName, fallbackText, options) {
+        const nameMarkup = buildDisplayNameWithHonorMarkup(displayName, honorName, fallbackText, options);
+        return nameMarkup + (isAISystemIdentity(item) ? buildAIBadgeMarkup(options && options.aiBadgeClassName) : '');
+    }
+
     function buildDisplayNameWithHonorMarkup(displayName, honorName, fallbackText, options) {
         const resolvedDisplayName = String(displayName || fallbackText || '').trim() || String(fallbackText || '未知用户');
         const settings = options || {};
@@ -4446,10 +4469,11 @@
 	    const username = String(member && member.username || '').trim();
 	    const honorName = normalizeHonorName(member && member.honor_name);
 	    const role = String(member && member.role || '').trim().toLowerCase();
-	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
+	    const isAI = isAISystemIdentity(member);
+	    const roleLabel = isAI ? '' : (role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : ''));
 	    const memberName = displayName || username || '未知成员';
 	    const honorBadgeMarkup = '<div class="ak-im-member-honor">' + (honorName ? buildHonorBadgeMarkup(honorName, 'ak-im-honor-badge ak-im-member-honor-badge') : '') + '</div>';
-	    return '<button class="ak-im-member-item" type="button" data-im-member-username="' + escapeHtml(username.toLowerCase()) + '">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', buildAvatarDescriptor(member), displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</button>';
+	    return '<button class="ak-im-member-item' + (isAI ? ' is-ai-system' : '') + '" type="button" data-im-member-username="' + escapeHtml(username.toLowerCase()) + '">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', buildAvatarDescriptor(member), displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div>' + (isAI ? buildAIBadgeMarkup('ak-im-member-ai-badge') : '') + '</div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</button>';
 	}
 
 	function renderMemberPanel() {
@@ -5536,7 +5560,7 @@
         const displayName = getContactDisplayName(contact);
         const honorName = normalizeHonorName(contact && contact.honor_name);
         return buildAvatarBoxMarkup('ak-im-contact-avatar', buildAvatarDescriptor(contact), displayName, displayName + '头像') +
-            '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + buildDisplayNameWithHonorMarkup(displayName, honorName, '联系人') + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
+            '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + buildIdentityNameMarkup(contact, displayName, honorName, '联系人') + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
     }
 
     function bindContactItemAction(node, contact, options) {

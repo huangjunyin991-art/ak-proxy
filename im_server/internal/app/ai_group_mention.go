@@ -74,7 +74,7 @@ func appendAIVirtualMember(items []SessionMemberItem) []SessionMemberItem {
 	}
 	return append(items, SessionMemberItem{
 		Username:    bot.Username,
-		DisplayName: bot.DisplayName + " · AI助手",
+		DisplayName: bot.DisplayName,
 		AvatarKind:  "generated",
 		AvatarStyle: defaultAvatarStyle,
 		AvatarSeed:  bot.AvatarSeed,
