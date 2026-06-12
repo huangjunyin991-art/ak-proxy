@@ -88,6 +88,9 @@
             }
             const atBottom = this.isAtBottom();
             navState.atBottom = atBottom;
+            if (!atBottom && Number(navState.forceBottomUntil || 0) > Date.now()) {
+                navState.forceBottomUntil = 0;
+            }
             if (atBottom && navState.newMessageCount > 0) {
                 navState.newMessageCount = 0;
                 navState.mentionSeqNo = 0;
@@ -158,6 +161,11 @@
                 scrollTop: messageList.scrollTop,
                 forceBottom: forceBottom
             };
+        },
+
+        shouldAutoFollowBottom() {
+            const navState = this.ensureNavigationState();
+            return this.isAtBottom() || !!(navState && Number(navState.forceBottomUntil || 0) > Date.now());
         },
 
         afterRenderMessages(snapshot) {

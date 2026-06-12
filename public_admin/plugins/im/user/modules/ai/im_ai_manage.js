@@ -263,9 +263,24 @@
                 || String(item && item.__akAIRole || '').trim().toLowerCase() === 'assistant';
         },
 
+        shouldFollowConversationBottom() {
+            const nav = this.ctx && typeof this.ctx.getMessageNavigation === 'function' ? this.ctx.getMessageNavigation() : null;
+            if (nav && typeof nav.shouldAutoFollowBottom === 'function') {
+                try { return !!nav.shouldAutoFollowBottom(); } catch (e) {}
+            }
+            if (nav && typeof nav.isAtBottom === 'function') {
+                try { return !!nav.isAtBottom(); } catch (e) {}
+            }
+            return true;
+        },
+
         keepConversationPinnedToBottom(durationMs) {
             const state = this.ctx && this.ctx.state;
             if (!state || !state.aiAssistant) return;
+            if (!this.shouldFollowConversationBottom()) {
+                state.aiAssistant.pinBottomUntil = 0;
+                return;
+            }
             const duration = Math.max(1200, Number(durationMs || 0) || 3000);
             state.aiAssistant.pinBottomUntil = Math.max(Number(state.aiAssistant.pinBottomUntil || 0), Date.now() + duration);
             if (typeof this.ctx.forceScrollToBottom === 'function') this.ctx.forceScrollToBottom(duration);
@@ -277,6 +292,10 @@
             const targetConversationId = Number(conversationId || state.activeConversationId || 0);
             if (!targetConversationId || targetConversationId !== Number(state.activeConversationId || 0)) return false;
             const aiState = state.aiAssistant || {};
+            if (!this.shouldFollowConversationBottom()) {
+                aiState.pinBottomUntil = 0;
+                return false;
+            }
             if (Number(aiState.pinBottomUntil || 0) > Date.now()) return true;
             const activeTask = aiState.activeTask && Number(aiState.activeTask.conversation_id || 0) === targetConversationId ? aiState.activeTask : null;
             if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) return true;
