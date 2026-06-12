@@ -4,12 +4,17 @@
     const AI_ASSISTANT_USERNAME = 'ak_ai_assistant';
     const IMAGE_PREVIEW_REFRESH_DELAY_MS = 3500;
     const ACTIVE_CONVERSATION_REFRESH_MS = 25000;
+    const FOREGROUND_MESSAGE_SYNC_DELAY_MS = 80;
+    const FOREGROUND_MESSAGE_SYNC_MIN_INTERVAL_MS = 1500;
 
     const messageManageModule = {
         ctx: null,
         imagePreviewRefreshTimer: null,
         activeConversationReportKey: '',
         activeConversationRefreshTimer: null,
+        foregroundMessageSyncTimer: null,
+        foregroundMessageSyncInFlightKey: '',
+        lastForegroundMessageSyncAt: 0,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -390,6 +395,64 @@
                 self.activeConversationRefreshTimer = null;
                 self.reportActiveConversationState(true);
             }, ACTIVE_CONVERSATION_REFRESH_MS);
+        },
+
+        getForegroundSyncConversationId() {
+            const state = this.getState();
+            const conversationId = Number(state && state.activeConversationId || 0);
+            if (!state || !state.allowed || !state.open || state.view !== 'chat' || conversationId <= 0) return 0;
+            try {
+                if (document.visibilityState === 'hidden') return 0;
+            } catch (e) {}
+            return conversationId;
+        },
+
+        scheduleForegroundMessageSync(reason) {
+            const conversationId = this.getForegroundSyncConversationId();
+            if (!conversationId) return;
+            if (this.foregroundMessageSyncTimer) {
+                clearTimeout(this.foregroundMessageSyncTimer);
+                this.foregroundMessageSyncTimer = null;
+            }
+            const self = this;
+            this.foregroundMessageSyncTimer = setTimeout(function() {
+                self.foregroundMessageSyncTimer = null;
+                self.syncForegroundMessages(conversationId, reason);
+            }, FOREGROUND_MESSAGE_SYNC_DELAY_MS);
+        },
+
+        syncForegroundMessages(expectedConversationId, reason) {
+            const conversationId = this.getForegroundSyncConversationId();
+            const targetConversationId = Number(expectedConversationId || 0);
+            if (!conversationId || (targetConversationId > 0 && targetConversationId !== conversationId)) {
+                return Promise.resolve(null);
+            }
+            const now = Date.now();
+            if (now - Number(this.lastForegroundMessageSyncAt || 0) < FOREGROUND_MESSAGE_SYNC_MIN_INTERVAL_MS) {
+                return Promise.resolve(null);
+            }
+            const key = String(conversationId);
+            if (this.foregroundMessageSyncInFlightKey === key) return Promise.resolve(null);
+            this.lastForegroundMessageSyncAt = now;
+            this.foregroundMessageSyncInFlightKey = key;
+            try { this.ensureWebSocket(); } catch (e) {}
+            try { this.reportActiveConversationState(true); } catch (e) {}
+            const self = this;
+            const tasks = [
+                Promise.resolve(this.loadMessages(conversationId)).catch(function() { return null; })
+            ];
+            if (this.ctx && typeof this.ctx.loadSessions === 'function') {
+                tasks.push(Promise.resolve(this.ctx.loadSessions()).catch(function() { return null; }));
+            }
+            return Promise.all(tasks).then(function() {
+                const cur = self.getState();
+                if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) === conversationId) {
+                    self.markRead(conversationId, { force: true });
+                }
+                return null;
+            }).finally(function() {
+                if (self.foregroundMessageSyncInFlightKey === key) self.foregroundMessageSyncInFlightKey = '';
+            });
         },
 
         canRecallMessage(item) {
@@ -1976,10 +2039,13 @@
                 document.addEventListener('visibilitychange', function() {
                     self.reportActiveConversationState(true);
                     if (document.visibilityState !== 'visible') return;
-                    const cur = self.getState();
-                    if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {
-                        self.markRead(cur.activeConversationId, { force: true });
-                    }
+                    self.scheduleForegroundMessageSync('visibilitychange');
+                });
+                window.addEventListener('focus', function() {
+                    self.scheduleForegroundMessageSync('focus');
+                });
+                window.addEventListener('pageshow', function() {
+                    self.scheduleForegroundMessageSync('pageshow');
                 });
             } catch (e) {}
         }
