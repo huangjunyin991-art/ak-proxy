@@ -15465,6 +15465,30 @@ def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
     return patched, count > 0
 
 
+def _patch_html_base_js_language_version(text: str) -> tuple[str, bool]:
+    if not text or "base.js" not in text:
+        return text, False
+    version = quote_plus(AK_LOCAL_LANGUAGE_PACK_VERSION)
+    pattern = re.compile(
+        r"(?P<prefix><script\b[^>]*\bsrc=[\"'](?P<src>[^\"']*/content/js/base\.js\?[^\"']*?)(?P<quote>[\"']))",
+        flags=re.IGNORECASE,
+    )
+
+    def replace_src(match: re.Match) -> str:
+        src = match.group("src")
+        if "ak_lang_v=" in src:
+            return match.group("prefix")
+        separator = "&" if "?" in src else "?"
+        return match.group("prefix").replace(
+            src + match.group("quote"),
+            f"{src}{separator}ak_lang_v={version}{match.group('quote')}",
+            1,
+        )
+
+    patched, count = pattern.subn(replace_src, text)
+    return patched, count > 0
+
+
 def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True) -> tuple[str, bool]:
     if rewrite_rpc_to_admin:
         text, rewritten = _rewrite_base_js_rpc_roots(text)
@@ -17487,6 +17511,9 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
+                text, base_js_version_rewritten = _patch_html_base_js_language_version(text)
+                if base_js_version_rewritten:
+                    _admin_ak_trace(lambda: f"[AkBaseJsLangVersionHtml/{path}] bs={bs_id or '-'} final_url={resp.url}")
                 if transform_proxied_site_prefetch_html is not None:
                     try:
                         text, proxied_site_prefetch_injected = transform_proxied_site_prefetch_html(
