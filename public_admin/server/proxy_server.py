@@ -81,7 +81,8 @@ FRONTEND_SHARED_DIR = os.path.join(FRONTEND_DIR, "shared")
 FRONTEND_LANG_DIR = os.path.join(FRONTEND_DIR, "lang")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
 DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
-AK_LOCAL_LANGUAGE_PACK_VERSION = "local-lang-20260612-2"
+_AK_LOCAL_LANGUAGE_VERSION_CACHE = {"value": "", "expires_at": 0.0}
+_AK_LOCAL_LANGUAGE_VERSION_CACHE_TTL_SECONDS = 30
 
 
 
@@ -15541,11 +15542,39 @@ def _patch_base_js_mnemonic_complete_redirect(text: str) -> tuple[str, bool]:
     return handler + patched, True
 
 
+def _get_ak_local_language_pack_version() -> str:
+    now = time.monotonic()
+    cached = str(_AK_LOCAL_LANGUAGE_VERSION_CACHE.get("value") or "")
+    if cached and now < float(_AK_LOCAL_LANGUAGE_VERSION_CACHE.get("expires_at") or 0.0):
+        return cached
+    parts = []
+    for asset_path in [__file__]:
+        try:
+            st = os.stat(asset_path)
+            parts.append(f"{os.path.basename(asset_path)}:{int(st.st_mtime_ns)}:{int(st.st_size)}")
+        except OSError:
+            continue
+    try:
+        for item in sorted(Path(FRONTEND_LANG_DIR).glob("*.json")):
+            try:
+                st = item.stat()
+                parts.append(f"{item.name}:{int(st.st_mtime_ns)}:{int(st.st_size)}")
+            except OSError:
+                continue
+    except Exception:
+        pass
+    seed = "|".join(parts) or str(time.time_ns())
+    version = "ak-lang-" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
+    _AK_LOCAL_LANGUAGE_VERSION_CACHE["value"] = version
+    _AK_LOCAL_LANGUAGE_VERSION_CACHE["expires_at"] = now + _AK_LOCAL_LANGUAGE_VERSION_CACHE_TTL_SECONDS
+    return version
+
+
 def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
     if "ak_lang_v=" in text:
         return text, False
 
-    version = quote_plus(AK_LOCAL_LANGUAGE_PACK_VERSION)
+    version = quote_plus(_get_ak_local_language_pack_version())
     pattern = re.compile(
         r"('/content/lang/'\s*\+\s*_currentLanguage\(\)\s*\+\s*'\.json\?v=[^'&]+)([^']*)(')"
     )
@@ -15563,7 +15592,7 @@ def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
 def _patch_html_base_js_language_version(text: str) -> tuple[str, bool]:
     if not text or "base.js" not in text:
         return text, False
-    version = quote_plus(AK_LOCAL_LANGUAGE_PACK_VERSION)
+    version = quote_plus(_get_ak_local_language_pack_version())
     pattern = re.compile(
         r"(?P<prefix><script\b[^>]*\bsrc=[\"'](?P<src>[^\"']*/content/js/base\.js\?[^\"']*?)(?P<quote>[\"']))",
         flags=re.IGNORECASE,
