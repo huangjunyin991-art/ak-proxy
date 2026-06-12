@@ -81,6 +81,7 @@ FRONTEND_SHARED_DIR = os.path.join(FRONTEND_DIR, "shared")
 FRONTEND_LANG_DIR = os.path.join(FRONTEND_DIR, "lang")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
 DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
+AK_LOCAL_LANGUAGE_PACK_VERSION = "local-lang-20260612-1"
 
 
 
@@ -15445,6 +15446,25 @@ def _patch_base_js_mnemonic_complete_redirect(text: str) -> tuple[str, bool]:
     return handler + patched, True
 
 
+def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
+    if "ak_lang_v=" in text:
+        return text, False
+
+    version = quote_plus(AK_LOCAL_LANGUAGE_PACK_VERSION)
+    pattern = re.compile(
+        r"('/content/lang/'\s*\+\s*_currentLanguage\(\)\s*\+\s*'\.json\?v=[^'&]+)([^']*)(')"
+    )
+
+    def replace_version(match: re.Match) -> str:
+        suffix = match.group(2) or ""
+        if "ak_lang_v=" in suffix:
+            return match.group(0)
+        return f"{match.group(1)}{suffix}&ak_lang_v={version}{match.group(3)}"
+
+    patched, count = pattern.subn(replace_version, text, count=1)
+    return patched, count > 0
+
+
 def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True) -> tuple[str, bool]:
     if rewrite_rpc_to_admin:
         text, rewritten = _rewrite_base_js_rpc_roots(text)
@@ -15457,9 +15477,10 @@ def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True)
         text, rewritten = _rewrite_base_js_native_rpc_roots(text)
         rpc_rewrite_body = "function akBaseRw(url){return url;}"
     text, mnemonic_patched = _patch_base_js_mnemonic_complete_redirect(text)
+    text, lang_version_patched = _patch_base_js_language_pack_version(text)
     marker = "[AKBaseNoLogin]"
     if marker in text:
-        return text, rewritten or mnemonic_patched
+        return text, rewritten or mnemonic_patched or lang_version_patched
     probe = (
         "(function(){"
         "try{if(window.__akBaseNoLoginProbeInstalled)return;window.__akBaseNoLoginProbeInstalled=true;"
@@ -17439,6 +17460,8 @@ async def ak_web_proxy(request: Request, path: str):
             text = content.decode("utf-8", errors="replace")
             if _use_native_ak_rpc(site_prefix):
                 text, base_js_rewritten = _rewrite_base_js_native_rpc_roots(text)
+                text, language_version_rewritten = _patch_base_js_language_pack_version(text)
+                base_js_rewritten = base_js_rewritten or language_version_rewritten
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
             if base_js_rewritten:
