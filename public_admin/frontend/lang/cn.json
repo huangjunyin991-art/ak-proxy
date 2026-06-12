@@ -24,7 +24,7 @@
         "CONFIRM_TITLE": "移除记录",
         "CONFIRM_TEXT": "确定要移除这个账号的记录吗?",
         "NONE_LOCAL_TEXT": "暂无登录账号记录",
-        "CHANGE_LANGUAGE": "Language",
+        "CHANGE_LANGUAGE": "语言",
         "CONFIRM_BUTTON": "确认",
         "CANCEL_BUTTON": "取消",
         "RELOGIN_TEXT": "您的账号已在其他设备中登录，若继续操作请重新登录账号，或点击",

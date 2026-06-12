@@ -16806,33 +16806,6 @@ def _build_ak_local_language_pack_response(request: Request, normalized_path: st
     )
 
 
-def _inject_home_js_language_button_sync(text: str) -> str:
-    marker = "ak-home-language-button-sync-20260612"
-    if marker in text:
-        return text
-    target = "Vue.set(_vue, 'language', lang);"
-    patch = (
-        "Vue.set(_vue, 'language', lang || {});"
-        f"try{{/* {marker} */"
-        "var __akLangBtn=document.querySelector('#app-head .language');"
-        "if(__akLangBtn&&lang&&lang.BUTTON_1){"
-        "__akLangBtn.textContent=String(lang.BUTTON_1);"
-        "}"
-        "}catch(__akLangBtnErr){}"
-    )
-    return text.replace(target, patch, 1)
-
-
-def _should_transform_ak_public_static(normalized_path: str, content_type: str) -> bool:
-    lowered_path = str(normalized_path or "").lower()
-    lowered_content_type = str(content_type or "").lower()
-    return (
-        lowered_path.endswith("base.js")
-        or lowered_path == "content/js/pages/home.js"
-        or "text/css" in lowered_content_type
-    )
-
-
 def _build_ak_public_static_target_url(normalized_path: str, request: Request) -> str:
     query_parts = [
         p for p in str(request.url.query).split("&")
@@ -16855,16 +16828,14 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
         return text.encode("utf-8")
-    if normalized_path.lower() == "content/js/pages/home.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
-        text = content.decode("utf-8", errors="replace")
-        return _inject_home_js_language_button_sync(text).encode("utf-8")
     return content
 
 
 def _build_public_cached_static_response(cached_static, normalized_path: str) -> Response:
     content_type = cached_static.content_type or "application/octet-stream"
     body = cached_static.body or b""
-    if _should_transform_ak_public_static(normalized_path, content_type):
+    lowered_content_type = str(content_type or "").lower()
+    if str(normalized_path or "").lower().endswith("base.js") or "text/css" in lowered_content_type:
         body = _transform_ak_public_static_content(normalized_path, content_type, body)
         headers = {
             k: v
