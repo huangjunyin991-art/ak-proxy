@@ -78,6 +78,7 @@ FRONTEND_DIR = os.path.join(PUBLIC_ADMIN_DIR, "frontend")
 FRONTEND_HOST_DIR = os.path.join(FRONTEND_DIR, "host")
 FRONTEND_PAGES_DIR = os.path.join(FRONTEND_DIR, "pages")
 FRONTEND_SHARED_DIR = os.path.join(FRONTEND_DIR, "shared")
+FRONTEND_LANG_DIR = os.path.join(FRONTEND_DIR, "lang")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
 DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
 
@@ -16608,6 +16609,18 @@ def _build_ak_site_forward_headers(request: Request) -> dict:
 
 
 _AK_PUBLIC_STATIC_PREFIXES = {"assets", "content"}
+_AK_LOCAL_LANGUAGE_ALIASES = {
+    "ja": "jp",
+    "jp": "jp",
+    "ko": "kr",
+    "kr": "kr",
+    "zh": "cn",
+    "zh-cn": "cn",
+    "zh_cn": "cn",
+    "pt-br": "pt",
+    "pt_br": "pt",
+}
+_AK_LOCAL_LANGUAGE_NAME_RE = re.compile(r"^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})?$", re.IGNORECASE)
 
 
 def _normalize_ak_public_static_path(prefix: str, asset_path: str) -> str:
@@ -16619,6 +16632,49 @@ def _normalize_ak_public_static_path(prefix: str, asset_path: str) -> str:
     if any(part in {".", ".."} for part in parts):
         return ""
     return f"{normalized_prefix}/{'/'.join(parts)}"
+
+
+def _normalize_ak_local_language_code(file_name: str) -> str:
+    code = os.path.splitext(os.path.basename(str(file_name or "").strip()))[0].lower()
+    code = _AK_LOCAL_LANGUAGE_ALIASES.get(code, code)
+    if not _AK_LOCAL_LANGUAGE_NAME_RE.fullmatch(code):
+        return ""
+    return code
+
+
+def _get_ak_local_language_pack_path(normalized_path: str) -> Optional[Path]:
+    lowered_path = str(normalized_path or "").strip("/").lower()
+    if not lowered_path.startswith("content/lang/") or not lowered_path.endswith(".json"):
+        return None
+    code = _normalize_ak_local_language_code(lowered_path.rsplit("/", 1)[-1])
+    if not code:
+        return None
+    base_dir = Path(FRONTEND_LANG_DIR).resolve()
+    candidate = (base_dir / f"{code}.json").resolve()
+    try:
+        candidate.relative_to(base_dir)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _build_ak_local_language_pack_response(request: Request, normalized_path: str) -> Optional[Response]:
+    local_path = _get_ak_local_language_pack_path(normalized_path)
+    if local_path is None:
+        return None
+    body = b"" if request.method == "HEAD" else local_path.read_bytes()
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Cache-Control": "public, max-age=604800",
+            "X-AK-Static-Cache": "LOCAL",
+            "X-AK-Language-Source": "local",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 def _build_ak_public_static_target_url(normalized_path: str, request: Request) -> str:
@@ -17005,6 +17061,20 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
     normalized_path = _normalize_ak_public_static_path(prefix, asset_path)
     if not normalized_path:
         return Response(status_code=404)
+    local_lang_response = _build_ak_local_language_pack_response(request, normalized_path)
+    if local_lang_response is not None:
+        _record_request_metric(
+            kind="static_asset",
+            method=request.method,
+            path="/" + normalized_path,
+            status_code=200,
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=0,
+            cache_state="LOCAL",
+            content_type="application/json",
+            response_bytes=len(local_lang_response.body or b""),
+        )
+        return local_lang_response
     target_url = _build_ak_public_static_target_url(normalized_path, request)
     cache_request = _build_ak_web_static_cache_request(
         request.method,
