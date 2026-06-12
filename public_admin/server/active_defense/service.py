@@ -209,6 +209,8 @@ class ActiveDefenseService:
         is_loopback: Callable[[str], bool],
         is_banned: Callable[[str], Awaitable[bool]],
         ban_ip: BanCallback,
+        immediate_ban: bool | None = None,
+        block_before_threshold: bool = True,
     ) -> ActiveDefenseDecision:
         policy = self._policy
         normalized_ip = str(ip or "").strip()
@@ -224,11 +226,12 @@ class ActiveDefenseService:
         self._prune_runtime()
         count = self._store.record_upstream_key_format_error(normalized_ip, 60)
         threshold = max(1, int(policy.upstream_key_format_burst_threshold or 30))
-        should_ban = bool(policy.upstream_key_format_immediate_ban_enabled) or count >= threshold
+        effective_immediate_ban = bool(policy.upstream_key_format_immediate_ban_enabled) if immediate_ban is None else bool(immediate_ban)
+        should_ban = effective_immediate_ban or count >= threshold
         if not should_ban:
             return ActiveDefenseDecision(
-                allowed=False,
-                code="blocked_invalid_upstream_key",
+                allowed=not block_before_threshold,
+                code="blocked_invalid_upstream_key" if block_before_threshold else "allowed_placeholder_upstream_key",
                 message="上游请求 key 参数格式异常",
                 event_type="upstream_key_format",
                 ip=normalized_ip,
