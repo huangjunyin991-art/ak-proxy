@@ -475,12 +475,13 @@
     }
 
     function renderConfig() {
-        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200, chat_context_max_messages: 1000, chat_context_max_tokens: 12000, group_mention_enabled: true, chat_max_output_tokens: 1000, summary_max_output_tokens: 600, summary_memory_max_tokens: 2000 };
+        const cfg = state.config || { enabled: true, context_summary_min_tokens: 12000, context_recent_keep_tokens: 4000, context_scan_max_count: 200, chat_context_max_messages: 1000, chat_context_max_tokens: 12000, group_mention_enabled: true, chat_max_output_tokens: 1000, summary_max_output_tokens: 600, summary_memory_max_tokens: 2000, queue_concurrency: 3 };
         return `
             <div class="ai-card">
                 <div class="ai-card-title"><span>运行策略</span><span class="ai-tag ${cfg.enabled ? 'ok' : 'bad'}">${cfg.enabled ? '已开启' : '已关闭'}</span></div>
                 <div class="ai-form-grid">
                     ${renderSelectPicker('aiConfigEnabled', 'AI 助手开关', cfg.enabled ? 'true' : 'false', [{ value: 'true', label: '开启' }, { value: 'false', label: '关闭' }])}
+                    <div class="ai-field"><label>AI 并发执行数</label><input class="ai-input" id="aiConfigQueueConcurrency" type="number" min="1" max="20" step="1" value="${Number(cfg.queue_concurrency || 3)}"></div>
                     <div class="ai-field"><label>超过多少 tokens 后压缩</label><input class="ai-input" id="aiConfigSummaryTokens" type="number" min="2000" step="500" value="${Number(cfg.context_summary_min_tokens || 12000)}"></div>
                     <div class="ai-field"><label>保留最近原文 tokens</label><input class="ai-input" id="aiConfigRecentTokens" type="number" min="800" step="200" value="${Number(cfg.context_recent_keep_tokens || 4000)}"></div>
                     <div class="ai-field"><label>最多扫描消息条数</label><input class="ai-input" id="aiConfigScanMax" type="number" min="50" max="1000" step="10" value="${Number(cfg.context_scan_max_count || 200)}"></div>
@@ -701,7 +702,9 @@
             { label: '总开关：' + (diag.enabled ? '开启' : '关闭'), cls: diag.enabled ? 'ok' : 'bad' },
             { label: 'Provider：' + (diag.provider_ready ? '可用' : '未就绪'), cls: diag.provider_ready ? 'ok' : 'bad' },
             { label: 'sk：' + (diag.active_provider_has_secret ? '已导入' : '未导入'), cls: diag.active_provider_has_secret ? 'ok' : 'warn' },
-            { label: '并发：' + Number(diag.queue_concurrency || 0), cls: Number(diag.queue_concurrency || 0) > 0 ? 'ok' : 'warn' }
+            { label: '并发：' + Number(diag.queue_concurrency || 0), cls: Number(diag.queue_concurrency || 0) > 0 ? 'ok' : 'warn' },
+            { label: '运行中：' + Number(diag.queue_running || 0), cls: Number(diag.queue_running || 0) > 0 ? 'warn' : 'ok' },
+            { label: '排队中：' + Number(diag.queue_waiting || 0), cls: Number(diag.queue_waiting || 0) > 0 ? 'warn' : 'ok' }
         ];
         if (diag.active_provider_name) {
             tags.push({ label: '当前：' + diag.active_provider_name, cls: 'ok' });
@@ -901,6 +904,7 @@
     async function saveConfig() {
         const payload = {
             enabled: document.getElementById('aiConfigEnabled')?.value !== 'false',
+            queue_concurrency: Number(document.getElementById('aiConfigQueueConcurrency')?.value || 3),
             context_summary_min_tokens: Number(document.getElementById('aiConfigSummaryTokens')?.value || 12000),
             context_recent_keep_tokens: Number(document.getElementById('aiConfigRecentTokens')?.value || 4000),
             context_scan_max_count: Number(document.getElementById('aiConfigScanMax')?.value || 200),
@@ -913,6 +917,9 @@
         };
         const data = await api('/admin/api/ai/config', { method: 'POST', body: JSON.stringify(payload) });
         state.config = unwrapItem(data, payload);
+        if (state.diagnostics) {
+            state.diagnostics.queue_concurrency = state.config.queue_concurrency;
+        }
         showToast('AI 运行策略已保存');
         render();
     }

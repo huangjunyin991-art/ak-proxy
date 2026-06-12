@@ -583,6 +583,7 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg, cfgErr := a.ai.Config(r.Context())
+	queueConcurrency, queueRunning, queueWaiting := a.ai.QueueStats()
 	providers, providersErr := a.aiProvider.ListAccounts(r.Context())
 	activeProviderID := int64(0)
 	activeProviderName := ""
@@ -624,7 +625,9 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"active_provider_id":         activeProviderID,
 			"active_provider_name":       activeProviderName,
 			"active_provider_has_secret": activeProviderHasSecret,
-			"queue_concurrency":          a.ai.QueueConcurrency(),
+			"queue_concurrency":          queueConcurrency,
+			"queue_running":              queueRunning,
+			"queue_waiting":              queueWaiting,
 			"billing_enabled":            billingErr == nil && billingOverview.Config.Enabled,
 			"billing_error":              errorString(billingErr),
 			"billing_today_units":        billingOverview.TodayUnits,

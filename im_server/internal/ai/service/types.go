@@ -51,6 +51,7 @@ type RuntimeConfig struct {
 	ChatMaxOutputTokens     int  `json:"chat_max_output_tokens"`
 	SummaryMaxOutputTokens  int  `json:"summary_max_output_tokens"`
 	SummaryMemoryMaxTokens  int  `json:"summary_memory_max_tokens"`
+	QueueConcurrency        int  `json:"queue_concurrency"`
 }
 
 type SessionList struct {

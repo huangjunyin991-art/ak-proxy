@@ -49,6 +49,8 @@ const (
 	defaultChatMaxOutputTokens     = 1000
 	defaultSummaryMaxOutputTokens  = 600
 	defaultSummaryMemoryMaxTokens  = 2000
+	defaultQueueConcurrency        = 3
+	maxQueueConcurrency            = 20
 	taskRunTimeout                 = 90 * time.Second
 	taskTerminalWriteTimeout       = 10 * time.Second
 	taskStaleRunningAfter          = 2 * time.Minute
@@ -68,7 +70,8 @@ type Service struct {
 	sessions    *aisession.Repository
 	messages    *messagetree.Repository
 	sink        MessageSink
-	slots       chan struct{}
+	limiter     *AdjustableLimiter
+	defaultJobs int
 }
 
 type summaryMessage struct {
@@ -84,16 +87,15 @@ type contextMessageItem struct {
 }
 
 func New(db *pgxpool.Pool, providerService *provider.Service, entitlementService *entitlement.Service, concurrency int) *Service {
-	if concurrency <= 0 {
-		concurrency = 3
-	}
+	concurrency = normalizeQueueConcurrency(concurrency)
 	return &Service{
 		db:          db,
 		provider:    providerService,
 		entitlement: entitlementService,
 		sessions:    aisession.NewRepository(db),
 		messages:    messagetree.NewRepository(db),
-		slots:       make(chan struct{}, concurrency),
+		limiter:     NewAdjustableLimiter(concurrency),
+		defaultJobs: concurrency,
 	}
 }
 
@@ -112,10 +114,32 @@ func (s *Service) SetBillingService(service *billing.Service) {
 }
 
 func (s *Service) QueueConcurrency() int {
-	if s == nil {
+	limit, _, _ := s.QueueStats()
+	return limit
+}
+
+func (s *Service) QueueStats() (limit int, running int, waiting int) {
+	if s == nil || s.limiter == nil {
+		return 0, 0, 0
+	}
+	return s.limiter.Stats()
+}
+
+func (s *Service) SetQueueConcurrency(concurrency int) int {
+	if s == nil || s.limiter == nil {
 		return 0
 	}
-	return cap(s.slots)
+	return s.limiter.SetLimit(concurrency)
+}
+
+func normalizeQueueConcurrency(value int) int {
+	if value <= 0 {
+		return defaultQueueConcurrency
+	}
+	if value > maxQueueConcurrency {
+		return maxQueueConcurrency
+	}
+	return value
 }
 
 func (s *Service) EnsureSchema(ctx context.Context) error {
@@ -240,6 +264,11 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			return fmt.Errorf("ai schema statement #%d failed: %w", index+1, err)
 		}
 	}
+	if cfg, err := s.Config(ctx); err == nil {
+		s.SetQueueConcurrency(cfg.QueueConcurrency)
+	} else {
+		log.Printf("load AI runtime config for queue concurrency failed: %v", err)
+	}
 	return nil
 }
 
@@ -257,6 +286,7 @@ func defaultRuntimeConfig() RuntimeConfig {
 		ChatMaxOutputTokens:     defaultChatMaxOutputTokens,
 		SummaryMaxOutputTokens:  defaultSummaryMaxOutputTokens,
 		SummaryMemoryMaxTokens:  defaultSummaryMemoryMaxTokens,
+		QueueConcurrency:        defaultQueueConcurrency,
 	}
 }
 
@@ -342,11 +372,15 @@ func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
 	if cfg.SummaryMemoryMaxTokens > 64000 {
 		cfg.SummaryMemoryMaxTokens = 64000
 	}
+	cfg.QueueConcurrency = normalizeQueueConcurrency(cfg.QueueConcurrency)
 	return cfg
 }
 
 func (s *Service) Config(ctx context.Context) (RuntimeConfig, error) {
 	cfg := defaultRuntimeConfig()
+	if s != nil && s.defaultJobs > 0 {
+		cfg.QueueConcurrency = s.defaultJobs
+	}
 	if s == nil || s.db == nil {
 		return cfg, nil
 	}
@@ -382,6 +416,7 @@ func (s *Service) SetConfig(ctx context.Context, cfg RuntimeConfig) (RuntimeConf
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
+	s.SetQueueConcurrency(cfg.QueueConcurrency)
 	return cfg, nil
 }
 
@@ -416,7 +451,7 @@ func (s *Service) Bootstrap(ctx context.Context, username string) (Bootstrap, er
 		Billing:          billingSnapshot,
 		ProviderReady:    providerReady,
 		ProviderMessage:  providerMessage,
-		QueueConcurrency: cap(s.slots),
+		QueueConcurrency: s.QueueConcurrency(),
 	}, nil
 }
 
@@ -1385,14 +1420,17 @@ func (s *Service) setTaskStage(ctx context.Context, taskID string, stage string,
 }
 
 func (s *Service) processTask(taskID string) {
-	s.slots <- struct{}{}
+	releaseSlot := func() {}
+	if s != nil && s.limiter != nil {
+		releaseSlot = s.limiter.Acquire()
+	}
 	var conversationID int64
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			log.Printf("AI task panic: task_id=%s err=%v stack=%s", taskID, recovered, string(debug.Stack()))
 			s.failTask(context.Background(), taskID, conversationID, "worker_panic", fmt.Sprint(recovered))
 		}
-		<-s.slots
+		releaseSlot()
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), taskRunTimeout)
 	defer cancel()
