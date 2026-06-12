@@ -81,8 +81,6 @@ FRONTEND_SHARED_DIR = os.path.join(FRONTEND_DIR, "shared")
 FRONTEND_LANG_DIR = os.path.join(FRONTEND_DIR, "lang")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
 DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
-_AK_LOCAL_LANGUAGE_VERSION_CACHE = {"value": "", "expires_at": 0.0}
-_AK_LOCAL_LANGUAGE_VERSION_CACHE_TTL_SECONDS = 30
 
 
 
@@ -15542,77 +15540,6 @@ def _patch_base_js_mnemonic_complete_redirect(text: str) -> tuple[str, bool]:
     return handler + patched, True
 
 
-def _get_ak_local_language_pack_version() -> str:
-    now = time.monotonic()
-    cached = str(_AK_LOCAL_LANGUAGE_VERSION_CACHE.get("value") or "")
-    if cached and now < float(_AK_LOCAL_LANGUAGE_VERSION_CACHE.get("expires_at") or 0.0):
-        return cached
-    parts = []
-    for asset_path in [__file__]:
-        try:
-            st = os.stat(asset_path)
-            parts.append(f"{os.path.basename(asset_path)}:{int(st.st_mtime_ns)}:{int(st.st_size)}")
-        except OSError:
-            continue
-    try:
-        for item in sorted(Path(FRONTEND_LANG_DIR).glob("*.json")):
-            try:
-                st = item.stat()
-                parts.append(f"{item.name}:{int(st.st_mtime_ns)}:{int(st.st_size)}")
-            except OSError:
-                continue
-    except Exception:
-        pass
-    seed = "|".join(parts) or str(time.time_ns())
-    version = "ak-lang-" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
-    _AK_LOCAL_LANGUAGE_VERSION_CACHE["value"] = version
-    _AK_LOCAL_LANGUAGE_VERSION_CACHE["expires_at"] = now + _AK_LOCAL_LANGUAGE_VERSION_CACHE_TTL_SECONDS
-    return version
-
-
-def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
-    if "ak_lang_v=" in text:
-        return text, False
-
-    version = quote_plus(_get_ak_local_language_pack_version())
-    pattern = re.compile(
-        r"('/content/lang/'\s*\+\s*_currentLanguage\(\)\s*\+\s*'\.json\?v=[^'&]+)([^']*)(')"
-    )
-
-    def replace_version(match: re.Match) -> str:
-        suffix = match.group(2) or ""
-        if "ak_lang_v=" in suffix:
-            return match.group(0)
-        return f"{match.group(1)}{suffix}&ak_lang_v={version}{match.group(3)}"
-
-    patched, count = pattern.subn(replace_version, text, count=1)
-    return patched, count > 0
-
-
-def _patch_html_base_js_language_version(text: str) -> tuple[str, bool]:
-    if not text or "base.js" not in text:
-        return text, False
-    version = quote_plus(_get_ak_local_language_pack_version())
-    pattern = re.compile(
-        r"(?P<prefix><script\b[^>]*\bsrc=[\"'](?P<src>[^\"']*/content/js/base\.js\?[^\"']*?)(?P<quote>[\"']))",
-        flags=re.IGNORECASE,
-    )
-
-    def replace_src(match: re.Match) -> str:
-        src = match.group("src")
-        if "ak_lang_v=" in src:
-            return match.group("prefix")
-        separator = "&" if "?" in src else "?"
-        return match.group("prefix").replace(
-            src + match.group("quote"),
-            f"{src}{separator}ak_lang_v={version}{match.group('quote')}",
-            1,
-        )
-
-    patched, count = pattern.subn(replace_src, text)
-    return patched, count > 0
-
-
 def _patch_base_js_public_ban_countdown(text: str) -> tuple[str, bool]:
     if "__akPublicBanCountdownInstalled" in text:
         return text, False
@@ -15653,11 +15580,10 @@ def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True)
         text, rewritten = _rewrite_base_js_native_rpc_roots(text)
         rpc_rewrite_body = "function akBaseRw(url){return url;}"
     text, mnemonic_patched = _patch_base_js_mnemonic_complete_redirect(text)
-    text, lang_version_patched = _patch_base_js_language_pack_version(text)
     text, ban_countdown_patched = _patch_base_js_public_ban_countdown(text)
     marker = "[AKBaseNoLogin]"
     if marker in text:
-        return text, rewritten or mnemonic_patched or lang_version_patched or ban_countdown_patched
+        return text, rewritten or mnemonic_patched or ban_countdown_patched
     probe = (
         "(function(){"
         "try{if(window.__akBaseNoLoginProbeInstalled)return;window.__akBaseNoLoginProbeInstalled=true;"
@@ -17637,9 +17563,8 @@ async def ak_web_proxy(request: Request, path: str):
             text = content.decode("utf-8", errors="replace")
             if _use_native_ak_rpc(site_prefix):
                 text, base_js_rewritten = _rewrite_base_js_native_rpc_roots(text)
-                text, language_version_rewritten = _patch_base_js_language_pack_version(text)
                 text, ban_countdown_rewritten = _patch_base_js_public_ban_countdown(text)
-                base_js_rewritten = base_js_rewritten or language_version_rewritten or ban_countdown_rewritten
+                base_js_rewritten = base_js_rewritten or ban_countdown_rewritten
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
             if base_js_rewritten:
@@ -17665,9 +17590,6 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
-                text, base_js_version_rewritten = _patch_html_base_js_language_version(text)
-                if base_js_version_rewritten:
-                    _admin_ak_trace(lambda: f"[AkBaseJsLangVersionHtml/{path}] bs={bs_id or '-'} final_url={resp.url}")
                 if transform_proxied_site_prefetch_html is not None:
                     try:
                         text, proxied_site_prefetch_injected = transform_proxied_site_prefetch_html(
