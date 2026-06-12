@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"im_server/internal/ai/bot"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,6 +19,28 @@ type Repository struct {
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
+}
+
+func visibleSessionFilterSQL() string {
+	return `
+		AND (
+			s.conversation_id IS NULL
+			OR EXISTS (
+				SELECT 1
+				FROM im_conversation c
+				JOIN im_conversation_member owner_m
+				  ON owner_m.conversation_id = c.id
+				 AND owner_m.username = s.owner_username
+				 AND owner_m.left_at IS NULL
+				JOIN im_conversation_member bot_m
+				  ON bot_m.conversation_id = c.id
+				 AND bot_m.username = '` + bot.Username + `'
+				 AND bot_m.left_at IS NULL
+				WHERE c.id = s.conversation_id
+				  AND c.deleted_at IS NULL
+				  AND c.conversation_type = 'direct'
+			)
+		)`
 }
 
 func (r *Repository) EnsureSchema(ctx context.Context) error {
@@ -75,6 +99,13 @@ func (r *Repository) EnsureForConversation(ctx context.Context, ownerUsername st
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, err
 	}
+	allowed, err := r.isAllowedConversationBinding(ctx, owner, conversationID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !allowed {
+		return Session{}, errors.New("conversation is not an AI assistant direct chat")
+	}
 	item, err = r.Create(ctx, CreateInput{
 		OwnerUsername:  owner,
 		ConversationID: conversationID,
@@ -103,11 +134,39 @@ func (r *Repository) GetByConversation(ctx context.Context, ownerUsername string
 	}
 	row := r.db.QueryRow(ctx, `
 		SELECT id, owner_username, COALESCE(conversation_id, 0), title, status, pinned, active_message_id, metadata_json, created_at, updated_at
-		FROM im_ai_session
-		WHERE owner_username = $1 AND conversation_id = $2 AND status <> $3
+		FROM im_ai_session s
+		WHERE owner_username = $1 AND conversation_id = $2 AND status <> $3`+visibleSessionFilterSQL()+`
 		ORDER BY updated_at DESC, id DESC
 		LIMIT 1`, owner, conversationID, StatusDeleted)
 	return scanSession(row)
+}
+
+func (r *Repository) isAllowedConversationBinding(ctx context.Context, ownerUsername string, conversationID int64) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, errors.New("AI session repository is not available")
+	}
+	owner := normalizeUsername(ownerUsername)
+	if owner == "" || conversationID <= 0 {
+		return false, errors.New("invalid conversation binding")
+	}
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM im_conversation c
+			JOIN im_conversation_member owner_m
+			  ON owner_m.conversation_id = c.id
+			 AND owner_m.username = $2
+			 AND owner_m.left_at IS NULL
+			JOIN im_conversation_member bot_m
+			  ON bot_m.conversation_id = c.id
+			 AND bot_m.username = $3
+			 AND bot_m.left_at IS NULL
+			WHERE c.id = $1
+			  AND c.deleted_at IS NULL
+			  AND c.conversation_type = 'direct'
+		)`, conversationID, owner, bot.Username).Scan(&exists)
+	return exists, err
 }
 
 func (r *Repository) Create(ctx context.Context, input CreateInput) (Session, error) {
@@ -148,8 +207,8 @@ func (r *Repository) Get(ctx context.Context, ownerUsername string, id int64) (S
 	}
 	row := r.db.QueryRow(ctx, `
 		SELECT id, owner_username, COALESCE(conversation_id, 0), title, status, pinned, active_message_id, metadata_json, created_at, updated_at
-		FROM im_ai_session
-		WHERE id = $1 AND owner_username = $2 AND status <> $3`,
+		FROM im_ai_session s
+		WHERE id = $1 AND owner_username = $2 AND status <> $3`+visibleSessionFilterSQL(),
 		id, owner, StatusDeleted)
 	return scanSession(row)
 }
@@ -168,8 +227,8 @@ func (r *Repository) List(ctx context.Context, ownerUsername string, includeArch
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT id, owner_username, COALESCE(conversation_id, 0), title, status, pinned, active_message_id, metadata_json, created_at, updated_at
-		FROM im_ai_session
-		WHERE owner_username = $1 `+statusFilter+`
+		FROM im_ai_session s
+		WHERE owner_username = $1 `+statusFilter+visibleSessionFilterSQL()+`
 		ORDER BY pinned DESC, updated_at DESC, id DESC`, owner)
 	if err != nil {
 		return nil, err
@@ -258,7 +317,7 @@ func (r *Repository) GetActive(ctx context.Context, ownerUsername string) (Sessi
 		       s.active_message_id, s.metadata_json, s.created_at, s.updated_at
 		FROM im_ai_user_session_state us
 		JOIN im_ai_session s ON s.id = us.active_session_id
-		WHERE us.owner_username = $1 AND s.owner_username = $1 AND s.status = $2
+		WHERE us.owner_username = $1 AND s.owner_username = $1 AND s.status = $2`+visibleSessionFilterSQL()+`
 		LIMIT 1`, owner, StatusActive)
 	return scanSession(row)
 }

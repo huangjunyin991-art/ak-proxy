@@ -425,6 +425,9 @@ func (s *Service) EnsureConversation(ctx context.Context, ownerUsername string, 
 	if ownerUsername == "" || conversationID <= 0 {
 		return errors.New("invalid AI conversation")
 	}
+	if !s.isDirectBotConversation(ctx, ownerUsername, conversationID) {
+		return errors.New("conversation is not an AI assistant direct chat")
+	}
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO im_ai_conversation (conversation_id, owner_username, bot_username, updated_at)
 		VALUES ($1, $2, $3, NOW())
@@ -448,7 +451,53 @@ func (s *Service) IsAIConversation(ctx context.Context, conversationID int64) bo
 		return false
 	}
 	var exists bool
-	_ = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM im_ai_conversation WHERE conversation_id = $1)`, conversationID).Scan(&exists)
+	_ = s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM im_ai_conversation ac
+			JOIN im_conversation c
+			  ON c.id = ac.conversation_id
+			 AND c.deleted_at IS NULL
+			 AND c.conversation_type = 'direct'
+			JOIN im_conversation_member owner_m
+			  ON owner_m.conversation_id = c.id
+			 AND owner_m.username = ac.owner_username
+			 AND owner_m.left_at IS NULL
+			JOIN im_conversation_member bot_m
+			  ON bot_m.conversation_id = c.id
+			 AND bot_m.username = ac.bot_username
+			 AND bot_m.left_at IS NULL
+			WHERE ac.conversation_id = $1
+			  AND ac.bot_username = $2
+		)`, conversationID, bot.Username).Scan(&exists)
+	return exists
+}
+
+func (s *Service) isDirectBotConversation(ctx context.Context, ownerUsername string, conversationID int64) bool {
+	if s == nil || s.db == nil || conversationID <= 0 {
+		return false
+	}
+	ownerUsername = normalizeUsername(ownerUsername)
+	if ownerUsername == "" {
+		return false
+	}
+	var exists bool
+	_ = s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM im_conversation c
+			JOIN im_conversation_member owner_m
+			  ON owner_m.conversation_id = c.id
+			 AND owner_m.username = $2
+			 AND owner_m.left_at IS NULL
+			JOIN im_conversation_member bot_m
+			  ON bot_m.conversation_id = c.id
+			 AND bot_m.username = $3
+			 AND bot_m.left_at IS NULL
+			WHERE c.id = $1
+			  AND c.deleted_at IS NULL
+			  AND c.conversation_type = 'direct'
+		)`, conversationID, ownerUsername, bot.Username).Scan(&exists)
 	return exists
 }
 
