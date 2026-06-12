@@ -16817,6 +16817,10 @@ def _build_ak_public_static_target_url(normalized_path: str, request: Request) -
     return target_url
 
 
+def _patch_vue_component_language_names(text: str) -> str:
+    return str(text or "").replace("name: '日本语'", "name: '日本語'")
+
+
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
     lowered_content_type = str(content_type or "").lower()
     if not content:
@@ -16828,6 +16832,9 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
         return text.encode("utf-8")
+    if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
+        text = content.decode("utf-8", errors="replace")
+        return _patch_vue_component_language_names(text).encode("utf-8")
     return content
 
 
@@ -16835,7 +16842,8 @@ def _build_public_cached_static_response(cached_static, normalized_path: str) ->
     content_type = cached_static.content_type or "application/octet-stream"
     body = cached_static.body or b""
     lowered_content_type = str(content_type or "").lower()
-    if str(normalized_path or "").lower().endswith("base.js") or "text/css" in lowered_content_type:
+    lowered_path = str(normalized_path or "").lower()
+    if lowered_path.endswith("base.js") or lowered_path == "content/js/vue-component.js" or "text/css" in lowered_content_type:
         body = _transform_ak_public_static_content(normalized_path, content_type, body)
         headers = {
             k: v
