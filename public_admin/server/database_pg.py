@@ -2029,6 +2029,39 @@ async def is_banned(username: str = None, ip_address: str = None) -> bool:
     return False
 
 
+async def get_ip_ban_state(ip_address: str) -> Dict:
+    """Return sanitized active IP ban timing for user-facing responses."""
+    normalized_ip = str(ip_address or "").strip()
+    if not normalized_ip:
+        return {"banned": False}
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''
+            SELECT banned_until,
+                   CASE
+                       WHEN banned_until IS NULL THEN NULL
+                       ELSE GREATEST(0, EXTRACT(EPOCH FROM (banned_until - NOW())))::INT
+                   END AS remaining_seconds
+            FROM ban_list
+            WHERE ban_type = 'ip' AND ban_value = $1
+              AND is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
+            ORDER BY banned_until NULLS LAST, banned_at DESC
+            LIMIT 1
+            ''',
+            normalized_ip,
+        )
+    if not row:
+        return {"banned": False}
+    banned_until = row["banned_until"]
+    return {
+        "banned": True,
+        "banned_until": banned_until.isoformat() if banned_until else "",
+        "remaining_seconds": int(row["remaining_seconds"] or 0),
+        "permanent": banned_until is None,
+    }
+
+
 async def _normalize_ban_records(conn):
     await run_ban_normalization(conn)
 

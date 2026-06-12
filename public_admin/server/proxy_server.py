@@ -81,7 +81,7 @@ FRONTEND_SHARED_DIR = os.path.join(FRONTEND_DIR, "shared")
 FRONTEND_LANG_DIR = os.path.join(FRONTEND_DIR, "lang")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
 DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
-AK_LOCAL_LANGUAGE_PACK_VERSION = "local-lang-20260612-1"
+AK_LOCAL_LANGUAGE_PACK_VERSION = "local-lang-20260612-2"
 
 
 
@@ -813,6 +813,87 @@ async def _is_ip_banned_for_penalty(client_ip: str) -> bool:
         return await db.is_banned(ip_address=normalized_ip)
     except Exception:
         return _is_ip_in_memory_ban(normalized_ip)
+
+
+def _format_public_ban_remaining(seconds: int) -> str:
+    seconds = max(0, int(seconds or 0))
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    remain_seconds = seconds % 60
+    return f"{hours}\u5c0f\u65f6{minutes}\u5206{remain_seconds}\u79d2"
+
+
+def _public_ip_ban_message(remaining_seconds: int = 0, permanent: bool = False) -> str:
+    if permanent:
+        return "\u60a8\u7684IP\u5df2\u7ecf\u88ab\u5c01\u7981\uff0c\u5269\u4f59\u65f6\u95f4\u6c38\u4e45\u89e3\u9664\uff01"
+    return (
+        "\u60a8\u7684IP\u5df2\u7ecf\u88ab\u5c01\u7981\uff0c\u5269\u4f59\u65f6\u95f4"
+        f"{_format_public_ban_remaining(remaining_seconds)}"
+        "\u89e3\u9664\uff01"
+    )
+
+
+async def _get_public_ip_ban_state(client_ip: str, fallback_seconds: int = 0) -> dict:
+    normalized_ip = str(client_ip or "").strip()
+    state = {
+        "banned": False,
+        "remaining_seconds": max(0, int(fallback_seconds or 0)),
+        "banned_until": "",
+        "permanent": False,
+    }
+    if not normalized_ip or normalized_ip == "unknown":
+        return state
+    expires_at = stats.banned_ip_expiries.get(normalized_ip)
+    if normalized_ip in stats.banned_ips:
+        if expires_at:
+            remaining = max(0, int(float(expires_at) - time.time()))
+            if remaining > 0:
+                state.update({
+                    "banned": True,
+                    "remaining_seconds": remaining,
+                    "banned_until": datetime.fromtimestamp(float(expires_at)).isoformat(),
+                })
+                return state
+        else:
+            state.update({"banned": True, "permanent": True})
+            return state
+    try:
+        db_state = await db.get_ip_ban_state(normalized_ip)
+    except Exception:
+        db_state = {}
+    if db_state and db_state.get("banned"):
+        state.update({
+            "banned": True,
+            "remaining_seconds": max(0, int(db_state.get("remaining_seconds") or state["remaining_seconds"])),
+            "banned_until": str(db_state.get("banned_until") or ""),
+            "permanent": bool(db_state.get("permanent")),
+        })
+    elif state["remaining_seconds"] > 0:
+        state["banned"] = True
+    return state
+
+
+async def _public_ip_ban_payload(client_ip: str, fallback_seconds: int = 0) -> dict:
+    state = await _get_public_ip_ban_state(client_ip, fallback_seconds=fallback_seconds)
+    remaining = int(state.get("remaining_seconds") or fallback_seconds or 0)
+    permanent = bool(state.get("permanent"))
+    message = _public_ip_ban_message(remaining, permanent)
+    return {
+        "Error": True,
+        "success": False,
+        "Msg": message,
+        "message": message,
+        "ban_remaining_seconds": remaining,
+        "ban_until": state.get("banned_until") or "",
+        "ban_permanent": permanent,
+    }
+
+
+async def _public_ip_ban_response(client_ip: str, status_code: int = 403, fallback_seconds: int = 0) -> JSONResponse:
+    return JSONResponse(
+        await _public_ip_ban_payload(client_ip, fallback_seconds=fallback_seconds),
+        status_code=status_code,
+    )
 
 
 def _default_login_protection_policy_payload() -> dict:
@@ -1821,8 +1902,14 @@ async def _build_upstream_key_format_guard_response(
             f"key_fp={fingerprint_log_secret(key_value)}"
         )
         status_code = 403 if decision.code in {"already_banned", "upstream_key_format_banned"} else 400
+        if status_code == 403:
+            return await _public_ip_ban_response(
+                client_ip,
+                status_code=403,
+                fallback_seconds=int(decision.duration_seconds or decision.remaining_seconds or 0),
+            )
         return JSONResponse(
-            {"Error": True, "Msg": decision.message or decision.reason or "请求参数异常"},
+            {"Error": True, "Msg": "\u8bf7\u6c42\u53c2\u6570\u5f02\u5e38"},
             status_code=status_code,
         )
     except Exception as e:
@@ -2306,23 +2393,21 @@ async def proxy_login(request: Request):
             except Exception as e:
                 logger.warning(f"[Login] 封禁记录失败: {e}")
 
-            return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
+            return await _public_ip_ban_response(client_ip)
 
     login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(client_ip, "/RPC/Login")
     if login_rate_result.get("already_banned"):
-        return JSONResponse(
-            {"Error": True, "Msg": "您的账号或IP已被封禁"},
-            status_code=403,
-        )
+        return await _public_ip_ban_response(client_ip, status_code=403)
     if login_rate_result.get("blocked"):
         return JSONResponse(
             {"Error": True, "Msg": login_rate_result.get("message") or "登录请求过于频繁，请稍后再试"},
             status_code=429,
         )
     if login_rate_result.get("duration_seconds"):
-        return JSONResponse(
-            {"Error": True, "Msg": login_rate_result.get("reason") or "登录请求过于频繁，您的IP已被封禁"},
+        return await _public_ip_ban_response(
+            client_ip,
             status_code=403,
+            fallback_seconds=int(login_rate_result.get("duration_seconds") or 0),
         )
 
     
@@ -3013,7 +3098,7 @@ async def proxy_rpc(path: str, request: Request):
 
             if client_ip in stats.banned_ips:
 
-                return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+                return await _public_ip_ban_response(client_ip)
 
         else:
 
@@ -3021,13 +3106,13 @@ async def proxy_rpc(path: str, request: Request):
 
                 if await db.is_banned(ip_address=client_ip):
 
-                    return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+                    return await _public_ip_ban_response(client_ip)
 
             except Exception:
 
                 if client_ip in stats.banned_ips:
 
-                    return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+                    return await _public_ip_ban_response(client_ip)
     
     raw_body = b""
     if request.method in ["POST", "PUT"]:
@@ -4442,14 +4527,20 @@ async def ban_ip_with_policy(
     reason_prefix = trigger_reason or f"自动防御触发{fail_count}次"
     reason = f"{reason_prefix}，封禁倍率{level}倍，封禁{_format_duration_zh(duration_seconds)}"
     stats.banned_ips.add(normalized_ip)
-    stats.banned_ip_expiries[normalized_ip] = time.time() + duration_seconds
+    banned_until_ts = time.time() + duration_seconds
+    stats.banned_ip_expiries[normalized_ip] = banned_until_ts
     await db.ban_ip(normalized_ip, reason, duration_days=duration_seconds / 86400)
     try:
         await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": normalized_ip, "reason": reason}})
     except Exception:
         pass
     logger.warning(f"[AdminLoginBan] ip={normalized_ip} fails={fail_count} level={level} duration_seconds={duration_seconds}")
-    return {"level": level, "duration_seconds": duration_seconds, "reason": reason}
+    return {
+        "level": level,
+        "duration_seconds": duration_seconds,
+        "banned_until": datetime.fromtimestamp(banned_until_ts).isoformat(),
+        "reason": reason,
+    }
 
 
 async def ban_admin_login_fail_ip(ip: str, fail_count: int, trigger_reason: str = '', base_seconds: int | None = None) -> dict:
@@ -6247,7 +6338,7 @@ async def admin_login(request: Request):
                 security_context,
                 SecurityResult(success=False, event='admin_login', reason='banned_ip')
             )
-            return JSONResponse(status_code=403, content={"success": False, "message": "您的IP已被封禁"})
+            return await _public_ip_ban_response(client_ip, status_code=403)
 
     login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(client_ip, "/admin/api/login")
     if login_rate_result.get("already_banned"):
@@ -6255,7 +6346,7 @@ async def admin_login(request: Request):
             security_context,
             SecurityResult(success=False, event='admin_login', reason='banned_ip')
         )
-        return JSONResponse(status_code=403, content={"success": False, "message": "您的IP已被封禁"})
+        return await _public_ip_ban_response(client_ip, status_code=403)
     if login_rate_result.get("blocked"):
         admin_security.record_audit(
             security_context,
@@ -6280,9 +6371,10 @@ async def admin_login(request: Request):
                 'request_count': login_rate_result.get('count'),
             }
         )
-        return JSONResponse(
+        return await _public_ip_ban_response(
+            client_ip,
             status_code=403,
-            content={"success": False, "message": login_rate_result.get("reason") or "登录请求过于频繁，您的IP已被封禁"}
+            fallback_seconds=int(login_rate_result.get("duration_seconds") or 0),
         )
 
     is_locked, remaining = check_login_lockout(client_ip)
@@ -6369,8 +6461,11 @@ async def admin_login(request: Request):
                 'ban_seconds': ban_result.get('duration_seconds'),
             }
         )
-        ban_message = ban_result.get('reason') or f"账号已锁定{LOGIN_LOCKOUT_TIME}秒"
-        return {"success": False, "message": f"密码错误次数过多，{ban_message}"}
+        return await _public_ip_ban_response(
+            client_ip,
+            status_code=403,
+            fallback_seconds=int(ban_result.get('duration_seconds') or 0),
+        )
 
     admin_security.record_audit(
         security_context,
@@ -7783,7 +7878,7 @@ async def admin_db_auth(request: Request):
             security_context,
             SecurityResult(success=False, event='admin_db_auth', reason='banned_ip')
         )
-        raise HTTPException(status_code=403, detail="您的IP已被封禁")
+        return await _public_ip_ban_response(client_ip, status_code=403)
 
     try:
 
@@ -15489,6 +15584,34 @@ def _patch_html_base_js_language_version(text: str) -> tuple[str, bool]:
     return patched, count > 0
 
 
+def _patch_base_js_public_ban_countdown(text: str) -> tuple[str, bool]:
+    if "__akPublicBanCountdownInstalled" in text:
+        return text, False
+    patch = (
+        "(function(){try{if(window.__akPublicBanCountdownInstalled)return;"
+        "window.__akPublicBanCountdownInstalled=1;"
+        "var banTimer=null,banRemain=0;"
+        "function fmt(sec){sec=Math.max(0,parseInt(sec||0,10));var h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;return h+'\\u5c0f\\u65f6'+m+'\\u5206'+s+'\\u79d2';}"
+        "function isBanMsg(msg){msg=String(msg||'');return msg.indexOf('\\u60a8\\u7684IP\\u5df2\\u7ecf\\u88ab\\u5c01\\u7981')>=0||msg.indexOf('\\u60a8\\u7684IP\\u5df2\\u88ab\\u5c01\\u7981')>=0;}"
+        "function extractRemain(msg){var m=String(msg||'').match(/(\\d+)\\u5c0f\\u65f6(\\d+)\\u5206(\\d+)\\u79d2/);return m?parseInt(m[1],10)*3600+parseInt(m[2],10)*60+parseInt(m[3],10):0;}"
+        "function ensureBox(){var el=document.getElementById('ak-public-ban-countdown');if(el)return el;"
+        "el=document.createElement('div');el.id='ak-public-ban-countdown';"
+        "el.style.cssText='position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:2147483647;max-width:min(520px,calc(100vw - 32px));background:rgba(255,255,255,.98);color:#111827;border:1px solid rgba(239,68,68,.28);box-shadow:0 18px 50px rgba(15,23,42,.22);border-radius:14px;padding:16px 18px;font-size:15px;line-height:1.7;text-align:center;font-weight:600;';"
+        "document.body.appendChild(el);return el;}"
+        "function render(){var el=ensureBox();el.innerHTML='\\u60a8\\u7684IP\\u5df2\\u7ecf\\u88ab\\u5c01\\u7981\\uff0c\\u5269\\u4f59\\u65f6\\u95f4 <span style=\"color:#dc2626;font-weight:800;\">'+fmt(banRemain)+'</span> \\u89e3\\u9664\\uff01';}"
+        "function show(msg,remain){banRemain=Math.max(banRemain,parseInt(remain||0,10)||extractRemain(msg)||0);render();if(banTimer)clearInterval(banTimer);banTimer=setInterval(function(){banRemain=Math.max(0,banRemain-1);render();if(banRemain<=0){clearInterval(banTimer);banTimer=null;}},1000);}"
+        "function capture(body){try{var data=typeof body==='string'?JSON.parse(body):body;if(!data||typeof data!=='object')return;var msg=String(data.Msg||data.message||'');if(isBanMsg(msg)||data.ban_remaining_seconds!=null){show(msg,data.ban_remaining_seconds||0);}}catch(_e){}}"
+        "var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;"
+        "XMLHttpRequest.prototype.open=function(method,url){this.__akBanUrl=url||'';return xo.apply(this,arguments);};"
+        "XMLHttpRequest.prototype.send=function(){if(!this.__akBanBound){this.__akBanBound=1;this.addEventListener('loadend',function(){capture(this.responseText||this.response||'');});}return xs.apply(this,arguments);};"
+        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(){return of.apply(this,arguments).then(function(resp){try{resp.clone().text().then(capture).catch(function(){});}catch(_e){}return resp;});};}"
+        "function hookToast(){try{if(!window.APP||!APP.GLOBAL||typeof APP.GLOBAL.toastMsg!=='function'||APP.GLOBAL.toastMsg.__akBanWrapped)return false;var old=APP.GLOBAL.toastMsg;APP.GLOBAL.toastMsg=function(msg){if(isBanMsg(msg)){show(msg,0);return;}return old.apply(this,arguments);};APP.GLOBAL.toastMsg.__akBanWrapped=1;return true;}catch(_e){return false;}}"
+        "if(!hookToast()){var n=0,t=setInterval(function(){if(hookToast()||++n>100)clearInterval(t);},100);}"
+        "}catch(_e){}})();"
+    )
+    return patch + text, True
+
+
 def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True) -> tuple[str, bool]:
     if rewrite_rpc_to_admin:
         text, rewritten = _rewrite_base_js_rpc_roots(text)
@@ -15502,9 +15625,10 @@ def _inject_base_js_no_login_probe(text: str, rewrite_rpc_to_admin: bool = True)
         rpc_rewrite_body = "function akBaseRw(url){return url;}"
     text, mnemonic_patched = _patch_base_js_mnemonic_complete_redirect(text)
     text, lang_version_patched = _patch_base_js_language_pack_version(text)
+    text, ban_countdown_patched = _patch_base_js_public_ban_countdown(text)
     marker = "[AKBaseNoLogin]"
     if marker in text:
-        return text, rewritten or mnemonic_patched or lang_version_patched
+        return text, rewritten or mnemonic_patched or lang_version_patched or ban_countdown_patched
     probe = (
         "(function(){"
         "try{if(window.__akBaseNoLoginProbeInstalled)return;window.__akBaseNoLoginProbeInstalled=true;"
@@ -17485,7 +17609,8 @@ async def ak_web_proxy(request: Request, path: str):
             if _use_native_ak_rpc(site_prefix):
                 text, base_js_rewritten = _rewrite_base_js_native_rpc_roots(text)
                 text, language_version_rewritten = _patch_base_js_language_pack_version(text)
-                base_js_rewritten = base_js_rewritten or language_version_rewritten
+                text, ban_countdown_rewritten = _patch_base_js_public_ban_countdown(text)
+                base_js_rewritten = base_js_rewritten or language_version_rewritten or ban_countdown_rewritten
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
             if base_js_rewritten:

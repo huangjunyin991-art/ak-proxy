@@ -268,6 +268,8 @@ class ActiveDefenseService:
             ip=ip,
             count=count,
             duration_seconds=duration_seconds,
+            remaining_seconds=duration_seconds,
+            banned_until=str(result.get("banned_until") or ""),
             level=int(result.get("level") or 0),
             reason=result.get("reason") or reason,
         )

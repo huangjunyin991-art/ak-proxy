@@ -118,6 +118,8 @@ class ActiveDefenseDecision:
     threshold: int = 0
     status_code: int = 0
     duration_seconds: int = 0
+    remaining_seconds: int = 0
+    banned_until: str = ""
     level: int = 0
     reason: str = ""
 

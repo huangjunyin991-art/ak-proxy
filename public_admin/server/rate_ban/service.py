@@ -95,6 +95,8 @@ class RateBanService:
                 message=ban_result.get("reason") or reason,
                 count=count,
                 duration_seconds=int(ban_result.get("duration_seconds") or policy.ban_base_seconds),
+                remaining_seconds=int(ban_result.get("duration_seconds") or policy.ban_base_seconds),
+                banned_until=str(ban_result.get("banned_until") or ""),
                 level=int(ban_result.get("level") or 1),
                 reason=reason,
             )
