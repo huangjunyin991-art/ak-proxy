@@ -43,6 +43,21 @@ func TestHumanChatContextSenderExcludesAIGeneratedMessages(t *testing.T) {
 	}
 }
 
+func TestQuotedChatContextSenderAllowsAIGeneratedMessage(t *testing.T) {
+	if shouldIncludeChatContextSender(bot.Username, false) {
+		t.Fatalf("bot username should still be excluded from normal mention context")
+	}
+	if !shouldIncludeChatContextSender(bot.Username, true) {
+		t.Fatalf("quoted bot message should be allowed as focused context")
+	}
+	if shouldIncludeChatContextSender("", true) {
+		t.Fatalf("empty sender should never enter chat context")
+	}
+	if !shouldIncludeChatContextSender("alice", false) {
+		t.Fatalf("normal user should be kept in normal context")
+	}
+}
+
 func TestCleanBotMentionText(t *testing.T) {
 	got := cleanBotMentionText("\u200b@\u5c0fA \u5e2e\u6211\u603b\u7ed3\u4e00\u4e0b")
 	if strings.Contains(got, "@") || strings.Contains(got, "\u5c0fA") {

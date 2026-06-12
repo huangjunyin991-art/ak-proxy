@@ -77,6 +77,7 @@ func (s *Service) buildMentionContextMessages(ctx context.Context, ownerUsername
 		buildChatSystemPrompt("", cfg),
 		"你正在当前聊天会话中被用户@。你可以基于下面提供的最近真人聊天记录回答用户问题。",
 		"聊天记录已经排除了小A历史回复，避免AI长回复污染上下文；不要把缺失的小A历史回复当作用户没说过相关内容。",
+		"如果引用重点来自小A/AI，请只把这条被引用内容当作用户主动指定的参考对象；普通小A历史回复仍不要进入上下文。",
 		"如果用户询问参与人数、观点、待办或结论，请基于提供的真人消息统计和归纳；如果记录不足，要说明“基于最近聊天记录”。",
 		"回答要直接、简洁，不要复述整段聊天记录，除非用户明确要求。",
 	}, "\n")
@@ -148,7 +149,8 @@ func (s *Service) loadRecentHumanChatContext(ctx context.Context, conversationID
 			return nil, err
 		}
 		item.Sender = strings.ToLower(strings.TrimSpace(item.Sender))
-		if !isHumanChatContextSender(item.Sender) {
+		item.IsQuotedFocus = quoteID > 0 && item.ID == quoteID
+		if !shouldIncludeChatContextSender(item.Sender, item.IsQuotedFocus) {
 			continue
 		}
 		item.Content = strings.TrimSpace(legacyAIMessageContent(item.MessageType, contentPayload, contentPreview))
@@ -156,7 +158,6 @@ func (s *Service) loadRecentHumanChatContext(ctx context.Context, conversationID
 			continue
 		}
 		item.IsTrigger = item.ID == triggerMessageID
-		item.IsQuotedFocus = quoteID > 0 && item.ID == quoteID
 		item.Content = truncateToEstimatedTokens(item.Content, 900)
 		tokens := estimateTextTokens(item.Content) + 16
 		if usedTokens+tokens > tokenBudget && !item.IsTrigger && !item.IsQuotedFocus {
@@ -172,7 +173,7 @@ func (s *Service) loadRecentHumanChatContext(ctx context.Context, conversationID
 		return nil, err
 	}
 	if quoteID > 0 && !containsContextMessage(newestFirst, quoteID) {
-		if quoted, err := s.loadSingleHumanChatContextMessage(ctx, conversationID, quoteID); err == nil {
+		if quoted, err := s.loadSingleChatContextMessage(ctx, conversationID, quoteID); err == nil {
 			quoted.IsQuotedFocus = true
 			newestFirst = append(newestFirst, quoted)
 		} else {
@@ -185,7 +186,7 @@ func (s *Service) loadRecentHumanChatContext(ctx context.Context, conversationID
 	return newestFirst, nil
 }
 
-func (s *Service) loadSingleHumanChatContextMessage(ctx context.Context, conversationID int64, messageID int64) (chatContextMessage, error) {
+func (s *Service) loadSingleChatContextMessage(ctx context.Context, conversationID int64, messageID int64) (chatContextMessage, error) {
 	var item chatContextMessage
 	var contentPayload string
 	var contentPreview string
@@ -198,16 +199,31 @@ func (s *Service) loadSingleHumanChatContextMessage(ctx context.Context, convers
 		return chatContextMessage{}, err
 	}
 	item.Sender = strings.ToLower(strings.TrimSpace(item.Sender))
-	if !isHumanChatContextSender(item.Sender) {
-		return chatContextMessage{}, fmt.Errorf("quoted message is AI generated")
+	item.IsQuotedFocus = true
+	if !shouldIncludeChatContextSender(item.Sender, true) {
+		return chatContextMessage{}, fmt.Errorf("quoted message has no sender")
 	}
-	item.Content = truncateToEstimatedTokens(legacyAIMessageContent(item.MessageType, contentPayload, contentPreview), 900)
+	item.Content = strings.TrimSpace(truncateToEstimatedTokens(legacyAIMessageContent(item.MessageType, contentPayload, contentPreview), 900))
+	if item.Content == "" {
+		return chatContextMessage{}, fmt.Errorf("quoted message is empty")
+	}
 	return item, nil
 }
 
 func isHumanChatContextSender(sender string) bool {
 	sender = strings.ToLower(strings.TrimSpace(sender))
 	return sender != "" && !bot.IsBotUsername(sender)
+}
+
+func shouldIncludeChatContextSender(sender string, isQuotedFocus bool) bool {
+	sender = strings.ToLower(strings.TrimSpace(sender))
+	if sender == "" {
+		return false
+	}
+	if isQuotedFocus {
+		return true
+	}
+	return !bot.IsBotUsername(sender)
 }
 
 func hasTriggerAndQuote(items []chatContextMessage, triggerMessageID int64, quoteID int64) bool {
