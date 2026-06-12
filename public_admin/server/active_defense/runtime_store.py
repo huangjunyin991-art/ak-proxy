@@ -12,6 +12,7 @@ class ActiveDefenseRuntimeStore:
     login_forget_403_seen_at: dict[str, float] = field(default_factory=dict)
     login_403_accounts: dict[str, dict[str, float]] = field(default_factory=dict)
     response_anomaly_counts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    upstream_key_format_errors: dict[str, list[float]] = field(default_factory=dict)
     last_ban: dict[str, Any] = field(default_factory=dict)
     last_prune_at: float = 0.0
 
@@ -82,6 +83,16 @@ class ActiveDefenseRuntimeStore:
     def reset_response_anomaly(self, ip: str) -> None:
         self.response_anomaly_counts.pop(ip, None)
 
+    def record_upstream_key_format_error(self, ip: str, window_seconds: int) -> int:
+        now = time.time()
+        timestamps = self.upstream_key_format_errors.setdefault(ip, [])
+        timestamps[:] = [ts for ts in timestamps if now - float(ts or 0) <= window_seconds]
+        timestamps.append(now)
+        return len(timestamps)
+
+    def reset_upstream_key_format_errors(self, ip: str) -> None:
+        self.upstream_key_format_errors.pop(ip, None)
+
     def record_ban(self, ip: str, event_type: str, reason: str, count: int, duration_seconds: int = 0) -> None:
         self.last_ban = {
             "ip": ip,
@@ -100,6 +111,7 @@ class ActiveDefenseRuntimeStore:
         self.login_forget_403_seen_at.clear()
         self.login_403_accounts.clear()
         self.response_anomaly_counts.clear()
+        self.upstream_key_format_errors.clear()
         self.last_ban.clear()
         self.last_prune_at = 0.0
 
@@ -111,6 +123,7 @@ class ActiveDefenseRuntimeStore:
         login_forget_403_window_seconds: int,
         login_403_window_seconds: int,
         response_anomaly_window_seconds: int,
+        upstream_key_format_window_seconds: int = 60,
         interval_seconds: int = 30,
         force: bool = False,
     ) -> None:
@@ -123,6 +136,7 @@ class ActiveDefenseRuntimeStore:
         self._prune_counter(self.login_forget_403_counts, self.login_forget_403_seen_at, now, max(1, login_forget_403_window_seconds))
         self._prune_login_403_accounts(now, max(1, login_403_window_seconds))
         self._prune_response_anomaly(now, max(1, response_anomaly_window_seconds))
+        self._prune_timestamp_lists(self.upstream_key_format_errors, now, max(1, upstream_key_format_window_seconds))
 
     def _prune_login_request_timestamps(self, now: float, window_seconds: int) -> None:
         stale_ips = []
@@ -162,6 +176,15 @@ class ActiveDefenseRuntimeStore:
         for ip in stale_ips:
             self.response_anomaly_counts.pop(ip, None)
 
+    def _prune_timestamp_lists(self, store: dict[str, list[float]], now: float, window_seconds: int) -> None:
+        stale_ips = []
+        for ip, timestamps in store.items():
+            timestamps[:] = [ts for ts in timestamps if now - float(ts or 0) <= window_seconds]
+            if not timestamps:
+                stale_ips.append(ip)
+        for ip in stale_ips:
+            store.pop(ip, None)
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "login_tracked_ips": len(self.login_request_timestamps),
@@ -169,5 +192,6 @@ class ActiveDefenseRuntimeStore:
             "login_forget_403_ips": len(self.login_forget_403_counts),
             "login_403_ips": len(self.login_403_accounts),
             "response_anomaly_ips": len(self.response_anomaly_counts),
+            "upstream_key_format_error_ips": len(self.upstream_key_format_errors),
             "last_ban": dict(self.last_ban),
         }

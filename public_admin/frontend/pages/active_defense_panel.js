@@ -129,6 +129,7 @@
             renderMetric('忘记密码 API 403 IP', runtime.login_forget_403_ips || 0, 'blue') +
             renderMetric('登录 403 IP', runtime.login_403_ips || 0, 'purple') +
             renderMetric('响应异常 IP', runtime.response_anomaly_ips || 0, 'orange') +
+            renderMetric('异常 key IP', runtime.upstream_key_format_error_ips || 0, 'red') +
             '</div>' +
             '<div class="ad-last-ban"><div><span>最近自动封禁</span><strong>' + escapeHtml(lastBan.ip || '暂无') + '</strong></div><p>' + escapeHtml(lastBan.reason || '当前没有主动防御自动封禁记录') + '</p></div>';
     }
@@ -155,7 +156,7 @@
             '.ad-metric{border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.045);padding:14px;min-width:0}',
             '.ad-metric strong{display:block;color:var(--accent);font-size:24px;line-height:1;font-weight:900}',
             '.ad-metric span{display:block;margin-top:8px;color:var(--text-secondary);font-size:12px}',
-            '.ad-metric.blue strong{color:#55a3ff}.ad-metric.purple strong{color:#a55eea}.ad-metric.orange strong{color:#f7b731}',
+            '.ad-metric.blue strong{color:#55a3ff}.ad-metric.purple strong{color:#a55eea}.ad-metric.orange strong{color:#f7b731}.ad-metric.red strong{color:#ff6b7a}',
             '.ad-last-ban{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:12px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(0,0,0,.16);padding:12px 14px}',
             '.ad-last-ban span{display:block;color:var(--text-secondary);font-size:12px}.ad-last-ban strong{display:block;color:var(--text-primary);font-size:16px;margin-top:3px}.ad-last-ban p{margin:0;color:var(--text-secondary);font-size:12px;line-height:1.5;text-align:right}',
             '.ad-section-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}',
@@ -208,7 +209,7 @@
             '<div class="ad-section-grid">' +
                 section('全局处罚规则', '控制主动防御总开关、本机豁免和自动封禁时长。', '01', '<div class="ad-policy-stack">' + policyGroup('总开关与豁免', '这些开关决定主动防御是否参与判定，以及是否跳过本机调试流量。', switchCard('adEnabled', '启用主动防御', '关闭后所有主动防御自动封禁策略暂停') + switchCard('adIgnoreLoopback', '忽略本机 IP', '避免本机调试和健康检查被误封') + switchCard('adProgressiveBan', '启用梯度封禁', '同一 IP 多次触发时逐级增加处罚'), 3) + policyGroup('封禁时长', '所有自动封禁策略共用这组处罚时长。', numberField('adBanBaseSeconds', '基础封禁时长（秒）', '默认 3600 秒') + numberField('adBanMaxSeconds', '最大封禁时长（秒）', '默认 30 天'), 2) + '</div>', true) +
                 section('登录防护策略', '处理登录接口短间隔请求和密码错误累计封禁。', '02', '<div class="ad-policy-stack">' + policyGroup('登录接口短间隔', '同一 IP 高频请求登录接口时，先阻断本次请求，再按阈值自动封禁。', switchCard('adLoginShortEnabled', '启用登录短间隔防护', '请求登录接口过快时先阻断，连续命中后封禁') + switchCard('adLoginShortBlockEnabled', '短间隔先阻断', '开启后未达封禁阈值时返回 429') + numberField('adLoginMinInterval', '最小登录间隔（秒）', '默认 5 秒') + numberField('adLoginShortThreshold', '短间隔封禁阈值（次）', '默认 3 次'), 2) + policyGroup('密码错误累计封禁', '同一 IP 对同一账号连续密码错误达到阈值后自动封禁。', switchCard('adPasswordFailureEnabled', '启用密码错误累计封禁', '同一 IP 对同一账号连续密码错误达到阈值后封禁') + numberField('adPasswordWindowHours', '密码错误统计窗口（小时）', '默认 24 小时，成功登录后重新累计') + numberField('adPasswordThreshold', '密码错误封禁阈值（次）', '默认 15 次'), 2) + '</div>', false) +
-                section('403 / 429 异常策略', '处理登录 403、忘记密码 API 403 和接口响应异常。', '03', '<div class="ad-policy-stack">' + policyGroup('登录 403 多账号失败', '同一 IP 在窗口内触发多个账号登录 403 时自动封禁。', switchCard('adLogin403Enabled', '启用登录 403 防护', '登录 403 和同 IP 多账号 403 统一封禁') + numberField('adLogin403Window', '登录 403 统计窗口（秒）', '默认 60 秒') + numberField('adLogin403DistinctThreshold', '同 IP 多账号 403 阈值（个）', '默认 6 个账号'), 2) + policyGroup('忘记密码 API 403', '忘记密码相关 API 连续触发上游 403 时自动封禁。', numberField('adLoginForget403Threshold', '忘记密码 API 403 连续阈值（次）', '默认 20 次'), 2) + policyGroup('响应异常防护', '同一 IP 连续触发指定 HTTP 状态码达到阈值后自动封禁。', switchCard('adResponseEnabled', '启用响应异常防护', '同一 IP 连续触发 HTTP 403/429 达阈值后封禁') + numberField('adResponseWindow', '响应异常保护窗口（秒）', '默认 60 秒') + numberField('adResponseThreshold', '响应异常连续阈值（次）', '默认 10 次') + textField('adResponseCodes', '监听状态码', '逗号分隔，默认 403,429') + switchCard('adResponseResetClean', '非异常响应重置计数', '开启后连续性更严格') + switchCard('adResponseApiOnly', '仅统计 API 路径', '关闭则统计全站响应') + switchCard('adResponseExcludeStatic', '排除静态资源', '避免 CSS/JS/图片 404 或 403 误判'), 2) + '</div>', false) +
+                section('403 / 429 异常策略', '处理登录 403、忘记密码 API 403 和接口响应异常。', '03', '<div class="ad-policy-stack">' + policyGroup('登录 403 多账号失败', '同一 IP 在窗口内触发多个账号登录 403 时自动封禁。', switchCard('adLogin403Enabled', '启用登录 403 防护', '登录 403 和同 IP 多账号 403 统一封禁') + numberField('adLogin403Window', '登录 403 统计窗口（秒）', '默认 60 秒') + numberField('adLogin403DistinctThreshold', '同 IP 多账号 403 阈值（个）', '默认 6 个账号'), 2) + policyGroup('忘记密码 API 403', '忘记密码相关 API 连续触发上游 403 时自动封禁。', numberField('adLoginForget403Threshold', '忘记密码 API 403 连续阈值（次）', '默认 20 次'), 2) + policyGroup('响应异常防护', '同一 IP 连续触发指定 HTTP 状态码达到阈值后自动封禁。', switchCard('adResponseEnabled', '启用响应异常防护', '同一 IP 连续触发 HTTP 403/429 达阈值后封禁') + numberField('adResponseWindow', '响应异常保护窗口（秒）', '默认 60 秒') + numberField('adResponseThreshold', '响应异常连续阈值（次）', '默认 10 次') + textField('adResponseCodes', '监听状态码', '逗号分隔，默认 403,429') + switchCard('adResponseResetClean', '非异常响应重置计数', '开启后连续性更严格') + switchCard('adResponseApiOnly', '仅统计 API 路径', '关闭则统计全站响应') + switchCard('adResponseExcludeStatic', '排除静态资源', '避免 CSS/JS/图片 404 或 403 误判'), 2) + policyGroup('上游 key 参数防护', '所有转发到上游网页的 RPC API，只要带了 key 且不是 32 位十六进制，就阻断并进入主动防御。', switchCard('adUpstreamKeyImmediateBan', '异常 key 直接梯度封禁', '开启后格式或位数错误立即封禁；关闭后仍按 1 分钟阈值封禁') + numberField('adUpstreamKeyBurstThreshold', '1 分钟异常 key 阈值（次）', '默认 30 次'), 2) + '</div>', false) +
             '</div>' +
             '<section class="ad-footer"><div class="ad-footer-copy"><strong>保存后立即应用到运行策略</strong><span>清空运行计数不会解除已经封禁的 IP。</span></div><div class="ad-footer-actions"><button class="ad-btn" id="adSaveBtn">保存配置</button><button class="ad-btn danger" id="adClearBtn">清空运行计数</button></div></section>' +
         '</div>';
@@ -280,6 +281,8 @@
         setInputChecked('adResponseResetClean', p.response_anomaly_reset_on_clean !== false);
         setInputChecked('adResponseApiOnly', !!p.response_anomaly_api_only);
         setInputChecked('adResponseExcludeStatic', p.response_anomaly_exclude_static !== false);
+        setInputChecked('adUpstreamKeyImmediateBan', p.upstream_key_format_immediate_ban_enabled !== false);
+        setInputValue('adUpstreamKeyBurstThreshold', p.upstream_key_format_burst_threshold);
     }
 
     function collectPolicy() {
@@ -306,7 +309,9 @@
             response_anomaly_status_codes: textValue('adResponseCodes').split(',').map(function(item) { return Number(String(item).trim()); }).filter(function(code) { return code >= 100 && code <= 599; }),
             response_anomaly_reset_on_clean: checkedValue('adResponseResetClean'),
             response_anomaly_api_only: checkedValue('adResponseApiOnly'),
-            response_anomaly_exclude_static: checkedValue('adResponseExcludeStatic')
+            response_anomaly_exclude_static: checkedValue('adResponseExcludeStatic'),
+            upstream_key_format_immediate_ban_enabled: checkedValue('adUpstreamKeyImmediateBan'),
+            upstream_key_format_burst_threshold: numberValue('adUpstreamKeyBurstThreshold')
         };
     }
 

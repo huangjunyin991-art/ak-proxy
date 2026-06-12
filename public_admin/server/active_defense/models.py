@@ -69,6 +69,9 @@ class ActiveDefensePolicy:
     response_anomaly_api_only: bool = False
     response_anomaly_exclude_static: bool = True
 
+    upstream_key_format_immediate_ban_enabled: bool = True
+    upstream_key_format_burst_threshold: int = 30
+
     @classmethod
     def from_mapping(cls, payload: dict | None) -> "ActiveDefensePolicy":
         data = dict(payload or {})
@@ -96,6 +99,8 @@ class ActiveDefensePolicy:
             response_anomaly_reset_on_clean=_bool(data.get("response_anomaly_reset_on_clean"), True),
             response_anomaly_api_only=_bool(data.get("response_anomaly_api_only"), False),
             response_anomaly_exclude_static=_bool(data.get("response_anomaly_exclude_static"), True),
+            upstream_key_format_immediate_ban_enabled=_bool(data.get("upstream_key_format_immediate_ban_enabled"), True),
+            upstream_key_format_burst_threshold=_int_range(data.get("upstream_key_format_burst_threshold"), 1, 10000, 30),
         )
 
     def to_dict(self) -> dict[str, Any]:

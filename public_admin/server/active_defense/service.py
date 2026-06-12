@@ -200,6 +200,58 @@ class ActiveDefenseService:
         self._store.reset_response_anomaly(normalized_ip)
         return decision
 
+    async def record_upstream_key_format_error(
+        self,
+        ip: str,
+        path: str,
+        key_fingerprint: str = "",
+        *,
+        is_loopback: Callable[[str], bool],
+        is_banned: Callable[[str], Awaitable[bool]],
+        ban_ip: BanCallback,
+    ) -> ActiveDefenseDecision:
+        policy = self._policy
+        normalized_ip = str(ip or "").strip()
+        normalized_path = str(path or "").strip() or "-"
+        if not self._should_track_ip(normalized_ip, policy, is_loopback):
+            return ActiveDefenseDecision(allowed=True, code="ignored", event_type="upstream_key_format", ip=normalized_ip)
+        if not policy.enabled:
+            return ActiveDefenseDecision(allowed=True, code="disabled", event_type="upstream_key_format", ip=normalized_ip)
+        if await is_banned(normalized_ip):
+            self._store.reset_upstream_key_format_errors(normalized_ip)
+            return ActiveDefenseDecision(allowed=False, code="already_banned", event_type="upstream_key_format", ip=normalized_ip)
+
+        self._prune_runtime()
+        count = self._store.record_upstream_key_format_error(normalized_ip, 60)
+        threshold = max(1, int(policy.upstream_key_format_burst_threshold or 30))
+        should_ban = bool(policy.upstream_key_format_immediate_ban_enabled) or count >= threshold
+        if not should_ban:
+            return ActiveDefenseDecision(
+                allowed=False,
+                code="blocked_invalid_upstream_key",
+                message="上游请求 key 参数格式异常",
+                event_type="upstream_key_format",
+                ip=normalized_ip,
+                count=count,
+                threshold=threshold,
+            )
+
+        if count >= threshold:
+            reason = f"1分钟内上游 key 参数格式异常 {count} 次: {normalized_path}"
+        else:
+            suffix = f" key={key_fingerprint}" if key_fingerprint else ""
+            reason = f"上游 key 参数格式异常: {normalized_path}{suffix}"
+        decision = await self._ban(
+            normalized_ip,
+            count,
+            reason,
+            "upstream_key_format_banned",
+            "upstream_key_format",
+            ban_ip,
+        )
+        self._store.reset_upstream_key_format_errors(normalized_ip)
+        return decision
+
     async def _ban(self, ip: str, count: int, reason: str, code: str, event_type: str, ban_ip: BanCallback) -> ActiveDefenseDecision:
         policy = self._policy
         result = await ban_ip(ip, count, reason, policy.ban_base_seconds, policy.ban_max_seconds, policy.progressive_ban_enabled)
@@ -245,5 +297,6 @@ class ActiveDefenseService:
             login_forget_403_window_seconds=policy.login_403_window_seconds,
             login_403_window_seconds=policy.login_403_window_seconds,
             response_anomaly_window_seconds=policy.response_anomaly_window_seconds,
+            upstream_key_format_window_seconds=60,
             force=force,
         )

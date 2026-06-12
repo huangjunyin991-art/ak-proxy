@@ -1760,6 +1760,66 @@ def _extract_forward_account(params: dict) -> str:
     return ""
 
 
+_UPSTREAM_RPC_KEY_PATTERN = re.compile(r"^[A-Fa-f0-9]{32}$")
+
+
+def _extract_upstream_rpc_key_param(params: dict) -> tuple[bool, str]:
+    if not isinstance(params, dict):
+        return False, ""
+    for key, value in params.items():
+        if str(key or "").strip().lower() != "key":
+            continue
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else ""
+        return True, str(value or "").strip()
+    return False, ""
+
+
+def _is_valid_upstream_rpc_key(value: str) -> bool:
+    return bool(_UPSTREAM_RPC_KEY_PATTERN.fullmatch(str(value or "").strip()))
+
+
+async def _build_upstream_key_format_guard_response(
+    request: Request,
+    path: str,
+    params: dict,
+    source: str,
+):
+    if str(path or "").strip("/").lower() == "login":
+        return None
+    has_key, key_value = _extract_upstream_rpc_key_param(params)
+    if not has_key or _is_valid_upstream_rpc_key(key_value):
+        return None
+    if active_defense_service is None:
+        return None
+    try:
+        await _refresh_active_defense_policy()
+        client_ip = _extract_client_ip(request)
+        decision = await active_defense_service.record_upstream_key_format_error(
+            client_ip,
+            f"/RPC/{str(path or '').strip('/')}",
+            fingerprint_log_secret(key_value),
+            is_loopback=_is_loopback_ip,
+            is_banned=_is_ip_banned_for_penalty,
+            ban_ip=_ban_active_defense_ip,
+        )
+        if decision.allowed:
+            return None
+        logger.warning(
+            f"[UpstreamKeyFormatGuard] source={source} ip={decision.ip or client_ip} "
+            f"path=/RPC/{path} code={decision.code} count={decision.count}/{decision.threshold} "
+            f"key_fp={fingerprint_log_secret(key_value)}"
+        )
+        status_code = 403 if decision.code in {"already_banned", "upstream_key_format_banned"} else 400
+        return JSONResponse(
+            {"Error": True, "Msg": decision.message or decision.reason or "请求参数异常"},
+            status_code=status_code,
+        )
+    except Exception as e:
+        logger.warning(f"[UpstreamKeyFormatGuard] 检查失败，跳过主动防御: source={source} path=/RPC/{path} error={e}")
+        return None
+
+
 def _reset_dispatcher_temp_event_file() -> None:
     try:
         Path(DISPATCHER_TEMP_EVENT_FILE).write_text("", encoding="utf-8")
@@ -2742,6 +2802,19 @@ async def proxy_index_data(request: Request):
     risk_isolation_response = _build_risk_isolation_userkey_response("public_IndexData", params, "index_data")
     if risk_isolation_response is not None:
         return risk_isolation_response
+    key_guard_response = await _build_upstream_key_format_guard_response(request, "public_IndexData", params, "index_data")
+    if key_guard_response is not None:
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/RPC/public_IndexData",
+            status_code=getattr(key_guard_response, "status_code", 400),
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=0,
+            content_type="application/json",
+            error="invalid_upstream_key",
+        )
+        return key_guard_response
 
     
 
@@ -2970,6 +3043,19 @@ async def proxy_rpc(path: str, request: Request):
         risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "rpc_cookie_auth")
         if risk_isolation_response is not None:
             return risk_isolation_response
+    key_guard_response = await _build_upstream_key_format_guard_response(request, path, params, "rpc")
+    if key_guard_response is not None:
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/RPC/" + path,
+            status_code=getattr(key_guard_response, "status_code", 400),
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=0,
+            content_type="application/json",
+            error="invalid_upstream_key",
+        )
+        return key_guard_response
 
     trace_rpc_paths = {
         "public_ace",
@@ -15824,6 +15910,19 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc_session")
         if risk_isolation_response is not None:
             return risk_isolation_response
+    key_guard_response = await _build_upstream_key_format_guard_response(request, path, params, "admin_ak_rpc")
+    if key_guard_response is not None:
+        _record_request_metric(
+            kind="rpc",
+            method=request.method,
+            path="/admin/ak-rpc/" + path,
+            status_code=getattr(key_guard_response, "status_code", 400),
+            total_ms=_elapsed_ms(request_started_at),
+            upstream_ms=0,
+            content_type="application/json",
+            error="invalid_upstream_key",
+        )
+        return key_guard_response
     if trace_params_before is not None:
         _admin_ak_trace(lambda: (
             f"[AdminAkRpcParams/{path}] phase=forward referer={referer} "
