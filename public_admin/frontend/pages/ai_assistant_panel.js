@@ -2,14 +2,6 @@
     'use strict';
 
     const API_BASE = '';
-    const FEATURE_KEYS = ['ai_chat', 'polish_translate', 'chat_summary', 'semantic_search', 'search_summary'];
-    const FEATURE_LABELS = {
-        ai_chat: 'AI 聊天',
-        polish_translate: '润色翻译',
-        chat_summary: '聊天总结',
-        semantic_search: '语义搜索',
-        search_summary: '搜索总结'
-    };
     const TIER_LABELS = {
         trial: '试用',
         basic: '普通',
@@ -329,7 +321,6 @@
             #aiAssistant .ai-table th,#aiAssistant .ai-table td{padding:9px 8px;border-bottom:1px solid var(--border);text-align:left;font-size:12px;vertical-align:middle}
             #aiAssistant .ai-table th{color:var(--text-secondary);font-weight:700}
             #aiAssistant .ai-table input:not([type="checkbox"]){width:100%;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);padding:0 8px}
-            #aiAssistant .ai-feature-list{display:flex;flex-wrap:wrap;gap:6px}
             #aiAssistant .ai-check{position:relative;display:inline-flex;align-items:center;min-height:28px;cursor:pointer;user-select:none}
             #aiAssistant .ai-check input{position:absolute;opacity:0;pointer-events:none}
             #aiAssistant .ai-check span{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.035);color:var(--text-secondary);font-size:12px;font-weight:700;white-space:nowrap;transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease}
@@ -340,7 +331,6 @@
             #aiAssistant .ai-tier-status .ai-check.small span{min-width:54px;min-height:30px;border-radius:10px;padding:0 12px}
             #aiAssistant .ai-tier-save{height:30px;min-width:58px;border:1px solid rgba(0,212,255,.30);border-radius:9px;background:rgba(0,212,255,.09);color:var(--accent);box-shadow:0 0 0 1px rgba(0,212,255,.06) inset}
             #aiAssistant .ai-tier-save:hover{background:rgba(0,212,255,.16);border-color:rgba(0,212,255,.52);color:#fff}
-            #aiAssistant .ai-feature-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary)}
             #aiAssistant .ai-model-chip-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
             #aiAssistant .ai-model-chip{display:inline-flex;align-items:center;max-width:180px;height:22px;padding:0 8px;border:1px solid rgba(0,212,255,.22);border-radius:999px;background:rgba(0,212,255,.07);color:var(--text-primary);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             #aiAssistant .ai-model-chip.muted{color:var(--text-secondary);background:rgba(255,255,255,.05);border-color:var(--border)}
@@ -737,7 +727,6 @@
         });
         if (!tiers.length) return '<div class="ai-card"><div class="ai-empty">档位配置加载中...</div></div>';
         const rows = tiers.map(function(item) {
-            const features = item.features || {};
             return `
                 <tr data-tier="${escapeHtml(item.tier)}">
                     <td><strong>${escapeHtml(TIER_LABELS[item.tier] || item.tier)}</strong><div class="ai-meta">${escapeHtml(item.tier)}</div></td>
@@ -745,9 +734,6 @@
                     <td><input data-field="daily_limit" type="number" min="0" value="${Number(item.daily_limit || 0)}"></td>
                     <td><input data-field="monthly_limit" type="number" min="0" value="${Number(item.monthly_limit || 0)}"></td>
                     <td><input data-field="memory_retention_days" type="number" min="1" value="${Number(item.memory_retention_days || 30)}"></td>
-                    <td><div class="ai-feature-list">${FEATURE_KEYS.map(function(key) {
-                        return '<label class="ai-check small"><input type="checkbox" data-feature="' + escapeHtml(key) + '" ' + (features[key] ? 'checked' : '') + '><span>' + escapeHtml(FEATURE_LABELS[key] || key) + '</span></label>';
-                    }).join('')}</div></td>
                     <td class="ai-tier-status"><label class="ai-check small"><input type="checkbox" data-field="enabled" ${item.enabled ? 'checked' : ''}><span>启用</span></label></td>
                     <td><button class="ai-btn ai-tier-save" data-action="save-tier" data-tier="${escapeHtml(item.tier)}">保存</button></td>
                 </tr>
@@ -758,7 +744,7 @@
                 <div class="ai-card-title"><span>权益档位</span><span class="ai-tag">试用 / 普通 / 进阶 / 荣耀 / 至尊</span></div>
                 <div style="overflow:auto;">
                     <table class="ai-table ai-tier-table">
-                        <thead><tr><th>档位</th><th>显示名</th><th>日额度</th><th>月额度</th><th>记忆天数</th><th>功能</th><th>状态</th><th>操作</th></tr></thead>
+                        <thead><tr><th>档位</th><th>显示名</th><th>日额度</th><th>月额度</th><th>记忆天数</th><th>状态</th><th>操作</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
@@ -1186,17 +1172,12 @@
             return String(item.dataset.tier || '') === String(tier || '');
         });
         if (!row) return;
-        const features = {};
-        row.querySelectorAll('[data-feature]').forEach(function(input) {
-            features[input.dataset.feature] = !!input.checked;
-        });
         const payload = {
             tier: tier,
             tier_name: row.querySelector('[data-field="tier_name"]')?.value || TIER_LABELS[tier] || tier,
             daily_limit: Number(row.querySelector('[data-field="daily_limit"]')?.value || 0),
             monthly_limit: Number(row.querySelector('[data-field="monthly_limit"]')?.value || 0),
             memory_retention_days: Number(row.querySelector('[data-field="memory_retention_days"]')?.value || 30),
-            features: features,
             enabled: !!row.querySelector('[data-field="enabled"]')?.checked
         };
         const data = await api('/admin/api/ai/tiers', { method: 'POST', body: JSON.stringify(payload) });

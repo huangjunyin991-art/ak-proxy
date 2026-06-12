@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -64,10 +63,10 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			monthly_limit INTEGER NOT NULL DEFAULT 0,
 			priority INTEGER NOT NULL DEFAULT 0,
 			memory_retention_days INTEGER NOT NULL DEFAULT 30,
-			features JSONB NOT NULL DEFAULT '{}'::jsonb,
 			enabled BOOLEAN NOT NULL DEFAULT TRUE,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
+		`ALTER TABLE im_ai_tier_config DROP COLUMN IF EXISTS features`,
 		`CREATE TABLE IF NOT EXISTS im_ai_user_entitlement (
 			username TEXT PRIMARY KEY,
 			current_tier TEXT NOT NULL DEFAULT 'trial',
@@ -105,21 +104,51 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS im_ai_quota_daily_usage (
 			username TEXT NOT NULL,
 			quota_date DATE NOT NULL,
-			feature_key TEXT NOT NULL,
 			used_count INTEGER NOT NULL DEFAULT 0,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			PRIMARY KEY (username, quota_date, feature_key)
+			PRIMARY KEY (username, quota_date)
 		)`,
+		`DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1
+				FROM information_schema.columns
+				WHERE table_schema = current_schema()
+				  AND table_name = 'im_ai_quota_daily_usage'
+				  AND column_name = 'feature_key'
+			) THEN
+				DROP TABLE IF EXISTS im_ai_quota_daily_usage_compacted;
+				CREATE TABLE im_ai_quota_daily_usage_compacted (
+					username TEXT NOT NULL,
+					quota_date DATE NOT NULL,
+					used_count INTEGER NOT NULL DEFAULT 0,
+					updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+					PRIMARY KEY (username, quota_date)
+				);
+				INSERT INTO im_ai_quota_daily_usage_compacted (username, quota_date, used_count, updated_at)
+				SELECT username, quota_date, COALESCE(SUM(used_count), 0)::integer, COALESCE(MAX(updated_at), NOW())
+				FROM im_ai_quota_daily_usage
+				GROUP BY username, quota_date;
+				DROP TABLE im_ai_quota_daily_usage;
+				ALTER TABLE im_ai_quota_daily_usage_compacted RENAME TO im_ai_quota_daily_usage;
+			END IF;
+		END $$`,
 		`CREATE TABLE IF NOT EXISTS im_ai_quota_ledger (
 			id BIGSERIAL PRIMARY KEY,
 			username TEXT NOT NULL,
-			feature_key TEXT NOT NULL,
 			task_id TEXT NOT NULL DEFAULT '',
 			delta INTEGER NOT NULL,
 			reason TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_ai_quota_ledger_task_feature ON im_ai_quota_ledger(task_id, feature_key) WHERE task_id <> ''`,
+		`DROP INDEX IF EXISTS idx_im_ai_quota_ledger_task_feature`,
+		`ALTER TABLE im_ai_quota_ledger DROP COLUMN IF EXISTS feature_key`,
+		`DELETE FROM im_ai_quota_ledger a
+		USING im_ai_quota_ledger b
+		WHERE a.task_id <> ''
+		  AND a.task_id = b.task_id
+		  AND a.id > b.id`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_ai_quota_ledger_task ON im_ai_quota_ledger(task_id) WHERE task_id <> ''`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_redeem_record_username ON im_ai_redeem_record(username, redeemed_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_ai_quota_ledger_username_created ON im_ai_quota_ledger(username, created_at DESC)`,
 	}
@@ -133,30 +162,25 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 
 func (s *Service) ensureDefaultTiers(ctx context.Context) error {
 	defaults := []TierConfig{
-		defaultTier(TierTrial, 5, 50, 0, 7, []string{FeatureAIChat}),
-		defaultTier(TierBasic, 50, 1000, 1, 30, []string{FeatureAIChat, FeaturePolish}),
-		defaultTier(TierAdvanced, 100, 2500, 2, 60, []string{FeatureAIChat, FeaturePolish, FeatureChatSummary, FeatureSemanticSearch}),
-		defaultTier(TierHonor, 200, 5000, 3, 120, []string{FeatureAIChat, FeaturePolish, FeatureChatSummary, FeatureSemanticSearch, FeatureSearchSummary}),
-		defaultTier(TierSupreme, 500, 15000, 4, 180, []string{FeatureAIChat, FeaturePolish, FeatureChatSummary, FeatureSemanticSearch, FeatureSearchSummary}),
+		defaultTier(TierTrial, 5, 50, 0, 7),
+		defaultTier(TierBasic, 50, 1000, 1, 30),
+		defaultTier(TierAdvanced, 100, 2500, 2, 60),
+		defaultTier(TierHonor, 200, 5000, 3, 120),
+		defaultTier(TierSupreme, 500, 15000, 4, 180),
 	}
 	for _, item := range defaults {
-		featuresJSON, _ := json.Marshal(item.Features)
 		if _, err := s.db.Exec(ctx, `
-			INSERT INTO im_ai_tier_config (tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, features, enabled, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, TRUE, NOW())
+			INSERT INTO im_ai_tier_config (tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, enabled, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())
 			ON CONFLICT (tier) DO NOTHING`,
-			item.Tier, item.TierName, item.DailyLimit, item.MonthlyLimit, item.Priority, item.MemoryRetentionDays, string(featuresJSON)); err != nil {
+			item.Tier, item.TierName, item.DailyLimit, item.MonthlyLimit, item.Priority, item.MemoryRetentionDays); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func defaultTier(tier string, daily int, monthly int, priority int, retentionDays int, enabledFeatures []string) TierConfig {
-	features := map[string]bool{}
-	for _, feature := range enabledFeatures {
-		features[feature] = true
-	}
+func defaultTier(tier string, daily int, monthly int, priority int, retentionDays int) TierConfig {
 	return TierConfig{
 		Tier:                tier,
 		TierName:            tierDisplayName(tier),
@@ -164,7 +188,6 @@ func defaultTier(tier string, daily int, monthly int, priority int, retentionDay
 		MonthlyLimit:        monthly,
 		Priority:            priority,
 		MemoryRetentionDays: retentionDays,
-		Features:            features,
 		Enabled:             true,
 	}
 }
@@ -201,6 +224,7 @@ func (s *Service) Snapshot(ctx context.Context, username string) (Snapshot, erro
 }
 
 func (s *Service) FeatureSnapshot(ctx context.Context, username string, feature string) (Snapshot, error) {
+	_ = feature
 	normalizedUsername := normalizeUsername(username)
 	if normalizedUsername == "" {
 		return Snapshot{}, errors.New("missing username")
@@ -213,7 +237,7 @@ func (s *Service) FeatureSnapshot(ctx context.Context, username string, feature 
 	if err != nil {
 		return Snapshot{}, err
 	}
-	quota, err := s.quotaSnapshot(ctx, normalizedUsername, strings.TrimSpace(feature), cfg)
+	quota, err := s.quotaSnapshot(ctx, normalizedUsername, cfg)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -223,7 +247,6 @@ func (s *Service) FeatureSnapshot(ctx context.Context, username string, feature 
 		TierName:  cfg.TierName,
 		IsTrial:   cfg.Tier == TierTrial,
 		ExpiresAt: expiresAt,
-		Features:  cfg.Features,
 		Priority:  cfg.Priority,
 		Quota:     quota,
 	}, nil
@@ -252,13 +275,12 @@ func (s *Service) activeTier(ctx context.Context, username string) (string, *tim
 func (s *Service) loadTierConfig(ctx context.Context, tier string) (TierConfig, error) {
 	tier = normalizeTier(tier)
 	var item TierConfig
-	var featuresRaw []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, features, enabled
+		SELECT tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, enabled
 		FROM im_ai_tier_config
-		WHERE tier = $1`, tier).Scan(&item.Tier, &item.TierName, &item.DailyLimit, &item.MonthlyLimit, &item.Priority, &item.MemoryRetentionDays, &featuresRaw, &item.Enabled)
+		WHERE tier = $1`, tier).Scan(&item.Tier, &item.TierName, &item.DailyLimit, &item.MonthlyLimit, &item.Priority, &item.MemoryRetentionDays, &item.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
-		item = defaultTier(tier, 5, 50, 0, 7, []string{FeatureAIChat})
+		item = defaultTier(tier, 5, 50, 0, 7)
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return TierConfig{}, err
@@ -266,20 +288,10 @@ func (s *Service) loadTierConfig(ctx context.Context, tier string) (TierConfig, 
 	if item.TierName == "" {
 		item.TierName = tierDisplayName(item.Tier)
 	}
-	item.Features = map[string]bool{}
-	if len(featuresRaw) > 0 {
-		_ = json.Unmarshal(featuresRaw, &item.Features)
-	}
-	if item.Features == nil {
-		item.Features = map[string]bool{}
-	}
 	return item, nil
 }
 
-func (s *Service) quotaSnapshot(ctx context.Context, username string, feature string, cfg TierConfig) (QuotaSnapshot, error) {
-	if feature == "" {
-		feature = FeatureAIChat
-	}
+func (s *Service) quotaSnapshot(ctx context.Context, username string, cfg TierConfig) (QuotaSnapshot, error) {
 	now := time.Now().In(beijingLocation)
 	quotaDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, beijingLocation)
 	resetAt := quotaDate.Add(24 * time.Hour)
@@ -287,15 +299,15 @@ func (s *Service) quotaSnapshot(ctx context.Context, username string, feature st
 	_ = s.db.QueryRow(ctx, `
 		SELECT COALESCE(used_count, 0)
 		FROM im_ai_quota_daily_usage
-		WHERE username = $1 AND quota_date = $2::date AND feature_key = $3`, username, quotaDate, feature).Scan(&dailyUsed)
+		WHERE username = $1 AND quota_date = $2::date`, username, quotaDate).Scan(&dailyUsed)
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, beijingLocation)
 	nextMonth := monthStart.AddDate(0, 1, 0)
 	var monthlyUsed int
 	if err := s.db.QueryRow(ctx, `
 		SELECT COALESCE(SUM(used_count), 0)
 		FROM im_ai_quota_daily_usage
-		WHERE username = $1 AND quota_date >= $2::date AND quota_date < $3::date AND feature_key = $4`,
-		username, monthStart, nextMonth, feature).Scan(&monthlyUsed); err != nil {
+		WHERE username = $1 AND quota_date >= $2::date AND quota_date < $3::date`,
+		username, monthStart, nextMonth).Scan(&monthlyUsed); err != nil {
 		return QuotaSnapshot{}, err
 	}
 	return QuotaSnapshot{
@@ -321,18 +333,13 @@ func remaining(limit int, used int) int {
 }
 
 func (s *Service) Precheck(ctx context.Context, username string, feature string) (PrecheckResult, error) {
-	if feature == "" {
-		feature = FeatureAIChat
-	}
-	snapshot, err := s.FeatureSnapshot(ctx, username, feature)
+	_ = feature
+	snapshot, err := s.Snapshot(ctx, username)
 	if err != nil {
 		return PrecheckResult{}, err
 	}
 	if !snapshot.Enabled {
 		return PrecheckResult{Allowed: false, Code: "ai_disabled", Message: "AI service is disabled", Snapshot: snapshot}, nil
-	}
-	if !snapshot.Features[feature] {
-		return PrecheckResult{Allowed: false, Code: "feature_disabled", Message: "This AI feature is not available for your current plan", Snapshot: snapshot}, nil
 	}
 	if snapshot.Quota.DailyRemaining <= 0 {
 		return PrecheckResult{Allowed: false, Code: "quota_exhausted", Message: "Today's AI quota has been used up", Snapshot: snapshot}, nil
@@ -344,11 +351,9 @@ func (s *Service) Precheck(ctx context.Context, username string, feature string)
 }
 
 func (s *Service) Consume(ctx context.Context, username string, feature string, taskID string, amount int, reason string) (Snapshot, error) {
+	_ = feature
 	if amount <= 0 {
 		amount = 1
-	}
-	if feature == "" {
-		feature = FeatureAIChat
 	}
 	normalizedUsername := normalizeUsername(username)
 	if normalizedUsername == "" {
@@ -362,26 +367,26 @@ func (s *Service) Consume(ctx context.Context, username string, feature string, 
 	}
 	defer tx.Rollback(ctx)
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO im_ai_quota_ledger (username, feature_key, task_id, delta, reason, created_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
-		ON CONFLICT DO NOTHING`, normalizedUsername, feature, strings.TrimSpace(taskID), amount, strings.TrimSpace(reason))
+		INSERT INTO im_ai_quota_ledger (username, task_id, delta, reason, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT DO NOTHING`, normalizedUsername, strings.TrimSpace(taskID), amount, strings.TrimSpace(reason))
 	if err != nil {
 		return Snapshot{}, err
 	}
 	if tag.RowsAffected() > 0 {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO im_ai_quota_daily_usage (username, quota_date, feature_key, used_count, updated_at)
-			VALUES ($1, $2::date, $3, $4, NOW())
-			ON CONFLICT (username, quota_date, feature_key)
+			INSERT INTO im_ai_quota_daily_usage (username, quota_date, used_count, updated_at)
+			VALUES ($1, $2::date, $3, NOW())
+			ON CONFLICT (username, quota_date)
 			DO UPDATE SET used_count = im_ai_quota_daily_usage.used_count + EXCLUDED.used_count, updated_at = NOW()`,
-			normalizedUsername, quotaDate, feature, amount); err != nil {
+			normalizedUsername, quotaDate, amount); err != nil {
 			return Snapshot{}, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Snapshot{}, err
 	}
-	return s.FeatureSnapshot(ctx, normalizedUsername, feature)
+	return s.Snapshot(ctx, normalizedUsername)
 }
 
 func (s *Service) Redeem(ctx context.Context, username string, code string, clientIP string, userAgent string) (RedeemResult, error) {
@@ -583,7 +588,7 @@ func (s *Service) ListRedeemCodes(ctx context.Context, limit int) ([]RedeemCodeI
 
 func (s *Service) ListTierConfigs(ctx context.Context) ([]TierConfig, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, features, enabled
+		SELECT tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, enabled
 		FROM im_ai_tier_config
 		ORDER BY priority ASC`)
 	if err != nil {
@@ -593,12 +598,9 @@ func (s *Service) ListTierConfigs(ctx context.Context) ([]TierConfig, error) {
 	items := make([]TierConfig, 0)
 	for rows.Next() {
 		var item TierConfig
-		var featuresRaw []byte
-		if err := rows.Scan(&item.Tier, &item.TierName, &item.DailyLimit, &item.MonthlyLimit, &item.Priority, &item.MemoryRetentionDays, &featuresRaw, &item.Enabled); err != nil {
+		if err := rows.Scan(&item.Tier, &item.TierName, &item.DailyLimit, &item.MonthlyLimit, &item.Priority, &item.MemoryRetentionDays, &item.Enabled); err != nil {
 			return nil, err
 		}
-		item.Features = map[string]bool{}
-		_ = json.Unmarshal(featuresRaw, &item.Features)
 		if item.TierName == "" {
 			item.TierName = tierDisplayName(item.Tier)
 		}
@@ -612,29 +614,22 @@ func (s *Service) UpsertTierConfig(ctx context.Context, item TierConfig) (TierCo
 	if item.TierName == "" {
 		item.TierName = tierDisplayName(item.Tier)
 	}
-	if item.Features == nil {
-		item.Features = map[string]bool{FeatureAIChat: true}
-	}
-	featuresJSON, _ := json.Marshal(item.Features)
 	err := s.db.QueryRow(ctx, `
-		INSERT INTO im_ai_tier_config (tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, features, enabled, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, NOW())
+		INSERT INTO im_ai_tier_config (tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, enabled, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		ON CONFLICT (tier) DO UPDATE
 		SET tier_name = EXCLUDED.tier_name,
 		    daily_limit = EXCLUDED.daily_limit,
 		    monthly_limit = EXCLUDED.monthly_limit,
 		    priority = EXCLUDED.priority,
 		    memory_retention_days = EXCLUDED.memory_retention_days,
-		    features = EXCLUDED.features,
 		    enabled = EXCLUDED.enabled,
 		    updated_at = NOW()
-		RETURNING tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, features, enabled`,
-		item.Tier, item.TierName, item.DailyLimit, item.MonthlyLimit, item.Priority, item.MemoryRetentionDays, string(featuresJSON), item.Enabled).
-		Scan(&item.Tier, &item.TierName, &item.DailyLimit, &item.MonthlyLimit, &item.Priority, &item.MemoryRetentionDays, &featuresJSON, &item.Enabled)
+		RETURNING tier, tier_name, daily_limit, monthly_limit, priority, memory_retention_days, enabled`,
+		item.Tier, item.TierName, item.DailyLimit, item.MonthlyLimit, item.Priority, item.MemoryRetentionDays, item.Enabled).
+		Scan(&item.Tier, &item.TierName, &item.DailyLimit, &item.MonthlyLimit, &item.Priority, &item.MemoryRetentionDays, &item.Enabled)
 	if err != nil {
 		return TierConfig{}, err
 	}
-	item.Features = map[string]bool{}
-	_ = json.Unmarshal(featuresJSON, &item.Features)
 	return item, nil
 }

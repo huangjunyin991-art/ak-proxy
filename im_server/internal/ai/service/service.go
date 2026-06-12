@@ -912,8 +912,6 @@ func friendlyPrecheckMessage(precheck entitlement.PrecheckResult) string {
 		return "今日 AI 次数已用完，明天 00:00 后恢复。本次没有消耗额度。"
 	case "monthly_quota_exhausted":
 		return "本月 AI 次数已用完，额度恢复后可继续使用。本次没有消耗额度。"
-	case "feature_disabled":
-		return "当前权益暂不支持这个 AI 功能，可以兑换更高档位后继续使用。"
 	case "ai_disabled":
 		return "AI 助手暂未开启，请稍后再试。"
 	default:

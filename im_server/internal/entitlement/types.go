@@ -9,11 +9,7 @@ const (
 	TierHonor    = "honor"
 	TierSupreme  = "supreme"
 
-	FeatureAIChat         = "ai_chat"
-	FeatureSemanticSearch = "semantic_search"
-	FeatureSearchSummary  = "search_summary"
-	FeatureChatSummary    = "chat_summary"
-	FeaturePolish         = "polish_translate"
+	FeatureAIChat = "ai_chat"
 )
 
 var tierNames = map[string]string{
@@ -25,14 +21,13 @@ var tierNames = map[string]string{
 }
 
 type TierConfig struct {
-	Tier                string          `json:"tier"`
-	TierName            string          `json:"tier_name"`
-	DailyLimit          int             `json:"daily_limit"`
-	MonthlyLimit        int             `json:"monthly_limit"`
-	Priority            int             `json:"priority"`
-	MemoryRetentionDays int             `json:"memory_retention_days"`
-	Features            map[string]bool `json:"features"`
-	Enabled             bool            `json:"enabled"`
+	Tier                string `json:"tier"`
+	TierName            string `json:"tier_name"`
+	DailyLimit          int    `json:"daily_limit"`
+	MonthlyLimit        int    `json:"monthly_limit"`
+	Priority            int    `json:"priority"`
+	MemoryRetentionDays int    `json:"memory_retention_days"`
+	Enabled             bool   `json:"enabled"`
 }
 
 type QuotaSnapshot struct {
@@ -46,14 +41,13 @@ type QuotaSnapshot struct {
 }
 
 type Snapshot struct {
-	Enabled   bool            `json:"enabled"`
-	Tier      string          `json:"tier"`
-	TierName  string          `json:"tier_name"`
-	IsTrial   bool            `json:"is_trial"`
-	ExpiresAt *time.Time      `json:"expires_at,omitempty"`
-	Features  map[string]bool `json:"features"`
-	Priority  int             `json:"priority"`
-	Quota     QuotaSnapshot   `json:"quota"`
+	Enabled   bool          `json:"enabled"`
+	Tier      string        `json:"tier"`
+	TierName  string        `json:"tier_name"`
+	IsTrial   bool          `json:"is_trial"`
+	ExpiresAt *time.Time    `json:"expires_at,omitempty"`
+	Priority  int           `json:"priority"`
+	Quota     QuotaSnapshot `json:"quota"`
 }
 
 type RedeemResult struct {
