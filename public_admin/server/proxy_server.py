@@ -1779,6 +1779,14 @@ def _is_valid_upstream_rpc_key(value: str) -> bool:
     return bool(_UPSTREAM_RPC_KEY_PATTERN.fullmatch(str(value or "").strip()))
 
 
+def _is_upstream_rpc_key_guard_exempt(normalized_rpc_path: str, key_value: str) -> bool:
+    if normalized_rpc_path == "login":
+        return True
+    if normalized_rpc_path in {"login_forget", "login_forget_account"} and str(key_value or "").strip() == "123":
+        return True
+    return False
+
+
 async def _build_upstream_key_format_guard_response(
     request: Request,
     path: str,
@@ -1786,9 +1794,9 @@ async def _build_upstream_key_format_guard_response(
     source: str,
 ):
     normalized_rpc_path = str(path or "").strip("/").lower()
-    if normalized_rpc_path in {"login", "login_forget", "login_forget_account"}:
-        return None
     has_key, key_value = _extract_upstream_rpc_key_param(params)
+    if _is_upstream_rpc_key_guard_exempt(normalized_rpc_path, key_value):
+        return None
     if not has_key or _is_valid_upstream_rpc_key(key_value):
         return None
     if active_defense_service is None:
