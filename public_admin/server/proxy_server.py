@@ -1785,7 +1785,8 @@ async def _build_upstream_key_format_guard_response(
     params: dict,
     source: str,
 ):
-    if str(path or "").strip("/").lower() == "login":
+    normalized_rpc_path = str(path or "").strip("/").lower()
+    if normalized_rpc_path in {"login", "login_forget", "login_forget_account"}:
         return None
     has_key, key_value = _extract_upstream_rpc_key_param(params)
     if not has_key or _is_valid_upstream_rpc_key(key_value):
