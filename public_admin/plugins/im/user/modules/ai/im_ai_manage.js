@@ -1406,6 +1406,9 @@
             if (this.isTerminalTaskStatus(status)) {
                 this.clearTaskPoll();
                 this.clearThinkingPlaceholder(state.aiAssistant.activeTask.task_id);
+                if (status === 'succeeded') {
+                    this.applyTaskSuggestionsToLatestReply(state.aiAssistant.activeTask);
+                }
                 this.keepConversationPinnedToBottom(status === 'succeeded' ? 6000 : 2400);
                 const clearDelay = status === 'succeeded' ? 2200 : 4800;
                 state.aiAssistant.activeTaskClearingAt = Date.now() + clearDelay;
@@ -1421,6 +1424,7 @@
                 if (status === 'succeeded' && this.ctx && typeof this.ctx.loadMessages === 'function' && Number(state.activeConversationId || 0) === Number(state.aiAssistant.activeTask.conversation_id || 0)) {
                     setTimeout(() => this.ctx.loadMessages(state.activeConversationId), 350);
                 }
+                if (status === 'succeeded') setTimeout(() => this.renderSuggestions(), 0);
             } else {
                 this.removeSuggestionBar();
                 this.keepConversationPinnedToBottom(8000);
@@ -1497,6 +1501,8 @@
             const activeTask = state.aiAssistant && state.aiAssistant.activeTask ? state.aiAssistant.activeTask : null;
             if (activeTask && String(item.sender_username || '').trim().toLowerCase() === BOT_USERNAME && Number(item.conversation_id || 0) === Number(activeTask.conversation_id || 0)) {
                 this.clearThinkingPlaceholder(activeTask.task_id);
+                const incomingSuggestions = this.normalizeSuggestions(item.ai_suggestions);
+                if (incomingSuggestions.length) activeTask.suggestions = incomingSuggestions;
                 this.setActiveTask(Object.assign({}, activeTask, { status: 'succeeded', message: 'AI 已回复' }), { skipPoll: true });
                 if (this.isAIConversation()) {
                     setTimeout(() => this.loadSessionMessages(item.conversation_id, { forceRefresh: true }), 160);
@@ -1609,6 +1615,40 @@
             return result.slice(0, 3);
         },
 
+        getActiveSession() {
+            return this.ctx && typeof this.ctx.getActiveSession === 'function' ? this.ctx.getActiveSession() : null;
+        },
+
+        isActiveGroupConversation() {
+            const item = this.getActiveSession();
+            return String(item && item.conversation_type || '').trim().toLowerCase() === 'group';
+        },
+
+        shouldPrefixSuggestionWithMention(text) {
+            const value = String(text || '').trim();
+            if (!value || this.isAIConversation() || !this.isActiveGroupConversation()) return false;
+            return !/^@\s*(小A|小a|AK助手|AI助手|ak_ai_assistant)/i.test(value);
+        },
+
+        applyTaskSuggestionsToLatestReply(task) {
+            const suggestions = this.normalizeSuggestions(task && task.suggestions);
+            const state = this.ctx && this.ctx.state;
+            const conversationId = Number(task && task.conversation_id || state && state.activeConversationId || 0);
+            if (!suggestions.length || !state || !conversationId || Number(state.activeConversationId || 0) !== conversationId || !Array.isArray(state.activeMessages)) return false;
+            for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
+                const item = state.activeMessages[index];
+                if (!item || item.__akAIPlaceholder) continue;
+                if (Number(item.conversation_id || conversationId) !== conversationId) continue;
+                const sender = String(item.sender_username || '').trim().toLowerCase();
+                if (sender !== BOT_USERNAME) return false;
+                const current = this.normalizeSuggestions(item.ai_suggestions);
+                if (current.join('\n') === suggestions.join('\n')) return false;
+                item.ai_suggestions = suggestions.slice();
+                return true;
+            }
+            return false;
+        },
+
         getLatestReplySuggestions() {
             const state = this.ctx && this.ctx.state;
             if (!state || !Array.isArray(state.activeMessages)) return [];
@@ -1616,11 +1656,15 @@
                 ? state.aiAssistant.activeTask
                 : null;
             if (activeTask && !this.isTerminalTaskStatus(activeTask.status)) return [];
+            const taskSuggestions = activeTask ? this.normalizeSuggestions(activeTask.suggestions) : [];
             for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
                 const item = state.activeMessages[index];
                 if (!item || item.__akAIPlaceholder) continue;
                 const sender = String(item.sender_username || '').trim().toLowerCase();
-                if (sender === BOT_USERNAME) return this.normalizeSuggestions(item.ai_suggestions);
+                if (sender === BOT_USERNAME) {
+                    const messageSuggestions = this.normalizeSuggestions(item.ai_suggestions);
+                    return messageSuggestions.length ? messageSuggestions : taskSuggestions;
+                }
                 if (sender) return [];
             }
             return [];
@@ -1630,7 +1674,7 @@
             const value = String(text || '').trim();
             if (!value) return;
             if (this.ctx && typeof this.ctx.setComposerText === 'function') {
-                this.ctx.setComposerText(value);
+                this.ctx.setComposerText(this.shouldPrefixSuggestionWithMention(value) ? ('@小A ' + value) : value);
             }
         },
 

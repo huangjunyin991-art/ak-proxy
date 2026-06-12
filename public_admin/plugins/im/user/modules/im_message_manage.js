@@ -1075,6 +1075,9 @@
             if (aiManage && typeof aiManage.renderAIMessageControls === 'function') {
                 try { aiManage.renderAIMessageControls(); } catch (e) {}
             }
+            if (aiManage && typeof aiManage.renderSuggestions === 'function') {
+                try { aiManage.renderSuggestions(); } catch (e) {}
+            }
             if (shouldPinAIBottom) this.forceScrollToBottom(1800);
             this.scheduleImagePreviewRefresh();
         },
