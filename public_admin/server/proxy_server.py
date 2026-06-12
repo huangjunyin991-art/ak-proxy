@@ -16768,6 +16768,8 @@ def _normalize_ak_local_language_code(file_name: str) -> str:
 
 def _get_ak_local_language_pack_path(normalized_path: str) -> Optional[Path]:
     lowered_path = str(normalized_path or "").strip("/").lower()
+    if lowered_path == "content/js/cn.json":
+        lowered_path = "content/lang/cn.json"
     if not lowered_path.startswith("content/lang/") or not lowered_path.endswith(".json"):
         return None
     code = _normalize_ak_local_language_code(lowered_path.rsplit("/", 1)[-1])
@@ -16793,9 +16795,12 @@ def _build_ak_local_language_pack_response(request: Request, normalized_path: st
         content=body,
         media_type="application/json",
         headers={
-            "Cache-Control": "public, max-age=604800",
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
             "X-AK-Static-Cache": "LOCAL",
             "X-AK-Language-Source": "local",
+            "X-AK-Language-Path": local_path.name,
             "X-Content-Type-Options": "nosniff",
         },
     )
