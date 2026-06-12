@@ -524,7 +524,29 @@ class OutboundDispatcher:
             return failed_exit
         return min(candidates, key=lambda e: e.active)
 
-    def _fallback_sequence(self, failed_exit: OutboundExit, api_path: str = "") -> list[OutboundExit]:
+    def _filter_latency_failed_pool(self, pool: list[int]) -> list[int]:
+        if (
+            not pool
+            or self.policy_config is None
+            or not self.policy_config.latency_strategy_enabled
+        ):
+            return pool
+        filtered = [
+            i for i in pool
+            if not (
+                getattr(self.exits[i], "latency_checked_at", "")
+                and getattr(self.exits[i], "latency_probe_failures", 0) > 0
+                and getattr(self.exits[i], "latency_ms", None) is None
+            )
+        ]
+        return filtered
+
+    def _fallback_sequence(
+        self,
+        failed_exit: OutboundExit,
+        api_path: str = "",
+        max_tunnel_fallbacks: int = 1,
+    ) -> list[OutboundExit]:
         direct = self._safe_direct()
         candidate_indices = [
             i for i, ex in enumerate(self.exits)
@@ -535,8 +557,14 @@ class OutboundDispatcher:
             and self._exit_has_dispatch_capacity(ex)
         ]
         candidate_indices = self._route_dedicated_fast_pool(candidate_indices, api_path)
+        candidate_indices = self._filter_latency_failed_pool(candidate_indices)
         candidates = [self.exits[i] for i in candidate_indices]
         candidates.sort(key=lambda e: e.active)
+        try:
+            max_tunnels = max(0, int(max_tunnel_fallbacks))
+        except (TypeError, ValueError):
+            max_tunnels = 1
+        candidates = candidates[:max_tunnels]
         if direct is not failed_exit and not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
             candidates.append(direct)
         return candidates
@@ -580,6 +608,7 @@ class OutboundDispatcher:
         self._rr_counter += 1
         pool = self._filter_below_per_second_limit(pool)
         pool = [i for i in pool if self.exits[i].has_minute_rate_capacity()]
+        pool = self._filter_latency_failed_pool(pool)
         if not pool:
             return None
         if self.policy_config is not None and self.policy_config.latency_strategy_enabled and self.latency_strategy is not None:
@@ -623,6 +652,7 @@ class OutboundDispatcher:
             and ex.healthy
             and not ex.is_frozen
         ]
+        candidates = self._filter_latency_failed_pool(candidates)
         candidates.sort(key=self._latency_sort_key)
         return candidates[:self.DEDICATED_FAST_EXIT_COUNT]
 
@@ -757,7 +787,9 @@ class OutboundDispatcher:
         - 检测403/429等状态码并记录告警日志
         - 隧道出口失败时自动降级直连重试
         """
-        attempts = [exit_obj] + self._fallback_sequence(exit_obj, api_path)
+        attempts = [exit_obj]
+        if not exit_obj.is_direct:
+            attempts.extend(self._fallback_sequence(exit_obj, api_path, max_tunnel_fallbacks=1))
         last_error = None
         for attempt_index, current_exit in enumerate(attempts):
             if attempt_index > 0:
