@@ -44,17 +44,26 @@ func TestHumanChatContextSenderExcludesAIGeneratedMessages(t *testing.T) {
 }
 
 func TestQuotedChatContextSenderAllowsAIGeneratedMessage(t *testing.T) {
-	if shouldIncludeChatContextSender(bot.Username, false) {
+	if shouldIncludeChatContextSender(bot.Username, false, false) {
 		t.Fatalf("bot username should still be excluded from normal mention context")
 	}
-	if !shouldIncludeChatContextSender(bot.Username, true) {
+	if !shouldIncludeChatContextSender(bot.Username, true, false) {
 		t.Fatalf("quoted bot message should be allowed as focused context")
 	}
-	if shouldIncludeChatContextSender("", true) {
+	if shouldIncludeChatContextSender("", true, false) {
 		t.Fatalf("empty sender should never enter chat context")
 	}
-	if !shouldIncludeChatContextSender("alice", false) {
+	if !shouldIncludeChatContextSender("alice", false, false) {
 		t.Fatalf("normal user should be kept in normal context")
+	}
+}
+
+func TestLatestBotChatContextSenderAllowsSingleFollowupBridge(t *testing.T) {
+	if !shouldIncludeChatContextSender(bot.Username, false, true) {
+		t.Fatalf("latest bot reply should be kept so group follow-up questions can refer to it naturally")
+	}
+	if shouldIncludeChatContextSender("", false, true) {
+		t.Fatalf("empty sender should never enter chat context")
 	}
 }
 
