@@ -117,7 +117,7 @@
 
         buildAIBadgeMarkup() {
             if (this.ctx && typeof this.ctx.buildAIBadgeMarkup === 'function') return this.ctx.buildAIBadgeMarkup('ak-im-mention-ai-badge');
-            return '<span class="ak-im-ai-verified-badge ak-im-mention-ai-badge" title="系统AI身份" aria-label="系统AI身份"><span class="ak-im-ai-verified-dot" aria-hidden="true"></span>官方AI</span>';
+            return '<span class="ak-im-ai-verified-badge ak-im-mention-ai-badge" title="AI助手" aria-label="AI助手"><span class="ak-im-ai-verified-dot" aria-hidden="true"></span>AI助手</span>';
         },
 
         bindInputEvents() {
@@ -215,14 +215,26 @@
             const currentUsername = String(state.username || '').trim().toLowerCase();
             const keyword = String(mentionState.keyword || '').trim().toLowerCase();
             const members = Array.isArray(mentionState.members) ? mentionState.members : [];
-            return members.filter(function(member) {
+            const filteredMembers = members.map(function(member, index) {
+                return { member: member, index: index };
+            }).filter(function(entry) {
+                const member = entry.member;
                 const username = String(member && member.username || '').trim().toLowerCase();
                 if (!username || username === currentUsername) return false;
                 const displayName = String(member && member.display_name || '').trim().toLowerCase();
                 const honorName = String(member && member.honor_name || '').trim().toLowerCase();
                 const text = username + '\n' + displayName + '\n' + honorName;
                 return !keyword || text.indexOf(keyword) >= 0;
-            }).slice(0, 8);
+            });
+            filteredMembers.sort(function(left, right) {
+                const leftAI = this.isAISystemIdentity(left.member);
+                const rightAI = this.isAISystemIdentity(right.member);
+                if (leftAI !== rightAI) return leftAI ? -1 : 1;
+                return left.index - right.index;
+            }.bind(this));
+            return filteredMembers.map(function(entry) {
+                return entry.member;
+            });
         },
 
         buildPanelMarkup() {

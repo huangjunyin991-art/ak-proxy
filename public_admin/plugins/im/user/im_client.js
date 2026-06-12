@@ -4083,7 +4083,7 @@
 
     function buildAIBadgeMarkup(extraClassName) {
         const className = ('ak-im-ai-verified-badge ' + String(extraClassName || '')).trim();
-        return '<span class="' + escapeHtml(className) + '" title="系统AI身份" aria-label="系统AI身份"><span class="ak-im-ai-verified-dot" aria-hidden="true"></span>官方AI</span>';
+        return '<span class="' + escapeHtml(className) + '" title="AI助手" aria-label="AI助手"><span class="ak-im-ai-verified-dot" aria-hidden="true"></span>AI助手</span>';
     }
 
     function buildIdentityNameMarkup(item, displayName, honorName, fallbackText, options) {
