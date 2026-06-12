@@ -1884,11 +1884,10 @@
             const billing = bootstrap && bootstrap.billing ? bootstrap.billing : null;
             const quota = entitlement && entitlement.quota ? entitlement.quota : null;
             const tierName = entitlement && entitlement.tier_name ? entitlement.tier_name : (entitlement && entitlement.is_trial ? '试用' : 'AI');
-            const dailyRemaining = quota ? Number(quota.daily_remaining || 0) : 0;
-            const dailyLimit = quota ? Number(quota.daily_limit || 0) : 0;
+            const monthlyRemaining = quota ? Number(quota.monthly_remaining || 0) : 0;
+            const monthlyLimit = quota ? Number(quota.monthly_limit || 0) : 0;
             const billingRemaining = billing ? Number(billing.monthly_remaining_units || 0) : 0;
             const billingLimit = billing ? Number(billing.monthly_limit_units || 0) : 0;
-            const billingUnit = billing && billing.unit_label ? String(billing.unit_label) : 'AI额度';
             let mainText = 'AI 助手';
             let quotaText = '';
             let isError = false;
@@ -1909,29 +1908,22 @@
             } else if (quota) {
                 mainText = '当前权益：' + tierName;
                 quotaText = billing
-                    ? (billingUnit + ' ' + billingRemaining + '/' + billingLimit + ' · 今日 ' + dailyRemaining + '/' + dailyLimit)
-                    : ('今日剩余 ' + dailyRemaining + '/' + dailyLimit);
+                    ? ('本月限额 ' + billingRemaining + '/' + billingLimit)
+                    : ('本月限额 ' + monthlyRemaining + '/' + monthlyLimit);
             } else {
                 mainText = '当前权益：' + tierName;
-                if (billing) quotaText = billingUnit + ' ' + billingRemaining + '/' + billingLimit;
+                if (billing) quotaText = '本月限额 ' + billingRemaining + '/' + billingLimit;
             }
             statusLine.classList.add('ak-im-ai-status');
             statusLine.classList.toggle('is-error', isError);
             statusLine.dataset.akAiStatus = '1';
             const redeemLabel = '\u5151\u6362\u6743\u76ca';
-            const refreshLabel = '\u5237\u65b0\u989d\u5ea6';
             statusLine.innerHTML =
                 '<span class="ak-im-ai-status-main"><span class="ak-im-ai-status-pill">AI</span><span>' + this.escapeHtml(mainText) + '</span></span>' +
                 '<span class="ak-im-ai-status-side">' +
                 (!activeTask && quotaText ? '<span class="ak-im-ai-status-quota">' + this.escapeHtml(quotaText) + '</span>' : '') +
                 '<button type="button" class="ak-im-ai-status-action" data-ak-ai-redeem="1" title="' + redeemLabel + '" aria-label="' + redeemLabel + '">' + this.aiTreeIcon('redeem') + '</button>' +
-                '<button type="button" class="ak-im-ai-status-action" data-ak-ai-refresh="1" title="' + refreshLabel + '" aria-label="' + refreshLabel + '">' + this.aiTreeIcon('refresh') + '</button>' +
                 '</span>';
-            const refreshBtn = statusLine.querySelector('[data-ak-ai-refresh]');
-            if (refreshBtn && !refreshBtn.dataset.bound) {
-                refreshBtn.dataset.bound = '1';
-                refreshBtn.addEventListener('click', () => this.loadBootstrap(true));
-            }
             const redeemBtn = statusLine.querySelector('[data-ak-ai-redeem]');
             if (redeemBtn && !redeemBtn.dataset.bound) {
                 redeemBtn.dataset.bound = '1';

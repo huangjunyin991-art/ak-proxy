@@ -3,13 +3,17 @@ package billing
 import "time"
 
 const (
-	StatusSettled = "settled"
-	FeatureAIChat = "ai_chat"
+	StatusSettled        = "settled"
+	FeatureAIChat        = "ai_chat"
+	ChargeModePerRequest = "per_request"
+	ChargeModePerToken   = "per_token"
 )
 
 type Config struct {
 	Enabled                bool             `json:"enabled"`
+	DeductionMode          string           `json:"deduction_mode"`
 	UnitLabel              string           `json:"unit_label"`
+	UserUnitsPerRequest    int64            `json:"user_units_per_request"`
 	UserUnitsPer1KTokens   float64          `json:"user_units_per_1k_tokens"`
 	DefaultMarkup          float64          `json:"default_markup"`
 	MinimumChargeUnits     int64            `json:"minimum_charge_units"`

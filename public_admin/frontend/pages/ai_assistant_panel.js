@@ -635,6 +635,8 @@
         const overview = state.billingOverview || {};
         const cfg = state.billingConfig || overview.config || {};
         const tierCredits = cfg.tier_monthly_credit_units || {};
+        const deductionMode = cfg.deduction_mode || 'per_request';
+        const deductionModeLabel = deductionMode === 'per_token' ? '按 tokens 扣费' : '按次扣费';
         const rows = TIER_ORDER.map(function(tier) {
             return `
                 <tr>
@@ -659,6 +661,7 @@
                 <div class="ai-card-title">
                     <span>计费策略</span>
                     <span class="ai-tag ${cfg.enabled !== false ? 'ok' : 'bad'}">${cfg.enabled !== false ? '已启用' : '已关闭'}</span>
+                    <span class="ai-tag">${escapeHtml(deductionModeLabel)}</span>
                 </div>
                 <div class="ai-stat-grid">
                     <div class="ai-stat"><div class="ai-stat-label">今日消耗</div><div class="ai-stat-value">${fmtNumber(overview.today_units || 0, 0)}</div></div>
@@ -673,11 +676,20 @@
                             <option value="false" ${cfg.enabled === false ? 'selected' : ''}>关闭</option>
                         </select>
                     </div>
+                    <div class="ai-field">
+                        <label>扣费方式</label>
+                        <select class="ai-select" id="aiBillingDeductionMode">
+                            <option value="per_request" ${deductionMode !== 'per_token' ? 'selected' : ''}>按次扣额度</option>
+                            <option value="per_token" ${deductionMode === 'per_token' ? 'selected' : ''}>按 tokens 扣额度</option>
+                        </select>
+                    </div>
                     <div class="ai-field"><label>单位名称</label><input class="ai-input" id="aiBillingUnitLabel" value="${escapeHtml(cfg.unit_label || 'AI额度')}"></div>
-                    <div class="ai-field"><label>每 1K tokens 扣费</label><input class="ai-input" id="aiBillingUnitsPer1k" type="number" min="0.01" step="0.01" value="${Number(cfg.user_units_per_1k_tokens || 1)}"></div>
-                    <div class="ai-field"><label>默认倍率</label><input class="ai-input" id="aiBillingMarkup" type="number" min="0.01" step="0.01" value="${Number(cfg.default_markup || 1)}"></div>
-                    <div class="ai-field"><label>单次最低扣费</label><input class="ai-input" id="aiBillingMinimum" type="number" min="0" value="${Number(cfg.minimum_charge_units || 1)}"></div>
+                    <div class="ai-field"><label>每次扣除额度</label><input class="ai-input" id="aiBillingUnitsPerRequest" type="number" min="1" step="1" value="${Number(cfg.user_units_per_request || 1)}"></div>
+                    <div class="ai-field"><label>按 tokens：每 1K 扣费</label><input class="ai-input" id="aiBillingUnitsPer1k" type="number" min="0.01" step="0.01" value="${Number(cfg.user_units_per_1k_tokens || 1)}"></div>
+                    <div class="ai-field"><label>按 tokens：倍率</label><input class="ai-input" id="aiBillingMarkup" type="number" min="0.01" step="0.01" value="${Number(cfg.default_markup || 1)}"></div>
+                    <div class="ai-field"><label>按 tokens：最低扣费</label><input class="ai-input" id="aiBillingMinimum" type="number" min="0" value="${Number(cfg.minimum_charge_units || 1)}"></div>
                 </div>
+                <div class="ai-meta" style="margin-top:8px;">按次模式只在 AI 成功回复并写入聊天后扣除固定额度；失败、排队、额度不足不会扣费。</div>
                 <div style="overflow:auto;margin-top:12px;">
                     <table class="ai-table">
                         <thead><tr><th>档位</th><th>每月 AI额度</th></tr></thead>
@@ -971,7 +983,9 @@
         });
         return {
             enabled: document.getElementById('aiBillingEnabled')?.value !== 'false',
+            deduction_mode: document.getElementById('aiBillingDeductionMode')?.value || 'per_request',
             unit_label: document.getElementById('aiBillingUnitLabel')?.value || 'AI额度',
+            user_units_per_request: Number(document.getElementById('aiBillingUnitsPerRequest')?.value || 1),
             user_units_per_1k_tokens: Number(document.getElementById('aiBillingUnitsPer1k')?.value || 1),
             default_markup: Number(document.getElementById('aiBillingMarkup')?.value || 1),
             minimum_charge_units: Number(document.getElementById('aiBillingMinimum')?.value || 1),

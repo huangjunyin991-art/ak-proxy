@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"strings"
 	"time"
 
@@ -69,7 +68,9 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 func defaultConfig() Config {
 	return Config{
 		Enabled:              true,
+		DeductionMode:        ChargeModePerRequest,
 		UnitLabel:            "AI额度",
+		UserUnitsPerRequest:  1,
 		UserUnitsPer1KTokens: 1,
 		DefaultMarkup:        1,
 		MinimumChargeUnits:   1,
@@ -85,8 +86,12 @@ func defaultConfig() Config {
 
 func normalizeConfig(cfg Config) Config {
 	def := defaultConfig()
+	cfg.DeductionMode = normalizeChargeMode(cfg.DeductionMode)
 	if cfg.UnitLabel == "" {
 		cfg.UnitLabel = def.UnitLabel
+	}
+	if cfg.UserUnitsPerRequest <= 0 {
+		cfg.UserUnitsPerRequest = def.UserUnitsPerRequest
 	}
 	if cfg.UserUnitsPer1KTokens <= 0 {
 		cfg.UserUnitsPer1KTokens = def.UserUnitsPer1KTokens
@@ -153,11 +158,16 @@ func (s *Service) Precheck(ctx context.Context, username string, tier string) (P
 	if !snapshot.Enabled {
 		return PrecheckResult{Allowed: true, Snapshot: snapshot}, nil
 	}
-	if snapshot.MonthlyLimitUnits > 0 && snapshot.MonthlyRemainingUnits <= 0 {
+	cfg, err := s.Config(ctx)
+	if err != nil {
+		return PrecheckResult{}, err
+	}
+	requiredUnits := estimateNextChargeUnits(cfg)
+	if snapshot.MonthlyLimitUnits > 0 && snapshot.MonthlyRemainingUnits < requiredUnits {
 		return PrecheckResult{
 			Allowed:  false,
 			Code:     "billing_quota_exhausted",
-			Message:  "本月 AI 额度已用完，本次没有消耗额度。",
+			Message:  "本月 AI 额度不足，本次没有消耗额度。",
 			Snapshot: snapshot,
 		}, nil
 	}
@@ -223,7 +233,7 @@ func (s *Service) Settle(ctx context.Context, item Settlement) (LedgerItem, erro
 	if !cfg.Enabled {
 		item.UserChargeUnits = 0
 	} else if item.UserChargeUnits <= 0 {
-		item.UserChargeUnits = calculateChargeUnits(cfg, item.TotalTokens, item.EstimatedTokens)
+		item.UserChargeUnits = calculateChargeUnits(cfg, item)
 	}
 	if item.Reason == "" {
 		item.Reason = "ai_chat_success"
@@ -248,21 +258,6 @@ func (s *Service) Settle(ctx context.Context, item Settlement) (LedgerItem, erro
 		return LedgerItem{}, errors.New("AI billing ledger insert ignored")
 	}
 	return s.findLedger(ctx, item.TaskID, item.FeatureKey)
-}
-
-func calculateChargeUnits(cfg Config, totalTokens int, estimatedTokens int) int64 {
-	tokens := totalTokens
-	if tokens <= 0 {
-		tokens = estimatedTokens
-	}
-	charge := int64(0)
-	if tokens > 0 {
-		charge = int64(math.Ceil((float64(tokens) / 1000) * cfg.UserUnitsPer1KTokens * cfg.DefaultMarkup))
-	}
-	if cfg.MinimumChargeUnits > 0 && charge < cfg.MinimumChargeUnits {
-		charge = cfg.MinimumChargeUnits
-	}
-	return charge
 }
 
 func (s *Service) findLedger(ctx context.Context, taskID string, feature string) (LedgerItem, error) {
