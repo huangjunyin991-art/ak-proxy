@@ -804,7 +804,6 @@ func (s *Service) TriggerGroupMentionReply(ctx context.Context, ownerUsername st
 		}
 		return Task{ConversationID: conversationID, OwnerUsername: ownerUsername, Status: "rejected", Message: message, CreatedAt: time.Now()}, nil
 	}
-	aiSessionID, aiTriggerMessageID := s.recordTriggerMessageNode(ctx, ownerUsername, conversationID, triggerMessageID)
 	priority, rejected, err := s.precheckReplyTask(ctx, ownerUsername, conversationID)
 	if err != nil {
 		return Task{}, err
@@ -812,7 +811,7 @@ func (s *Service) TriggerGroupMentionReply(ctx context.Context, ownerUsername st
 	if rejected != nil {
 		return *rejected, nil
 	}
-	return s.queueReplyTask(ctx, ownerUsername, conversationID, triggerMessageID, aiSessionID, aiTriggerMessageID, priority, map[string]any{
+	return s.queueReplyTask(ctx, ownerUsername, conversationID, triggerMessageID, 0, 0, priority, map[string]any{
 		"action":             groupMentionAction,
 		"context_mode":       "conversation_mention",
 		"trigger_message_id": triggerMessageID,
@@ -1193,6 +1192,13 @@ func (s *Service) recordAssistantReplyNode(ctx context.Context, ownerUsername st
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		log.Printf("AI reply projection lookup failed: im_message_id=%d err=%v", message.ID, err)
 	}
+	if aiSessionID <= 0 {
+		return 0
+	}
+	if parentMessageID <= 0 {
+		log.Printf("AI reply message tree append skipped without trigger node: task_id=%s ai_session_id=%d im_message_id=%d", taskID, aiSessionID, message.ID)
+		return 0
+	}
 	session, err := s.ensureLegacySession(ctx, ownerUsername, conversationID)
 	if err != nil {
 		log.Printf("AI reply session sync failed: task_id=%s conversation_id=%d username=%s err=%v", taskID, conversationID, ownerUsername, err)
@@ -1202,10 +1208,6 @@ func (s *Service) recordAssistantReplyNode(ctx context.Context, ownerUsername st
 		if loaded, loadErr := s.sessions.Get(ctx, ownerUsername, aiSessionID); loadErr == nil {
 			session = loaded
 		}
-	}
-	if parentMessageID <= 0 {
-		log.Printf("AI reply message tree append skipped without trigger node: task_id=%s session_id=%d im_message_id=%d", taskID, session.ID, message.ID)
-		return 0
 	}
 	item, err := s.messages.Append(ctx, messagetree.AppendInput{
 		SessionID:           session.ID,

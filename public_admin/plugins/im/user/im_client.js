@@ -7211,7 +7211,7 @@
         const messageManageModule = getMessageManageModule();
         if (messageManageModule && typeof messageManageModule.sendCurrentMessage === 'function') {
             const aiManageModule = getAIManageModule();
-            if (content && aiManageModule && typeof aiManageModule.isAIConversation === 'function' && aiManageModule.isAIConversation() && typeof aiManageModule.removeSuggestionBar === 'function') {
+            if (content && aiManageModule && typeof aiManageModule.removeSuggestionBar === 'function') {
                 aiManageModule.removeSuggestionBar();
             }
             return messageManageModule.sendCurrentMessage();

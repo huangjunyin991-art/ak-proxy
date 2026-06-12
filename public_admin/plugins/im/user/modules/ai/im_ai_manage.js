@@ -1611,7 +1611,7 @@
 
         getLatestReplySuggestions() {
             const state = this.ctx && this.ctx.state;
-            if (!state || !this.isAIConversation() || !Array.isArray(state.activeMessages)) return [];
+            if (!state || !Array.isArray(state.activeMessages)) return [];
             const activeTask = state.aiAssistant && state.aiAssistant.activeTask && Number(state.aiAssistant.activeTask.conversation_id || 0) === Number(state.activeConversationId || 0)
                 ? state.aiAssistant.activeTask
                 : null;
@@ -1789,7 +1789,8 @@
             const statusLine = elements && elements.statusLine;
             const isAIChat = !!(state && this.isAIConversation());
             if (!statusLine || !state || !isAIChat) {
-                this.removeSuggestionBar();
+                if (state) this.renderSuggestions();
+                else this.removeSuggestionBar();
                 if (state && state.aiAssistant && state.aiAssistant.sessionDrawerOpen && isAIChat) {
                     this.renderSessionDrawer();
                 } else {
