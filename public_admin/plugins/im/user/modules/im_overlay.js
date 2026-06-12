@@ -84,6 +84,27 @@
                 actionSheetRecallBtn.textContent = '移出黑名单';
                 actionSheetRecallBtn.disabled = !String(state.actionSheetContactUsername || '').trim();
                 actionSheetCancelBtn.textContent = '取消';
+            } else if (state.actionSheetMode === 'message') {
+                actionSheetRecallBtn.classList.remove('danger');
+                actionSheetRecallBtn.textContent = '引用';
+                actionSheetRecallBtn.disabled = !state.actionSheetMessageId;
+                actionSheetCancelBtn.textContent = '取消';
+                const panel = actionSheetCancelBtn.parentNode;
+                const self = this;
+                [
+                    { key: 'copy', label: '复制' },
+                    state.actionSheetCanRecall ? { key: 'recall', label: '撤回', danger: true } : null
+                ].filter(Boolean).forEach(function(action) {
+                    const button = document.createElement('button');
+                    button.className = 'ak-im-action-btn' + (action.danger ? ' danger' : '');
+                    button.type = 'button';
+                    button.textContent = action.label;
+                    button.setAttribute('data-im-dynamic-action', action.key);
+                    button.addEventListener('click', function() {
+                        if (typeof self.ctx.onActionSheetCustom === 'function') self.ctx.onActionSheetCustom(action.key);
+                    });
+                    panel.insertBefore(button, actionSheetCancelBtn);
+                });
             } else {
                 actionSheetRecallBtn.classList.add('danger');
                 actionSheetRecallBtn.textContent = '撤回';
@@ -116,6 +137,7 @@
             state.actionSheetConversationId = Number(messageItem && messageItem.conversation_id || state.activeConversationId || 0);
             state.actionSheetCanRecall = this.ctx.canRecallMessage(messageItem);
             state.actionSheetDraftText = String(messageItem && (messageItem.content || messageItem.content_preview || '') || '');
+            state.actionSheetCustomActions = [];
             state.actionSheetSessionPinned = false;
             state.actionSheetSessionSystemPinned = false;
             state.actionSheetContactUsername = '';

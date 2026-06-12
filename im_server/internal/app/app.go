@@ -48,6 +48,7 @@ var (
 	errInvalidVideoPayload    = errors.New("invalid video payload")
 	errInvalidLocationPayload = errors.New("invalid location payload")
 	errEmptyMessageContent    = errors.New("empty content")
+	errInvalidReplyTarget     = errors.New("invalid reply target")
 )
 
 type App struct {
@@ -165,8 +166,19 @@ type MessageItem struct {
 	ReadProgress      *MessageReadProgressSummary `json:"read_progress,omitempty"`
 	MentionUsernames  []string                    `json:"mention_usernames,omitempty"`
 	MentionAll        bool                        `json:"mention_all,omitempty"`
+	ReplyToMessageID  int64                       `json:"reply_to_message_id,omitempty"`
+	ReplyTo           *MessageQuoteItem           `json:"reply_to,omitempty"`
 	AITask            *aiservice.Task             `json:"ai_task,omitempty"`
 	AISuggestions     []string                    `json:"ai_suggestions,omitempty"`
+}
+
+type MessageQuoteItem struct {
+	ID                int64  `json:"id"`
+	SenderUsername    string `json:"sender_username"`
+	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	MessageType       string `json:"message_type"`
+	ContentPreview    string `json:"content_preview"`
+	Status            string `json:"status,omitempty"`
 }
 
 type UserProfileItem struct {
@@ -215,6 +227,7 @@ type sendMessageRequest struct {
 	ClientTempID     string   `json:"client_temp_id,omitempty"`
 	MentionUsernames []string `json:"mention_usernames,omitempty"`
 	MentionAll       bool     `json:"mention_all,omitempty"`
+	ReplyToMessageID int64    `json:"reply_to_message_id,omitempty"`
 }
 
 type directSessionRequest struct {
@@ -2021,13 +2034,13 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 	var rows pgx.Rows
 	if afterSeqNo > 0 {
 		rows, err = a.db.Query(r.Context(), `
-			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
+			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at, COALESCE(m.reply_to_message_id, 0)
 			FROM im_message m
 			WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL AND m.seq_no > GREATEST($2::bigint, $3::bigint)
 			ORDER BY m.seq_no ASC LIMIT $4::bigint`, conversationIDValue, meta.PurgedBeforeSeqNo, afterSeqNo, limit)
 	} else {
 		rows, err = a.db.Query(r.Context(), `
-			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
+			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at, COALESCE(m.reply_to_message_id, 0)
 			FROM im_message m
 			WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL AND m.seq_no > $2::bigint
 			ORDER BY m.seq_no DESC LIMIT $3::bigint`, conversationIDValue, meta.PurgedBeforeSeqNo, limit)
@@ -2041,7 +2054,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 	for rows.Next() {
 		var item MessageItem
 		var sentAt time.Time
-		if err := rows.Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt, &item.ReplyToMessageID); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -2053,6 +2066,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		return
 	}
 	items = a.enrichMessageSenderIdentities(r.Context(), items)
+	a.populateMessageReplies(r.Context(), items)
 	if afterSeqNo <= 0 {
 		for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
 			items[left], items[right] = items[right], items[left]
@@ -2093,7 +2107,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
 			return
 		}
-		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidVideoPayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) {
+		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidVideoPayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) || errors.Is(err, errInvalidReplyTarget) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -2258,6 +2272,26 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	return result.Item, nil
 }
 
+func (a *App) validateReplyToMessageTx(ctx context.Context, tx pgx.Tx, conversationID int64, replyToMessageID int64) (int64, error) {
+	if replyToMessageID <= 0 {
+		return 0, nil
+	}
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM im_message
+			WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL
+		)`, replyToMessageID, conversationID).Scan(&exists)
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, errInvalidReplyTarget
+	}
+	return replyToMessageID, nil
+}
+
 func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64, username string, req sendMessageRequest) (insertedMessageResult, error) {
 	messageType, preview, contentPayload, contentSizeRaw, contentSizeStored, err := buildMessageStorage(req)
 	if err != nil {
@@ -2288,6 +2322,10 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 			return insertedMessageResult{}, err
 		}
 	}
+	replyToMessageID, err := a.validateReplyToMessageTx(ctx, tx, conversationID, req.ReplyToMessageID)
+	if err != nil {
+		return insertedMessageResult{}, err
+	}
 	nextSeqNo, err := a.allocateMessageSeqNoTx(ctx, tx, conversationID)
 	if err != nil {
 		return insertedMessageResult{}, err
@@ -2295,11 +2333,11 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 	var item MessageItem
 	var sentAt time.Time
 	err = tx.QueryRow(ctx, `
-		INSERT INTO im_message (conversation_id, sender_username, seq_no, message_type, content_preview, content_payload, content_size_raw, content_size_stored, sent_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, timezone('Asia/Shanghai', NOW()))
-		RETURNING id, conversation_id, sender_username, seq_no, message_type, content_payload, content_preview, status, sent_at`,
-		conversationID, username, nextSeqNo, messageType, preview, contentPayload, contentSizeRaw, contentSizeStored,
-	).Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt)
+		INSERT INTO im_message (conversation_id, sender_username, seq_no, message_type, content_preview, content_payload, content_size_raw, content_size_stored, sent_at, reply_to_message_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, timezone('Asia/Shanghai', NOW()), NULLIF($9::bigint, 0))
+		RETURNING id, conversation_id, sender_username, seq_no, message_type, content_payload, content_preview, status, sent_at, COALESCE(reply_to_message_id, 0)`,
+		conversationID, username, nextSeqNo, messageType, preview, contentPayload, contentSizeRaw, contentSizeStored, replyToMessageID,
+	).Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt, &item.ReplyToMessageID)
 	if err != nil {
 		return insertedMessageResult{}, err
 	}
@@ -2333,6 +2371,9 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
+	itemsWithReply := []MessageItem{item}
+	a.populateMessageReplies(ctx, itemsWithReply)
+	item = itemsWithReply[0]
 	members, err := a.listConversationMembers(ctx, conversationID)
 	if err == nil {
 		items := []MessageItem{item}

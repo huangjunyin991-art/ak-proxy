@@ -308,6 +308,7 @@
         actionSheetContactUsername: '',
         actionSheetCustomActions: [],
         recalledDraftByMessageId: {},
+        replyDraft: null,
         inputValue: '',
         composerMode: 'text',
         voiceHoldSupported: true,
@@ -2145,6 +2146,7 @@
                     messageList: messageList,
                     navigationEl: messageNavigationEl,
                     inputEl: inputEl,
+                    replyDraftEl: root ? root.querySelector('.ak-im-reply-draft') : null,
                     chatTitleEl: root ? root.querySelector('.ak-im-chat-title') : null,
                     chatSubtitleEl: root ? root.querySelector('.ak-im-chat-subtitle') : null,
                     chatTitleBtnEl: chatTitleBtnEl,
@@ -2188,6 +2190,7 @@
             },
             openActionSheet: openActionSheet,
             closeActionSheet: closeActionSheet,
+            copyWithHint: __AKIMCopyWithHint,
             openReadProgressPanel: openReadProgressPanel,
             createWebSocket: async function(username) {
                 return new WebSocket(await buildWsUrl(username));
@@ -3241,6 +3244,18 @@
     }
 
     function handleActionSheetCustomAction(actionKey) {
+        if (state.actionSheetMode === 'message') {
+            const messageManageModule = getMessageManageModule();
+            if (actionKey === 'copy') {
+                if (messageManageModule && typeof messageManageModule.copyActionSheetMessage === 'function') messageManageModule.copyActionSheetMessage();
+                return;
+            }
+            if (actionKey === 'recall') {
+                if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
+                recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
+                return;
+            }
+        }
         const groupAdminsModule = getGroupAdminsModule();
         if (groupAdminsModule && typeof groupAdminsModule.handleActionSheetAction === 'function') {
             groupAdminsModule.handleActionSheetAction(actionKey);
@@ -3281,6 +3296,11 @@
 	            }
 	            return;
 	        }
+        if (state.actionSheetMode === 'message') {
+            const messageManageModule = getMessageManageModule();
+            if (messageManageModule && typeof messageManageModule.quoteActionSheetMessage === 'function') messageManageModule.quoteActionSheetMessage();
+            return;
+        }
         if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
         recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
     }
@@ -5892,6 +5912,14 @@
                 statusLine.textContent = nextStatusText;
             }
             if (composerMicBtnEl) composerMicBtnEl.disabled = true;
+            const messageManageModule = getMessageManageModule();
+            if (messageManageModule && typeof messageManageModule.renderReplyDraft === 'function') {
+                messageManageModule.renderReplyDraft();
+            }
+            const mentionManageModule = getMentionManageModule();
+            if (mentionManageModule && typeof mentionManageModule.renderPanel === 'function') {
+                mentionManageModule.renderPanel();
+            }
         }
 
     function render() {

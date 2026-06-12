@@ -57,6 +57,31 @@
             return Number(state && state.activeConversationId || 0);
         },
 
+        resetScopeState(mentionState, conversationId) {
+            if (!mentionState) return;
+            mentionState.open = false;
+            mentionState.conversationId = Number(conversationId || 0);
+            mentionState.keyword = '';
+            mentionState.triggerIndex = -1;
+            mentionState.selectedUsernames = [];
+            mentionState.selectedLabels = {};
+            mentionState.mentionAll = false;
+            mentionState.loading = false;
+            mentionState.error = '';
+            mentionState.members = [];
+        },
+
+        syncConversationScope() {
+            const mentionState = this.ensureState();
+            if (!mentionState) return null;
+            const conversationId = this.getConversationId();
+            const scopedConversationId = Number(mentionState.conversationId || 0);
+            if ((scopedConversationId && scopedConversationId !== conversationId) || !this.isGroupSession()) {
+                this.resetScopeState(mentionState, conversationId);
+            }
+            return mentionState;
+        },
+
         canMentionAll() {
             const activeSession = this.getActiveSession();
             const role = String(activeSession && activeSession.my_role || '').trim().toLowerCase();
@@ -123,7 +148,7 @@
 
         updateTriggerFromInput() {
             const state = this.getState();
-            const mentionState = this.ensureState();
+            const mentionState = this.syncConversationScope();
             const inputEl = this.getElements().inputEl;
             if (!state || !mentionState || !inputEl || !this.isGroupSession()) {
                 this.closePanel();
@@ -152,9 +177,10 @@
         },
 
         ensureMembersLoaded(conversationId) {
-            const mentionState = this.ensureState();
+            const mentionState = this.syncConversationScope();
             const targetConversationId = Number(conversationId || 0);
             if (!mentionState || !targetConversationId) return;
+            if (Number(mentionState.conversationId || 0) !== targetConversationId) return;
             if (this.memberCache[targetConversationId]) {
                 mentionState.members = this.memberCache[targetConversationId];
                 this.renderPanel();
@@ -184,7 +210,7 @@
 
         getFilteredMembers() {
             const state = this.getState();
-            const mentionState = this.ensureState();
+            const mentionState = this.syncConversationScope();
             if (!state || !mentionState) return [];
             const currentUsername = String(state.username || '').trim().toLowerCase();
             const keyword = String(mentionState.keyword || '').trim().toLowerCase();
@@ -227,7 +253,7 @@
         renderPanel() {
             this.bindInputEvents();
             const panelEl = this.getElements().mentionPanelEl;
-            const mentionState = this.ensureState();
+            const mentionState = this.syncConversationScope();
             if (!panelEl || !mentionState) return;
             panelEl.innerHTML = this.buildPanelMarkup();
             panelEl.classList.toggle('is-open', !!mentionState.open);

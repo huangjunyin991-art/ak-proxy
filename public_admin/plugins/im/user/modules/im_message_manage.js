@@ -304,6 +304,8 @@
                 client_temp_id: tempId,
                 mention_usernames: Array.isArray(payload && payload.mention_usernames) ? payload.mention_usernames.slice() : [],
                 mention_all: !!(payload && payload.mention_all),
+                reply_to_message_id: Number(payload && payload.reply_to_message_id || 0),
+                reply_to: payload && payload.reply_to ? payload.reply_to : null,
                 __akTempId: tempId,
                 __akLocalStatus: 'sending',
                 __akUploadError: ''
@@ -501,6 +503,126 @@
             return '<div class="ak-im-mention-badges">' + parts.map(function(label) {
                 return '<span class="ak-im-mention-badge">' + this.ctx.escapeHtml(label) + '</span>';
             }.bind(this)).join('') + '</div>';
+        },
+
+        getMessagePreviewText(item) {
+            if (!item) return '';
+            if (String(item.status || '').toLowerCase() === 'recalled') return '[消息已撤回]';
+            const preview = String(item.content_preview || '').trim();
+            if (preview) return preview;
+            const content = String(item.content || '').trim();
+            if (!content) return '[非文本消息]';
+            if (String(item.message_type || '').trim().toLowerCase() === 'text') return content;
+            return '[非文本消息]';
+        },
+
+        getMessageDisplayName(item) {
+            const state = this.getState();
+            const sender = String(item && item.sender_username || '').trim();
+            if (state && sender && sender === String(state.username || '').trim()) return '我';
+            return String(item && (item.sender_display_name || item.sender_username) || '').trim() || '成员';
+        },
+
+        buildReplyQuoteMarkup(item) {
+            const quote = item && item.reply_to ? item.reply_to : null;
+            if (!quote || !quote.id) return '';
+            const title = this.getMessageDisplayName(quote);
+            const preview = this.getMessagePreviewText(quote);
+            return '<div class="ak-im-reply-quote">' +
+                '<div class="ak-im-reply-quote-title">' + this.ctx.escapeHtml(title) + '</div>' +
+                '<div class="ak-im-reply-quote-preview">' + this.ctx.escapeHtml(preview) + '</div>' +
+            '</div>';
+        },
+
+        buildReplyDraftFromMessage(item) {
+            if (!item || !item.id) return null;
+            return {
+                conversation_id: Number(item.conversation_id || 0),
+                id: Number(item.id || 0),
+                sender_username: String(item.sender_username || '').trim().toLowerCase(),
+                sender_display_name: String(item.sender_display_name || '').trim(),
+                message_type: String(item.message_type || '').trim(),
+                content_preview: this.getMessagePreviewText(item),
+                status: String(item.status || '').trim()
+            };
+        },
+
+        findActionSheetMessage() {
+            const state = this.getState();
+            const messageId = Number(state && state.actionSheetMessageId || 0);
+            const conversationId = Number(state && state.actionSheetConversationId || state.activeConversationId || 0);
+            if (!state || !messageId || !conversationId) return null;
+            return (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(item) {
+                return Number(item && item.id || 0) === messageId && Number(item && item.conversation_id || 0) === conversationId;
+            })[0] || null;
+        },
+
+        setReplyDraft(item) {
+            const state = this.getState();
+            if (!state) return false;
+            const draft = this.buildReplyDraftFromMessage(item);
+            if (!draft || !draft.id || Number(draft.conversation_id || 0) !== Number(state.activeConversationId || 0)) return false;
+            state.replyDraft = draft;
+            this.renderReplyDraft();
+            this.focusComposerInput();
+            return true;
+        },
+
+        clearReplyDraft() {
+            const state = this.getState();
+            if (state) state.replyDraft = null;
+            this.renderReplyDraft();
+        },
+
+        renderReplyDraft() {
+            const state = this.getState();
+            const elements = this.getElements();
+            const replyDraftEl = elements.replyDraftEl;
+            if (!replyDraftEl) return;
+            let draft = state && state.replyDraft ? state.replyDraft : null;
+            if (draft && Number(draft.conversation_id || 0) !== Number(state && state.activeConversationId || 0)) {
+                state.replyDraft = null;
+                draft = null;
+            }
+            if (!draft || !draft.id) {
+                replyDraftEl.innerHTML = '';
+                replyDraftEl.classList.remove('is-open');
+                replyDraftEl.setAttribute('aria-hidden', 'true');
+                return;
+            }
+            const title = this.getMessageDisplayName(draft);
+            const preview = this.getMessagePreviewText(draft);
+            replyDraftEl.innerHTML = '<div class="ak-im-reply-draft-card">' +
+                '<div class="ak-im-reply-draft-text">' +
+                    '<div class="ak-im-reply-draft-title">引用 ' + this.ctx.escapeHtml(title) + '</div>' +
+                    '<div class="ak-im-reply-draft-preview">' + this.ctx.escapeHtml(preview) + '</div>' +
+                '</div>' +
+                '<button class="ak-im-reply-draft-close" type="button" aria-label="取消引用">×</button>' +
+            '</div>';
+            replyDraftEl.classList.add('is-open');
+            replyDraftEl.setAttribute('aria-hidden', 'false');
+            const closeBtn = replyDraftEl.querySelector('.ak-im-reply-draft-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    this.clearReplyDraft();
+                }.bind(this));
+            }
+        },
+
+        quoteActionSheetMessage() {
+            const item = this.findActionSheetMessage();
+            if (typeof this.ctx.closeActionSheet === 'function') this.ctx.closeActionSheet();
+            if (item) this.setReplyDraft(item);
+        },
+
+        copyActionSheetMessage() {
+            const item = this.findActionSheetMessage();
+            if (typeof this.ctx.closeActionSheet === 'function') this.ctx.closeActionSheet();
+            const text = this.getMessagePreviewText(item);
+            if (this.ctx && typeof this.ctx.copyWithHint === 'function') {
+                this.ctx.copyWithHint(text, { label: '消息内容', emptyHint: '这条消息没有可复制的文本内容' });
+            }
         },
 
         buildImageMatchKey(item) {
@@ -796,6 +918,7 @@
                 const avatarSource = isSelf && state.profile ? state.profile : item;
                 const bubbleClassName = self.getMessageBubbleClassName(item);
                 const bubbleMarkup = self.getMessageBubbleMarkup(item);
+                const replyQuoteMarkup = self.buildReplyQuoteMarkup(item);
                 const mentionBadgeMarkup = self.buildMentionBadgeMarkup(item);
                 const footerMarkup = (mentionBadgeMarkup || metaText || progressMarkup) ? '<div class="ak-im-message-footer">' +
                     mentionBadgeMarkup +
@@ -810,6 +933,7 @@
                         '<div class="ak-im-avatar-wrap" data-im-message-avatar-username="' + self.ctx.escapeHtml(String(item && item.sender_username || '').trim().toLowerCase()) + '">' + self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarSource, avatarText, avatarText + '头像') + '</div>' +
                         '<div class="ak-im-message-main">' +
                             (senderMarkup ? '<div class="ak-im-message-sender">' + senderMarkup + '</div>' : '') +
+                            replyQuoteMarkup +
                             '<div class="' + bubbleClassName + '">' + bubbleMarkup + '</div>' +
                             footerMarkup +
                         '</div>' +
@@ -839,34 +963,33 @@
                 if (messageAvatar && groupAdmins && typeof groupAdmins.bindMemberLongPress === 'function' && isActiveGroupSession) {
                     groupAdmins.bindMemberLongPress(messageAvatar, Number(activeSession && activeSession.conversation_id || state.activeConversationId || 0), messageAvatar.getAttribute('data-im-message-avatar-username'));
                 }
-                if (isSelf) {
-                    if (bubble && !bubble.classList.contains('ak-im-bubble-voice')) {
-                        let pressTimer = null;
-                        const startPress = function() {
-                            if (!self.canRecallMessage(item)) return;
-                            if (pressTimer) clearTimeout(pressTimer);
-                            pressTimer = setTimeout(function() {
-                                if (typeof self.ctx.openActionSheet === 'function') self.ctx.openActionSheet(item);
-                            }, 420);
-                        };
-                        const cancelPress = function() {
-                            if (pressTimer) {
-                                clearTimeout(pressTimer);
-                                pressTimer = null;
-                            }
-                        };
-                        bubble.addEventListener('pointerdown', startPress);
-                        bubble.addEventListener('pointerup', cancelPress);
-                        bubble.addEventListener('pointercancel', cancelPress);
-                        bubble.addEventListener('pointerleave', cancelPress);
-                    }
-                    if (bubble) {
-                        bubble.addEventListener('contextmenu', function(event) {
-                            event.preventDefault();
-                            if (!self.canRecallMessage(item)) return;
+                if (bubble && !bubble.classList.contains('ak-im-bubble-voice')) {
+                    let pressTimer = null;
+                    const startPress = function(event) {
+                        if (!item || !item.id) return;
+                        if (event && typeof event.button === 'number' && event.button !== 0) return;
+                        if (pressTimer) clearTimeout(pressTimer);
+                        pressTimer = setTimeout(function() {
                             if (typeof self.ctx.openActionSheet === 'function') self.ctx.openActionSheet(item);
-                        });
-                    }
+                        }, 420);
+                    };
+                    const cancelPress = function() {
+                        if (pressTimer) {
+                            clearTimeout(pressTimer);
+                            pressTimer = null;
+                        }
+                    };
+                    bubble.addEventListener('pointerdown', startPress);
+                    bubble.addEventListener('pointerup', cancelPress);
+                    bubble.addEventListener('pointercancel', cancelPress);
+                    bubble.addEventListener('pointerleave', cancelPress);
+                }
+                if (bubble) {
+                    bubble.addEventListener('contextmenu', function(event) {
+                        event.preventDefault();
+                        if (!item || !item.id) return;
+                        if (typeof self.ctx.openActionSheet === 'function') self.ctx.openActionSheet(item);
+                    });
                 }
                 const progressBtn = wrapper.querySelector('.ak-im-progress-btn');
                 if (progressBtn) {
@@ -1076,9 +1199,16 @@
             const payload = mentionManage && typeof mentionManage.buildTextPayload === 'function'
                 ? mentionManage.buildTextPayload(content)
                 : { message_type: 'text', content: content };
+            const replyDraft = state.replyDraft && Number(state.replyDraft.conversation_id || 0) === Number(state.activeConversationId || 0) ? state.replyDraft : null;
+            if (replyDraft && replyDraft.id) {
+                payload.reply_to_message_id = Number(replyDraft.id || 0);
+                payload.reply_to = replyDraft;
+            }
+            const self = this;
             return this.sendMessagePayload(payload, {
                 onAfterLocalSend: function() {
                     if (mentionManage && typeof mentionManage.resetDraft === 'function') mentionManage.resetDraft();
+                    self.clearReplyDraft();
                 }
             }).catch(function(error) {
                 window.alert(error && error.message ? error.message : '发送失败');
