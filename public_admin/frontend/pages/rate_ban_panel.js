@@ -14,6 +14,7 @@
         available: true,
         message: '',
         rendered: false,
+        shellKey: '',
         runtimeHtml: ''
     };
     var STYLE_ID = 'akRateBanPanelStyle';
@@ -197,7 +198,7 @@
             '.rb-rule-toggle input{position:absolute;opacity:0;width:0;height:0}',
             '.rb-switch-control{position:relative;width:46px;height:26px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);transition:background .2s,border-color .2s;display:inline-block;flex-shrink:0}',
             '.rb-switch-control:after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#d8e5ec;box-shadow:0 2px 6px rgba(0,0,0,.28);transition:transform .2s,background .2s;display:block}',
-            '.rb-rule-toggle input:checked+.rb-switch-control{background:linear-gradient(135deg,#ff6b7a,#ff3d5a);border-color:rgba(255,61,90,.48)}.rb-rule-toggle input:checked+.rb-switch-control:after{transform:translateX(20px);background:#fff}',
+            '.rb-rule-toggle input:checked+.rb-switch-control,.rb-toggle-card input:checked+.rb-switch-control{background:linear-gradient(135deg,#ff6b7a,#ff3d5a);border-color:rgba(255,61,90,.48)}.rb-rule-toggle input:checked+.rb-switch-control:after,.rb-toggle-card input:checked+.rb-switch-control:after{transform:translateX(20px);background:#fff}',
             '.rb-rule-title strong{display:block;color:var(--text-primary);font-size:14px}.rb-rule-title small{display:block;color:var(--text-secondary);font-size:12px;margin-top:2px}',
             '.rb-rule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}',
             '.rb-field{display:flex;flex-direction:column;gap:7px;border:1px solid rgba(255,255,255,.07);border-radius:16px;background:rgba(0,0,0,.13);padding:10px 12px;min-width:0}.rb-field span{color:var(--text-primary);font-size:12px;font-weight:800}.rb-field small{color:var(--text-secondary);font-size:11px;line-height:1.35}',
@@ -276,9 +277,14 @@
         var root = mount();
         if (!root) return;
         ensureStyles();
-        if (!state.rendered || !root.querySelector('.rb-page')) {
+        var rules = state.policy && state.policy.rules || [];
+        var shellKey = rules.map(function(rule) {
+            return String(rule.id || '') + ':' + String(rule.route_prefix || '');
+        }).join('|');
+        if (!state.rendered || !root.querySelector('.rb-page') || state.shellKey !== shellKey) {
             root.innerHTML = renderShell();
             state.rendered = true;
+            state.shellKey = shellKey;
             bindEvents();
         }
         updateDynamicView();
