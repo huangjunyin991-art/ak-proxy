@@ -12912,7 +12912,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var activeDefensePanelBuildVersion = '20260526-03';
+            var activeDefensePanelBuildVersion = '20260613-01';
 
             function reportActiveDefensePanelLoadFailure(message) {
                 try {
@@ -12986,10 +12986,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
             window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
             window.AdminPanelLazyLoaders.activeDefense = function() {
-                if (window.AKActiveDefensePanel) {
-                    if (typeof window.AKActiveDefensePanel.start === 'function') window.AKActiveDefensePanel.start();
-                    return;
-                }
                 resetActiveDefensePanelGlobals();
                 removeActiveDefensePanelScripts();
                 loadActiveDefensePanelScript(false, 1);
