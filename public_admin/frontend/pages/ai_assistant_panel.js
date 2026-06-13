@@ -465,6 +465,11 @@
         return current;
     }
 
+    function selectedRelayConsoleLabel(adapterKey, displayName, id) {
+        const name = relayDisplayNameFor(adapterKey, displayName);
+        return (name || '中转站') + (Number(id || 0) > 0 ? (' #' + Number(id || 0)) : '');
+    }
+
     function renderProviderForm() {
         const item = selectedProvider() || {};
         const id = Number(item.id || 0);
@@ -604,8 +609,7 @@
         const availableModels = id ? (state.relayConsoleAvailableModels[id] || []) : [];
         const summary = relayConsoleSummary(id, balance, tokens);
         const accountOptions = (id ? [] : [{ value: '0', label: '新建中转站' }]).concat(accounts.map(function(account) {
-            const name = relayDisplayNameFor(account.adapter_key, account.display_name);
-            const label = (name || account.console_base_url || '中转站') + ' #' + account.id;
+            const label = selectedRelayConsoleLabel(account.adapter_key, account.display_name || account.console_base_url, account.id);
             return { value: String(account.id), label: label };
         }));
         const availableModelsHtml = availableModels.length
@@ -1403,6 +1407,26 @@
             });
             if (!current || isKnownDefault) baseInput.value = meta.baseUrl;
         }
+        syncRelayConsolePickerLabel(adapterKey);
+    }
+
+    function syncRelayConsolePickerLabel(adapterKey) {
+        const selectedInput = document.getElementById('aiRelayConsoleSelected');
+        if (!selectedInput) return;
+        const id = Number(selectedInput.value || state.selectedRelayConsoleId || 0);
+        if (id <= 0) return;
+        const displayInput = document.getElementById('aiRelayDisplayName');
+        const labelText = selectedRelayConsoleLabel(adapterKey || document.getElementById('aiRelayConsoleAdapter')?.value || 'newapi', displayInput && displayInput.value, id);
+        const field = selectedInput.closest('[data-select-picker]');
+        const label = field && field.querySelector('[data-select-label]');
+        if (label) label.textContent = labelText;
+        if (field) {
+            field.querySelectorAll('[data-select-option]').forEach(function(option) {
+                if (String(option.dataset.selectValue || '') === String(id)) {
+                    option.textContent = labelText;
+                }
+            });
+        }
     }
 
     function selectPickerOption(option) {
@@ -1492,6 +1516,10 @@
             if (modelInput && el.contains(modelInput)) {
                 const field = modelInput.closest('[data-model-picker]');
                 openModelMenu(field, false);
+                return;
+            }
+            if (event.target && event.target.id === 'aiRelayDisplayName') {
+                syncRelayConsolePickerLabel(document.getElementById('aiRelayConsoleAdapter')?.value || 'newapi');
             }
         });
         if (!global.__AKAIAssistantModelPickerBound) {
