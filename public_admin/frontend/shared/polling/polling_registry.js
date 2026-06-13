@@ -125,8 +125,8 @@
         topicOwners[topic] = topicOwners[topic] || {};
         topicOwners[topic][owner] = true;
         if (typeof options.onData === 'function') {
-            topicHandlers[topic] = topicHandlers[topic] || [];
-            topicHandlers[topic].push(options.onData);
+            topicHandlers[topic] = topicHandlers[topic] || {};
+            topicHandlers[topic][owner] = options.onData;
         }
         if (typeof options.fallbackTask === 'function') {
             register({
@@ -199,8 +199,9 @@
         var topic = String(message.topic || '');
         if (!topic) return false;
         topicFreshness[topic] = now();
-        var handlers = topicHandlers[topic] || [];
-        handlers.forEach(function(handler) {
+        var handlers = topicHandlers[topic] || {};
+        Object.keys(handlers).forEach(function(owner) {
+            var handler = handlers[owner];
             try {
                 handler(message.data || {}, message);
             } catch (e) {

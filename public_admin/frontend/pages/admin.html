@@ -4937,6 +4937,7 @@
         let adminStatsTimer = null;
         let adminVerifyTimer = null;
         let adminStatsBootstrapRetryTimer = null;
+        let adminWsReconnectTimer = null;
         let adminAppInitialized = false;
         let activityItems = [];
         const nativeFetch = window.fetch.bind(window);
@@ -5876,7 +5877,23 @@
             return url.toString();
         }
 
+        function clearAdminWsReconnectTimer() {
+            if (adminWsReconnectTimer) {
+                clearTimeout(adminWsReconnectTimer);
+                adminWsReconnectTimer = null;
+            }
+        }
+
+        function scheduleAdminWsReconnect(delayMs) {
+            clearAdminWsReconnectTimer();
+            adminWsReconnectTimer = setTimeout(() => {
+                adminWsReconnectTimer = null;
+                initWebSocket();
+            }, Math.max(1000, Number(delayMs || 3000)));
+        }
+
         async function initWebSocket() {
+            clearAdminWsReconnectTimer();
             // 先废弃已存在的连接
             if (ws) {
                 ws.onopen = null;
@@ -5898,7 +5915,7 @@
                 document.getElementById('statusDot').classList.remove('connected');
                 document.getElementById('statusText').textContent = '短票获取失败';
                 if (e && e.status === 401) return;
-                setTimeout(initWebSocket, 3000);
+                scheduleAdminWsReconnect(3000);
                 return;
             }
             const wsUrl = buildAdminWsUrl(adminWsTicket);
@@ -5907,6 +5924,7 @@
             ws.onopen = () => {
                 document.getElementById('statusDot').classList.add('connected');
                 document.getElementById('statusText').textContent = '已连接';
+                clearAdminWsReconnectTimer();
                 if (window.AKPollingRegistry) {
                     window.AKPollingRegistry.resumeOwners();
                 }
@@ -5924,7 +5942,7 @@
                 document.getElementById('statusText').textContent = '已断开';
                 if (window._adminHeartbeat) { clearInterval(window._adminHeartbeat); window._adminHeartbeat = null; }
                 // 重连
-                setTimeout(initWebSocket, 3000);
+                scheduleAdminWsReconnect(3000);
             };
             
             ws.onmessage = (event) => {
