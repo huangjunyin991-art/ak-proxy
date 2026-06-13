@@ -507,9 +507,7 @@ func normalizeAccount(item Account) Account {
 		item.AdapterKey = AdapterNewAPI
 	}
 	item.AdapterLabel = adapterLabel(item.AdapterKey)
-	if strings.TrimSpace(item.DisplayName) == "" {
-		item.DisplayName = item.AdapterLabel
-	}
+	item.DisplayName = normalizeRelayDisplayName(item.AdapterKey, item.DisplayName)
 	if strings.TrimSpace(item.ConsoleBaseURL) == "" {
 		if adapter := adapterByKey(item.AdapterKey); adapter != nil {
 			item.ConsoleBaseURL = adapter.DefaultBaseURL()
@@ -519,6 +517,46 @@ func normalizeAccount(item Account) Account {
 		item.LowBalanceQuota = 0
 	}
 	return item
+}
+
+func normalizeRelayDisplayName(adapterKey string, displayName string) string {
+	displayName = strings.TrimSpace(displayName)
+	target := defaultRelayDisplayName(adapterKey)
+	if displayName == "" {
+		return target
+	}
+	if isKnownRelayDefaultDisplayName(displayName) && !strings.EqualFold(displayName, target) {
+		return target
+	}
+	return displayName
+}
+
+func defaultRelayDisplayName(adapterKey string) string {
+	switch strings.ToLower(strings.TrimSpace(adapterKey)) {
+	case AdapterNewAPI:
+		return "Dream Field"
+	case AdapterX5M5X:
+		return "极速 API Gateway"
+	}
+	if adapter := adapterByKey(adapterKey); adapter != nil {
+		return adapter.Label()
+	}
+	return strings.TrimSpace(adapterKey)
+}
+
+func isKnownRelayDefaultDisplayName(value string) bool {
+	value = strings.TrimSpace(value)
+	for _, item := range []string{
+		"Dream Field",
+		"New API",
+		"New API / Dream Field",
+		"极速 API Gateway",
+	} {
+		if strings.EqualFold(value, item) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) setError(ctx context.Context, consoleID int64, message string) error {

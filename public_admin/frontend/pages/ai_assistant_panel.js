@@ -445,6 +445,26 @@
         }) || RELAY_ADAPTERS[0];
     }
 
+    function isRelayDefaultDisplayName(value) {
+        const current = String(value || '').trim().toLowerCase();
+        if (!current) return false;
+        if (current === 'new api') return true;
+        return RELAY_ADAPTERS.some(function(item) {
+            return current === String(item.displayName || '').trim().toLowerCase() ||
+                current === String(item.label || '').trim().toLowerCase();
+        });
+    }
+
+    function relayDisplayNameFor(adapterKey, displayName) {
+        const meta = relayAdapterMeta(adapterKey);
+        const current = String(displayName || '').trim();
+        if (!current) return meta.displayName;
+        if (isRelayDefaultDisplayName(current) && current.toLowerCase() !== String(meta.displayName || '').toLowerCase()) {
+            return meta.displayName;
+        }
+        return current;
+    }
+
     function renderProviderForm() {
         const item = selectedProvider() || {};
         const id = Number(item.id || 0);
@@ -578,12 +598,14 @@
         const id = Number(item.id || 0);
         const adapterKey = item.adapter_key || 'newapi';
         const adapterMeta = relayAdapterMeta(adapterKey);
+        const displayName = relayDisplayNameFor(adapterKey, item.display_name);
         const balance = id ? ((status.latest_balances && status.latest_balances[id]) || status.latest_balance || null) : null;
         const tokens = id ? (state.relayConsoleTokens[id] || []) : [];
         const availableModels = id ? (state.relayConsoleAvailableModels[id] || []) : [];
         const summary = relayConsoleSummary(id, balance, tokens);
         const accountOptions = (id ? [] : [{ value: '0', label: '新建中转站' }]).concat(accounts.map(function(account) {
-            const label = (account.display_name || account.console_base_url || '中转站') + ' #' + account.id;
+            const name = relayDisplayNameFor(account.adapter_key, account.display_name);
+            const label = (name || account.console_base_url || '中转站') + ' #' + account.id;
             return { value: String(account.id), label: label };
         }));
         const availableModelsHtml = availableModels.length
@@ -630,7 +652,7 @@
                 <div class="ai-form-grid">
                     ${renderSelectPicker('aiRelayConsoleSelected', '当前中转站', String(id || 0), accountOptions.length ? accountOptions : [{ value: '0', label: '新建中转站' }])}
                     ${renderSelectPicker('aiRelayConsoleAdapter', '适配器类型', adapterKey, relayAdapterOptions())}
-                    <div class="ai-field"><label>显示名称</label><input class="ai-input" id="aiRelayDisplayName" value="${escapeHtml(item.display_name || adapterMeta.displayName)}"></div>
+                    <div class="ai-field"><label>显示名称</label><input class="ai-input" id="aiRelayDisplayName" value="${escapeHtml(displayName || adapterMeta.displayName)}"></div>
                     <div class="ai-field"><label>控制台地址</label><input class="ai-input" id="aiRelayBaseUrl" value="${escapeHtml(item.console_base_url || adapterMeta.baseUrl)}"></div>
                     <div class="ai-field"><label>控制台账号</label><input class="ai-input" id="aiRelayUsername" value="${escapeHtml(item.username || '')}" placeholder="登录邮箱或用户名"></div>
                     <div class="ai-field"><label>控制台用户 ID</label><input class="ai-input" id="aiRelayUserId" value="${escapeHtml(item.user_id || '')}" placeholder="登录后自动获取"></div>
@@ -1043,7 +1065,7 @@
         return {
             id: Number(current.id || 0),
             adapter_key: adapterKey,
-            display_name: document.getElementById('aiRelayDisplayName')?.value || adapterMeta.displayName,
+            display_name: relayDisplayNameFor(adapterKey, document.getElementById('aiRelayDisplayName')?.value || adapterMeta.displayName),
             console_base_url: document.getElementById('aiRelayBaseUrl')?.value || adapterMeta.baseUrl,
             username: document.getElementById('aiRelayUsername')?.value || '',
             user_id: document.getElementById('aiRelayUserId')?.value || '',
@@ -1372,10 +1394,7 @@
         const baseInput = document.getElementById('aiRelayBaseUrl');
         if (displayInput) {
             const current = String(displayInput.value || '').trim();
-            const isKnownDefault = RELAY_ADAPTERS.some(function(item) {
-                return current === item.displayName;
-            });
-            if (!current || isKnownDefault) displayInput.value = meta.displayName;
+            if (!current || isRelayDefaultDisplayName(current)) displayInput.value = meta.displayName;
         }
         if (baseInput) {
             const current = String(baseInput.value || '').trim().replace(/\/+$/, '');
