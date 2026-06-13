@@ -2893,6 +2893,22 @@ async def proxy_index_data(request: Request):
     raw_body = await request.body() if request.method == "POST" else b""
 
     params = parse_request_params(content_type, dict(request.query_params), raw_body)
+    auth_cookie_header = ""
+    params, raw_body, patched_auth_cookies, auth_patched = await _patch_public_rpc_auth_from_cookie(
+        "public_IndexData",
+        request,
+        content_type,
+        params,
+        raw_body,
+    )
+    if patched_auth_cookies:
+        auth_cookie_header = _build_cookie_header(patched_auth_cookies)
+    if auth_patched:
+        logger.warning(
+            f"[IndexDataAuthPatch] cookie_username={request.cookies.get('ak_username') or request.cookies.get('ak_im_username') or '-'} "
+            f"key_fp={fingerprint_log_secret(params.get('key') or '')} "
+            f"userId={str(params.get('UserID') or params.get('userid') or '')}"
+        )
     risk_isolation_response = _build_risk_isolation_userkey_response("public_IndexData", params, "index_data")
     if risk_isolation_response is not None:
         return risk_isolation_response
@@ -2921,9 +2937,12 @@ async def proxy_index_data(request: Request):
     try:
 
         upstream_started_at = time.perf_counter()
+        forward_headers = dict(request.headers)
+        if auth_cookie_header:
+            forward_headers["cookie"] = auth_cookie_header
         response = await forward_request(
 
-            request.method, "public_IndexData", content_type, params, raw_body, dict(request.headers),
+            request.method, "public_IndexData", content_type, params, raw_body, forward_headers,
 
             client_ip=client_ip
 
@@ -2931,6 +2950,15 @@ async def proxy_index_data(request: Request):
         upstream_ms = _elapsed_ms(upstream_started_at)
 
         result = response.json()
+        _log_rpc_login_reject_response(
+            "public_IndexData",
+            response,
+            params,
+            "index_data",
+            referer=request.headers.get("referer", ""),
+            auth_patched=auth_patched,
+            username=request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
+        )
 
     except Exception as e:
 
@@ -3120,9 +3148,6 @@ async def proxy_rpc(path: str, request: Request):
     
 
     params = parse_request_params(content_type, dict(request.query_params), raw_body)
-    risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "rpc")
-    if risk_isolation_response is not None:
-        return risk_isolation_response
     auth_cookie_header = ""
     params, raw_body, patched_auth_cookies, auth_patched = await _patch_public_rpc_auth_from_cookie(
         path,
@@ -3133,10 +3158,13 @@ async def proxy_rpc(path: str, request: Request):
     )
     if patched_auth_cookies:
         auth_cookie_header = _build_cookie_header(patched_auth_cookies)
-    if auth_patched:
-        risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "rpc_cookie_auth")
-        if risk_isolation_response is not None:
-            return risk_isolation_response
+    risk_isolation_response = _build_risk_isolation_userkey_response(
+        path,
+        params,
+        "rpc_cookie_auth" if auth_patched else "rpc",
+    )
+    if risk_isolation_response is not None:
+        return risk_isolation_response
     key_guard_response = await _build_upstream_key_format_guard_response(request, path, params, "rpc")
     if key_guard_response is not None:
         _record_request_metric(
@@ -3279,6 +3307,16 @@ async def proxy_rpc(path: str, request: Request):
 
             picked_exit_name=selected_exit.name,
 
+        )
+        _log_rpc_login_reject_response(
+            path,
+            response,
+            params,
+            "rpc",
+            referer=referer,
+            cookie_bs=cookie_bs,
+            auth_patched=auth_patched,
+            username=request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
         )
         if response.status_code < 500:
             _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
@@ -14956,7 +14994,31 @@ def _build_proxy_passthrough_response(response: httpx.Response) -> Response:
     return _mirror_upstream_set_cookies(proxy_response, response.headers)
 
 
+def _log_rpc_login_reject_response(path: str, response: httpx.Response, params: dict, source: str,
+                                   referer: str = "", cookie_bs: str = "", auth_patched: bool = False,
+                                   username: str = "") -> None:
+    try:
+        content_type = str(response.headers.get("content-type") or "").lower()
+        if "json" not in content_type:
+            return
+        result = response.json()
+    except Exception:
+        return
+    if not isinstance(result, dict):
+        return
+    if result.get("Error") is not True or result.get("IsLogin") is not False:
+        return
+    logger.warning(
+        f"[RpcLoginReject/{path}] source={source} status={response.status_code} "
+        f"username={username or '-'} auth_patched={int(bool(auth_patched))} "
+        f"cookie_bs={cookie_bs or '-'} key_fp={fingerprint_log_secret((params or {}).get('key') or (params or {}).get('Key') or '')} "
+        f"userId={str((params or {}).get('UserID') or (params or {}).get('userid') or '') or '-'} "
+        f"referer={referer or '-'} msg={redact_log_text(str(result.get('Msg') or ''), limit=160)}"
+    )
+
+
 PUBLIC_RPC_AUTH_PATCH_PATHS = {
+    "public_indexdata",
     "public_ep_sellrecords1",
     "public_ep_sellrecords2",
     "public_ep_sellrecords3",
@@ -14971,6 +15033,12 @@ PUBLIC_RPC_AUTH_PATCH_PATHS = {
     "logout",
 }
 
+PUBLIC_RPC_AUTH_SKIP_PATHS = {
+    "login",
+    "login_forget",
+    "login_forget_account",
+}
+
 SECURITY_STATE_RPC_PATCHES = {
     "question_reset": {"IsSetSecurityQuestion": True},
     "mnemonic_confirm": {"IsMnemonic": True},
@@ -14980,6 +15048,43 @@ SECURITY_STATE_RPC_PATCHES = {
 def _is_blank_rpc_auth_value(value) -> bool:
     text = str(value or "").strip().lower()
     return text in {"", "123", "undefined", "null", "none"}
+
+
+def _normalize_rpc_path_name(path: str) -> str:
+    return str(path or "").split("?", 1)[0].strip("/").lower()
+
+
+def _should_patch_rpc_auth_params(path: str, params: dict) -> bool:
+    normalized_path = _normalize_rpc_path_name(path)
+    if normalized_path in PUBLIC_RPC_AUTH_SKIP_PATHS:
+        return False
+    if normalized_path in PUBLIC_RPC_AUTH_PATCH_PATHS:
+        return True
+    if not isinstance(params, dict):
+        return False
+    current_key = params.get("key")
+    if current_key is None:
+        current_key = params.get("Key")
+    current_user_id = params.get("UserID")
+    if current_user_id is None:
+        current_user_id = params.get("userid")
+    return _is_blank_rpc_auth_value(current_key) or _is_blank_rpc_auth_value(current_user_id)
+
+
+def _patch_rpc_auth_params(params: dict, userkey: str, user_id: str, force: bool = False) -> tuple[dict, bool]:
+    next_params = dict(params or {})
+    current_key = str(next_params.get("key") or next_params.get("Key") or "").strip()
+    current_user_id = str(next_params.get("UserID") or next_params.get("userid") or "").strip()
+    patched = False
+    if userkey and (force or _is_blank_rpc_auth_value(current_key) or current_key != userkey):
+        next_params["key"] = userkey
+        next_params.pop("Key", None)
+        patched = True
+    if user_id and (force or _is_blank_rpc_auth_value(current_user_id) or current_user_id != user_id):
+        next_params["UserID"] = user_id
+        next_params.pop("userid", None)
+        patched = True
+    return next_params, patched
 
 
 def _rpc_user_id_from_login_result(login_result: dict) -> str:
@@ -15029,28 +15134,25 @@ async def _load_public_rpc_cookie_auth(request: Request) -> tuple[str, dict]:
 
 async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, content_type: str,
                                              params: dict, raw_body: bytes) -> tuple[dict, bytes, dict, bool]:
-    normalized_path = str(path or "").strip("/").lower()
-    if normalized_path not in PUBLIC_RPC_AUTH_PATCH_PATHS:
+    normalized_path = _normalize_rpc_path_name(path)
+    force_patch = normalized_path in PUBLIC_RPC_AUTH_PATCH_PATHS
+    if not _should_patch_rpc_auth_params(path, params):
         return params, raw_body, {}, False
     username, cached = await _load_public_rpc_cookie_auth(request)
     if not cached:
-        logger.warning(f"[PublicRpcAuthPatch/{path}] no_cached_auth username={username or '-'}")
+        current_key = params.get("key")
+        if current_key is None:
+            current_key = params.get("Key")
+        current_user_id = params.get("UserID")
+        if current_user_id is None:
+            current_user_id = params.get("userid")
+        if _is_blank_rpc_auth_value(current_key) or _is_blank_rpc_auth_value(current_user_id):
+            logger.warning(f"[PublicRpcAuthPatch/{path}] no_cached_auth username={username or '-'}")
         return params, raw_body, {}, False
     login_result = cached.get("login_result", {})
     userkey = str(cached.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
     user_id = _rpc_user_id_from_login_result(login_result)
-    current_key = str(params.get("key") or params.get("Key") or "").strip()
-    current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
-    patched = False
-    next_params = dict(params)
-    if userkey and current_key != userkey:
-        next_params["key"] = userkey
-        next_params.pop("Key", None)
-        patched = True
-    if user_id and current_user_id != user_id:
-        next_params["UserID"] = user_id
-        next_params.pop("userid", None)
-        patched = True
+    next_params, patched = _patch_rpc_auth_params(params, userkey, user_id, force=force_patch)
     next_raw_body = raw_body
     if patched and request.method in ["POST", "PUT"]:
         next_raw_body = _rewrite_raw_body_with_params(content_type, next_params)
@@ -16113,25 +16215,13 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
     params = parse_request_params(content_type, query_params, raw_body)
     is_login_path = path.strip("/").lower() == "login"
-    risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc")
-    if risk_isolation_response is not None:
-        return risk_isolation_response
     normalized_path = path.strip("/").lower()
-    protected_paths = {
-        "public_ep_sellrecords1",
-        "public_ep_sellrecords2",
-        "public_ep_sellrecords3",
-        "question_list",
-        "question_reset",
-        "question_get1",
-        "check_transactionpassword",
-        "check_answer",
-        "mnemonic_get01",
-        "logout",
-    }
+    should_auth_patch = _should_patch_rpc_auth_params(path, params)
+    force_auth_patch = normalized_path in PUBLIC_RPC_AUTH_PATCH_PATHS
     trace_paths = {
         "public_ace",
         "public_ep_sellrecords1",
+        "public_indexdata",
         "question_get1",
     }
     trace_params_before = dict(params) if normalized_path in trace_paths else None
@@ -16156,7 +16246,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             f"[AdminAkRpcParams/{path}] phase=incoming referer={referer} "
             f"params={format_redacted_log_json(trace_params_before)}"
         ))
-    if normalized_path in protected_paths:
+    if should_auth_patch:
         login_result = session.get("login_result", {})
         if not isinstance(login_result, dict):
             login_result = {}
@@ -16165,15 +16255,12 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             user_data = {}
         session_userkey = str(session.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
         session_user_id = str(user_data.get("Id") or user_data.get("ID") or "").strip()
-        current_key = str(params.get("key") or "").strip()
-        current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
-        if session_userkey and current_key != session_userkey:
-            params["key"] = session_userkey
-            auth_replaced = True
-        if session_user_id and current_user_id != session_user_id:
-            params["UserID"] = session_user_id
-            params.pop("userid", None)
-            auth_replaced = True
+        params, auth_replaced = _patch_rpc_auth_params(
+            params,
+            session_userkey,
+            session_user_id,
+            force=force_auth_patch,
+        )
         if auth_replaced and request.method in ["POST", "PUT"]:
             if "application/json" in content_type:
                 raw_body = json.dumps(params, ensure_ascii=False).encode("utf-8")
@@ -16184,6 +16271,10 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
         ))
         risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc_session")
+        if risk_isolation_response is not None:
+            return risk_isolation_response
+    else:
+        risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc")
         if risk_isolation_response is not None:
             return risk_isolation_response
     key_guard_response = await _build_upstream_key_format_guard_response(request, path, params, "admin_ak_rpc")
@@ -16334,6 +16425,16 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         if is_login_path:
             _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} {summarize_log_payload(result)}")
         _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} {summarize_log_payload(result)}")
+        _log_rpc_login_reject_response(
+            path,
+            response,
+            params,
+            "admin_ak_rpc",
+            referer=referer,
+            cookie_bs=str(session.get("id") or ""),
+            auth_patched=auth_replaced,
+            username=str(session.get("username") or ""),
+        )
         proxy_response = JSONResponse(content=result, status_code=response.status_code)
         if is_login_success:
             login_identity_username = _extract_login_result_username(result, account) or account
@@ -16362,6 +16463,16 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         if set_cookie_values:
             await _persist_browse_session_auth(session)
         _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
+        _log_rpc_login_reject_response(
+            path,
+            response,
+            params,
+            "admin_ak_rpc_raw",
+            referer=referer,
+            cookie_bs=str(session.get("id") or ""),
+            auth_patched=auth_replaced,
+            username=str(session.get("username") or ""),
+        )
         proxy_response = Response(content=response.content, status_code=response.status_code,
                         media_type=response.headers.get("content-type", "application/octet-stream"))
         total_ms = _elapsed_ms(request_started_at)
