@@ -12999,7 +12999,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var rateBanPanelBuildVersion = '20260613-03';
+            var rateBanPanelBuildVersion = '20260613-04';
 
             function reportRateBanPanelLoadFailure(message) {
                 try {
@@ -13073,10 +13073,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
             window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
             window.AdminPanelLazyLoaders.rateBan = function() {
-                if (window.AKRateBanPanel) {
-                    if (typeof window.AKRateBanPanel.start === 'function') window.AKRateBanPanel.start();
-                    return;
-                }
                 resetRateBanPanelGlobals();
                 removeRateBanPanelScripts();
                 loadRateBanPanelScript(false, 1);
