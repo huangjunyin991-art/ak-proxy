@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -401,27 +402,13 @@ func (s *Service) chatWithProviderPool(ctx context.Context, req ChatRequest, pur
 	}
 	candidates, err := s.loadProviderCandidates(ctx, limit, onlyReady)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) && onlyReady {
-			candidates, err = s.loadProviderCandidates(ctx, 1, false)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ChatResponse{}, s.providerPoolUnavailableError(ctx, onlyReady)
 		}
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ChatResponse{}, errors.New("AI provider is not configured")
-			}
-			return ChatResponse{}, err
-		}
-	}
-	if len(candidates) == 0 && onlyReady {
-		candidates, err = s.loadProviderCandidates(ctx, 1, false)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ChatResponse{}, errors.New("AI provider is not configured")
-			}
-			return ChatResponse{}, err
-		}
+		return ChatResponse{}, err
 	}
 	if len(candidates) == 0 {
-		return ChatResponse{}, errors.New("AI provider is not configured")
+		return ChatResponse{}, s.providerPoolUnavailableError(ctx, onlyReady)
 	}
 	attemptErrors := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -431,7 +418,11 @@ func (s *Service) chatWithProviderPool(ctx context.Context, req ChatRequest, pur
 			return response, nil
 		}
 		attemptErrors = append(attemptErrors, fmt.Sprintf("#%d %s: %s", candidate.account.ID, candidate.account.ProviderName, truncateForStatus(err.Error(), 160)))
-		_ = s.markProviderFailure(ctx, candidate.account.ID, err, cfg)
+		if shouldCooldownProvider(ctx, err) {
+			_ = s.markProviderFailure(ctx, candidate.account.ID, err, cfg)
+		} else {
+			_ = s.markProviderRuntimeError(ctx, candidate.account.ID, err)
+		}
 		if !cfg.Enabled || !shouldTryNextProvider(ctx, err) {
 			break
 		}
@@ -439,7 +430,7 @@ func (s *Service) chatWithProviderPool(ctx context.Context, req ChatRequest, pur
 	if len(attemptErrors) == 0 {
 		return ChatResponse{}, errors.New("AI provider is not configured")
 	}
-	return ChatResponse{}, fmt.Errorf("AI provider attempts failed: %s", strings.Join(attemptErrors, "；"))
+	return ChatResponse{}, fmt.Errorf("AI provider attempts failed: %s", strings.Join(attemptErrors, "; "))
 }
 
 func (s *Service) chatWithCandidate(ctx context.Context, candidate providerCandidate, req ChatRequest, purpose string) (ChatResponse, error) {
@@ -513,11 +504,43 @@ func (s *Service) loadProviderCandidates(ctx context.Context, limit int, onlyRea
 	}
 	if len(candidates) == 0 {
 		if len(skipped) > 0 {
-			return nil, errors.New("AI provider secret decrypt failed: " + strings.Join(skipped, "；"))
+			return nil, errors.New("AI provider secret decrypt failed: " + strings.Join(skipped, "; "))
 		}
 		return nil, pgx.ErrNoRows
 	}
 	return candidates, nil
+}
+
+func (s *Service) providerPoolUnavailableError(ctx context.Context, onlyReady bool) error {
+	if !onlyReady {
+		return errors.New("AI provider is not configured")
+	}
+	configured, err := s.hasConfiguredProvider(ctx)
+	if err != nil {
+		return err
+	}
+	if !configured {
+		return errors.New("AI provider is not configured")
+	}
+	return errors.New("当前 AI 中转站繁忙，请稍后再试")
+}
+
+func (s *Service) hasConfiguredProvider(ctx context.Context) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, nil
+	}
+	var exists bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM im_ai_provider_account
+			WHERE enabled = TRUE
+			  AND secret_ciphertext_or_ref <> ''
+		)`).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (s *Service) markProviderSuccess(ctx context.Context, providerID int64) error {
@@ -553,14 +576,118 @@ func (s *Service) markProviderFailure(ctx context.Context, providerID int64, cau
 	return err
 }
 
+func (s *Service) markProviderRuntimeError(ctx context.Context, providerID int64, cause error) error {
+	if s == nil || s.db == nil || providerID <= 0 || cause == nil {
+		return nil
+	}
+	message := truncateForStatus(cause.Error(), 300)
+	_, err := s.db.Exec(ctx, `
+		UPDATE im_ai_provider_account
+		SET runtime_last_error = $2,
+		    last_test_status = $3,
+		    updated_at = NOW()
+		WHERE id = $1`, providerID, message, "runtime error: "+message)
+	return err
+}
+
+type providerFailureClass int
+
+const (
+	providerFailureNone providerFailureClass = iota
+	providerFailureRetryable
+	providerFailurePermanent
+	providerFailureContextDone
+)
+
+func shouldCooldownProvider(ctx context.Context, err error) bool {
+	return classifyProviderFailure(ctx, err) == providerFailureRetryable
+}
+
 func shouldTryNextProvider(ctx context.Context, err error) bool {
+	return classifyProviderFailure(ctx, err) == providerFailureRetryable
+}
+
+func classifyProviderFailure(ctx context.Context, err error) providerFailureClass {
 	if err == nil {
-		return false
+		return providerFailureNone
 	}
 	if ctx != nil && ctx.Err() != nil {
-		return false
+		return providerFailureContextDone
 	}
-	return true
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return providerFailureContextDone
+	}
+	if status, ok := providerErrorHTTPStatus(err); ok {
+		if isRetryableProviderStatus(status) {
+			return providerFailureRetryable
+		}
+		if status >= 400 && status < 500 {
+			return providerFailurePermanent
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return providerFailureRetryable
+	}
+	message := strings.ToLower(err.Error())
+	if containsAny(message, []string{
+		"timeout", "deadline exceeded", "connection refused", "connection reset",
+		"temporary", "temporarily", "no such host", "server busy", "too many requests",
+		"rate limit", "quota", "no available channel", "bad gateway", "service unavailable",
+	}) {
+		return providerFailureRetryable
+	}
+	if containsAny(message, []string{
+		"unauthorized", "forbidden", "invalid api key", "incorrect api key",
+		"invalid key", "invalid model", "model not found", "does not exist",
+		"not supported", "not configured", "missing base_url", "invalid base_url",
+	}) {
+		return providerFailurePermanent
+	}
+	return providerFailureRetryable
+}
+
+func providerErrorHTTPStatus(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	message := err.Error()
+	index := strings.Index(message, "provider status=")
+	if index < 0 {
+		return 0, false
+	}
+	start := index + len("provider status=")
+	end := start
+	for end < len(message) && message[end] >= '0' && message[end] <= '9' {
+		end++
+	}
+	if end == start {
+		return 0, false
+	}
+	status, convErr := strconv.Atoi(message[start:end])
+	if convErr != nil {
+		return 0, false
+	}
+	return status, true
+}
+
+func isRetryableProviderStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return status >= 500
+	}
+}
+
+func containsAny(value string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) chatWithAccount(ctx context.Context, account Account, secret string, req ChatRequest) (ChatResponse, error) {

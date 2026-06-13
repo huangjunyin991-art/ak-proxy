@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -51,6 +52,37 @@ type aiProviderTestRequest struct {
 
 type aiRelayConsoleSyncRequest struct {
 	TokenID string `json:"token_id"`
+}
+
+const (
+	aiUserJSONMaxBytes    int64 = 64 * 1024
+	aiAdminJSONMaxBytes   int64 = 256 * 1024
+	aiMessageEditMaxRunes       = 20000
+)
+
+func decodeAIJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {
+	if r == nil || r.Body == nil {
+		return io.EOF
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
+	return decoder.Decode(dst)
+}
+
+func decodeOptionalAIJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {
+	err := decodeAIJSON(w, r, dst, maxBytes)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
+func writeAIJSONDecodeError(w http.ResponseWriter, err error, tooLargeMessage string) {
+	message := "invalid payload"
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		message = tooLargeMessage
+	}
+	writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": message})
 }
 
 func (a *App) handleAIRoutes(w http.ResponseWriter, r *http.Request) {
@@ -151,8 +183,8 @@ func (a *App) handleAISessionCreate(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	var req aiSessionCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+	if err := decodeAIJSON(w, r, &req, aiUserJSONMaxBytes); err != nil {
+		writeAIJSONDecodeError(w, err, "请求内容过大，请精简后重试")
 		return
 	}
 	item, err := a.ai.CreateSession(r.Context(), username, aiservice.SessionCreateInput{Title: req.Title})
@@ -219,8 +251,12 @@ func (a *App) handleAISessionItem(w http.ResponseWriter, r *http.Request, userna
 			return
 		case "edit":
 			var req aiMessageEditRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			if err := decodeAIJSON(w, r, &req, aiUserJSONMaxBytes); err != nil {
+				writeAIJSONDecodeError(w, err, "请求内容过大，请精简后重试")
+				return
+			}
+			if len([]rune(strings.TrimSpace(req.Content))) > aiMessageEditMaxRunes {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "消息内容过长，请精简后重试"})
 				return
 			}
 			messages, task, err := a.ai.EditMessageAndReply(r.Context(), username, conversationID, id, messageID, aiservice.MessageEditInput{Content: req.Content})
@@ -234,8 +270,8 @@ func (a *App) handleAISessionItem(w http.ResponseWriter, r *http.Request, userna
 	}
 	if len(parts) == 2 && r.Method == http.MethodPatch {
 		var req aiSessionUpdateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiUserJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "请求内容过大，请精简后重试")
 			return
 		}
 		item, err := a.ai.UpdateSession(r.Context(), username, id, aiservice.SessionUpdateInput{
@@ -268,8 +304,8 @@ func (a *App) handleAIRedeem(w http.ResponseWriter, r *http.Request, username st
 		return
 	}
 	var req aiRedeemRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+	if err := decodeAIJSON(w, r, &req, aiUserJSONMaxBytes); err != nil {
+		writeAIJSONDecodeError(w, err, "请求内容过大，请精简后重试")
 		return
 	}
 	result, err := a.entitlements.Redeem(r.Context(), username, req.Code, requestIP(r), r.UserAgent())
@@ -331,8 +367,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, item, err)
 	case len(parts) == 1 && parts[0] == "config" && r.Method == http.MethodPost:
 		var req aiservice.RuntimeConfig
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.ai.SetConfig(r.Context(), req)
@@ -341,8 +377,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		a.handleAIAdminTaskRetention(w, r)
 	case len(parts) == 1 && parts[0] == "task-retention" && r.Method == http.MethodPost:
 		var req aiservice.TaskRetentionPolicy
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.ai.SetTaskRetentionPolicy(r.Context(), req)
@@ -360,8 +396,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, item, err)
 	case len(parts) == 2 && parts[0] == "billing" && parts[1] == "config" && r.Method == http.MethodPost:
 		var req billing.Config
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.aiBilling.SetConfig(r.Context(), req)
@@ -374,8 +410,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, item, err)
 	case len(parts) == 1 && parts[0] == "relay-consoles" && r.Method == http.MethodPost:
 		var req relayconsole.Account
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.aiRelayConsole.UpsertAccount(r.Context(), req)
@@ -387,8 +423,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req relayconsole.CredentialsRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.aiRelayConsole.SetCredentials(r.Context(), id, req)
@@ -418,8 +454,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req aiRelayConsoleSyncRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -433,8 +469,9 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req aiRelayConsoleSyncRequest
-		if r.Body != nil {
-			_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := decodeOptionalAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
+			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
@@ -447,8 +484,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req relayconsole.ImportProviderRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		req.ConsoleID = id
@@ -461,8 +498,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, items, err)
 	case len(parts) == 1 && parts[0] == "providers" && r.Method == http.MethodPost:
 		var req provider.Account
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.aiProvider.UpsertAccount(r.Context(), req)
@@ -474,8 +511,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req provider.Account
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		req.ID = id
@@ -496,8 +533,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req aiProviderSecretRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.aiProvider.SetSecret(r.Context(), id, req.Secret)
@@ -509,8 +546,9 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req aiProviderTestRequest
-		if r.Body != nil {
-			_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := decodeOptionalAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
+			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
@@ -549,8 +587,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, items, err)
 	case len(parts) == 1 && parts[0] == "tiers" && (r.Method == http.MethodPost || r.Method == http.MethodPut):
 		var req entitlement.TierConfig
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		item, err := a.entitlements.UpsertTierConfig(r.Context(), req)
@@ -560,8 +598,8 @@ func (a *App) handleAIAdminRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, items, err)
 	case len(parts) == 1 && parts[0] == "redeem-codes" && r.Method == http.MethodPost:
 		var req entitlement.RedeemCodeCreateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		if err := decodeAIJSON(w, r, &req, aiAdminJSONMaxBytes); err != nil {
+			writeAIJSONDecodeError(w, err, "配置内容过大，请精简后重试")
 			return
 		}
 		items, err := a.entitlements.CreateRedeemCodes(r.Context(), req)
