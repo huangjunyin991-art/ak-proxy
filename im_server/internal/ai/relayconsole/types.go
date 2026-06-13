@@ -4,6 +4,7 @@ import "time"
 
 const (
 	AdapterNewAPI = "newapi"
+	AdapterX5M5X  = "x5m5x"
 )
 
 type Account struct {
@@ -55,9 +56,10 @@ type AccountUsage struct {
 }
 
 type TokenList struct {
-	ConsoleID    int64         `json:"console_id"`
-	Tokens       []TokenInfo   `json:"tokens"`
-	AccountUsage *AccountUsage `json:"account_usage,omitempty"`
+	ConsoleID       int64         `json:"console_id"`
+	Tokens          []TokenInfo   `json:"tokens"`
+	AvailableModels []string      `json:"available_models,omitempty"`
+	AccountUsage    *AccountUsage `json:"account_usage,omitempty"`
 }
 
 type ModelList struct {

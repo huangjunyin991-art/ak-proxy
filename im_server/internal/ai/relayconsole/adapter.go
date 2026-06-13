@@ -14,9 +14,13 @@ import (
 )
 
 type Session struct {
-	CookieName  string `json:"cookie_name"`
-	CookieValue string `json:"cookie_value"`
-	UserID      string `json:"user_id"`
+	CookieName   string `json:"cookie_name,omitempty"`
+	CookieValue  string `json:"cookie_value,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	TokenType    string `json:"token_type,omitempty"`
+	ExpiresAt    int64  `json:"expires_at,omitempty"`
 }
 
 type UsageSummary struct {
@@ -28,20 +32,30 @@ type UsageSummary struct {
 	Raw            map[string]any `json:"raw"`
 }
 
+type ProviderDefaults struct {
+	BaseURL                string
+	BalanceSupported       bool
+	BalanceEndpoint        string
+	BalanceCacheTTLSeconds int
+	NameFallback           string
+}
+
 type Adapter interface {
 	Key() string
 	Label() string
 	DefaultBaseURL() string
+	ProviderDefaults(account Account) (ProviderDefaults, error)
 	Login(ctx context.Context, client *http.Client, account Account, password string) (Session, error)
 	FetchAccountUsage(ctx context.Context, client *http.Client, account Account, session Session) (AccountUsage, error)
 	ListTokens(ctx context.Context, client *http.Client, account Account, session Session) ([]TokenInfo, error)
 	FetchTokenKey(ctx context.Context, client *http.Client, account Account, session Session, tokenID string) (string, error)
-	FetchTokenUsage(ctx context.Context, client *http.Client, account Account, tokenKey string) (UsageSummary, error)
+	FetchTokenUsage(ctx context.Context, client *http.Client, account Account, session Session, tokenKey string) (UsageSummary, error)
 	FetchModels(ctx context.Context, client *http.Client, account Account, tokenKey string) ([]string, error)
 }
 
 var adapters = map[string]Adapter{
 	AdapterNewAPI: newAPIAdapter{},
+	AdapterX5M5X:  x5m5xAdapter{},
 }
 
 func adapterByKey(key string) Adapter {
@@ -62,6 +76,14 @@ func adapterLabel(key string) string {
 	return strings.TrimSpace(key)
 }
 
+func ProviderDefaultsForAccount(account Account) (ProviderDefaults, error) {
+	adapter := adapterByKey(account.AdapterKey)
+	if adapter == nil {
+		return ProviderDefaults{}, errors.New("unsupported relay console adapter")
+	}
+	return adapter.ProviderDefaults(account)
+}
+
 type newAPIAdapter struct{}
 
 func (newAPIAdapter) Key() string {
@@ -74,6 +96,20 @@ func (newAPIAdapter) Label() string {
 
 func (newAPIAdapter) DefaultBaseURL() string {
 	return "https://www.dreamfield.top"
+}
+
+func (newAPIAdapter) ProviderDefaults(account Account) (ProviderDefaults, error) {
+	baseURL, err := normalizeConsoleBaseURL(account.ConsoleBaseURL, AdapterNewAPI)
+	if err != nil {
+		return ProviderDefaults{}, err
+	}
+	return ProviderDefaults{
+		BaseURL:                strings.TrimRight(baseURL, "/") + "/v1",
+		BalanceSupported:       true,
+		BalanceEndpoint:        strings.TrimRight(baseURL, "/") + "/api/usage/token/",
+		BalanceCacheTTLSeconds: 600,
+		NameFallback:           "New API Relay",
+	}, nil
 }
 
 func (newAPIAdapter) Login(ctx context.Context, client *http.Client, account Account, password string) (Session, error) {
@@ -284,7 +320,7 @@ func (newAPIAdapter) FetchTokenKey(ctx context.Context, client *http.Client, acc
 	return key, nil
 }
 
-func (newAPIAdapter) FetchTokenUsage(ctx context.Context, client *http.Client, account Account, tokenKey string) (UsageSummary, error) {
+func (newAPIAdapter) FetchTokenUsage(ctx context.Context, client *http.Client, account Account, session Session, tokenKey string) (UsageSummary, error) {
 	baseURL, err := normalizeConsoleBaseURL(account.ConsoleBaseURL, AdapterNewAPI)
 	if err != nil {
 		return UsageSummary{}, err

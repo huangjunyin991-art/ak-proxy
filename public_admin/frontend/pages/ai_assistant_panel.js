@@ -10,6 +10,10 @@
         supreme: '至尊'
     };
     const TIER_ORDER = ['trial', 'basic', 'advanced', 'honor', 'supreme'];
+    const RELAY_ADAPTERS = [
+        { value: 'newapi', label: 'New API / Dream Field', displayName: 'Dream Field', baseUrl: 'https://www.dreamfield.top' },
+        { value: 'x5m5x', label: '极速 API Gateway', displayName: '极速 API Gateway', baseUrl: 'https://api.x5m5x.com' }
+    ];
 
     const state = {
         loaded: false,
@@ -24,6 +28,7 @@
         relayConsoleStatus: null,
         relayConsoleTokens: {},
         relayConsoleModels: {},
+        relayConsoleAvailableModels: {},
         relayConsoleAccountUsage: {},
         tiers: [],
         redeemCodes: [],
@@ -427,6 +432,19 @@
         `;
     }
 
+    function relayAdapterOptions() {
+        return RELAY_ADAPTERS.map(function(item) {
+            return { value: item.value, label: item.label };
+        });
+    }
+
+    function relayAdapterMeta(adapterKey) {
+        adapterKey = String(adapterKey || '').trim().toLowerCase();
+        return RELAY_ADAPTERS.find(function(item) {
+            return item.value === adapterKey;
+        }) || RELAY_ADAPTERS[0];
+    }
+
     function renderProviderForm() {
         const item = selectedProvider() || {};
         const id = Number(item.id || 0);
@@ -558,13 +576,24 @@
         const accounts = relayConsoleAccounts();
         const item = selectedRelayConsole() || {};
         const id = Number(item.id || 0);
+        const adapterKey = item.adapter_key || 'newapi';
+        const adapterMeta = relayAdapterMeta(adapterKey);
         const balance = id ? ((status.latest_balances && status.latest_balances[id]) || status.latest_balance || null) : null;
         const tokens = id ? (state.relayConsoleTokens[id] || []) : [];
+        const availableModels = id ? (state.relayConsoleAvailableModels[id] || []) : [];
         const summary = relayConsoleSummary(id, balance, tokens);
-        const accountOptions = (id ? [] : [{ value: '0', label: '新建 Dream Field' }]).concat(accounts.map(function(account) {
+        const accountOptions = (id ? [] : [{ value: '0', label: '新建中转站' }]).concat(accounts.map(function(account) {
             const label = (account.display_name || account.console_base_url || '中转站') + ' #' + account.id;
             return { value: String(account.id), label: label };
         }));
+        const availableModelsHtml = availableModels.length
+            ? '<div class="ai-model-chip-list">' + availableModels.slice(0, 36).map(function(model) {
+                return '<span class="ai-model-chip">' + escapeHtml(model) + '</span>';
+            }).join('') + (availableModels.length > 36 ? '<span class="ai-model-chip muted">+' + (availableModels.length - 36) + '</span>' : '') + '</div>'
+            : '';
+        const emptyTokenRow = availableModels.length
+            ? '<tr><td colspan="4"><div class="ai-meta" style="margin-bottom:8px;">暂无 API Key，已读取控制台可用模型；先在中转站创建 Key 后再导入 Provider。</div>' + availableModelsHtml + '</td></tr>'
+            : '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);">登录后点击“刷新 Token”</td></tr>';
         const tokenRows = tokens.map(function(token) {
             const modelKey = relayModelCacheKey(id, token.id);
             const models = state.relayConsoleModels[modelKey] || [];
@@ -585,7 +614,7 @@
                     </td>
                 </tr>
             `;
-        }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);">登录后点击“刷新 Token”</td></tr>';
+        }).join('') || emptyTokenRow;
         return `
             <div class="ai-card">
                 <div class="ai-card-title">
@@ -599,12 +628,12 @@
                     <div class="ai-stat"><div class="ai-stat-label">${escapeHtml(summary.count_label || 'Token')}</div><div class="ai-stat-value">${summary.source === 'token' && !tokens.length ? '-' : fmtNumber(summary.count_value || 0, 0)}</div></div>
                 </div>
                 <div class="ai-form-grid">
-                    ${renderSelectPicker('aiRelayConsoleSelected', '当前中转站', String(id || 0), accountOptions.length ? accountOptions : [{ value: '0', label: '新建 Dream Field' }])}
-                    ${renderSelectPicker('aiRelayConsoleAdapter', '适配器类型', item.adapter_key || 'newapi', [{ value: 'newapi', label: 'New API / Dream Field' }])}
-                    <div class="ai-field"><label>显示名称</label><input class="ai-input" id="aiRelayDisplayName" value="${escapeHtml(item.display_name || 'Dream Field')}"></div>
-                    <div class="ai-field"><label>控制台地址</label><input class="ai-input" id="aiRelayBaseUrl" value="${escapeHtml(item.console_base_url || 'https://www.dreamfield.top')}"></div>
+                    ${renderSelectPicker('aiRelayConsoleSelected', '当前中转站', String(id || 0), accountOptions.length ? accountOptions : [{ value: '0', label: '新建中转站' }])}
+                    ${renderSelectPicker('aiRelayConsoleAdapter', '适配器类型', adapterKey, relayAdapterOptions())}
+                    <div class="ai-field"><label>显示名称</label><input class="ai-input" id="aiRelayDisplayName" value="${escapeHtml(item.display_name || adapterMeta.displayName)}"></div>
+                    <div class="ai-field"><label>控制台地址</label><input class="ai-input" id="aiRelayBaseUrl" value="${escapeHtml(item.console_base_url || adapterMeta.baseUrl)}"></div>
                     <div class="ai-field"><label>控制台账号</label><input class="ai-input" id="aiRelayUsername" value="${escapeHtml(item.username || '')}" placeholder="登录邮箱或用户名"></div>
-                    <div class="ai-field"><label>New-Api-User</label><input class="ai-input" id="aiRelayUserId" value="${escapeHtml(item.user_id || '')}" placeholder="登录后自动获取"></div>
+                    <div class="ai-field"><label>控制台用户 ID</label><input class="ai-input" id="aiRelayUserId" value="${escapeHtml(item.user_id || '')}" placeholder="登录后自动获取"></div>
                     <div class="ai-field"><label>低余额告警 quota</label><input class="ai-input" id="aiRelayLowBalance" type="number" min="0" step="1" value="${Number(item.low_balance_quota || 0)}"></div>
                     ${renderSelectPicker('aiRelayEnabled', '控制台开关', item.enabled === false ? 'false' : 'true', [{ value: 'true', label: '启用' }, { value: 'false', label: '停用' }])}
                 </div>
@@ -1009,11 +1038,13 @@
 
     function readRelayConsolePayload() {
         const current = selectedRelayConsole() || {};
+        const adapterKey = document.getElementById('aiRelayConsoleAdapter')?.value || 'newapi';
+        const adapterMeta = relayAdapterMeta(adapterKey);
         return {
             id: Number(current.id || 0),
-            adapter_key: document.getElementById('aiRelayConsoleAdapter')?.value || 'newapi',
-            display_name: document.getElementById('aiRelayDisplayName')?.value || 'Dream Field',
-            console_base_url: document.getElementById('aiRelayBaseUrl')?.value || 'https://www.dreamfield.top',
+            adapter_key: adapterKey,
+            display_name: document.getElementById('aiRelayDisplayName')?.value || adapterMeta.displayName,
+            console_base_url: document.getElementById('aiRelayBaseUrl')?.value || adapterMeta.baseUrl,
             username: document.getElementById('aiRelayUsername')?.value || '',
             user_id: document.getElementById('aiRelayUserId')?.value || '',
             enabled: document.getElementById('aiRelayEnabled')?.value !== 'false',
@@ -1063,8 +1094,11 @@
         const data = await api('/admin/api/ai/relay-consoles/' + item.id + '/tokens');
         const payload = unwrapItem(data, {});
         state.relayConsoleTokens[item.id] = Array.isArray(payload.tokens) ? payload.tokens : [];
+        state.relayConsoleAvailableModels[item.id] = Array.isArray(payload.available_models) ? payload.available_models : [];
         if (payload.account_usage) state.relayConsoleAccountUsage[item.id] = payload.account_usage;
-        showToast(state.relayConsoleTokens[item.id].length ? ('已获取 ' + state.relayConsoleTokens[item.id].length + ' 个 Token') : '没有获取到 Token', state.relayConsoleTokens[item.id].length ? undefined : 'error');
+        const tokenCount = state.relayConsoleTokens[item.id].length;
+        const modelCount = state.relayConsoleAvailableModels[item.id].length;
+        showToast(tokenCount ? ('已获取 ' + tokenCount + ' 个 Token') : (modelCount ? ('暂无 Token，已读取 ' + modelCount + ' 个可用模型') : '没有获取到 Token'));
         render();
     }
 
@@ -1332,6 +1366,26 @@
         field.classList.add('open');
     }
 
+    function applyRelayAdapterDefaults(adapterKey) {
+        const meta = relayAdapterMeta(adapterKey);
+        const displayInput = document.getElementById('aiRelayDisplayName');
+        const baseInput = document.getElementById('aiRelayBaseUrl');
+        if (displayInput) {
+            const current = String(displayInput.value || '').trim();
+            const isKnownDefault = RELAY_ADAPTERS.some(function(item) {
+                return current === item.displayName;
+            });
+            if (!current || isKnownDefault) displayInput.value = meta.displayName;
+        }
+        if (baseInput) {
+            const current = String(baseInput.value || '').trim().replace(/\/+$/, '');
+            const isKnownDefault = RELAY_ADAPTERS.some(function(item) {
+                return current === item.baseUrl;
+            });
+            if (!current || isKnownDefault) baseInput.value = meta.baseUrl;
+        }
+    }
+
     function selectPickerOption(option) {
         if (!option) return;
         const field = option.closest('[data-select-picker]');
@@ -1350,6 +1404,9 @@
             closeSelectMenus();
             render();
             return;
+        }
+        if (input.id === 'aiRelayConsoleAdapter') {
+            applyRelayAdapterDefaults(value);
         }
         closeSelectMenus();
     }

@@ -711,17 +711,26 @@ func (a *App) importRelayConsoleTokenAsProvider(ctx context.Context, req relayco
 		providerName = providerName + " / " + token.Name
 	}
 	if providerName == "" {
-		providerName = "New API Relay"
+		providerName = "OpenAI-Compatible Relay"
 	}
-	baseURL := strings.TrimRight(console.ConsoleBaseURL, "/") + "/v1"
-	balanceEndpoint := strings.TrimRight(console.ConsoleBaseURL, "/") + "/api/usage/token/"
+	defaults, err := relayconsole.ProviderDefaultsForAccount(console)
+	if err != nil {
+		return provider.Account{}, err
+	}
+	if providerName == "OpenAI-Compatible Relay" && strings.TrimSpace(defaults.NameFallback) != "" {
+		providerName = defaults.NameFallback
+	}
+	balanceTTL := defaults.BalanceCacheTTLSeconds
+	if balanceTTL <= 0 {
+		balanceTTL = 600
+	}
 	item := provider.Account{
 		ID:                     req.ProviderID,
 		ProviderName:           providerName,
-		BaseURL:                baseURL,
-		BalanceSupported:       true,
-		BalanceEndpoint:        balanceEndpoint,
-		BalanceCacheTTLSeconds: 600,
+		BaseURL:                defaults.BaseURL,
+		BalanceSupported:       defaults.BalanceSupported,
+		BalanceEndpoint:        defaults.BalanceEndpoint,
+		BalanceCacheTTLSeconds: balanceTTL,
 		LowBalanceThreshold:    console.LowBalanceQuota,
 		Enabled:                true,
 	}

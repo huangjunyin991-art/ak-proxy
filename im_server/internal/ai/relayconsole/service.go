@@ -282,7 +282,15 @@ func (s *Service) ListTokens(ctx context.Context, consoleID int64) (TokenList, e
 		accountUsage.ConsoleID = consoleID
 		usage = &accountUsage
 	}
-	return TokenList{ConsoleID: consoleID, Tokens: tokens, AccountUsage: usage}, nil
+	availableModels := []string{}
+	if modelAdapter, ok := adapter.(interface {
+		FetchConsoleModels(context.Context, *http.Client, Account, Session) ([]string, error)
+	}); ok {
+		if models, modelErr := modelAdapter.FetchConsoleModels(ctx, s.client, account.Account, session); modelErr == nil {
+			availableModels = models
+		}
+	}
+	return TokenList{ConsoleID: consoleID, Tokens: tokens, AvailableModels: availableModels, AccountUsage: usage}, nil
 }
 
 func (s *Service) FetchTokenKey(ctx context.Context, consoleID int64, tokenID string) (string, TokenInfo, error) {
@@ -355,7 +363,11 @@ func (s *Service) Sync(ctx context.Context, consoleID int64, tokenID string) (Ba
 	if err != nil {
 		return BalanceSnapshot{}, err
 	}
-	usage, err := adapter.FetchTokenUsage(ctx, s.client, account.Account, key)
+	_, session, err := s.accountSession(ctx, consoleID)
+	if err != nil {
+		return BalanceSnapshot{}, err
+	}
+	usage, err := adapter.FetchTokenUsage(ctx, s.client, account.Account, session, key)
 	if err != nil {
 		_ = s.setError(ctx, consoleID, err.Error())
 		return BalanceSnapshot{}, err
