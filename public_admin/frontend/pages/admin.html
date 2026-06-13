@@ -1753,6 +1753,56 @@
         .btn-primary:hover {
             background: #33ddff;
         }
+
+        /* 统一深色后台操作按钮：只覆盖指定功能面板，避免影响表格分页等普通按钮 */
+        #monitoringPanelMount .monitoring-btn,
+        #monitoringPanelMount .monitoring-btn.primary,
+        #monitoringPanelMount .monitoring-btn.danger,
+        #systemInspectionPanelMount .si-btn,
+        #systemInspectionPanelMount .si-btn.primary,
+        #meetingAdminMount .meeting-small-btn,
+        #meetingAdminMount .meeting-small-btn.danger,
+        #settings button,
+        #subAdminSection .subadmin-tool-btn,
+        #subAdminSection .subadmin-action,
+        #subAdminSection .subadmin-card-btn,
+        #subAdminSection .subadmin-mini-btn,
+        #subAdminSection .subadmin-visibility-btn,
+        #loadBalanceSection button {
+            border: 0 !important;
+            background: linear-gradient(135deg, var(--accent), var(--accent-green)) !important;
+            color: #001018 !important;
+            font-weight: 900 !important;
+            box-shadow: 0 12px 28px rgba(0, 212, 255, 0.18) !important;
+            transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease !important;
+        }
+
+        #monitoringPanelMount .monitoring-btn:hover,
+        #systemInspectionPanelMount .si-btn:hover,
+        #meetingAdminMount .meeting-small-btn:hover,
+        #settings button:hover,
+        #subAdminSection .subadmin-tool-btn:hover,
+        #subAdminSection .subadmin-action:hover,
+        #subAdminSection .subadmin-card-btn:hover,
+        #subAdminSection .subadmin-mini-btn:hover,
+        #subAdminSection .subadmin-visibility-btn:hover,
+        #loadBalanceSection button:hover {
+            filter: brightness(1.04);
+            transform: translateY(-1px);
+            box-shadow: 0 14px 32px rgba(0, 212, 255, 0.22) !important;
+        }
+
+        #monitoringPanelMount .monitoring-btn:disabled,
+        #systemInspectionPanelMount .si-btn:disabled,
+        #meetingAdminMount .meeting-small-btn:disabled,
+        #settings button:disabled,
+        #subAdminSection button:disabled,
+        #loadBalanceSection button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+            filter: none;
+        }
         
         /* 实时日志 */
         .live-log {
@@ -12580,7 +12630,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var monitoringPanelBuildVersion = '20260609-02';
+            var monitoringPanelBuildVersion = '20260613-01';
 
             function reportMonitoringPanelLoadFailure(message) {
                 try {
@@ -12664,7 +12714,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var systemInspectionPanelBuildVersion = '20260609-01';
+            var systemInspectionPanelBuildVersion = '20260613-01';
 
             function reportSystemInspectionPanelLoadFailure(message) {
                 try {
@@ -12827,7 +12877,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var meetingPanelBuildVersion = '20260523-01';
+            var meetingPanelBuildVersion = '20260613-01';
 
             function reportMeetingPanelLoadFailure(message) {
                 try {

@@ -59,30 +59,38 @@
 
 .monitoring-btn {
     cursor: pointer;
-    transition: all 0.2s ease;
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--accent), var(--accent-green));
+    color: #001018;
+    font-weight: 900;
+    box-shadow: 0 12px 28px rgba(0, 212, 255, 0.18);
+    transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
 }
 
 .monitoring-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
+    filter: brightness(1.04);
+    transform: translateY(-1px);
+    border-color: transparent;
+    color: #001018;
+    box-shadow: 0 14px 32px rgba(0, 212, 255, 0.22);
 }
 
 .monitoring-btn.primary {
-    background: linear-gradient(135deg, #00d4ff, #667eea);
-    color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-green));
+    color: #001018;
     border-color: transparent;
 }
 
 .monitoring-btn.danger {
-    border-color: rgba(255, 71, 87, 0.45);
-    color: #ff6b7a;
-    background: rgba(255, 71, 87, 0.08);
+    border-color: transparent;
+    color: #001018;
+    background: linear-gradient(135deg, var(--accent), var(--accent-green));
 }
 
 .monitoring-btn.danger:hover {
-    border-color: #ff4757;
-    color: #fff;
-    background: rgba(255, 71, 87, 0.35);
+    border-color: transparent;
+    color: #001018;
+    background: linear-gradient(135deg, var(--accent), var(--accent-green));
 }
 
 .monitoring-alert {
