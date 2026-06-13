@@ -376,102 +376,535 @@
             animation: crown-bounce 1s ease-in-out infinite;
         }
 
-        .sub-admin-panel-title {
-            flex-wrap: wrap;
+        .subadmin-shell {
+            border: 1px solid rgba(129, 212, 250, 0.16);
+            border-radius: 8px;
+            background: rgba(7, 16, 31, 0.78);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 34px rgba(0,0,0,0.20);
+            overflow: hidden;
         }
 
-        .sub-admin-google-btn {
-            display: inline-flex;
+        .subadmin-topbar {
+            display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 18px;
+            border-bottom: 1px solid rgba(129, 212, 250, 0.12);
+            background: rgba(9, 23, 42, 0.76);
         }
 
-        .sub-admin-card-row {
+        .subadmin-title {
             display: flex;
             align-items: center;
             gap: 12px;
-        }
-
-        .sub-admin-card-body {
-            flex: 1;
             min-width: 0;
         }
 
-        .sub-admin-status-row {
+        .subadmin-title-icon {
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            border: 1px solid rgba(0, 212, 255, 0.22);
+            border-radius: 8px;
+            color: var(--accent);
+            background: rgba(0, 212, 255, 0.08);
+        }
+
+        .subadmin-title-text {
+            min-width: 0;
+        }
+
+        .subadmin-title-text h4 {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.35;
+            color: var(--text-primary);
+        }
+
+        .subadmin-title-text span {
+            display: block;
+            margin-top: 2px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .subadmin-tools {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-top: 4px;
-            flex-wrap: wrap;
-        }
-
-        .sub-admin-bound-line {
-            margin-top: 4px;
-            overflow-wrap: anywhere;
-            word-break: break-word;
-        }
-
-        .sub-admin-card-actions {
-            display: flex;
-            gap: 6px;
-            flex-shrink: 0;
             flex-wrap: wrap;
             justify-content: flex-end;
         }
 
-        .sub-admin-perm-line {
-            margin-top: 6px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            padding-left: 22px;
+        .subadmin-tool-btn,
+        .subadmin-action,
+        .subadmin-card-btn,
+        .subadmin-mini-btn,
+        .subadmin-visibility-btn {
+            min-height: 32px;
+            border-radius: 8px;
+            border: 1px solid rgba(129, 212, 250, 0.18);
+            background: rgba(6, 17, 31, 0.84);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-weight: 800;
+            transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
         }
 
-        .sub-admin-form-grid {
+        .subadmin-tool-btn:hover,
+        .subadmin-action:hover,
+        .subadmin-card-btn:hover,
+        .subadmin-mini-btn:hover,
+        .subadmin-visibility-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0, 212, 255, 0.36);
+            background: rgba(0, 212, 255, 0.10);
+            color: #f7fbff;
+        }
+
+        .subadmin-tool-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 12px;
+            color: var(--accent);
+        }
+
+        .subadmin-layout {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+            gap: 14px;
+            padding: 14px;
+        }
+
+        .subadmin-pane {
+            min-width: 0;
+            border: 1px solid rgba(129, 212, 250, 0.12);
+            border-radius: 8px;
+            background: rgba(4, 12, 24, 0.62);
+        }
+
+        .subadmin-pane-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 13px 14px;
+            border-bottom: 1px solid rgba(129, 212, 250, 0.10);
+        }
+
+        .subadmin-kicker {
+            display: block;
+            margin-bottom: 2px;
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .subadmin-pane-title {
+            display: block;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 900;
+        }
+
+        .subadmin-pane-note {
+            color: var(--text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .subadmin-list {
+            max-height: 430px;
+            overflow: auto;
+            padding: 10px;
+        }
+
+        .subadmin-empty {
+            padding: 24px;
+            text-align: center;
+            color: var(--text-secondary);
+            border: 1px dashed rgba(129, 212, 250, 0.18);
+            border-radius: 8px;
+            background: rgba(6, 17, 31, 0.52);
+        }
+
+        .subadmin-card {
+            position: relative;
+            padding: 13px;
+            border: 1px solid rgba(129, 212, 250, 0.12);
+            border-radius: 8px;
+            background: rgba(6, 17, 31, 0.72);
+            cursor: pointer;
+            transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .subadmin-card + .subadmin-card {
+            margin-top: 10px;
+        }
+
+        .subadmin-card:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0, 212, 255, 0.38);
+            background: rgba(8, 24, 43, 0.86);
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+        }
+
+        .subadmin-card.is-online {
+            border-color: rgba(0, 255, 136, 0.22);
+        }
+
+        .subadmin-card.is-selected {
+            border-color: rgba(0, 212, 255, 0.62);
+            box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.16), 0 12px 28px rgba(0, 212, 255, 0.08);
+        }
+
+        .subadmin-card-main {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .subadmin-identity {
+            display: flex;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .subadmin-status-dot {
+            width: 9px;
+            height: 9px;
+            flex: 0 0 auto;
+            margin-top: 6px;
+            border-radius: 50%;
+            background: #586070;
+            box-shadow: 0 0 0 4px rgba(88, 96, 112, 0.12);
+        }
+
+        .subadmin-status-dot.online {
+            background: var(--accent-green);
+            box-shadow: 0 0 0 4px rgba(0, 255, 136, 0.10), 0 0 14px rgba(0, 255, 136, 0.38);
+        }
+
+        .subadmin-name-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+
+        .subadmin-name {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 900;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .subadmin-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 20px;
+            padding: 2px 8px;
+            border-radius: 7px;
+            border: 1px solid rgba(129, 212, 250, 0.16);
+            background: rgba(129, 212, 250, 0.06);
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .subadmin-pill.online {
+            color: var(--accent-green);
+            border-color: rgba(0, 255, 136, 0.22);
+            background: rgba(0, 255, 136, 0.08);
+        }
+
+        .subadmin-pill.warning {
+            color: var(--accent-yellow);
+            border-color: rgba(255, 165, 2, 0.26);
+            background: rgba(255, 165, 2, 0.08);
+        }
+
+        .subadmin-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px 10px;
+            margin-top: 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .subadmin-bound {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .subadmin-bound.good {
+            color: var(--accent-green);
+        }
+
+        .subadmin-bound.warn {
+            color: var(--accent-yellow);
+        }
+
+        .subadmin-bound.bad {
+            color: var(--accent-red);
+        }
+
+        .subadmin-card-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 6px;
+            max-width: 240px;
+        }
+
+        .subadmin-card-btn {
+            min-height: 30px;
+            padding: 5px 9px;
+            font-size: 12px;
+        }
+
+        .subadmin-card-btn.primary {
+            color: var(--accent);
+        }
+
+        .subadmin-card-btn.success {
+            color: var(--accent-green);
+        }
+
+        .subadmin-card-btn.warning {
+            color: var(--accent-yellow);
+            border-color: rgba(255, 165, 2, 0.22);
+        }
+
+        .subadmin-card-btn.danger {
+            color: var(--accent-red);
+            border-color: rgba(255, 71, 87, 0.22);
+        }
+
+        .subadmin-perm-line {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(129, 212, 250, 0.08);
+        }
+
+        .subadmin-perm-tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 2px 8px;
+            border: 1px solid rgba(0, 255, 136, 0.18);
+            border-radius: 7px;
+            background: rgba(0, 255, 136, 0.07);
+            color: var(--accent-green);
+            font-size: 11px;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .subadmin-perm-tag.empty {
+            border-color: rgba(255, 71, 87, 0.22);
+            background: rgba(255, 71, 87, 0.08);
+            color: var(--accent-red);
+        }
+
+        .subadmin-form-body {
+            padding: 14px;
+        }
+
+        .subadmin-form-section + .subadmin-form-section {
+            margin-top: 16px;
+        }
+
+        .subadmin-section-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             gap: 10px;
             margin-bottom: 10px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 900;
         }
 
-        .sub-admin-form-field {
-            min-width: 0;
-        }
-
-        .sub-admin-form-actions {
+        .subadmin-form-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
+            gap: 12px;
         }
 
-        .sub-admin-form-actions > button {
+        .subadmin-form-field {
             min-width: 0;
         }
 
-        .sub-admin-permission-header {
+        .subadmin-form-field.full {
+            grid-column: 1 / -1;
+        }
+
+        .subadmin-label-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-height: 20px;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .subadmin-input {
+            width: 100%;
+            height: 38px;
+            padding: 8px 11px;
+            border: 1px solid rgba(129, 212, 250, 0.14);
+            border-radius: 8px;
+            background: rgba(3, 10, 20, 0.66);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .subadmin-input:focus {
+            border-color: rgba(0, 212, 255, 0.52);
+            background: rgba(3, 12, 24, 0.92);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
+        }
+
+        .subadmin-visibility-btn {
+            min-height: 22px;
+            padding: 2px 7px;
+            color: var(--accent);
+            font-size: 11px;
+            background: rgba(0, 212, 255, 0.06);
+        }
+
+        .subadmin-mini-btn {
+            min-height: 24px;
+            padding: 3px 8px;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .subadmin-mini-btn.primary {
+            color: var(--accent);
+            border-color: rgba(0, 212, 255, 0.28);
+        }
+
+        .subadmin-permission-toolbar {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 6px;
         }
 
-        .sub-admin-permission-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px 12px;
-            background: var(--bg-secondary);
-            border-radius: 6px;
-            padding: 8px 10px;
+        .subadmin-permission-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(96px, 1fr));
+            gap: 8px;
         }
 
-        .sub-admin-permission-item {
+        .subadmin-permission-item {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 7px;
+            min-height: 34px;
+            padding: 7px 9px;
+            border: 1px solid rgba(129, 212, 250, 0.12);
+            border-radius: 8px;
+            background: rgba(6, 17, 31, 0.58);
+            color: var(--text-primary);
             cursor: pointer;
             font-size: 12px;
-            color: var(--text-primary);
+            font-weight: 800;
+            line-height: 1.2;
+            transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+
+        .subadmin-permission-item:hover {
+            border-color: rgba(0, 212, 255, 0.30);
+            background: rgba(0, 212, 255, 0.07);
+        }
+
+        .subadmin-permission-item input {
+            width: 14px;
+            height: 14px;
+            flex: 0 0 auto;
+            accent-color: var(--accent-green);
+        }
+
+        .subadmin-permission-item:has(input:checked) {
+            border-color: rgba(0, 255, 136, 0.30);
+            background: rgba(0, 255, 136, 0.09);
+            color: var(--accent-green);
+        }
+
+        .subadmin-actions {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .subadmin-action {
+            padding: 8px 10px;
+            font-size: 13px;
             white-space: nowrap;
+        }
+
+        .subadmin-action.primary {
+            grid-column: 1 / -1;
+            min-height: 40px;
+            border-color: transparent;
+            background: linear-gradient(135deg, var(--accent), var(--accent-green));
+            color: #051520;
+            box-shadow: 0 10px 22px rgba(0, 255, 136, 0.12);
+        }
+
+        .subadmin-action.info {
+            color: var(--accent);
+        }
+
+        .subadmin-action.success {
+            color: var(--accent-green);
+        }
+
+        .subadmin-action.warning {
+            color: var(--accent-yellow);
+            border-color: rgba(255, 165, 2, 0.22);
+        }
+
+        .subadmin-action.danger {
+            color: var(--accent-red);
+            border-color: rgba(255, 71, 87, 0.22);
+        }
+
+        #subAdminMsg.subadmin-message {
+            margin: 14px;
+            margin-top: 0;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.45;
         }
 
         .ip-card-list {
@@ -2863,7 +3296,7 @@
             }
 
             #subAdminSection > div {
-                padding: 14px !important;
+                padding: 0 !important;
             }
 
             .sub-admin-panel-title {
@@ -2979,6 +3412,55 @@
                 min-height: 38px;
                 padding: 6px 8px !important;
                 font-size: 12px !important;
+                white-space: normal;
+                line-height: 1.25;
+            }
+
+            .subadmin-topbar {
+                align-items: flex-start;
+                flex-direction: column;
+                padding: 14px;
+            }
+
+            .subadmin-tools,
+            .subadmin-tool-btn {
+                width: 100%;
+            }
+
+            .subadmin-layout {
+                grid-template-columns: 1fr;
+                gap: 10px;
+                padding: 10px;
+            }
+
+            .subadmin-list {
+                max-height: none;
+                overflow: visible;
+                padding: 8px;
+            }
+
+            .subadmin-card-main {
+                grid-template-columns: 1fr;
+            }
+
+            .subadmin-card-actions {
+                justify-content: flex-start;
+                max-width: none;
+            }
+
+            .subadmin-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .subadmin-permission-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .subadmin-actions {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .subadmin-action {
                 white-space: normal;
                 line-height: 1.25;
             }
@@ -4316,131 +4798,130 @@
                 <h3 style="margin-bottom: 15px; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 系统设置</h3>
                 
                 <!-- 子管理员管理（仅系统总管理可见） -->
-                <div id="subAdminSection" style="display: none;">
-                    <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 15px; border: 1px solid #667eea;">
-                        <h4 class="sub-admin-panel-title" style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 子管理员管理
-                            <span id="subAdminCount" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
-                            <button onclick="showTotpSecretManager()" class="btn sub-admin-google-btn" style="margin-left:auto;padding:6px 12px;font-size:12px;background:rgba(0,212,255,0.12);color:var(--accent);border:1px solid rgba(0,212,255,0.35);border-radius:6px;">Google 密钥管理</button>
-                        </h4>
-                        
-                        <!-- 子管理员列表 -->
-                        <div id="subAdminList" style="margin-bottom: 15px; max-height: 320px; overflow-y: auto;">
-                            <span style="color: var(--text-secondary);">加载中...</span>
-                        </div>
-                        <div style="background: var(--bg-primary); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-                            <div style="margin-bottom: 10px; color: var(--accent); font-size: 14px; font-weight: bold;">➕ 添加/更新子管理员</div>
-                            
-                            <!-- 反 autofill 诱饵：吸走浏览器/密码管理器的 username+password 自动填充 -->
-                            <div aria-hidden="true" style="position:absolute; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden;">
-                                <input type="text" tabindex="-1" autocomplete="username" name="fake-username-autofill-trap">
-                                <input type="password" tabindex="-1" autocomplete="current-password" name="fake-password-autofill-trap">
-                            </div>
-
-                            <div class="sub-admin-form-grid">
-                                <div class="sub-admin-form-field">
-                                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">名称</label>
-                                    <input type="text" id="newSubAdminName" name="sub_admin_name_v2" placeholder="如：运营1号"
-                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
-                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
-                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                                </div>
-                                <div class="sub-admin-form-field">
-                                    <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;"><span>登录密码</span><button type="button" tabindex="-1" onclick="toggleSubAdminPwVisible('newSubAdminPassword', this)" style="background:transparent;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0;">显示</button></label>
-                                    <input type="password" id="newSubAdminPassword" name="sub_login_password_v2" placeholder="至少6位"
-                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
-                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
-                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                                </div>
-                                <div class="sub-admin-form-field">
-                                    <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;"><span>总管理密码</span><button type="button" tabindex="-1" onclick="toggleSubAdminPwVisible('subAdminSuperPassword', this)" style="background:transparent;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0;">显示</button></label>
-                                    <input type="password" id="subAdminSuperPassword" name="super_admin_password_v2" placeholder="验证身份"
-                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
-                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
-                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                                </div>
-                                <div class="sub-admin-form-field">
-                                    <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: var(--accent-yellow); font-size: 11px;"><span>二级密码</span><button type="button" tabindex="-1" onclick="toggleSubAdminPwVisible('subAdminSecondaryPassword', this)" style="background:transparent;border:none;color:var(--accent-yellow);font-size:11px;cursor:pointer;padding:0;">显示</button></label>
-                                    <input type="password" id="subAdminSecondaryPassword" name="secondary_password_v2" placeholder="确认操作"
-                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
-                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--accent-yellow); 
-                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                <div id="subAdminSection" class="subadmin-section" style="display: none;">
+                    <div class="subadmin-shell">
+                        <div class="subadmin-topbar">
+                            <div class="subadmin-title">
+                                <span class="subadmin-title-icon" aria-hidden="true">
+                                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                </span>
+                                <div class="subadmin-title-text">
+                                    <h4>子管理员管理</h4>
+                                    <span id="subAdminCount">仅系统总管理可操作</span>
                                 </div>
                             </div>
-
-                            <div style="margin-bottom: 10px;">
-                                <label style="display: block; margin-bottom: 4px; color: var(--accent-green); font-size: 11px;">绑定账号</label>
-                                <input type="text" id="newSubAdminBoundUsername" placeholder="必填，玩家主群会使用这个账号作为群主"
-                                       autocorrect="off" autocapitalize="off" spellcheck="false"
-                                       style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid rgba(0,255,136,0.35);
-                                              border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                            </div>
-                            
-                            <!-- 权限配置 -->
-                            <div style="margin-bottom: 10px;">
-                                <div class="sub-admin-permission-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                    <span style="color: var(--accent); font-size: 12px; font-weight: bold;">权限</span>
-                                    <button type="button" onclick="toggleAllPerms(true)" style="padding: 1px 8px; font-size: 10px; background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; cursor: pointer;">全选</button>
-                                    <button type="button" onclick="toggleAllPerms(false)" style="padding: 1px 8px; font-size: 10px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">清空</button>
-                                </div>
-                                <div class="sub-admin-permission-grid" style="display: flex; flex-wrap: wrap; gap: 4px 12px; background: var(--bg-secondary); border-radius: 6px; padding: 8px 10px;">
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_dashboard" value="dashboard"> 仪表盘
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_online" value="online"> 在线
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_usage" value="usage"> 使用
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_users" value="users"> 用户
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_pointStats" value="pointStats"> 点数统计
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_recommendTree" value="recommendTree"> 组织架构
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_ips" value="ips"> IP
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_banlist" value="banlist"> 封禁
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_license" value="license"> 激活码
-                                    </label>
-                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_database" value="database"> 数据库
-                                    </label>
-                                </div>
-                            </div>
-                            
-                            <div class="sub-admin-form-actions">
-                                <button onclick="setSubAdmin()" class="btn btn-primary" style="grid-column: 1 / -1; padding: 8px; font-size: 13px;">
-                                    添加/更新子管理员
-                                </button>
-                                <button id="updatePermBtn" onclick="updateSubAdminPermissions()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    更新权限
-                                </button>
-                                <button id="bindAccountBtn" onclick="bindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    补绑账号
-                                </button>
-                                <button id="unbindAccountBtn" onclick="unbindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    解绑账号
-                                </button>
-                                <button onclick="kickAllSubAdmins()" style="padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    踢出全部
+                            <div class="subadmin-tools">
+                                <button type="button" onclick="showTotpSecretManager()" class="subadmin-tool-btn">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                    Google 密钥管理
                                 </button>
                             </div>
                         </div>
-                        
-                        <div id="subAdminMsg" style="margin-top: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
+
+                        <div class="subadmin-layout">
+                            <section class="subadmin-pane subadmin-list-pane">
+                                <div class="subadmin-pane-head">
+                                    <div>
+                                        <span class="subadmin-kicker">成员列表</span>
+                                        <span class="subadmin-pane-title">授权与在线状态</span>
+                                    </div>
+                                    <span class="subadmin-pane-note">点击成员可编辑</span>
+                                </div>
+                                <div id="subAdminList" class="subadmin-list">
+                                    <div class="subadmin-empty">加载中...</div>
+                                </div>
+                            </section>
+
+                            <section class="subadmin-pane subadmin-editor-pane">
+                                <div class="subadmin-pane-head">
+                                    <div>
+                                        <span class="subadmin-kicker">编辑面板</span>
+                                        <span class="subadmin-pane-title">添加或更新子管理员</span>
+                                    </div>
+                                    <span class="subadmin-pane-note">敏感操作需要验证</span>
+                                </div>
+
+                                <div class="subadmin-form-body">
+                                    <div aria-hidden="true" style="position:absolute; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden;">
+                                        <input type="text" tabindex="-1" autocomplete="username" name="fake-username-autofill-trap">
+                                        <input type="password" tabindex="-1" autocomplete="current-password" name="fake-password-autofill-trap">
+                                    </div>
+
+                                    <div class="subadmin-form-section">
+                                        <div class="subadmin-section-title">账号信息</div>
+                                        <div class="subadmin-form-grid">
+                                            <div class="subadmin-form-field">
+                                                <label class="subadmin-label-row" for="newSubAdminName"><span>名称</span></label>
+                                                <input class="subadmin-input" type="text" id="newSubAdminName" name="sub_admin_name_v2" placeholder="如：运营1号"
+                                                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                                       data-form-type="other" data-lpignore="true" data-1p-ignore="true">
+                                            </div>
+                                            <div class="subadmin-form-field">
+                                                <label class="subadmin-label-row" for="newSubAdminPassword"><span>登录密码</span><button class="subadmin-visibility-btn" type="button" tabindex="-1" onclick="toggleSubAdminPwVisible('newSubAdminPassword', this)">显示</button></label>
+                                                <input class="subadmin-input" type="password" id="newSubAdminPassword" name="sub_login_password_v2" placeholder="至少6位"
+                                                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                                       data-form-type="other" data-lpignore="true" data-1p-ignore="true">
+                                            </div>
+                                            <div class="subadmin-form-field full">
+                                                <label class="subadmin-label-row" for="newSubAdminBoundUsername"><span>绑定账号</span></label>
+                                                <input class="subadmin-input" type="text" id="newSubAdminBoundUsername" placeholder="必填，玩家主群会使用这个账号作为群主"
+                                                       autocorrect="off" autocapitalize="off" spellcheck="false">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="subadmin-form-section">
+                                        <div class="subadmin-section-title">安全验证</div>
+                                        <div class="subadmin-form-grid">
+                                            <div class="subadmin-form-field">
+                                                <label class="subadmin-label-row" for="subAdminSuperPassword"><span>总管理密码</span><button class="subadmin-visibility-btn" type="button" tabindex="-1" onclick="toggleSubAdminPwVisible('subAdminSuperPassword', this)">显示</button></label>
+                                                <input class="subadmin-input" type="password" id="subAdminSuperPassword" name="super_admin_password_v2" placeholder="验证身份"
+                                                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                                       data-form-type="other" data-lpignore="true" data-1p-ignore="true">
+                                            </div>
+                                            <div class="subadmin-form-field">
+                                                <label class="subadmin-label-row" for="subAdminSecondaryPassword"><span>二级密码</span><button class="subadmin-visibility-btn" type="button" tabindex="-1" onclick="toggleSubAdminPwVisible('subAdminSecondaryPassword', this)">显示</button></label>
+                                                <input class="subadmin-input" type="password" id="subAdminSecondaryPassword" name="secondary_password_v2" placeholder="确认操作"
+                                                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                                       data-form-type="other" data-lpignore="true" data-1p-ignore="true">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="subadmin-form-section">
+                                        <div class="subadmin-section-title">
+                                            <span>权限范围</span>
+                                            <span class="subadmin-permission-toolbar">
+                                                <button type="button" class="subadmin-mini-btn primary" onclick="toggleAllPerms(true)">全选</button>
+                                                <button type="button" class="subadmin-mini-btn" onclick="toggleAllPerms(false)">清空</button>
+                                            </span>
+                                        </div>
+                                        <div class="subadmin-permission-grid">
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_dashboard" value="dashboard"> 仪表盘</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_online" value="online"> 在线</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_usage" value="usage"> 使用</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_users" value="users"> 用户</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_pointStats" value="pointStats"> 点数统计</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_recommendTree" value="recommendTree"> 组织架构</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_ips" value="ips"> IP</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_banlist" value="banlist"> 封禁</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_license" value="license"> 激活码</label>
+                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_database" value="database"> 数据库</label>
+                                        </div>
+                                    </div>
+
+                                    <div class="subadmin-actions">
+                                        <button onclick="setSubAdmin()" class="subadmin-action primary">添加/更新子管理员</button>
+                                        <button id="updatePermBtn" onclick="updateSubAdminPermissions()" class="subadmin-action info" style="display: none;">更新权限</button>
+                                        <button id="bindAccountBtn" onclick="bindSubAdminAccount()" class="subadmin-action success" style="display: none;">补绑账号</button>
+                                        <button id="unbindAccountBtn" onclick="unbindSubAdminAccount()" class="subadmin-action danger" style="display: none;">解绑账号</button>
+                                        <button onclick="kickAllSubAdmins()" class="subadmin-action warning">踢出全部</button>
+                                    </div>
+                                </div>
+
+                                <div id="subAdminMsg" class="subadmin-message" style="display: none;"></div>
+                            </section>
+                        </div>
                     </div>
                 </div>
                 
@@ -7642,8 +8123,8 @@
             const unbindBtn = document.getElementById('unbindAccountBtn');
             if (unbindBtn) unbindBtn.style.display = 'none';
             document.querySelectorAll('#subAdminList [data-subname]').forEach(card => {
-                const border = card.dataset.defaultBorder || 'var(--border)';
-                card.style.borderColor = border;
+                card.classList.remove('is-selected');
+                card.style.borderColor = '';
                 card.style.boxShadow = 'none';
             });
         }
@@ -7663,10 +8144,12 @@
             // 高亮选中的卡片，重置其他卡片
             document.querySelectorAll('#subAdminList [data-subname]').forEach(card => {
                 if (card.dataset.subname === name) {
-                    card.style.borderColor = 'var(--accent)';
-                    card.style.boxShadow = '0 0 8px rgba(0,200,255,0.3)';
+                    card.classList.add('is-selected');
+                    card.style.borderColor = '';
+                    card.style.boxShadow = '';
                 } else {
-                    card.style.borderColor = card.dataset.defaultBorder || 'var(--border)';
+                    card.classList.remove('is-selected');
+                    card.style.borderColor = '';
                     card.style.boxShadow = 'none';
                 }
             });
@@ -7854,31 +8337,25 @@
                 if (subAdmins.length === 0) {
                     resetSubAdminSelection(true);
                     listDiv.innerHTML = `
-                        <div style="padding: 20px; text-align: center; background: var(--bg-primary); border-radius: 8px; border: 1px dashed var(--border);">
-                            <span style="color: var(--text-secondary); font-size: 14px;">暂无子管理员，请在下方添加</span>
-                        </div>
+                        <div class="subadmin-empty">暂无子管理员，请在右侧添加</div>
                     `;
                     return;
                 }
                 
                 listDiv.innerHTML = subAdmins.map(sub => {
-                    const onlineDot = sub.is_online 
-                        ? `<span style="width: 10px; height: 10px; background: var(--accent-green); border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite;"></span>`
-                        : `<span style="width: 10px; height: 10px; background: #555; border-radius: 50%; display: inline-block;"></span>`;
                     const loginInfo = sub.login_time ? ` · 最近登录: ${fmtTime(sub.login_time)}` : '';
-                    const statusText = sub.is_online 
-                        ? `<span style="color: var(--accent-green); font-size: 12px;">在线${loginInfo}</span>`
-                        : `<span style="color: var(--text-secondary); font-size: 12px;">离线${loginInfo}</span>`;
+                    const statusLabel = sub.is_online ? '在线' : '离线';
+                    const passwordText = sub.has_password ? '密码已设置' : '密码未设置';
                     
                     // 构建权限标签
                     const perms = sub.permissions || {};
                     const permTags = Object.entries(PERM_LABELS)
                         .filter(([key]) => perms[key])
-                        .map(([key, label]) => `<span style="display: inline-block; padding: 1px 6px; font-size: 10px; background: rgba(0,255,136,0.1); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.2); border-radius: 3px;">${label}</span>`)
+                        .map(([key, label]) => `<span class="subadmin-perm-tag">${label}</span>`)
                         .join('');
                     const noPerms = Object.values(perms).filter(v => v).length === 0;
                     const permLine = noPerms 
-                        ? '<span style="font-size: 10px; color: var(--accent-red);">⚠️ 无权限</span>' 
+                        ? '<span class="subadmin-perm-tag empty">无权限</span>'
                         : permTags;
                     
                     const boundUsername = String(sub.bound_username || '').trim().toLowerCase();
@@ -7892,54 +8369,61 @@
                     const boundExpireText = boundExpireTime ? ` · 到期: ${fmtTime(sub.bound_account_expire_time)}` : '';
                     const boundStatusText = boundStatus ? ` · ${escapeHtml(boundStatus)}` : '';
                     let boundLine;
+                    let boundClass = 'bad';
                     if (!isBound) {
-                        boundLine = '<span style="color: var(--accent-red); font-size: 11px;">⚠️ 未绑定账号</span>';
+                        boundLine = '未绑定账号';
                     } else if (boundHealthy) {
-                        boundLine = `<span style="color: var(--accent-green); font-size: 11px;">🔗 已绑定: ${escapeHtml(boundUsername)}${boundStatusText}${boundExpireText}</span>`;
+                        boundClass = 'good';
+                        boundLine = `已绑定: ${escapeHtml(boundUsername)}${boundStatusText}${boundExpireText}`;
                     } else if (!hasAuthRecord) {
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">❓ 绑定账号未获授权: ${escapeHtml(boundUsername)}</span>`;
+                        boundClass = 'warn';
+                        boundLine = `绑定账号未获授权: ${escapeHtml(boundUsername)}`;
                     } else if (boundExpired) {
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号已过期: ${escapeHtml(boundUsername)}${boundExpireText}</span>`;
+                        boundClass = 'warn';
+                        boundLine = `绑定账号已过期: ${escapeHtml(boundUsername)}${boundExpireText}`;
                     } else {
                         const abnormal = (boundStatus && boundStatus !== 'active') ? boundStatus : '失效';
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号${escapeHtml(abnormal)}: ${escapeHtml(boundUsername)}${boundExpireText}</span>`;
+                        boundClass = 'warn';
+                        boundLine = `绑定账号${escapeHtml(abnormal)}: ${escapeHtml(boundUsername)}${boundExpireText}`;
                     }
                     const nameJson = jsArg(sub.name || '');
                     const permJson = escapeHtml(JSON.stringify(perms || {}));
                     const boundJson = jsArg(boundUsername);
                     const defaultBorder = sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)';
                     return `
-                        <div data-subname="${escapeHtml(sub.name || '')}" style="padding: 12px 15px; background: var(--bg-primary);
-                                    border-radius: 8px; border: 1px solid ${defaultBorder}; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;"
+                        <div class="subadmin-card ${sub.is_online ? 'is-online' : ''}" data-subname="${escapeHtml(sub.name || '')}"
                              data-default-border="${defaultBorder}"
                              onclick="selectSubAdmin(${nameJson}, ${permJson}, ${boundJson})"
-                             onmouseover="if(selectedSubAdmin!==this.dataset.subname){this.style.borderColor='var(--accent)'}"
-                             onmouseout="if(selectedSubAdmin!==this.dataset.subname){this.style.borderColor=this.dataset.defaultBorder||'var(--border)';this.style.boxShadow='none'}"
                         >
-                            <div class="sub-admin-card-row" style="display: flex; align-items: center; gap: 12px;">
-                                ${onlineDot}
-                                <div class="sub-admin-card-body" style="flex: 1; min-width: 0;">
-                                    <div style="font-weight: bold; color: var(--text-primary); font-size: 14px;">⭐ ${escapeHtml(sub.name || '')}</div>
-                                    <div class="sub-admin-status-row" style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                                        ${statusText}
-                                        <span style="color: var(--text-secondary); font-size: 11px;">密码: ${sub.has_password ? '已设置' : '未设置'}</span>
+                            <div class="subadmin-card-main">
+                                <div class="subadmin-identity">
+                                    <span class="subadmin-status-dot ${sub.is_online ? 'online' : ''}"></span>
+                                    <div style="min-width:0;">
+                                        <div class="subadmin-name-line">
+                                            <span class="subadmin-name">${escapeHtml(sub.name || '')}</span>
+                                            <span class="subadmin-pill ${sub.is_online ? 'online' : ''}">${statusLabel}</span>
+                                        </div>
+                                        <div class="subadmin-meta">
+                                            <span>${escapeHtml(passwordText)}</span>
+                                            ${loginInfo ? `<span>${escapeHtml(loginInfo.replace(/^ · /, ''))}</span>` : ''}
+                                        </div>
+                                        <div class="subadmin-bound ${boundClass}">${boundLine}</div>
                                     </div>
-                                    <div class="sub-admin-bound-line" style="margin-top: 4px;">${boundLine}</div>
                                 </div>
-                                <div class="sub-admin-card-actions" style="display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end;">
+                                <div class="subadmin-card-actions">
                                     ${!isBound
-                                        ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer;">补绑</button>`
+                                        ? `<button class="subadmin-card-btn success" onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})">补绑</button>`
                                         : (boundHealthy
-                                            ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid rgba(0,200,255,0.3); border-radius: 4px; cursor: pointer;">换绑</button>`
-                                            : `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">改绑</button>`)}
+                                            ? `<button class="subadmin-card-btn primary" onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})">换绑</button>`
+                                            : `<button class="subadmin-card-btn warning" onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})">改绑</button>`)}
                                     ${isBound
-                                        ? `<button onclick="event.stopPropagation(); unbindOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: #888; border: 1px solid rgba(136,136,136,0.3); border-radius: 4px; cursor: pointer;">解绑</button>`
+                                        ? `<button class="subadmin-card-btn" onclick="event.stopPropagation(); unbindOneSubAdmin(${nameJson})">解绑</button>`
                                         : ''}
-                                    <button onclick="event.stopPropagation(); kickOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
-                                    <button onclick="event.stopPropagation(); deleteOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
+                                    <button class="subadmin-card-btn warning" onclick="event.stopPropagation(); kickOneSubAdmin(${nameJson})">踢出</button>
+                                    <button class="subadmin-card-btn danger" onclick="event.stopPropagation(); deleteOneSubAdmin(${nameJson})">删除</button>
                                 </div>
                             </div>
-                            <div class="sub-admin-perm-line" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 22px;">
+                            <div class="subadmin-perm-line">
                                 ${permLine}
                             </div>
                         </div>
