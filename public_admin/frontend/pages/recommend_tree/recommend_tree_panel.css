@@ -64,8 +64,16 @@
 
 .rt-btn.primary {
     background: linear-gradient(135deg, #00d4ff, #00ff88);
-    color: #04131c;
+    color: #001018;
     border-color: transparent;
+    box-shadow: 0 12px 28px rgba(0, 212, 255, 0.18);
+}
+
+.rt-btn.primary:hover {
+    color: #001018;
+    border-color: transparent;
+    filter: brightness(1.04);
+    box-shadow: 0 14px 32px rgba(0, 212, 255, 0.22);
 }
 
 .rt-btn:disabled {
@@ -676,10 +684,17 @@
 }
 
 .rt-btn.primary {
-    color: #051520;
+    color: #001018;
     border-color: transparent;
     background: linear-gradient(135deg, #00d4ff, #00ff88);
-    box-shadow: 0 10px 24px rgba(0, 255, 136, 0.18);
+    box-shadow: 0 12px 28px rgba(0, 212, 255, 0.18);
+}
+
+.rt-btn.primary:hover {
+    color: #001018;
+    border-color: transparent;
+    filter: brightness(1.04);
+    box-shadow: 0 14px 32px rgba(0, 212, 255, 0.22);
 }
 
 .rt-btn:disabled {
