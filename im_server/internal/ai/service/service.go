@@ -58,6 +58,9 @@ const (
 	taskStaleRunningAfter          = 2 * time.Minute
 
 	continueReplyHint = "内容可能还没说完，你可以回复“继续”让我接着说。"
+
+	replySuggestionsModeModel   = "model"
+	replySuggestionsModeDefault = "default"
 )
 
 var defaultReplySuggestions = []string{"再详细一点", "帮我总结要点", "给我举个例子"}
@@ -277,22 +280,25 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 
 func defaultRuntimeConfig() RuntimeConfig {
 	return RuntimeConfig{
-		Enabled:                 true,
-		ContextSummaryMinCount:  defaultContextSummaryMinCount,
-		ContextRecentKeepCount:  defaultContextRecentKeepCount,
-		ContextSummaryMinTokens: defaultContextSummaryMinTokens,
-		ContextRecentKeepTokens: defaultContextRecentKeepTokens,
-		ContextScanMaxCount:     defaultContextScanMaxCount,
-		ChatContextMaxMessages:  defaultChatContextMaxMessages,
-		ChatContextMaxTokens:    defaultChatContextMaxTokens,
-		GroupMentionEnabled:     true,
-		ChatMaxOutputTokens:     defaultChatMaxOutputTokens,
-		SummaryMaxOutputTokens:  defaultSummaryMaxOutputTokens,
-		SummaryMemoryMaxTokens:  defaultSummaryMemoryMaxTokens,
-		QueueConcurrency:        defaultQueueConcurrency,
-		ProviderLoadBalance:     true,
-		ProviderMaxAttempts:     defaultProviderMaxAttempts,
-		ProviderCooldownSeconds: defaultProviderCooldownSeconds,
+		Enabled:                  true,
+		ContextSummaryMinCount:   defaultContextSummaryMinCount,
+		ContextRecentKeepCount:   defaultContextRecentKeepCount,
+		ContextSummaryMinTokens:  defaultContextSummaryMinTokens,
+		ContextRecentKeepTokens:  defaultContextRecentKeepTokens,
+		ContextScanMaxCount:      defaultContextScanMaxCount,
+		ChatContextMaxMessages:   defaultChatContextMaxMessages,
+		ChatContextMaxTokens:     defaultChatContextMaxTokens,
+		GroupMentionEnabled:      true,
+		ChatMaxOutputTokens:      defaultChatMaxOutputTokens,
+		SummaryMaxOutputTokens:   defaultSummaryMaxOutputTokens,
+		SummaryMemoryMaxTokens:   defaultSummaryMemoryMaxTokens,
+		QueueConcurrency:         defaultQueueConcurrency,
+		ProviderLoadBalance:      true,
+		ProviderMaxAttempts:      defaultProviderMaxAttempts,
+		ProviderCooldownSeconds:  defaultProviderCooldownSeconds,
+		ReplySuggestionsEnabled:  true,
+		ReplySuggestionsMode:     replySuggestionsModeModel,
+		ReplySuggestionsWhenBusy: false,
 	}
 }
 
@@ -393,6 +399,15 @@ func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
 	}
 	if cfg.ProviderCooldownSeconds > 3600 {
 		cfg.ProviderCooldownSeconds = 3600
+	}
+	cfg.ReplySuggestionsMode = strings.ToLower(strings.TrimSpace(cfg.ReplySuggestionsMode))
+	if cfg.ReplySuggestionsMode == "" {
+		cfg.ReplySuggestionsMode = replySuggestionsModeModel
+	}
+	switch cfg.ReplySuggestionsMode {
+	case replySuggestionsModeModel, replySuggestionsModeDefault:
+	default:
+		cfg.ReplySuggestionsMode = replySuggestionsModeModel
 	}
 	return cfg
 }
@@ -1523,7 +1538,7 @@ func (s *Service) processTask(taskID string) {
 	}
 	content := appendContinueHintIfLikelyTruncated(resp.Content, resp, cfg.ChatMaxOutputTokens)
 	s.setTaskStage(ctx, taskID, taskStageSuggestions, "")
-	suggestions := s.generateReplySuggestions(ctx, messages, content)
+	suggestions := s.generateReplySuggestions(ctx, cfg, messages, content)
 	s.setTaskStage(ctx, taskID, taskStageWriting, "")
 	messageCtx, messageCancel := terminalWriteContext()
 	message, err := s.insertAIReplyMessage(messageCtx, conversationID, bot.Username, content, suggestions)
@@ -1649,7 +1664,13 @@ func (s *Service) insertAIReplyMessage(ctx context.Context, conversationID int64
 	return message, nil
 }
 
-func (s *Service) generateReplySuggestions(ctx context.Context, messages []provider.Message, answer string) []string {
+func (s *Service) generateReplySuggestions(ctx context.Context, cfg RuntimeConfig, messages []provider.Message, answer string) []string {
+	if !cfg.ReplySuggestionsEnabled {
+		return nil
+	}
+	if s.shouldUseDefaultReplySuggestions(cfg) {
+		return append([]string{}, defaultReplySuggestions...)
+	}
 	if s == nil || s.provider == nil || strings.TrimSpace(answer) == "" {
 		return append([]string{}, defaultReplySuggestions...)
 	}
@@ -1678,6 +1699,20 @@ func (s *Service) generateReplySuggestions(ctx context.Context, messages []provi
 		return append([]string{}, defaultReplySuggestions...)
 	}
 	return suggestions
+}
+
+func (s *Service) shouldUseDefaultReplySuggestions(cfg RuntimeConfig) bool {
+	if strings.EqualFold(strings.TrimSpace(cfg.ReplySuggestionsMode), replySuggestionsModeDefault) {
+		return true
+	}
+	if cfg.ReplySuggestionsWhenBusy {
+		return false
+	}
+	if s == nil || s.limiter == nil {
+		return false
+	}
+	_, _, waiting := s.QueueStats()
+	return waiting > 0
 }
 
 func parseReplySuggestions(raw string) []string {
