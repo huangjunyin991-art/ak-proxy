@@ -50,6 +50,8 @@ const (
 	defaultSummaryMaxOutputTokens  = 600
 	defaultSummaryMemoryMaxTokens  = 2000
 	defaultQueueConcurrency        = 3
+	defaultProviderMaxAttempts     = 3
+	defaultProviderCooldownSeconds = 300
 	maxQueueConcurrency            = 20
 	taskRunTimeout                 = 90 * time.Second
 	taskTerminalWriteTimeout       = 10 * time.Second
@@ -266,6 +268,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 	}
 	if cfg, err := s.Config(ctx); err == nil {
 		s.SetQueueConcurrency(cfg.QueueConcurrency)
+		s.applyProviderRuntimeConfig(cfg)
 	} else {
 		log.Printf("load AI runtime config for queue concurrency failed: %v", err)
 	}
@@ -287,10 +290,16 @@ func defaultRuntimeConfig() RuntimeConfig {
 		SummaryMaxOutputTokens:  defaultSummaryMaxOutputTokens,
 		SummaryMemoryMaxTokens:  defaultSummaryMemoryMaxTokens,
 		QueueConcurrency:        defaultQueueConcurrency,
+		ProviderLoadBalance:     true,
+		ProviderMaxAttempts:     defaultProviderMaxAttempts,
+		ProviderCooldownSeconds: defaultProviderCooldownSeconds,
 	}
 }
 
 func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
+	if !cfg.ProviderLoadBalance && cfg.ProviderMaxAttempts <= 0 && cfg.ProviderCooldownSeconds <= 0 {
+		cfg.ProviderLoadBalance = true
+	}
 	if cfg.ContextSummaryMinCount <= 0 {
 		cfg.ContextSummaryMinCount = defaultContextSummaryMinCount
 	}
@@ -373,6 +382,18 @@ func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
 		cfg.SummaryMemoryMaxTokens = 64000
 	}
 	cfg.QueueConcurrency = normalizeQueueConcurrency(cfg.QueueConcurrency)
+	if cfg.ProviderMaxAttempts <= 0 {
+		cfg.ProviderMaxAttempts = defaultProviderMaxAttempts
+	}
+	if cfg.ProviderMaxAttempts > 10 {
+		cfg.ProviderMaxAttempts = 10
+	}
+	if cfg.ProviderCooldownSeconds <= 0 {
+		cfg.ProviderCooldownSeconds = defaultProviderCooldownSeconds
+	}
+	if cfg.ProviderCooldownSeconds > 3600 {
+		cfg.ProviderCooldownSeconds = 3600
+	}
 	return cfg
 }
 
@@ -417,7 +438,19 @@ func (s *Service) SetConfig(ctx context.Context, cfg RuntimeConfig) (RuntimeConf
 		return RuntimeConfig{}, err
 	}
 	s.SetQueueConcurrency(cfg.QueueConcurrency)
+	s.applyProviderRuntimeConfig(cfg)
 	return cfg, nil
+}
+
+func (s *Service) applyProviderRuntimeConfig(cfg RuntimeConfig) {
+	if s == nil || s.provider == nil {
+		return
+	}
+	s.provider.SetLoadBalanceConfig(provider.LoadBalanceConfig{
+		Enabled:         cfg.ProviderLoadBalance,
+		MaxAttempts:     cfg.ProviderMaxAttempts,
+		CooldownSeconds: cfg.ProviderCooldownSeconds,
+	})
 }
 
 func (s *Service) Bootstrap(ctx context.Context, username string) (Bootstrap, error) {
@@ -1526,7 +1559,7 @@ func (s *Service) processTask(taskID string) {
 		billingCancel()
 	}
 	go s.refreshContextSummary(ownerUsername, conversationID)
-	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, latencyMS)
+	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, resp.ProviderID, latencyMS)
 }
 
 func (s *Service) answerBuiltinIdentityQuestion(ctx context.Context, taskID string, ownerUsername string, conversationID int64, triggerMessageID int64, aiSessionID int64, aiTriggerMessageID int64, started time.Time) (bool, error) {
@@ -1547,7 +1580,7 @@ func (s *Service) answerBuiltinIdentityQuestion(ctx context.Context, taskID stri
 		Model:   "builtin_identity",
 	}
 	aiResponseMessageID := s.recordAssistantReplyNode(ctx, ownerUsername, conversationID, taskID, aiSessionID, aiTriggerMessageID, message, resp)
-	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, int(time.Since(started).Milliseconds()))
+	s.markTaskSucceeded(taskID, message.ID, aiResponseMessageID, resp.Model, resp.ProviderID, int(time.Since(started).Milliseconds()))
 	return true, nil
 }
 
@@ -1571,12 +1604,12 @@ func (s *Service) loadTaskTriggerContent(ctx context.Context, conversationID int
 	return ""
 }
 
-func (s *Service) markTaskSucceeded(taskID string, messageID int64, aiResponseMessageID int64, model string, latencyMS int) {
+func (s *Service) markTaskSucceeded(taskID string, messageID int64, aiResponseMessageID int64, model string, providerID int64, latencyMS int) {
 	writeCtx, writeCancel := terminalWriteContext()
 	defer writeCancel()
 	_, _ = s.db.Exec(writeCtx, `
-		INSERT INTO im_ai_request_log (task_id, model, status, latency_ms, created_at)
-		VALUES ($1, $2, 'succeeded', $3, NOW())`, taskID, model, latencyMS)
+		INSERT INTO im_ai_request_log (task_id, provider_id, model, status, latency_ms, created_at)
+		VALUES ($1, $2, $3, 'succeeded', $4, NOW())`, taskID, providerID, model, latencyMS)
 	_, _ = s.db.Exec(writeCtx, `
 		UPDATE im_ai_reply_suggestion
 		SET task_id = $1, updated_at = NOW()

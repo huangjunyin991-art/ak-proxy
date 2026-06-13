@@ -19,6 +19,9 @@ type Account struct {
 	LastTestAt             *time.Time `json:"last_test_at,omitempty"`
 	LastTestStatus         string     `json:"last_test_status"`
 	LastUsedAt             *time.Time `json:"last_used_at,omitempty"`
+	RuntimeDisabledUntil   *time.Time `json:"runtime_disabled_until,omitempty"`
+	RuntimeFailureCount    int        `json:"runtime_failure_count"`
+	RuntimeLastError       string     `json:"runtime_last_error"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
 }

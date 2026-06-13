@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,14 @@ type Service struct {
 	db           *pgxpool.Pool
 	masterSecret string
 	client       *http.Client
+	lbMu         sync.RWMutex
+	lbConfig     LoadBalanceConfig
+}
+
+type LoadBalanceConfig struct {
+	Enabled         bool
+	MaxAttempts     int
+	CooldownSeconds int
 }
 
 func New(db *pgxpool.Pool, masterSecret string, timeout time.Duration) *Service {
@@ -32,7 +41,54 @@ func New(db *pgxpool.Pool, masterSecret string, timeout time.Duration) *Service 
 		db:           db,
 		masterSecret: strings.TrimSpace(masterSecret),
 		client:       &http.Client{Timeout: timeout},
+		lbConfig:     defaultLoadBalanceConfig(),
 	}
+}
+
+func defaultLoadBalanceConfig() LoadBalanceConfig {
+	return LoadBalanceConfig{
+		Enabled:         true,
+		MaxAttempts:     3,
+		CooldownSeconds: 300,
+	}
+}
+
+func normalizeLoadBalanceConfig(cfg LoadBalanceConfig) LoadBalanceConfig {
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 3
+	}
+	if cfg.MaxAttempts > 10 {
+		cfg.MaxAttempts = 10
+	}
+	if cfg.CooldownSeconds <= 0 {
+		cfg.CooldownSeconds = 300
+	}
+	if cfg.CooldownSeconds > 3600 {
+		cfg.CooldownSeconds = 3600
+	}
+	return cfg
+}
+
+func (s *Service) SetLoadBalanceConfig(cfg LoadBalanceConfig) LoadBalanceConfig {
+	cfg = normalizeLoadBalanceConfig(cfg)
+	if s == nil {
+		return cfg
+	}
+	s.lbMu.Lock()
+	s.lbConfig = cfg
+	s.lbMu.Unlock()
+	return cfg
+}
+
+func (s *Service) LoadBalanceConfig() LoadBalanceConfig {
+	cfg := defaultLoadBalanceConfig()
+	if s == nil {
+		return cfg
+	}
+	s.lbMu.RLock()
+	cfg = s.lbConfig
+	s.lbMu.RUnlock()
+	return normalizeLoadBalanceConfig(cfg)
 }
 
 func (s *Service) EnsureSchema(ctx context.Context) error {
@@ -58,6 +114,9 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			last_test_at TIMESTAMP,
 			last_test_status TEXT NOT NULL DEFAULT '',
 			last_used_at TIMESTAMP,
+			runtime_disabled_until TIMESTAMP,
+			runtime_failure_count INTEGER NOT NULL DEFAULT 0,
+			runtime_last_error TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
@@ -86,7 +145,9 @@ func (s *Service) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at
+		       enabled, last_test_at, last_test_status, last_used_at,
+		       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+		       created_at, updated_at
 		FROM im_ai_provider_account
 		ORDER BY id ASC`)
 	if err != nil {
@@ -111,7 +172,9 @@ func (s *Service) GetAccount(ctx context.Context, providerID int64) (Account, er
 	row := s.db.QueryRow(ctx, `
 		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at
+		       enabled, last_test_at, last_test_status, last_used_at,
+		       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+		       created_at, updated_at
 		FROM im_ai_provider_account
 		WHERE id = $1`, providerID)
 	return scanAccount(row)
@@ -141,6 +204,9 @@ func scanAccount(row accountScanner) (Account, error) {
 		&item.LastTestAt,
 		&item.LastTestStatus,
 		&item.LastUsedAt,
+		&item.RuntimeDisabledUntil,
+		&item.RuntimeFailureCount,
+		&item.RuntimeLastError,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -192,7 +258,9 @@ func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, err
 			WHERE id = $1
 			RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 			       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-			       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at`,
+			       enabled, last_test_at, last_test_status, last_used_at,
+			       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+			       created_at, updated_at`,
 			item.ID, item.ProviderName, baseURL, item.ChatModel, item.SummaryModel, item.EmbeddingModel,
 			item.BalanceSupported, strings.TrimSpace(item.BalanceEndpoint), item.BalanceCacheTTLSeconds,
 			item.LowBalanceThreshold, item.Enabled)
@@ -205,7 +273,9 @@ func (s *Service) UpsertAccount(ctx context.Context, item Account) (Account, err
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 		RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at`,
+		       enabled, last_test_at, last_test_status, last_used_at,
+		       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+		       created_at, updated_at`,
 		item.ProviderName, baseURL, item.ChatModel, item.SummaryModel, item.EmbeddingModel,
 		item.BalanceSupported, strings.TrimSpace(item.BalanceEndpoint), item.BalanceCacheTTLSeconds,
 		item.LowBalanceThreshold, item.Enabled)
@@ -275,7 +345,9 @@ func (s *Service) SetSecret(ctx context.Context, providerID int64, secret string
 		WHERE id = $1
 		RETURNING id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at`,
+		       enabled, last_test_at, last_test_status, last_used_at,
+		       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+		       created_at, updated_at`,
 		providerID, ciphertext, fingerprint)
 	item, err := scanAccount(row)
 	if err != nil {
@@ -295,69 +367,200 @@ func (s *Service) SetSecret(ctx context.Context, providerID int64, secret string
 }
 
 func (s *Service) LoadActiveAccount(ctx context.Context) (Account, string, error) {
-	var item Account
-	var ciphertext string
-	var availableModelsRaw []byte
-	err := s.db.QueryRow(ctx, `
-		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
-		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at, secret_ciphertext_or_ref
-		FROM im_ai_provider_account
-		WHERE enabled = TRUE
-		ORDER BY id ASC
-		LIMIT 1`).Scan(
-		&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
-		&availableModelsRaw,
-		&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
-		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt, &ciphertext)
+	cfg := s.LoadBalanceConfig()
+	candidates, err := s.loadProviderCandidates(ctx, 1, cfg.Enabled)
 	if err != nil {
 		return Account{}, "", err
 	}
-	_ = json.Unmarshal(availableModelsRaw, &item.AvailableModels)
-	if item.AvailableModels == nil {
-		item.AvailableModels = []string{}
+	if len(candidates) == 0 {
+		return Account{}, "", pgx.ErrNoRows
 	}
-	secret, err := decryptSecret(s.masterSecret, ciphertext)
-	if err != nil {
-		return Account{}, "", err
-	}
-	return item, secret, nil
+	return candidates[0].account, candidates[0].secret, nil
 }
 
 func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	account, secret, err := s.LoadActiveAccount(ctx)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ChatResponse{}, errors.New("AI provider is not configured")
-		}
-		return ChatResponse{}, err
-	}
-	response, err := s.chatWithAccount(ctx, account, secret, req)
-	if err != nil {
-		return ChatResponse{}, err
-	}
-	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_used_at = NOW() WHERE id = $1`, account.ID)
-	return response, nil
+	return s.chatWithProviderPool(ctx, req, "chat")
 }
 
 func (s *Service) Summary(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	account, secret, err := s.LoadActiveAccount(ctx)
+	return s.chatWithProviderPool(ctx, req, "summary")
+}
+
+type providerCandidate struct {
+	account Account
+	secret  string
+}
+
+func (s *Service) chatWithProviderPool(ctx context.Context, req ChatRequest, purpose string) (ChatResponse, error) {
+	cfg := s.LoadBalanceConfig()
+	limit := 1
+	onlyReady := false
+	if cfg.Enabled {
+		limit = cfg.MaxAttempts
+		onlyReady = true
+	}
+	candidates, err := s.loadProviderCandidates(ctx, limit, onlyReady)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ChatResponse{}, errors.New("AI provider is not configured")
+		if errors.Is(err, pgx.ErrNoRows) && onlyReady {
+			candidates, err = s.loadProviderCandidates(ctx, 1, false)
 		}
-		return ChatResponse{}, err
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ChatResponse{}, errors.New("AI provider is not configured")
+			}
+			return ChatResponse{}, err
+		}
 	}
-	model := resolveSummaryModel(account, req.Model)
-	if model == "" {
-		return ChatResponse{}, errors.New("AI summary model is not configured")
+	if len(candidates) == 0 && onlyReady {
+		candidates, err = s.loadProviderCandidates(ctx, 1, false)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ChatResponse{}, errors.New("AI provider is not configured")
+			}
+			return ChatResponse{}, err
+		}
 	}
-	response, err := s.chatWithResolvedModel(ctx, account, secret, req, model, "summary")
+	if len(candidates) == 0 {
+		return ChatResponse{}, errors.New("AI provider is not configured")
+	}
+	attemptErrors := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		response, err := s.chatWithCandidate(ctx, candidate, req, purpose)
+		if err == nil {
+			_ = s.markProviderSuccess(ctx, candidate.account.ID)
+			return response, nil
+		}
+		attemptErrors = append(attemptErrors, fmt.Sprintf("#%d %s: %s", candidate.account.ID, candidate.account.ProviderName, truncateForStatus(err.Error(), 160)))
+		_ = s.markProviderFailure(ctx, candidate.account.ID, err, cfg)
+		if !cfg.Enabled || !shouldTryNextProvider(ctx, err) {
+			break
+		}
+	}
+	if len(attemptErrors) == 0 {
+		return ChatResponse{}, errors.New("AI provider is not configured")
+	}
+	return ChatResponse{}, fmt.Errorf("AI provider attempts failed: %s", strings.Join(attemptErrors, "；"))
+}
+
+func (s *Service) chatWithCandidate(ctx context.Context, candidate providerCandidate, req ChatRequest, purpose string) (ChatResponse, error) {
+	if purpose == "summary" {
+		model := resolveSummaryModel(candidate.account, req.Model)
+		if model == "" {
+			return ChatResponse{}, errors.New("AI summary model is not configured")
+		}
+		return s.chatWithResolvedModel(ctx, candidate.account, candidate.secret, req, model, "summary")
+	}
+	return s.chatWithAccount(ctx, candidate.account, candidate.secret, req)
+}
+
+func (s *Service) loadProviderCandidates(ctx context.Context, limit int, onlyReady bool) ([]providerCandidate, error) {
+	if s == nil || s.db == nil {
+		return nil, pgx.ErrNoRows
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	readyClause := ""
+	if onlyReady {
+		readyClause = "AND (runtime_disabled_until IS NULL OR runtime_disabled_until <= NOW())"
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
+		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
+		       enabled, last_test_at, last_test_status, last_used_at,
+		       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+		       created_at, updated_at, secret_ciphertext_or_ref
+		FROM im_ai_provider_account
+		WHERE enabled = TRUE
+		  AND secret_ciphertext_or_ref <> ''
+		  `+readyClause+`
+		ORDER BY runtime_failure_count ASC, COALESCE(last_used_at, TIMESTAMP '1970-01-01') ASC, id ASC
+		LIMIT $1`, limit)
 	if err != nil {
-		return ChatResponse{}, err
+		return nil, err
 	}
-	_, _ = s.db.Exec(ctx, `UPDATE im_ai_provider_account SET last_used_at = NOW() WHERE id = $1`, account.ID)
-	return response, nil
+	defer rows.Close()
+	candidates := make([]providerCandidate, 0, limit)
+	var skipped []string
+	for rows.Next() {
+		var item Account
+		var availableModelsRaw []byte
+		var ciphertext string
+		if err := rows.Scan(
+			&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
+			&availableModelsRaw,
+			&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
+			&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt,
+			&item.RuntimeDisabledUntil, &item.RuntimeFailureCount, &item.RuntimeLastError,
+			&item.CreatedAt, &item.UpdatedAt, &ciphertext,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(availableModelsRaw, &item.AvailableModels)
+		if item.AvailableModels == nil {
+			item.AvailableModels = []string{}
+		}
+		sanitizeAccountModels(&item)
+		secret, err := decryptSecret(s.masterSecret, ciphertext)
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("#%d: %s", item.ID, truncateForStatus(err.Error(), 120)))
+			continue
+		}
+		candidates = append(candidates, providerCandidate{account: item, secret: secret})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		if len(skipped) > 0 {
+			return nil, errors.New("AI provider secret decrypt failed: " + strings.Join(skipped, "；"))
+		}
+		return nil, pgx.ErrNoRows
+	}
+	return candidates, nil
+}
+
+func (s *Service) markProviderSuccess(ctx context.Context, providerID int64) error {
+	if s == nil || s.db == nil || providerID <= 0 {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `
+		UPDATE im_ai_provider_account
+		SET last_used_at = NOW(),
+		    runtime_disabled_until = NULL,
+		    runtime_failure_count = 0,
+		    runtime_last_error = '',
+		    updated_at = NOW()
+		WHERE id = $1`, providerID)
+	return err
+}
+
+func (s *Service) markProviderFailure(ctx context.Context, providerID int64, cause error, cfg LoadBalanceConfig) error {
+	if s == nil || s.db == nil || providerID <= 0 || cause == nil {
+		return nil
+	}
+	cfg = normalizeLoadBalanceConfig(cfg)
+	cooldown := cfg.CooldownSeconds
+	message := truncateForStatus(cause.Error(), 300)
+	_, err := s.db.Exec(ctx, `
+		UPDATE im_ai_provider_account
+		SET runtime_disabled_until = NOW() + ($2::int * INTERVAL '1 second'),
+		    runtime_failure_count = runtime_failure_count + 1,
+		    runtime_last_error = $3,
+		    last_test_status = $4,
+		    updated_at = NOW()
+		WHERE id = $1`, providerID, cooldown, message, "runtime failure: "+message)
+	return err
+}
+
+func shouldTryNextProvider(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	return true
 }
 
 func (s *Service) chatWithAccount(ctx context.Context, account Account, secret string, req ChatRequest) (ChatResponse, error) {
@@ -925,13 +1128,17 @@ func (s *Service) loadAccountSecret(ctx context.Context, providerID int64) (Acco
 	err := s.db.QueryRow(ctx, `
 		SELECT id, provider_name, base_url, secret_fingerprint, chat_model, summary_model, embedding_model, available_models,
 		       balance_supported, balance_endpoint, balance_cache_ttl_seconds, low_balance_threshold::float8,
-		       enabled, last_test_at, last_test_status, last_used_at, created_at, updated_at, secret_ciphertext_or_ref
+		       enabled, last_test_at, last_test_status, last_used_at,
+		       runtime_disabled_until, runtime_failure_count, runtime_last_error,
+		       created_at, updated_at, secret_ciphertext_or_ref
 		FROM im_ai_provider_account
 		WHERE id = $1`, providerID).Scan(
 		&item.ID, &item.ProviderName, &item.BaseURL, &item.SecretFingerprint, &item.ChatModel, &item.SummaryModel, &item.EmbeddingModel,
 		&availableModelsRaw,
 		&item.BalanceSupported, &item.BalanceEndpoint, &item.BalanceCacheTTLSeconds, &item.LowBalanceThreshold,
-		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt, &item.CreatedAt, &item.UpdatedAt, &ciphertext)
+		&item.Enabled, &item.LastTestAt, &item.LastTestStatus, &item.LastUsedAt,
+		&item.RuntimeDisabledUntil, &item.RuntimeFailureCount, &item.RuntimeLastError,
+		&item.CreatedAt, &item.UpdatedAt, &ciphertext)
 	if err != nil {
 		return Account{}, "", err
 	}

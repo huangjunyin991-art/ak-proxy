@@ -52,6 +52,9 @@ type RuntimeConfig struct {
 	SummaryMaxOutputTokens  int  `json:"summary_max_output_tokens"`
 	SummaryMemoryMaxTokens  int  `json:"summary_memory_max_tokens"`
 	QueueConcurrency        int  `json:"queue_concurrency"`
+	ProviderLoadBalance     bool `json:"provider_load_balance"`
+	ProviderMaxAttempts     int  `json:"provider_max_attempts"`
+	ProviderCooldownSeconds int  `json:"provider_cooldown_seconds"`
 }
 
 type SessionList struct {

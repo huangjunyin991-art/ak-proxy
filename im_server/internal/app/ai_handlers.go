@@ -588,21 +588,33 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 	activeProviderID := int64(0)
 	activeProviderName := ""
 	activeProviderHasSecret := false
+	providerEnabledCount := 0
+	providerUsableCount := 0
+	providerCoolingCount := 0
+	now := time.Now()
 	for _, item := range providers {
 		if !item.Enabled {
 			continue
 		}
-		activeProviderID = item.ID
-		activeProviderName = item.ProviderName
-		activeProviderHasSecret = strings.TrimSpace(item.SecretFingerprint) != ""
-		break
+		providerEnabledCount++
+		hasSecret := strings.TrimSpace(item.SecretFingerprint) != ""
+		isCooling := item.RuntimeDisabledUntil != nil && item.RuntimeDisabledUntil.After(now)
+		if isCooling {
+			providerCoolingCount++
+		}
+		if hasSecret && !isCooling {
+			providerUsableCount++
+		}
 	}
 	providerReady := false
 	providerMessage := ""
-	if _, _, err := a.aiProvider.LoadActiveAccount(r.Context()); err != nil {
+	if activeAccount, _, err := a.aiProvider.LoadActiveAccount(r.Context()); err != nil {
 		providerMessage = err.Error()
 	} else {
 		providerReady = true
+		activeProviderID = activeAccount.ID
+		activeProviderName = activeAccount.ProviderName
+		activeProviderHasSecret = strings.TrimSpace(activeAccount.SecretFingerprint) != ""
 	}
 	billingOverview, billingErr := a.aiBilling.Overview(r.Context(), 5)
 	relayStatus, relayErr := a.aiRelayConsole.Status(r.Context())
@@ -622,9 +634,15 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"provider_ready":             providerReady,
 			"provider_message":           providerMessage,
 			"provider_count":             len(providers),
+			"provider_enabled_count":     providerEnabledCount,
+			"provider_usable_count":      providerUsableCount,
+			"provider_cooling_count":     providerCoolingCount,
 			"active_provider_id":         activeProviderID,
 			"active_provider_name":       activeProviderName,
 			"active_provider_has_secret": activeProviderHasSecret,
+			"provider_load_balance":      cfg.ProviderLoadBalance,
+			"provider_max_attempts":      cfg.ProviderMaxAttempts,
+			"provider_cooldown_seconds":  cfg.ProviderCooldownSeconds,
 			"queue_concurrency":          queueConcurrency,
 			"queue_running":              queueRunning,
 			"queue_waiting":              queueWaiting,
