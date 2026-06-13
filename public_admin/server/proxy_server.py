@@ -3156,6 +3156,7 @@ async def proxy_rpc(path: str, request: Request):
         "public_ep_sellrecords1",
         "public_ep_sellrecords2",
         "public_ep_sellrecords3",
+        "question_reset",
         "mnemonic_get12",
         "mnemonic_confirm",
     }
@@ -3224,6 +3225,19 @@ async def proxy_rpc(path: str, request: Request):
                 await _sync_saved_password_after_login_forget_success(path, params, result, "rpc")
             except Exception as e:
                 logger.warning(f"[LoginForgetPasswordReset] 处理改密返回失败: account={_extract_forward_account(params)}, source=rpc, error={e}")
+        if _security_state_patch_for_rpc(path):
+            try:
+                result = response.json()
+                await _sync_cached_security_state_after_rpc_success(
+                    path,
+                    params,
+                    result,
+                    "rpc",
+                    request=request,
+                    response_headers=response.headers,
+                )
+            except Exception as e:
+                logger.warning(f"[AKSecurityStateSync] 处理安全状态返回失败: source=rpc path={path} error={e}")
         if ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer):
 
             try:
@@ -14946,12 +14960,20 @@ PUBLIC_RPC_AUTH_PATCH_PATHS = {
     "public_ep_sellrecords1",
     "public_ep_sellrecords2",
     "public_ep_sellrecords3",
+    "question_list",
+    "question_reset",
     "question_get1",
     "check_answer",
     "check_transactionpassword",
+    "mnemonic_get01",
     "mnemonic_get12",
     "mnemonic_confirm",
     "logout",
+}
+
+SECURITY_STATE_RPC_PATCHES = {
+    "question_reset": {"IsSetSecurityQuestion": True},
+    "mnemonic_confirm": {"IsMnemonic": True},
 }
 
 
@@ -15084,6 +15106,124 @@ def _extract_login_result_userkey(login_result: dict) -> str:
         if value not in (None, ""):
             return str(value)
     return ""
+
+
+def _security_state_patch_for_rpc(api_path: str) -> dict:
+    normalized = str(api_path or "").strip("/").lower()
+    patch = SECURITY_STATE_RPC_PATCHES.get(normalized)
+    return dict(patch) if patch else {}
+
+
+def _rpc_payload_is_success(result: dict) -> bool:
+    return isinstance(result, dict) and result.get("Error") is False
+
+
+async def _sync_cached_security_state_after_rpc_success(
+    api_path: str,
+    params: dict,
+    result: dict,
+    source: str,
+    session: Optional[dict] = None,
+    request: Optional[Request] = None,
+    response_headers=None,
+) -> None:
+    state_patch = _security_state_patch_for_rpc(api_path)
+    if not state_patch or not _rpc_payload_is_success(result):
+        return
+
+    username = ""
+    if isinstance(session, dict):
+        username = str(session.get("username") or "").strip().lower()
+    if not username:
+        username = _extract_forward_account(params)
+    if not username and request is not None:
+        username = online_manager.normalize_username(
+            request.cookies.get("ak_username")
+            or request.cookies.get("ak_im_username")
+            or ""
+        )
+
+    cached = {}
+    if username:
+        cached = dict(_ak_auth_cache.get(username) or {})
+        if not cached:
+            try:
+                cached = await db.load_ak_auth_state(username, check_expiry=False) or {}
+            except Exception as e:
+                logger.warning(f"[AKSecurityStateSync] load_auth_failed source={source} path={api_path} username={username}: {e}")
+                cached = {}
+
+    login_payload = {}
+    if isinstance(session, dict) and isinstance(session.get("login_result"), dict):
+        login_payload = dict(session.get("login_result") or {})
+    elif isinstance(cached.get("login_result"), dict):
+        login_payload = dict(cached.get("login_result") or {})
+    if not login_payload:
+        logger.warning(f"[AKSecurityStateSync] skip_empty_payload source={source} path={api_path} username={username or '-'}")
+        return
+
+    if not username:
+        username = _extract_login_result_username(login_payload, "")
+    if not username:
+        logger.warning(f"[AKSecurityStateSync] skip_missing_username source={source} path={api_path}")
+        return
+
+    user_data = login_payload.get("UserData")
+    if not isinstance(user_data, dict):
+        user_data = {}
+    else:
+        user_data = dict(user_data)
+    login_payload["UserData"] = user_data
+
+    changed = False
+    for key, value in state_patch.items():
+        if user_data.get(key) != value:
+            user_data[key] = value
+            changed = True
+    if not changed:
+        return
+
+    cookies = dict(cached.get("cookies") or {})
+    if isinstance(session, dict):
+        cookies.update(dict(session.get("cookies") or {}))
+    cookies.update(_extract_cookie_map(response_headers or {}))
+
+    userkey = ""
+    if isinstance(session, dict):
+        userkey = str(session.get("userkey") or "").strip()
+    userkey = userkey or str(cached.get("userkey") or "").strip() or _extract_login_result_userkey(login_payload)
+    if userkey:
+        login_payload["Key"] = userkey
+        user_data.setdefault("Key", userkey)
+
+    if isinstance(session, dict):
+        session["login_result"] = login_payload
+        if userkey:
+            session["userkey"] = userkey
+        session["auth_ticket_validated"] = True
+
+    updated_cached = {
+        "cookies": cookies,
+        "userkey": userkey,
+        "login_result": login_payload,
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+        "auth_ticket_validated": True,
+    }
+    _ak_auth_cache[username] = updated_cached
+    try:
+        await db.save_ak_auth_state(
+            username,
+            userkey=userkey,
+            cookies=cookies,
+            login_payload=login_payload,
+            ttl_seconds=_BROWSE_SESSION_TTL,
+        )
+        logger.info(
+            f"[AKSecurityStateSync] updated source={source} path={api_path} "
+            f"username={username} fields={','.join(state_patch.keys())}"
+        )
+    except Exception as e:
+        logger.warning(f"[AKSecurityStateSync] persist_failed source={source} path={api_path} username={username}: {e}")
 
 
 def _extract_login_result_username(login_result: dict, fallback: str = "") -> str:
@@ -15981,9 +16121,12 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         "public_ep_sellrecords1",
         "public_ep_sellrecords2",
         "public_ep_sellrecords3",
+        "question_list",
+        "question_reset",
         "question_get1",
         "check_transactionpassword",
         "check_answer",
+        "mnemonic_get01",
         "logout",
     }
     trace_paths = {
@@ -16162,6 +16305,14 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         should_persist = bool(set_cookie_values)
         is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
         await _sync_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")
+        await _sync_cached_security_state_after_rpc_success(
+            path,
+            params,
+            result,
+            "admin_ak_rpc",
+            session=session,
+            response_headers=response.headers,
+        )
         if is_login_success:
             account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
             password = (params.get("password") or session.get("password") or "").strip()
