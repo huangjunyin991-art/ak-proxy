@@ -4896,17 +4896,8 @@
                                                 <button type="button" class="subadmin-mini-btn" onclick="toggleAllPerms(false)">清空</button>
                                             </span>
                                         </div>
-                                        <div class="subadmin-permission-grid">
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_dashboard" value="dashboard"> 仪表盘</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_online" value="online"> 在线</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_usage" value="usage"> 使用</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_users" value="users"> 用户</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_pointStats" value="pointStats"> 点数统计</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_recommendTree" value="recommendTree"> 组织架构</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_ips" value="ips"> IP</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_banlist" value="banlist"> 封禁</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_license" value="license"> 激活码</label>
-                                            <label class="subadmin-permission-item"><input type="checkbox" id="perm_database" value="database"> 数据库</label>
+                                        <div id="subAdminPermissionGrid" class="subadmin-permission-grid">
+                                            <span class="subadmin-pane-note">权限项加载中...</span>
                                         </div>
                                     </div>
 
@@ -6232,24 +6223,15 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'whitelist', 'riskIsolation', 'contacts', 'credits', 'license', 'database', 'activeDefense', 'rateBan', 'monitoring', 'systemInspection', 'meetings', 'aiAssistant', 'settings'];
+            const allTabs = Array.from(document.querySelectorAll('.tab[data-panel]')).map(tab => tab.dataset.panel).filter(Boolean);
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
                 if (!tab) return;
                 
-                if (tabName === 'settings' || tabName === 'monitoring' || tabName === 'systemInspection' || tabName === 'activeDefense' || tabName === 'rateBan' || tabName === 'aiAssistant') {
-                    tab.style.display = 'none';
-                    tab.dataset.allowed = '0';
-                } else if (tabName === 'whitelist' || tabName === 'riskIsolation' || tabName === 'contacts' || tabName === 'credits' || tabName === 'meetings') {
-                    // 白名单和积分对所有管理员可见
-                    tab.style.display = '';
-                    tab.dataset.allowed = '1';
-                } else {
-                    const allowed = !!perms[tabName];
-                    tab.style.display = allowed ? '' : 'none';
-                    tab.dataset.allowed = allowed ? '1' : '0';
-                }
+                const allowed = isSubAdminPanelAllowed(tabName, perms);
+                tab.style.display = allowed ? '' : 'none';
+                tab.dataset.allowed = allowed ? '1' : '0';
             });
             
             // 如果当前活动标签被隐藏了，切换到第一个可见标签
@@ -8082,26 +8064,69 @@
         
         // 权限全选/全不选
         function toggleAllPerms(checked) {
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
-            permKeys.forEach(key => {
+            renderSubAdminPermissionControls();
+            getSubAdminPermissionKeys().forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = checked;
             });
         }
         
-        // 权限名称映射
-        const PERM_LABELS = {
-            dashboard: '仪表盘', online: '在线', usage: '使用', users: '用户',
-            pointStats: '点数统计', recommendTree: '组织架构', ips: 'IP', banlist: '封禁', license: '激活码', database: '数据库'
-        };
+        const SUB_ADMIN_PERMISSION_DEFS = [
+            { key: 'dashboard', label: '流量仪表盘' },
+            { key: 'online', label: '在线用户' },
+            { key: 'usage', label: '账号管理' },
+            { key: 'users', label: '账号数据' },
+            { key: 'pointStats', label: '点数统计' },
+            { key: 'recommendTree', label: '组织架构' },
+            { key: 'ips', label: 'IP管理' },
+            { key: 'banlist', label: '封禁列表' },
+            { key: 'whitelist', label: '白名单' },
+            { key: 'riskIsolation', label: '风险隔离' },
+            { key: 'contacts', label: '通讯管理' },
+            { key: 'credits', label: '积分' },
+            { key: 'license', label: '激活码' },
+            { key: 'database', label: '数据库' },
+            { key: 'activeDefense', label: '主动防御' },
+            { key: 'rateBan', label: '限速封禁' },
+            { key: 'monitoring', label: '性能监控' },
+            { key: 'systemInspection', label: '系统巡检' },
+            { key: 'meetings', label: '会议' },
+            { key: 'aiAssistant', label: 'AI助手' }
+        ];
+
+        const PERM_LABELS = Object.fromEntries(SUB_ADMIN_PERMISSION_DEFS.map(item => [item.key, item.label]));
+        const SUB_ADMIN_LEGACY_VISIBLE_PANELS = new Set(['whitelist', 'riskIsolation', 'contacts', 'credits', 'meetings']);
+        const SUB_ADMIN_SUPER_ONLY_PANELS = new Set(['settings']);
+
+        function getSubAdminPermissionKeys() {
+            return SUB_ADMIN_PERMISSION_DEFS.map(item => item.key);
+        }
+
+        function renderSubAdminPermissionControls() {
+            const grid = document.getElementById('subAdminPermissionGrid');
+            if (!grid || grid.dataset.version === 'subadmin-perms-20260613-1') return;
+            grid.dataset.version = 'subadmin-perms-20260613-1';
+            grid.innerHTML = SUB_ADMIN_PERMISSION_DEFS.map(item => `
+                <label class="subadmin-permission-item">
+                    <input type="checkbox" id="perm_${escapeHtml(item.key)}" value="${escapeHtml(item.key)}"> ${escapeHtml(item.label)}
+                </label>
+            `).join('');
+        }
+
+        function isSubAdminPanelAllowed(tabName, perms) {
+            if (SUB_ADMIN_SUPER_ONLY_PANELS.has(tabName)) return false;
+            if (Object.prototype.hasOwnProperty.call(perms || {}, tabName)) return !!perms[tabName];
+            return SUB_ADMIN_LEGACY_VISIBLE_PANELS.has(tabName);
+        }
         
         // 当前选中的子管理员
         let selectedSubAdmin = null;
+        const subAdminRowCache = new Map();
 
         function collectSubAdminPermissions() {
+            renderSubAdminPermissionControls();
             const permissions = {};
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
-            permKeys.forEach(key => {
+            getSubAdminPermissionKeys().forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) permissions[key] = cb.checked;
             });
@@ -8131,13 +8156,13 @@
         
         // 点击子管理员卡片 → 加载权限到复选框
         function selectSubAdmin(name, permissions, boundUsername) {
+            renderSubAdminPermissionControls();
             selectedSubAdmin = name;
             document.getElementById('newSubAdminName').value = name;
             const currentBound = String(boundUsername || '').trim().toLowerCase();
             setSubAdminBoundUsername(currentBound);
             // 加载权限到复选框
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
-            permKeys.forEach(key => {
+            getSubAdminPermissionKeys().forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = !!permissions[key];
             });
@@ -8177,6 +8202,28 @@
                 ? `子管理员 [${name}] 当前绑定 [${currentBound}]，请输入新账号后点击"换绑账号"`
                 : `请为子管理员 [${name}] 填写绑定账号后点击"补绑账号"`, 'select');
         }
+
+        document.addEventListener('click', function(event) {
+            const actionEl = event.target.closest('[data-subadmin-action]');
+            if (!actionEl || !actionEl.closest('#subAdminList')) return;
+            const card = actionEl.closest('[data-sub-key]');
+            if (!card) return;
+            const row = subAdminRowCache.get(card.dataset.subKey || '');
+            if (!row) return;
+            const action = actionEl.dataset.subadminAction || 'select';
+            if (action !== 'select') event.stopPropagation();
+            if (action === 'select') {
+                selectSubAdmin(row.name, row.permissions, row.boundUsername);
+            } else if (action === 'prepare-bind') {
+                prepareBindSubAdmin(row.name, row.permissions, row.boundUsername);
+            } else if (action === 'unbind') {
+                unbindOneSubAdmin(row.name);
+            } else if (action === 'kick') {
+                kickOneSubAdmin(row.name);
+            } else if (action === 'delete') {
+                deleteOneSubAdmin(row.name);
+            }
+        });
 
         async function unbindSubAdminAccount() {
             const subName = selectedSubAdmin || document.getElementById('newSubAdminName').value.trim();
@@ -8314,6 +8361,7 @@
                 return;
             }
             
+            renderSubAdminPermissionControls();
             document.getElementById('subAdminSection').style.display = 'block';
             document.getElementById('loadBalanceSection').style.display = 'block';
             document.getElementById('remoteVoiceSection').style.display = 'block';
@@ -8333,6 +8381,7 @@
                 const subAdmins = data.sub_admins || [];
                 
                 countSpan.textContent = `（共 ${subAdmins.length} 个子管理员）`;
+                subAdminRowCache.clear();
                 
                 if (subAdmins.length === 0) {
                     resetSubAdminSelection(true);
@@ -8342,7 +8391,7 @@
                     return;
                 }
                 
-                listDiv.innerHTML = subAdmins.map(sub => {
+                listDiv.innerHTML = subAdmins.map((sub, index) => {
                     const loginInfo = sub.login_time ? ` · 最近登录: ${fmtTime(sub.login_time)}` : '';
                     const statusLabel = sub.is_online ? '在线' : '离线';
                     const passwordText = sub.has_password ? '密码已设置' : '密码未设置';
@@ -8386,14 +8435,20 @@
                         boundClass = 'warn';
                         boundLine = `绑定账号${escapeHtml(abnormal)}: ${escapeHtml(boundUsername)}${boundExpireText}`;
                     }
-                    const nameJson = jsArg(sub.name || '');
-                    const permJson = escapeHtml(JSON.stringify(perms || {}));
-                    const boundJson = jsArg(boundUsername);
+                    const subName = String(sub.name || '');
+                    const rowKey = `sub_${index}`;
+                    subAdminRowCache.set(rowKey, {
+                        name: subName,
+                        permissions: perms || {},
+                        boundUsername: boundUsername
+                    });
                     const defaultBorder = sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)';
+                    const selectedClass = selectedSubAdmin === subName ? ' is-selected' : '';
                     return `
-                        <div class="subadmin-card ${sub.is_online ? 'is-online' : ''}" data-subname="${escapeHtml(sub.name || '')}"
+                        <div class="subadmin-card ${sub.is_online ? 'is-online' : ''}${selectedClass}" data-subname="${escapeHtml(subName)}"
+                             data-sub-key="${escapeHtml(rowKey)}"
+                             data-subadmin-action="select"
                              data-default-border="${defaultBorder}"
-                             onclick="selectSubAdmin(${nameJson}, ${permJson}, ${boundJson})"
                         >
                             <div class="subadmin-card-main">
                                 <div class="subadmin-identity">
@@ -8412,15 +8467,15 @@
                                 </div>
                                 <div class="subadmin-card-actions">
                                     ${!isBound
-                                        ? `<button class="subadmin-card-btn success" onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})">补绑</button>`
+                                        ? `<button class="subadmin-card-btn success" data-subadmin-action="prepare-bind">补绑</button>`
                                         : (boundHealthy
-                                            ? `<button class="subadmin-card-btn primary" onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})">换绑</button>`
-                                            : `<button class="subadmin-card-btn warning" onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})">改绑</button>`)}
+                                            ? `<button class="subadmin-card-btn primary" data-subadmin-action="prepare-bind">换绑</button>`
+                                            : `<button class="subadmin-card-btn warning" data-subadmin-action="prepare-bind">改绑</button>`)}
                                     ${isBound
-                                        ? `<button class="subadmin-card-btn" onclick="event.stopPropagation(); unbindOneSubAdmin(${nameJson})">解绑</button>`
+                                        ? `<button class="subadmin-card-btn" data-subadmin-action="unbind">解绑</button>`
                                         : ''}
-                                    <button class="subadmin-card-btn warning" onclick="event.stopPropagation(); kickOneSubAdmin(${nameJson})">踢出</button>
-                                    <button class="subadmin-card-btn danger" onclick="event.stopPropagation(); deleteOneSubAdmin(${nameJson})">删除</button>
+                                    <button class="subadmin-card-btn warning" data-subadmin-action="kick">踢出</button>
+                                    <button class="subadmin-card-btn danger" data-subadmin-action="delete">删除</button>
                                 </div>
                             </div>
                             <div class="subadmin-perm-line">
