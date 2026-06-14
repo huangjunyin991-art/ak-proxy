@@ -15091,22 +15091,6 @@ def _rpc_auth_pair(params: dict) -> tuple[str, str]:
     return str(key or "").strip(), str(user_id or "").strip()
 
 
-PUBLIC_RPC_AUTH_PATCH_PATHS = {
-    "public_indexdata",
-    "public_ep_sellrecords1",
-    "public_ep_sellrecords2",
-    "public_ep_sellrecords3",
-    "question_list",
-    "question_reset",
-    "question_get1",
-    "check_answer",
-    "check_transactionpassword",
-    "mnemonic_get01",
-    "mnemonic_get12",
-    "mnemonic_confirm",
-    "logout",
-}
-
 PUBLIC_RPC_AUTH_SKIP_PATHS = {
     "login",
     "login_forget",
@@ -15132,8 +15116,6 @@ def _should_patch_rpc_auth_params(path: str, params: dict) -> bool:
     normalized_path = _normalize_rpc_path_name(path)
     if normalized_path in PUBLIC_RPC_AUTH_SKIP_PATHS:
         return False
-    if normalized_path in PUBLIC_RPC_AUTH_PATCH_PATHS:
-        return True
     if not isinstance(params, dict):
         return False
     current_key = params.get("key")
@@ -15208,8 +15190,6 @@ async def _load_public_rpc_cookie_auth(request: Request) -> tuple[str, dict]:
 
 async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, content_type: str,
                                              params: dict, raw_body: bytes) -> tuple[dict, bytes, dict, bool]:
-    normalized_path = _normalize_rpc_path_name(path)
-    force_patch = normalized_path in PUBLIC_RPC_AUTH_PATCH_PATHS
     if not _should_patch_rpc_auth_params(path, params):
         return params, raw_body, {}, False
     username, cached = await _load_public_rpc_cookie_auth(request)
@@ -15226,7 +15206,7 @@ async def _patch_public_rpc_auth_from_cookie(path: str, request: Request, conten
     login_result = cached.get("login_result", {})
     userkey = str(cached.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
     user_id = _rpc_user_id_from_login_result(login_result)
-    next_params, patched = _patch_rpc_auth_params(params, userkey, user_id, force=force_patch)
+    next_params, patched = _patch_rpc_auth_params(params, userkey, user_id, force=False)
     next_raw_body = raw_body
     if patched and request.method in ["POST", "PUT"]:
         next_raw_body = _rewrite_raw_body_with_params(content_type, next_params)
@@ -15309,9 +15289,9 @@ async def _sync_cached_security_state_after_rpc_success(
 
     username = ""
     if isinstance(session, dict):
-        username = str(session.get("username") or "").strip().lower()
+        username = online_manager.normalize_username(session.get("username") or "")
     if not username:
-        username = _extract_forward_account(params)
+        username = online_manager.normalize_username(_extract_forward_account(params))
     if not username and request is not None:
         username = online_manager.normalize_username(
             request.cookies.get("ak_username")
@@ -15339,7 +15319,7 @@ async def _sync_cached_security_state_after_rpc_success(
         return
 
     if not username:
-        username = _extract_login_result_username(login_payload, "")
+        username = online_manager.normalize_username(_extract_login_result_username(login_payload, ""))
     if not username:
         logger.warning(f"[AKSecurityStateSync] skip_missing_username source={source} path={api_path}")
         return
@@ -15469,24 +15449,28 @@ def _build_ak_local_login_info(username: str, password: str) -> list:
 
 
 def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
+    cache_username = online_manager.normalize_username(username)
     cached = {
         "cookies": _extract_cookie_map(headers),
         "userkey": _extract_login_result_userkey(result),
         "login_result": result,
         "expires": time.time() + _BROWSE_SESSION_TTL,
     }
-    _ak_auth_cache[username] = cached
+    if cache_username:
+        _ak_auth_cache[cache_username] = cached
     return cached
 
 
 def _cache_ak_auth_from_fastpath(username: str, password: str, fastpath_result) -> dict:
+    cache_username = online_manager.normalize_username(username)
     cached = {
         "cookies": dict(fastpath_result.cookies or {}),
         "userkey": fastpath_result.userkey,
         "login_result": fastpath_result.login_payload,
         "expires": time.time() + _BROWSE_SESSION_TTL,
     }
-    _ak_auth_cache[username] = cached
+    if cache_username:
+        _ak_auth_cache[cache_username] = cached
     return cached
 
 
@@ -15518,7 +15502,7 @@ async def _try_ak_userkey_login_fastpath(username: str, password: str, headers: 
 
 
 def _build_browse_session_persist_payload(session: dict) -> tuple[str, Optional[dict]]:
-    username = (session.get("username") or "").strip()
+    username = online_manager.normalize_username(session.get("username") or "")
     if not username:
         return "", None
     cached = {
@@ -16291,7 +16275,6 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     is_login_path = path.strip("/").lower() == "login"
     normalized_path = path.strip("/").lower()
     should_auth_patch = _should_patch_rpc_auth_params(path, params)
-    force_auth_patch = normalized_path in PUBLIC_RPC_AUTH_PATCH_PATHS
     trace_paths = {
         "public_ace",
         "public_ep_sellrecords1",
@@ -16333,7 +16316,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             params,
             session_userkey,
             session_user_id,
-            force=force_auth_patch,
+            force=False,
         )
         if auth_replaced and request.method in ["POST", "PUT"]:
             if "application/json" in content_type:
