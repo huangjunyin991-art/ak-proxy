@@ -2959,6 +2959,48 @@ async def proxy_index_data(request: Request):
             auth_patched=auth_patched,
             username=request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
         )
+        if _rpc_result_is_login_reject(result) and _has_valid_rpc_auth_params(params):
+            retry_headers = dict(request.headers)
+            if auth_cookie_header:
+                retry_headers["cookie"] = auth_cookie_header
+            else:
+                retry_headers.pop("cookie", None)
+            logger.warning(
+                f"[IndexDataAuthRetry] login_reject_retry_direct "
+                f"username={request.cookies.get('ak_username') or request.cookies.get('ak_im_username') or '-'} "
+                f"key_fp={fingerprint_log_secret(params.get('key') or params.get('Key') or '')} "
+                f"userId={str(params.get('UserID') or params.get('userid') or '') or '-'} "
+                f"auth_patched={int(bool(auth_patched))}"
+            )
+            retry_started_at = time.perf_counter()
+            retry_response = await forward_request(
+                request.method,
+                "public_IndexData",
+                content_type,
+                params,
+                raw_body,
+                retry_headers,
+                client_ip=client_ip,
+                force_direct=True,
+            )
+            retry_upstream_ms = _elapsed_ms(retry_started_at)
+            try:
+                retry_result = retry_response.json()
+            except Exception:
+                retry_result = {}
+            if isinstance(retry_result, dict) and retry_response.status_code < 500 and not _rpc_result_is_login_reject(retry_result):
+                response = retry_response
+                result = retry_result
+                upstream_ms = retry_upstream_ms
+                logger.warning(
+                    f"[IndexDataAuthRetry] direct_retry_accepted status={retry_response.status_code} "
+                    f"bytes={len(retry_response.content or b'')}"
+                )
+            else:
+                logger.warning(
+                    f"[IndexDataAuthRetry] direct_retry_still_rejected status={retry_response.status_code} "
+                    f"msg={redact_log_text(str(retry_result.get('Msg') or ''), limit=160)}"
+                )
 
     except Exception as e:
 
@@ -15015,6 +15057,22 @@ def _log_rpc_login_reject_response(path: str, response: httpx.Response, params: 
         f"userId={str((params or {}).get('UserID') or (params or {}).get('userid') or '') or '-'} "
         f"referer={referer or '-'} msg={redact_log_text(str(result.get('Msg') or ''), limit=160)}"
     )
+
+
+def _rpc_result_is_login_reject(result: dict) -> bool:
+    return isinstance(result, dict) and result.get("Error") is True and result.get("IsLogin") is False
+
+
+def _has_valid_rpc_auth_params(params: dict) -> bool:
+    if not isinstance(params, dict):
+        return False
+    key = params.get("key")
+    if key is None:
+        key = params.get("Key")
+    user_id = params.get("UserID")
+    if user_id is None:
+        user_id = params.get("userid")
+    return not _is_blank_rpc_auth_value(key) and not _is_blank_rpc_auth_value(user_id)
 
 
 PUBLIC_RPC_AUTH_PATCH_PATHS = {
