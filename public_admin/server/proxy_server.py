@@ -17142,6 +17142,91 @@ def _patch_vue_component_language_names(text: str) -> str:
     return str(text or "").replace("name: '日本语'", "name: '日本語'")
 
 
+def _build_ak_tab_bar_language_fallbacks() -> dict:
+    fallbacks = {}
+    base_dir = Path(FRONTEND_LANG_DIR).resolve()
+    tab_keys = ("BOTTOM_MENU_1", "BOTTOM_MENU_2", "BOTTOM_MENU_3", "BOTTOM_MENU_4")
+    for local_path in sorted(base_dir.glob("*.json")):
+        code = _normalize_ak_local_language_code(local_path.name)
+        if not code:
+            continue
+        try:
+            data = json.loads(local_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        home_pack = data.get("home")
+        if not isinstance(home_pack, dict):
+            continue
+        tab_pack = {
+            key: home_pack.get(key)
+            for key in tab_keys
+            if home_pack.get(key) not in (None, "")
+        }
+        if tab_pack:
+            fallbacks[code] = tab_pack
+    return fallbacks
+
+
+def _build_ak_tab_bar_language_fallback_script() -> str:
+    fallbacks_json = json.dumps(
+        _build_ak_tab_bar_language_fallbacks(),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    alias_json = json.dumps(_AK_LOCAL_LANGUAGE_ALIASES, ensure_ascii=True, separators=(",", ":"))
+    return (
+        "\n;(function(){try{"
+        "if(window.__akTabBarInitialLanguageInstalled)return;"
+        "window.__akTabBarInitialLanguageInstalled=1;"
+        "var FALLBACK=" + fallbacks_json + ";"
+        "var ALIAS=" + alias_json + ";"
+        "function norm(lang){lang=String(lang||'cn').toLowerCase();return ALIAS[lang]||lang||'cn';}"
+        "function fromLocalStorage(key){try{return window.localStorage?window.localStorage.getItem(key):'';}catch(e){return '';}}"
+        "function current(){try{if(window.LSE&&typeof LSE.currentLanguage==='function')return norm(LSE.currentLanguage());}catch(e){}"
+        "try{if(window.APP&&APP.CONFIG&&APP.CONFIG.SYSTEM_KEYS&&APP.CONFIG.SYSTEM_KEYS.LANGUAGE_KEY){var v=fromLocalStorage(APP.CONFIG.SYSTEM_KEYS.LANGUAGE_KEY);if(v)return norm(v);}}catch(e){}"
+        "var stored=fromLocalStorage('AK_current_langeuage');return norm(stored||'cn');}"
+        "window.__akTabBarInitialLanguage=function(){var pack=FALLBACK[current()]||FALLBACK.cn||{};var out={};for(var k in pack){if(Object.prototype.hasOwnProperty.call(pack,k))out[k]=pack[k];}return out;};"
+        "}catch(e){}})();\n"
+    )
+
+
+def _patch_vue_component_tab_bar_language(text: str) -> tuple[str, bool]:
+    patched = False
+    if "__akTabBarInitialLanguage" not in text:
+        text = _build_ak_tab_bar_language_fallback_script() + text
+        patched = True
+
+    marker = "Vue.component('tab-bar'"
+    start = text.find(marker)
+    if start < 0:
+        return text, patched
+    next_start = text.find("\nVue.component(", start + len(marker))
+    if next_start < 0:
+        next_start = len(text)
+    block = text[start:next_start]
+    replacement = (
+        "data: () => ({\n"
+        "    language: (window.__akTabBarInitialLanguage && window.__akTabBarInitialLanguage()) || {}\n"
+        "  }),"
+    )
+    next_block, count = re.subn(
+        r"data:\s*\(\)\s*=>\s*\(\{\s*language:\s*\{\}\s*\}\),",
+        replacement,
+        block,
+        count=1,
+    )
+    if count:
+        text = text[:start] + next_block + text[next_start:]
+        patched = True
+    return text, patched
+
+
+def _patch_vue_component_content(text: str) -> str:
+    text = _patch_vue_component_language_names(text)
+    text, _ = _patch_vue_component_tab_bar_language(text)
+    return text
+
+
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
     lowered_content_type = str(content_type or "").lower()
     if not content:
@@ -17155,7 +17240,7 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
-        return _patch_vue_component_language_names(text).encode("utf-8")
+        return _patch_vue_component_content(text).encode("utf-8")
     return content
 
 
@@ -17369,6 +17454,11 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
     rewritten = rewritten.replace(
         "/content/js/base.js?v=28",
         "/content/js/base.js?v=28&ak_static_v=public-rpc-20260611-mnemonic",
+    )
+    rewritten = re.sub(
+        r"(/content/js/vue-component\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
+        r"\1&ak_static_v=tabbar-initial-20260614",
+        rewritten,
     )
     rewritten = rewritten.replace(
         "/assets/css/vue-component.css",
@@ -17806,7 +17896,7 @@ async def ak_web_proxy(request: Request, path: str):
                 content_type=cached_static.content_type,
                 response_bytes=len(cached_static.body or b""),
             )
-            return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+            return _build_public_cached_static_response(cached_static, normalized_path)
         static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(static_cache_request)
         await static_cache_lock.acquire()
         cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(static_cache_request)
@@ -17824,7 +17914,7 @@ async def ak_web_proxy(request: Request, path: str):
                 content_type=cached_static.content_type,
                 response_bytes=len(cached_static.body or b""),
             )
-            return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+            return _build_public_cached_static_response(cached_static, normalized_path)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
     fwd_headers = _build_ak_site_forward_headers(request)
@@ -17904,6 +17994,13 @@ async def ak_web_proxy(request: Request, path: str):
             if base_js_rewritten:
                 _admin_ak_trace(lambda: f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
+
+        if normalized_path == "content/js/vue-component.js" and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
+            text = content.decode("utf-8", errors="replace")
+            patched_text = _patch_vue_component_content(text)
+            if patched_text != text:
+                content = patched_text.encode("utf-8")
+                _admin_ak_trace(lambda: f"[AkVueComponentRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
 
         if any(t in content_type.lower() for t in ("javascript", "ecmascript")) and normalized_path in debug_body_targets:
             js_text = content.decode("utf-8", errors="replace")
