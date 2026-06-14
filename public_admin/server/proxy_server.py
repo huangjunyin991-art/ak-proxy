@@ -17501,7 +17501,11 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
         rewritten = rewritten.replace("www.akapi3.com", public_host)
     rewritten = rewritten.replace(
         "/content/js/base.js?v=28",
-        "/content/js/base.js?v=28&ak_static_v=public-rpc-20260611-mnemonic",
+        "/content/js/base.js?v=28&ak_static_v=public-rpc-20260614-lang-fast",
+    )
+    rewritten = rewritten.replace(
+        "/content/js/vue-component.js?v=28",
+        "/content/js/vue-component.js?v=28&ak_static_v=tabbar-first-20260614",
     )
     rewritten = rewritten.replace(
         "/assets/css/vue-component.css",
@@ -17939,7 +17943,7 @@ async def ak_web_proxy(request: Request, path: str):
                 content_type=cached_static.content_type,
                 response_bytes=len(cached_static.body or b""),
             )
-            return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+            return _build_public_cached_static_response(cached_static, normalized_path)
         static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(static_cache_request)
         await static_cache_lock.acquire()
         cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(static_cache_request)
@@ -17957,7 +17961,7 @@ async def ak_web_proxy(request: Request, path: str):
                 content_type=cached_static.content_type,
                 response_bytes=len(cached_static.body or b""),
             )
-            return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+            return _build_public_cached_static_response(cached_static, normalized_path)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
     fwd_headers = _build_ak_site_forward_headers(request)
@@ -18039,6 +18043,13 @@ async def ak_web_proxy(request: Request, path: str):
             if base_js_rewritten:
                 _admin_ak_trace(lambda: f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
+
+        if normalized_path == "content/js/vue-component.js" and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
+            text = content.decode("utf-8", errors="replace")
+            patched_text = _patch_vue_component_content(text)
+            if patched_text != text:
+                content = patched_text.encode("utf-8")
+                _admin_ak_trace(lambda: f"[AkVueComponentRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
 
         if any(t in content_type.lower() for t in ("javascript", "ecmascript")) and normalized_path in debug_body_targets:
             js_text = content.decode("utf-8", errors="replace")
