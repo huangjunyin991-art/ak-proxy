@@ -17182,6 +17182,58 @@ def _build_ak_language_cache_version() -> str:
     return f"{newest_mtime}-{total_size}"
 
 
+def _build_ak_tab_bar_language_fallback_script() -> str:
+    fallbacks_json = json.dumps(_build_ak_language_tab_fallbacks(), ensure_ascii=True, separators=(",", ":"))
+    alias_json = json.dumps(_AK_LOCAL_LANGUAGE_ALIASES, ensure_ascii=True, separators=(",", ":"))
+    return (
+        "\n;(function(){try{"
+        "if(window.__akTabBarLangFallbackInstalled)return;"
+        "window.__akTabBarLangFallbackInstalled=1;"
+        "var FALLBACK=" + fallbacks_json + ";"
+        "var ALIAS=" + alias_json + ";"
+        "function norm(lang){lang=String(lang||'cn').toLowerCase();return ALIAS[lang]||lang||'cn';}"
+        "function current(){try{if(window.LSE&&typeof LSE.currentLanguage==='function')return norm(LSE.currentLanguage());}catch(e){}try{return norm(localStorage.getItem('AK_current_langeuage')||'cn');}catch(e){return 'cn';}}"
+        "window.__akTabBarLanguageFallback=function(pageName){var lang=current();var pack=FALLBACK[lang]||FALLBACK.cn||{};var page=pack[pageName]||pack.home||pack.center||{};var out={};for(var k in page){if(Object.prototype.hasOwnProperty.call(page,k))out[k]=page[k];}return out;};"
+        "}catch(e){}})();\n"
+    )
+
+
+def _patch_vue_component_tab_bar_language(text: str) -> tuple[str, bool]:
+    patched = False
+    if "__akTabBarLanguageFallback" not in text:
+        text = _build_ak_tab_bar_language_fallback_script() + text
+        patched = True
+    marker = "Vue.component('tab-bar'"
+    start = text.find(marker)
+    if start < 0:
+        return text, patched
+    next_start = text.find("\nVue.component(", start + len(marker))
+    if next_start < 0:
+        next_start = len(text)
+    block = text[start:next_start]
+    replacement = (
+        "data: () => ({\n"
+        "    language: (window.__akTabBarLanguageFallback && window.__akTabBarLanguageFallback('home')) || {}\n"
+        "  }),"
+    )
+    next_block, count = re.subn(
+        r"data:\s*\(\)\s*=>\s*\(\{\s*language:\s*\{\}\s*\}\),",
+        replacement,
+        block,
+        count=1,
+    )
+    if count:
+        text = text[:start] + next_block + text[next_start:]
+        patched = True
+    return text, patched
+
+
+def _patch_vue_component_content(text: str) -> str:
+    text = _patch_vue_component_language_names(text)
+    text, _ = _patch_vue_component_tab_bar_language(text)
+    return text
+
+
 def _build_ak_language_fast_cache_script() -> str:
     fallbacks_json = json.dumps(_build_ak_language_tab_fallbacks(), ensure_ascii=True, separators=(",", ":"))
     alias_json = json.dumps(_AK_LOCAL_LANGUAGE_ALIASES, ensure_ascii=True, separators=(",", ":"))
@@ -17236,7 +17288,7 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
-        return _patch_vue_component_language_names(text).encode("utf-8")
+        return _patch_vue_component_content(text).encode("utf-8")
     return content
 
 
