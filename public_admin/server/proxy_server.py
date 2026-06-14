@@ -17227,6 +17227,14 @@ def _patch_vue_component_content(text: str) -> str:
     return text
 
 
+def _rewrite_vue_component_script_version(text: str) -> str:
+    return re.sub(
+        r"(/content/js/vue-component\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
+        r"\1&ak_static_v=tabbar-initial-20260614",
+        str(text or ""),
+    )
+
+
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
     lowered_content_type = str(content_type or "").lower()
     if not content:
@@ -17455,11 +17463,7 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
         "/content/js/base.js?v=28",
         "/content/js/base.js?v=28&ak_static_v=public-rpc-20260611-mnemonic",
     )
-    rewritten = re.sub(
-        r"(/content/js/vue-component\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
-        r"\1&ak_static_v=tabbar-initial-20260614",
-        rewritten,
-    )
+    rewritten = _rewrite_vue_component_script_version(rewritten)
     rewritten = rewritten.replace(
         "/assets/css/vue-component.css",
         "/assets/css/vue-component.css?ak_static_v=public-css-20260611",
@@ -18021,6 +18025,7 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
+                text = _rewrite_vue_component_script_version(text)
                 if transform_proxied_site_prefetch_html is not None:
                     try:
                         text, proxied_site_prefetch_injected = transform_proxied_site_prefetch_html(
