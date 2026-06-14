@@ -15098,6 +15098,8 @@ PUBLIC_RPC_AUTH_SKIP_PATHS = {
 }
 
 SECURITY_STATE_RPC_PATCHES = {
+    "change_password": {"IsStrong": True},
+    "change_transactionpassword": {"IsStrong": True},
     "question_reset": {"IsSetSecurityQuestion": True},
     "mnemonic_confirm": {"IsMnemonic": True},
 }
