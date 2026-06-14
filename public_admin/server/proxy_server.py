@@ -17235,14 +17235,12 @@ def _patch_vue_component_content(text: str) -> str:
 
 
 def _build_ak_language_fast_cache_script() -> str:
-    fallbacks_json = json.dumps(_build_ak_language_tab_fallbacks(), ensure_ascii=True, separators=(",", ":"))
     alias_json = json.dumps(_AK_LOCAL_LANGUAGE_ALIASES, ensure_ascii=True, separators=(",", ":"))
     version_json = json.dumps(_build_ak_language_cache_version(), ensure_ascii=True)
     return (
         "\n;(function(){try{"
         "if(window.__akLseFastCacheInstalled)return;"
         "window.__akLseFastCacheInstalled=1;"
-        "var FALLBACK=" + fallbacks_json + ";"
         "var ALIAS=" + alias_json + ";"
         "var VERSION=" + version_json + ";"
         "var PREFIX='AK_lang_pack_cache_'+VERSION+'_';"
@@ -17252,13 +17250,12 @@ def _build_ak_language_fast_cache_script() -> str:
         "function read(lang){lang=norm(lang);if(mem[lang])return mem[lang];var s=store();if(!s)return null;try{var raw=s.getItem(PREFIX+lang);if(!raw)return null;var data=JSON.parse(raw);if(data&&typeof data==='object'){mem[lang]=data;return data;}}catch(e){}return null;}"
         "function write(lang,data){lang=norm(lang);if(!data||typeof data!=='object')return;mem[lang]=data;var s=store();if(!s)return;try{s.setItem(PREFIX+lang,JSON.stringify(data));}catch(e){}}"
         "function page(pack,name){return pack&&typeof pack==='object'&&pack[name]&&typeof pack[name]==='object'?pack[name]:null;}"
-        "function same(a,b){try{return JSON.stringify(a)===JSON.stringify(b);}catch(e){return a===b;}}"
         "function cur(){try{return norm(window.LSE&&typeof LSE.currentLanguage==='function'?LSE.currentLanguage():'cn');}catch(e){return 'cn';}}"
         "function deliver(cb,data){if(typeof cb==='function'&&data&&typeof data==='object'){try{cb(data);}catch(e){setTimeout(function(){throw e;},0);}}}"
         "function request(lang,done){lang=norm(lang);var cached=read(lang);if(cached){done(cached);return;}if(inflight[lang]){inflight[lang].push(done);return;}inflight[lang]=[done];try{var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;var data=null;if(xhr.status===200){try{data=JSON.parse(xhr.responseText||xhr.response||'{}');}catch(e){data=null;}if(data&&typeof data==='object')write(lang,data);}var list=inflight[lang]||[];delete inflight[lang];for(var i=0;i<list.length;i++){try{list[i](data||read(lang)||{});}catch(e){}}};xhr.open('GET','/content/lang/'+encodeURIComponent(lang)+'.json?v=27',true);xhr.send();}catch(e){var list=inflight[lang]||[];delete inflight[lang];for(var i=0;i<list.length;i++){try{list[i](read(lang)||{});}catch(_e){}}}}"
         "if(!window.LSE||typeof LSE.install!=='function')return;"
         "var oldSwitch=typeof LSE.switchLanguage==='function'?LSE.switchLanguage:null;"
-        "LSE.install=function(pageName,language,callback){var cb=typeof language==='function'?language:callback;var lang=cur();var cached=read(lang);var cachedPage=page(cached,pageName);if(cachedPage){deliver(cb,cachedPage);return;}var fallbackPage=page(FALLBACK[lang]||FALLBACK.cn,pageName);var delivered=false;if(fallbackPage){delivered=true;deliver(cb,fallbackPage);}request(lang,function(pack){var realPage=page(pack,pageName);if(realPage&&(!delivered||!same(realPage,fallbackPage)))deliver(cb,realPage);});};"
+        "LSE.install=function(pageName,language,callback){var cb=typeof language==='function'?language:callback;var lang=cur();var cached=read(lang);var cachedPage=page(cached,pageName);if(cachedPage){deliver(cb,cachedPage);return;}request(lang,function(pack){var realPage=page(pack,pageName);if(realPage)deliver(cb,realPage);});};"
         "if(oldSwitch){LSE.switchLanguage=function(lang){var ret=oldSwitch.apply(this,arguments);request(norm(lang),function(){});return ret;};}"
         "}catch(e){}})();\n"
     )
@@ -17501,7 +17498,7 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
         rewritten = rewritten.replace("www.akapi3.com", public_host)
     rewritten = rewritten.replace(
         "/content/js/base.js?v=28",
-        "/content/js/base.js?v=28&ak_static_v=public-rpc-20260614-lang-fast",
+        "/content/js/base.js?v=28&ak_static_v=public-rpc-20260614-lang-full",
     )
     rewritten = rewritten.replace(
         "/content/js/vue-component.js?v=28",
