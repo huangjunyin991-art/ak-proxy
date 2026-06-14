@@ -17140,6 +17140,88 @@ def _patch_vue_component_language_names(text: str) -> str:
     return str(text or "").replace("name: '日本语'", "name: '日本語'")
 
 
+def _build_ak_language_tab_fallbacks() -> dict:
+    fallbacks = {}
+    base_dir = Path(FRONTEND_LANG_DIR).resolve()
+    for local_path in sorted(base_dir.glob("*.json")):
+        code = _normalize_ak_local_language_code(local_path.name)
+        if not code:
+            continue
+        try:
+            data = json.loads(local_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        pack = {}
+        for page_name in ("home", "center"):
+            page_data = data.get(page_name)
+            if not isinstance(page_data, dict):
+                continue
+            tab_data = {
+                key: page_data.get(key)
+                for key in ("BOTTOM_MENU_1", "BOTTOM_MENU_2", "BOTTOM_MENU_3", "BOTTOM_MENU_4")
+                if page_data.get(key) not in (None, "")
+            }
+            if tab_data:
+                pack[page_name] = tab_data
+        if pack:
+            fallbacks[code] = pack
+    return fallbacks
+
+
+def _build_ak_language_cache_version() -> str:
+    base_dir = Path(FRONTEND_LANG_DIR).resolve()
+    newest_mtime = 0
+    total_size = 0
+    for local_path in sorted(base_dir.glob("*.json")):
+        try:
+            stat = local_path.stat()
+        except Exception:
+            continue
+        newest_mtime = max(newest_mtime, int(stat.st_mtime))
+        total_size += int(stat.st_size)
+    return f"{newest_mtime}-{total_size}"
+
+
+def _build_ak_language_fast_cache_script() -> str:
+    fallbacks_json = json.dumps(_build_ak_language_tab_fallbacks(), ensure_ascii=True, separators=(",", ":"))
+    alias_json = json.dumps(_AK_LOCAL_LANGUAGE_ALIASES, ensure_ascii=True, separators=(",", ":"))
+    version_json = json.dumps(_build_ak_language_cache_version(), ensure_ascii=True)
+    return (
+        "\n;(function(){try{"
+        "if(window.__akLseFastCacheInstalled)return;"
+        "window.__akLseFastCacheInstalled=1;"
+        "var FALLBACK=" + fallbacks_json + ";"
+        "var ALIAS=" + alias_json + ";"
+        "var VERSION=" + version_json + ";"
+        "var PREFIX='AK_lang_pack_cache_'+VERSION+'_';"
+        "var mem={},inflight={};"
+        "function norm(lang){lang=String(lang||'cn').toLowerCase();return ALIAS[lang]||lang||'cn';}"
+        "function store(){try{return window.localStorage||null;}catch(e){return null;}}"
+        "function read(lang){lang=norm(lang);if(mem[lang])return mem[lang];var s=store();if(!s)return null;try{var raw=s.getItem(PREFIX+lang);if(!raw)return null;var data=JSON.parse(raw);if(data&&typeof data==='object'){mem[lang]=data;return data;}}catch(e){}return null;}"
+        "function write(lang,data){lang=norm(lang);if(!data||typeof data!=='object')return;mem[lang]=data;var s=store();if(!s)return;try{s.setItem(PREFIX+lang,JSON.stringify(data));}catch(e){}}"
+        "function page(pack,name){return pack&&typeof pack==='object'&&pack[name]&&typeof pack[name]==='object'?pack[name]:null;}"
+        "function same(a,b){try{return JSON.stringify(a)===JSON.stringify(b);}catch(e){return a===b;}}"
+        "function cur(){try{return norm(window.LSE&&typeof LSE.currentLanguage==='function'?LSE.currentLanguage():'cn');}catch(e){return 'cn';}}"
+        "function deliver(cb,data){if(typeof cb==='function'&&data&&typeof data==='object'){try{cb(data);}catch(e){setTimeout(function(){throw e;},0);}}}"
+        "function request(lang,done){lang=norm(lang);var cached=read(lang);if(cached){done(cached);return;}if(inflight[lang]){inflight[lang].push(done);return;}inflight[lang]=[done];try{var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;var data=null;if(xhr.status===200){try{data=JSON.parse(xhr.responseText||xhr.response||'{}');}catch(e){data=null;}if(data&&typeof data==='object')write(lang,data);}var list=inflight[lang]||[];delete inflight[lang];for(var i=0;i<list.length;i++){try{list[i](data||read(lang)||{});}catch(e){}}};xhr.open('GET','/content/lang/'+encodeURIComponent(lang)+'.json?v=27',true);xhr.send();}catch(e){var list=inflight[lang]||[];delete inflight[lang];for(var i=0;i<list.length;i++){try{list[i](read(lang)||{});}catch(_e){}}}}"
+        "if(!window.LSE||typeof LSE.install!=='function')return;"
+        "var oldSwitch=typeof LSE.switchLanguage==='function'?LSE.switchLanguage:null;"
+        "LSE.install=function(pageName,language,callback){var cb=typeof language==='function'?language:callback;var lang=cur();var cached=read(lang);var cachedPage=page(cached,pageName);if(cachedPage){deliver(cb,cachedPage);return;}var fallbackPage=page(FALLBACK[lang]||FALLBACK.cn,pageName);var delivered=false;if(fallbackPage){delivered=true;deliver(cb,fallbackPage);}request(lang,function(pack){var realPage=page(pack,pageName);if(realPage&&(!delivered||!same(realPage,fallbackPage)))deliver(cb,realPage);});};"
+        "if(oldSwitch){LSE.switchLanguage=function(lang){var ret=oldSwitch.apply(this,arguments);request(norm(lang),function(){});return ret;};}"
+        "}catch(e){}})();\n"
+    )
+
+
+def _patch_base_js_language_fast_cache(text: str) -> tuple[str, bool]:
+    if "__akLseFastCacheInstalled" in str(text or ""):
+        return text, False
+    script = _build_ak_language_fast_cache_script()
+    needle = "\nvar allowPages ="
+    if needle in text:
+        return text.replace(needle, script + needle, 1), True
+    return text + script, True
+
+
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
     lowered_content_type = str(content_type or "").lower()
     if not content:
@@ -17150,6 +17232,7 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
+        text, _ = _patch_base_js_language_fast_cache(text)
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
@@ -17899,6 +17982,8 @@ async def ak_web_proxy(request: Request, path: str):
                 base_js_rewritten = base_js_rewritten or ban_countdown_rewritten
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
+            text, lang_cache_rewritten = _patch_base_js_language_fast_cache(text)
+            base_js_rewritten = base_js_rewritten or lang_cache_rewritten
             if base_js_rewritten:
                 _admin_ak_trace(lambda: f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
