@@ -7790,8 +7790,6 @@ async def admin_sub_admin_set(request: Request):
     if error_response is not None:
         return error_response
 
-    await asyncio.sleep(0.3)
-
     try:
 
         data = await request.json()
@@ -7800,31 +7798,12 @@ async def admin_sub_admin_set(request: Request):
 
         return {"success": False, "message": "请求无效"}
 
-    admin_password = data.get('admin_password', '')
-
-    secondary_password = data.get('secondary_password', '')
-
     sub_name = data.get('sub_name', '').strip()
 
     new_sub_password = data.get('new_sub_password', '')
 
     bound_username = data.get('bound_username', '').strip()
 
-
-
-    is_valid, role, _ = verify_admin_password(admin_password)
-
-    if not is_valid or role != ROLE_SUPER_ADMIN:
-
-        await asyncio.sleep(0.7)
-
-        return {"success": False, "message": "系统总管理员密码错误"}
-
-    if not verify_db_password(secondary_password):
-
-        await asyncio.sleep(0.7)
-
-        return {"success": False, "message": "二级密码错误"}
 
     if not sub_name or len(sub_name) > 20:
 
@@ -7879,8 +7858,6 @@ async def admin_sub_admin_bind_account(request: Request):
     if error_response is not None:
         return error_response
 
-    await asyncio.sleep(0.3)
-
     try:
 
         data = await request.json()
@@ -7888,16 +7865,6 @@ async def admin_sub_admin_bind_account(request: Request):
     except Exception:
 
         return {"success": False, "message": "请求无效"}
-
-    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
-
-    if not is_valid or role != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "系统总管理员密码错误"}
-
-    if not verify_db_password(data.get('secondary_password', '')):
-
-        return {"success": False, "message": "二级密码错误"}
 
     sub_name = data.get('sub_name', '').strip()
 
@@ -7951,8 +7918,6 @@ async def admin_sub_admin_update_perms(request: Request):
     if error_response is not None:
         return error_response
 
-    await asyncio.sleep(0.3)
-
     try:
 
         data = await request.json()
@@ -7960,12 +7925,6 @@ async def admin_sub_admin_update_perms(request: Request):
     except Exception:
 
         return {"success": False, "message": "请求无效"}
-
-    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
-
-    if not is_valid or role != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "需要系统总管理员密码"}
 
     sub_name = data.get('sub_name', '').strip()
 
@@ -8007,8 +7966,6 @@ async def admin_sub_admin_delete(request: Request):
     if error_response is not None:
         return error_response
 
-    await asyncio.sleep(0.3)
-
     try:
 
         data = await request.json()
@@ -8016,16 +7973,6 @@ async def admin_sub_admin_delete(request: Request):
     except Exception:
 
         return {"success": False, "message": "请求无效"}
-
-    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
-
-    if not is_valid or role != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "系统总管理员密码错误"}
-
-    if not verify_db_password(data.get('secondary_password', '')):
-
-        return {"success": False, "message": "二级密码错误"}
 
     sub_name = data.get('sub_name', '').strip()
 
@@ -8057,8 +8004,6 @@ async def admin_sub_admin_kick(request: Request):
     if error_response is not None:
         return error_response
 
-    await asyncio.sleep(0.3)
-
     try:
 
         data = await request.json()
@@ -8066,12 +8011,6 @@ async def admin_sub_admin_kick(request: Request):
     except Exception:
 
         return {"success": False, "message": "请求无效"}
-
-    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
-
-    if not is_valid or role != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "系统总管理员密码错误"}
 
     sub_name = data.get('sub_name', '').strip()
 
