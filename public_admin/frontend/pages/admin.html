@@ -3860,42 +3860,92 @@
         .operation-auth-duration-select .theme-select-trigger {
             width: 100%;
             min-width: 0;
-            height: 44px;
-            padding: 0 16px;
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 10px;
+            height: 48px;
+            padding: 0 14px 0 16px;
+            background: linear-gradient(180deg, rgba(12, 25, 39, 0.98), rgba(7, 16, 27, 0.98));
+            border: 1px solid rgba(0, 212, 255, 0.24);
+            border-radius: 12px;
             box-sizing: border-box;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            color: var(--text-primary);
+            font-weight: 700;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+        }
+        .operation-auth-duration-select .theme-select-trigger:hover {
+            border-color: rgba(0, 212, 255, 0.5);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
         .operation-auth-duration-select.open .theme-select-trigger {
-            border-color: rgba(255, 215, 0, 0.78);
-            border-bottom-color: rgba(255, 215, 0, 0.35);
-            border-radius: 10px 10px 0 0;
-            box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.14);
+            border-color: rgba(0, 212, 255, 0.72);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12), 0 10px 28px rgba(0, 0, 0, 0.22);
+        }
+        .operation-auth-duration-select .theme-select-arrow {
+            color: var(--accent);
+            transition: transform 0.18s ease;
+        }
+        .operation-auth-duration-select.open .theme-select-arrow {
+            transform: rotate(180deg);
         }
         .operation-auth-duration-select .theme-select-menu {
-            top: calc(100% - 1px);
+            top: calc(100% + 8px);
             width: 100%;
             min-width: 0;
-            max-height: 230px;
+            max-height: 212px;
             overflow-y: auto;
-            padding: 6px;
-            background: #101826;
-            border-color: rgba(255, 215, 0, 0.55);
-            border-top-color: rgba(255, 215, 0, 0.18);
-            border-radius: 0 0 10px 10px;
+            padding: 8px;
+            background: rgba(9, 18, 31, 0.98);
+            border: 1px solid rgba(0, 212, 255, 0.32);
+            border-radius: 12px;
             box-sizing: border-box;
+            box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+            backdrop-filter: blur(10px);
+            z-index: 100003;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 212, 255, 0.8) rgba(255, 255, 255, 0.05);
+        }
+        .operation-auth-duration-select .theme-select-menu::-webkit-scrollbar {
+            width: 7px;
+        }
+        .operation-auth-duration-select .theme-select-menu::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 999px;
+        }
+        .operation-auth-duration-select .theme-select-menu::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(0, 212, 255, 0.95), rgba(0, 151, 193, 0.95));
+            border-radius: 999px;
         }
         .operation-auth-duration-select .theme-select-item {
+            position: relative;
             width: 100%;
             box-sizing: border-box;
-            padding: 9px 12px;
-            border-radius: 7px;
+            padding: 10px 38px 10px 14px;
+            border-radius: 9px;
             font-size: 15px;
+            line-height: 1.35;
+            color: rgba(236, 248, 255, 0.92);
+            border: 1px solid transparent;
+        }
+        .operation-auth-duration-select .theme-select-item:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.18);
+            color: #fff;
         }
         .operation-auth-duration-select .theme-select-item.active {
-            background: linear-gradient(135deg, rgba(45, 108, 223, 0.9), rgba(27, 98, 210, 0.92));
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.24), rgba(16, 185, 129, 0.18));
+            border-color: rgba(0, 212, 255, 0.32);
             color: #fff;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+        .operation-auth-duration-select .theme-select-item.active::after {
+            content: '';
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            width: 8px;
+            height: 4px;
+            border-left: 2px solid var(--accent);
+            border-bottom: 2px solid var(--accent);
+            transform: translateY(-60%) rotate(-45deg);
         }
     </style>
     <link rel="stylesheet" href="/admin/api/admin-theme.css?v=20260508-01">
