@@ -4640,8 +4640,8 @@
                     </div>
                     <div style="display: flex; align-items: center; gap: 16px; flex-shrink: 0;">
                         <div id="wlGlobalStatus" style="padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.3px;">检测中...</div>
-                        <button id="wlGlobalToggleBtn" onclick="toggleWhitelistGlobal()" style="position: relative; width: 52px; height: 28px; border-radius: 14px; border: none; cursor: pointer; transition: all 0.3s ease; outline: none;" disabled>
-                            <span id="wlGlobalToggleKnob" style="position: absolute; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: white; transition: all 0.3s ease; box-shadow: 0 1px 4px rgba(0,0,0,0.3);"></span>
+                        <button id="wlGlobalToggleBtn" onclick="toggleWhitelistGlobal()" style="position: relative; width: 52px; height: 28px; border-radius: 14px; border: 1px solid rgba(0,212,255,0.36); cursor: pointer; transition: all 0.3s ease; outline: none; background: linear-gradient(135deg, rgba(0,212,255,0.58), rgba(0,255,136,0.42)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18);" disabled>
+                            <span id="wlGlobalToggleKnob" style="position: absolute; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #ffffff, #dffbff); transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.32);"></span>
                         </button>
                     </div>
                 </div>
@@ -4654,8 +4654,8 @@
                         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                             <span id="loginSessionPolicyScope" style="font-size:12px; color:var(--text-secondary);"></span>
                             <span id="loginSessionPolicyStatus" style="font-size:12px; padding:5px 12px; border-radius:999px; color:var(--accent-green); background:rgba(0,255,136,0.12);">关闭</span>
-                            <button id="loginSessionPolicyToggle" class="btn" onclick="toggleLoginSessionPolicy()" style="width:56px;height:30px;border-radius:999px;padding:0;border:1px solid rgba(0,255,136,0.28);background:rgba(0,255,136,0.18);position:relative;">
-                                <span id="loginSessionPolicyKnob" style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.25);transition:left .18s ease;"></span>
+                            <button id="loginSessionPolicyToggle" class="btn" onclick="toggleLoginSessionPolicy()" style="width:56px;height:30px;border-radius:999px;padding:0;border:1px solid rgba(0,212,255,0.36);background:linear-gradient(135deg, rgba(0,212,255,0.58), rgba(0,255,136,0.42));position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18);">
+                                <span id="loginSessionPolicyKnob" style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#ffffff,#dffbff);box-shadow:0 2px 8px rgba(0,0,0,0.32);transition:left .18s ease;"></span>
                             </button>
                         </div>
                     </div>
@@ -10924,8 +10924,13 @@
                 statusEl.style.background = enabled ? 'rgba(0,212,255,0.14)' : 'rgba(0,255,136,0.12)';
             }
             if (btnEl) {
-                btnEl.style.background = enabled ? 'rgba(0,212,255,0.26)' : 'rgba(0,255,136,0.18)';
-                btnEl.style.borderColor = enabled ? 'rgba(0,212,255,0.42)' : 'rgba(0,255,136,0.28)';
+                btnEl.style.background = enabled
+                    ? 'linear-gradient(135deg, rgba(0,212,255,0.88), rgba(0,180,255,0.68))'
+                    : 'linear-gradient(135deg, rgba(0,212,255,0.56), rgba(0,255,136,0.38))';
+                btnEl.style.borderColor = enabled ? 'rgba(0,212,255,0.62)' : 'rgba(0,212,255,0.36)';
+                btnEl.style.boxShadow = enabled
+                    ? 'inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 22px rgba(0,212,255,0.16)'
+                    : 'inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18)';
                 btnEl.disabled = false;
             }
             if (knobEl) knobEl.style.left = enabled ? '31px' : '3px';
@@ -11001,7 +11006,9 @@
                 statusEl.style.color = '#ffa502';
                 statusEl.style.background = 'rgba(255,165,2,0.12)';
                 iconEl.style.background = 'linear-gradient(135deg, #ffa502, #e67e22)';
-                btnEl.style.background = '#3a3a3a';
+                btnEl.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.56), rgba(0,255,136,0.38))';
+                btnEl.style.borderColor = 'rgba(0,212,255,0.36)';
+                btnEl.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18)';
                 knobEl.style.left = '3px';
                 descEl.innerHTML = '当前所有人可登录AK服务器，点击开关让白名单生效';
             } else {
@@ -11009,7 +11016,9 @@
                 statusEl.style.color = '#00ff88';
                 statusEl.style.background = 'rgba(0,255,136,0.12)';
                 iconEl.style.background = 'linear-gradient(135deg, #00ff88, #00cc6a)';
-                btnEl.style.background = '#00cc6a';
+                btnEl.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.88), rgba(0,255,136,0.68))';
+                btnEl.style.borderColor = 'rgba(0,212,255,0.62)';
+                btnEl.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 22px rgba(0,212,255,0.16)';
                 knobEl.style.left = '27px';
                 descEl.innerHTML = '当前仅白名单用户可登录，点击开关取消白名单生效';
             }
