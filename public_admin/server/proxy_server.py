@@ -17266,7 +17266,7 @@ def _rewrite_base_js_script_version(text: str) -> str:
     version = _build_ak_language_pack_cache_version()
     return re.sub(
         r"(/content/js/base\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
-        rf"\1&ak_static_v=public-rpc-20260616-lang-{version}",
+        rf"\1&ak_static_v=public-rpc-20260616-lang-v2-{version}",
         str(text or ""),
     )
 
