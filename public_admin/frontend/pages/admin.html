@@ -4595,6 +4595,21 @@
                         </button>
                     </div>
                 </div>
+                <div id="loginSessionPolicySection" style="display:none; margin-bottom: 20px; background: linear-gradient(135deg, rgba(0, 212, 255, 0.08), rgba(0, 255, 136, 0.08)); border: 1px solid rgba(0, 212, 255, 0.22); border-radius: 16px; padding: 18px 22px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+                        <div style="min-width:220px; flex:1;">
+                            <div style="font-size:15px; font-weight:700; color:var(--text-primary); margin-bottom:4px;">共享登录态</div>
+                            <div id="loginSessionPolicyDesc" style="font-size:12px; color:var(--text-secondary); line-height:1.6;">关闭时，同一账号仅最后登录设备有效。</div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <span id="loginSessionPolicyScope" style="font-size:12px; color:var(--text-secondary);"></span>
+                            <span id="loginSessionPolicyStatus" style="font-size:12px; padding:5px 12px; border-radius:999px; color:var(--accent-green); background:rgba(0,255,136,0.12);">关闭</span>
+                            <button id="loginSessionPolicyToggle" class="btn" onclick="toggleLoginSessionPolicy()" style="width:56px;height:30px;border-radius:999px;padding:0;border:1px solid rgba(0,255,136,0.28);background:rgba(0,255,136,0.18);position:relative;">
+                                <span id="loginSessionPolicyKnob" style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.25);transition:left .18s ease;"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
                 <div class="wl-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                     <h3 style="color: var(--accent); margin: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 授权白名单</h3>
                     <div class="wl-toolbar" style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
@@ -4846,7 +4861,7 @@
         <div class="panel" id="settings">
             <div>
                 <h3 style="margin-bottom: 15px; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 系统设置</h3>
-                
+
                 <!-- 子管理员管理（仅系统总管理可见） -->
                 <div id="subAdminSection" class="subadmin-section" style="display: none;">
                     <div class="subadmin-shell">
@@ -8146,7 +8161,6 @@
         ];
 
         const PERM_LABELS = Object.fromEntries(SUB_ADMIN_PERMISSION_DEFS.map(item => [item.key, item.label]));
-        const SUB_ADMIN_LEGACY_VISIBLE_PANELS = new Set(['whitelist', 'riskIsolation', 'contacts', 'credits', 'meetings']);
         const SUB_ADMIN_SUPER_ONLY_PANELS = new Set(['settings']);
 
         function getSubAdminPermissionKeys() {
@@ -8167,7 +8181,21 @@
         function isSubAdminPanelAllowed(tabName, perms) {
             if (SUB_ADMIN_SUPER_ONLY_PANELS.has(tabName)) return false;
             if (Object.prototype.hasOwnProperty.call(perms || {}, tabName)) return !!perms[tabName];
-            return SUB_ADMIN_LEGACY_VISIBLE_PANELS.has(tabName);
+            return false;
+        }
+
+        function getCurrentAdminPermissions() {
+            try {
+                return JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function canOpenAdminPanel(panelName) {
+            if (!panelName) return false;
+            if (isSuperAdmin()) return true;
+            return isSubAdminPanelAllowed(panelName, getCurrentAdminPermissions());
         }
         
         // 当前选中的子管理员
@@ -8990,6 +9018,13 @@
         requestAnimationFrame(syncMobileTableStickyOffsets);
 
         function loadPanelData(panelName) {
+            if (!canOpenAdminPanel(panelName)) {
+                const firstAllowed = getFirstAllowedTab();
+                if (firstAllowed && firstAllowed.dataset.panel && firstAllowed.dataset.panel !== panelName) {
+                    setActivePanelState(firstAllowed.dataset.panel);
+                }
+                return;
+            }
             if (panelName === 'dashboard') {
                 startDashboard();
             } else {
@@ -9050,6 +9085,10 @@
         // 标签页切换
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
+                if (tab.dataset.allowed === '0' || !canOpenAdminPanel(tab.dataset.panel)) {
+                    restoreActivePanel();
+                    return;
+                }
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
                 
@@ -10886,11 +10925,75 @@
         let wlExpiringList = [];
         let wlSearchTimer = null;
         let wlSearchComposing = false;
+        let loginSessionPolicy = { shared_login_state_enabled: false, scope: '' };
         const WL_EXPIRING_DAYS = 7;
 
         function syncWhitelistGlobalControlVisibility() {
             const panel = document.getElementById('wlGlobalSwitch');
             if (panel) panel.style.display = isSuperAdmin() ? 'flex' : 'none';
+        }
+
+        function updateLoginSessionPolicyUI(data) {
+            loginSessionPolicy = Object.assign({ shared_login_state_enabled: false, scope: '' }, data || {});
+            const section = document.getElementById('loginSessionPolicySection');
+            const statusEl = document.getElementById('loginSessionPolicyStatus');
+            const knobEl = document.getElementById('loginSessionPolicyKnob');
+            const btnEl = document.getElementById('loginSessionPolicyToggle');
+            const descEl = document.getElementById('loginSessionPolicyDesc');
+            const scopeEl = document.getElementById('loginSessionPolicyScope');
+            if (section) section.style.display = 'block';
+            const enabled = !!loginSessionPolicy.shared_login_state_enabled;
+            if (statusEl) {
+                statusEl.textContent = enabled ? '开启' : '关闭';
+                statusEl.style.color = enabled ? '#00d4ff' : 'var(--accent-green)';
+                statusEl.style.background = enabled ? 'rgba(0,212,255,0.14)' : 'rgba(0,255,136,0.12)';
+            }
+            if (btnEl) {
+                btnEl.style.background = enabled ? 'rgba(0,212,255,0.26)' : 'rgba(0,255,136,0.18)';
+                btnEl.style.borderColor = enabled ? 'rgba(0,212,255,0.42)' : 'rgba(0,255,136,0.28)';
+                btnEl.disabled = false;
+            }
+            if (knobEl) knobEl.style.left = enabled ? '31px' : '3px';
+            const isGlobal = loginSessionPolicy.scope === 'global';
+            if (scopeEl) scopeEl.textContent = isGlobal ? '全体账号' : '我的白名单';
+            if (descEl) {
+                descEl.textContent = isGlobal
+                    ? '总管理员开启后，全体账号允许多设备同时保持登录；关闭后默认单设备登录。'
+                    : '开启后，仅你白名单下的账号允许多设备同时保持登录；关闭后默认单设备登录。';
+            }
+        }
+
+        async function loadLoginSessionPolicy() {
+            const section = document.getElementById('loginSessionPolicySection');
+            if (section) section.style.display = 'none';
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/login-session-policy`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || '加载共享登录态失败');
+                updateLoginSessionPolicyUI(data);
+            } catch (e) {
+                if (section) section.style.display = 'none';
+            }
+        }
+
+        async function toggleLoginSessionPolicy() {
+            const btnEl = document.getElementById('loginSessionPolicyToggle');
+            const nextEnabled = !loginSessionPolicy.shared_login_state_enabled;
+            if (btnEl) btnEl.disabled = true;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/login-session-policy`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({shared_login_state_enabled: nextEnabled})
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || '设置失败');
+                updateLoginSessionPolicyUI(data);
+                showToast(data.message || '共享登录态已保存');
+            } catch (e) {
+                showToast('共享登录态设置失败: ' + (e.message || '未知错误'), 'error');
+                if (btnEl) btnEl.disabled = false;
+            }
         }
 
         async function loadWhitelistGlobalStatus() {
@@ -11685,7 +11788,10 @@
         }
 
         async function loadWhitelist(page = 0) {
-            if (page === 0) loadWhitelistGlobalStatus();
+            if (page === 0) {
+                loadWhitelistGlobalStatus();
+                loadLoginSessionPolicy();
+            }
             wlPage = page;
             const search = document.getElementById('wlSearch').value.trim();
             const params = new URLSearchParams({limit: 50, offset: page * 50});

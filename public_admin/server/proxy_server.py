@@ -2848,6 +2848,7 @@ async def proxy_login(request: Request):
     if is_success:
 
         _attach_browser_login_identity_cookies(resp, request, login_identity_username or account)
+        await _activate_login_device(resp, request, login_identity_username or account)
 
     _record_request_metric(
         kind="rpc",
@@ -2896,6 +2897,13 @@ async def proxy_index_data(request: Request):
     client_params = dict(params or {})
     client_raw_body = raw_body
     auth_cookie_header = ""
+    stale_device_response = await _build_stale_login_device_response(
+        request,
+        request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
+        "rpc:public_IndexData",
+    )
+    if stale_device_response is not None:
+        return stale_device_response
     params, raw_body, patched_auth_cookies, auth_patched = await _patch_public_rpc_auth_from_cookie(
         "public_IndexData",
         request,
@@ -3200,6 +3208,14 @@ async def proxy_rpc(path: str, request: Request):
 
     params = parse_request_params(content_type, dict(request.query_params), raw_body)
     auth_cookie_header = ""
+    if path.strip("/").lower() not in PUBLIC_RPC_AUTH_SKIP_PATHS:
+        stale_device_response = await _build_stale_login_device_response(
+            request,
+            request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
+            f"rpc:{path}",
+        )
+        if stale_device_response is not None:
+            return stale_device_response
     params, raw_body, patched_auth_cookies, auth_patched = await _patch_public_rpc_auth_from_cookie(
         path,
         request,
@@ -4842,6 +4858,31 @@ async def _require_admin_token(request: Request, permission: str = '', super_adm
     return token, None
 
 
+async def _require_admin_token_any(request: Request, permissions: tuple[str, ...] = (), super_admin_only: bool = False):
+    token, error_response = await _require_admin_token(request, super_admin_only=super_admin_only)
+    if error_response is not None:
+        return token, error_response
+    if permissions and not any(check_token_permission(token, item) for item in permissions):
+        return token, JSONResponse(status_code=403, content={"error": True, "message": "权限不足"})
+    return token, None
+
+
+async def _require_admin_identity(request: Request, permission: str = '', super_admin_only: bool = False):
+    token, error_response = await _require_admin_token(
+        request,
+        permission=permission,
+        super_admin_only=super_admin_only,
+    )
+    if error_response is not None:
+        return '', '', '', error_response
+    role = get_token_role(token) or ''
+    if role == ROLE_SUPER_ADMIN:
+        return token, role, '__super__', None
+    if role == ROLE_SUB_ADMIN:
+        return token, role, get_token_sub_name(token) or '', None
+    return token, role, '', None
+
+
 
 async def kick_sub_admins(target_name: str = None) -> int:
 
@@ -5627,6 +5668,128 @@ def _attach_browser_login_identity_cookies(response, request: Request, username:
     return normalized_username
 
 
+_AK_LOGIN_DEVICE_COOKIE = "ak_login_device_id"
+
+
+def _normalize_login_device_id(value: str) -> str:
+    text = str(value or "").strip()
+    if len(text) < 16 or len(text) > 128:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._~-]+", text):
+        return ""
+    return text
+
+
+def _request_login_device_id(request: Request) -> str:
+    return _normalize_login_device_id(request.cookies.get(_AK_LOGIN_DEVICE_COOKIE) or "")
+
+
+def _resolve_or_create_login_device_id(request: Request) -> str:
+    return _request_login_device_id(request) or secrets.token_urlsafe(24)
+
+
+def _set_login_device_cookie(response, device_id: str) -> None:
+    normalized = _normalize_login_device_id(device_id)
+    if not normalized:
+        return
+    response.set_cookie(
+        key=_AK_LOGIN_DEVICE_COOKIE,
+        value=normalized,
+        max_age=86400 * 365,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+_SHARED_LOGIN_POLICY_CACHE = {"expires": 0.0, "policy": None}
+
+
+async def _get_shared_login_state_policy_cached(force: bool = False) -> dict:
+    now = time.time()
+    cached = _SHARED_LOGIN_POLICY_CACHE.get("policy")
+    if not force and isinstance(cached, dict) and now < float(_SHARED_LOGIN_POLICY_CACHE.get("expires") or 0):
+        return cached
+    try:
+        policy = await db.get_shared_login_state_policy()
+    except Exception as exc:
+        logger.warning(f"[LoginDevice] 读取共享登录态配置失败，按关闭处理: {exc}")
+        policy = {"global_enabled": False, "sub_admins": {}}
+    if not isinstance(policy, dict):
+        policy = {"global_enabled": False, "sub_admins": {}}
+    sub_admins = policy.get("sub_admins")
+    if not isinstance(sub_admins, dict):
+        sub_admins = {}
+    normalized = {
+        "global_enabled": bool(policy.get("global_enabled", False)),
+        "sub_admins": {
+            str(key or "").strip().lower(): bool(value)
+            for key, value in sub_admins.items()
+            if str(key or "").strip()
+        },
+    }
+    _SHARED_LOGIN_POLICY_CACHE["policy"] = normalized
+    _SHARED_LOGIN_POLICY_CACHE["expires"] = now + 10
+    return normalized
+
+
+def _invalidate_shared_login_state_policy_cache() -> None:
+    _SHARED_LOGIN_POLICY_CACHE["expires"] = 0.0
+    _SHARED_LOGIN_POLICY_CACHE["policy"] = None
+
+
+async def _shared_login_state_enabled_for_username(username: str) -> bool:
+    normalized_username = online_manager.normalize_username(username)
+    if not normalized_username:
+        return False
+    policy = await _get_shared_login_state_policy_cached()
+    if bool(policy.get("global_enabled")):
+        return True
+    sub_admins = policy.get("sub_admins") if isinstance(policy.get("sub_admins"), dict) else {}
+    if not any(bool(value) for value in sub_admins.values()):
+        return False
+    try:
+        account = await db.get_authorized_account(normalized_username)
+    except Exception as exc:
+        logger.warning(f"[LoginDevice] 读取白名单归属失败 username={normalized_username}: {exc}")
+        return False
+    owner = str((account or {}).get("added_by") or "").strip().lower()
+    return bool(owner and sub_admins.get(owner, False))
+
+
+async def _activate_login_device(response, request: Request, username: str) -> str:
+    normalized_username = online_manager.normalize_username(username)
+    if not normalized_username:
+        return ""
+    device_id = _resolve_or_create_login_device_id(request)
+    _set_login_device_cookie(response, device_id)
+    try:
+        await db.set_active_login_device_id(normalized_username, device_id)
+    except Exception as exc:
+        logger.warning(f"[LoginDevice] 保存激活设备失败 username={normalized_username}: {exc}")
+    return device_id
+
+
+async def _build_stale_login_device_response(request: Request, username: str, source: str):
+    normalized_username = online_manager.normalize_username(username)
+    if not normalized_username or await _shared_login_state_enabled_for_username(normalized_username):
+        return None
+    request_device_id = _request_login_device_id(request)
+    try:
+        active_device_id = await db.get_active_login_device_id(normalized_username)
+    except Exception as exc:
+        logger.warning(f"[LoginDevice] 校验激活设备失败 username={normalized_username} source={source}: {exc}")
+        return None
+    if not active_device_id:
+        return None
+    if request_device_id == active_device_id:
+        return None
+    logger.warning(
+        f"[LoginDevice] reject_stale username={normalized_username} source={source} "
+        f"has_request_device={int(bool(request_device_id))}"
+    )
+    return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
+
+
 def _get_ws_ticket_ttl_seconds() -> int:
     try:
         return int(str(os.environ.get('WS_TICKET_TTL_SECONDS') or '45').strip() or 45)
@@ -5746,7 +5909,7 @@ async def _require_admin_account_scope(token: str, username: str) -> tuple[Optio
 
 async def _require_notify_center_admin_user_scope(request: Request, username: str) -> Optional[JSONResponse]:
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
 
     if error_response is not None:
 
@@ -8543,7 +8706,7 @@ async def admin_whitelist_list(request: Request, limit: int = 100, offset: int =
 
                                 status: str = None, search: str = None):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
     if error_response is not None:
         return error_response
 
@@ -8563,7 +8726,7 @@ async def admin_whitelist_list(request: Request, limit: int = 100, offset: int =
 
 async def admin_whitelist_add(request: Request):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
     if error_response is not None:
         return error_response
 
@@ -8641,7 +8804,7 @@ async def admin_whitelist_add(request: Request):
 
 async def admin_whitelist_nickname(request: Request):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
     if error_response is not None:
         return error_response
 
@@ -8685,7 +8848,7 @@ async def admin_whitelist_nickname(request: Request):
 
 async def admin_whitelist_renew(request: Request):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
     if error_response is not None:
         return error_response
 
@@ -8777,7 +8940,7 @@ async def admin_whitelist_renew(request: Request):
 
 async def admin_whitelist_delete(request: Request):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
     if error_response is not None:
         return error_response
 
@@ -8811,7 +8974,7 @@ async def admin_whitelist_delete(request: Request):
 
 async def admin_whitelist_expiring(request: Request, days: int = 7):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'whitelist')
     if error_response is not None:
         return error_response
 
@@ -8826,7 +8989,7 @@ async def admin_whitelist_expiring(request: Request, days: int = 7):
 
 
 async def _resolve_meeting_admin_context(request: Request):
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'meetings')
     if error_response is not None:
         return None, error_response
     role = get_token_role(token)
@@ -9101,6 +9264,69 @@ async def admin_whitelist_set_global(request: Request):
     except Exception as e:
         logger.error(f"[Whitelist] 设置全局开关失败: {e}")
         return {"success": False, "message": f"设置失败: {str(e)}"}
+
+
+@app.get("/admin/api/login-session-policy")
+async def admin_login_session_policy(request: Request):
+    token, error_response = await _require_admin_token(request, 'whitelist')
+    if error_response is not None:
+        return error_response
+    role = get_token_role(token)
+    sub_name = str(get_token_sub_name(token) or "").strip().lower()
+    policy = await _get_shared_login_state_policy_cached(force=True)
+    sub_admins = policy.get("sub_admins") if isinstance(policy.get("sub_admins"), dict) else {}
+    if role == ROLE_SUPER_ADMIN:
+        scope = "global"
+        enabled = bool(policy.get("global_enabled", False))
+    else:
+        if not sub_name:
+            return JSONResponse(status_code=403, content={"success": False, "message": "子管理员身份无效"})
+        scope = "sub_admin"
+        enabled = bool(sub_admins.get(sub_name, False))
+    return {
+        "success": True,
+        "shared_login_state_enabled": bool(enabled),
+        "scope": scope,
+        "sub_name": sub_name if scope == "sub_admin" else "",
+        "global_enabled": bool(policy.get("global_enabled", False)),
+        "description": "共享登录态开启后，同一账号允许多个设备同时保持登录；关闭后仅最后登录设备有效。",
+    }
+
+
+@app.post("/admin/api/login-session-policy")
+async def admin_login_session_policy_update(request: Request):
+    token, error_response = await _require_admin_token(request, 'whitelist')
+    if error_response is not None:
+        return error_response
+    role = get_token_role(token)
+    sub_name = str(get_token_sub_name(token) or "").strip().lower()
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    enabled = bool(data.get("shared_login_state_enabled"))
+    policy = await _get_shared_login_state_policy_cached(force=True)
+    sub_admins = policy.get("sub_admins") if isinstance(policy.get("sub_admins"), dict) else {}
+    sub_admins = dict(sub_admins)
+    if role == ROLE_SUPER_ADMIN:
+        policy["global_enabled"] = enabled
+        scope = "global"
+    else:
+        if not sub_name:
+            return JSONResponse(status_code=403, content={"success": False, "message": "子管理员身份无效"})
+        sub_admins[sub_name] = enabled
+        policy["sub_admins"] = sub_admins
+        scope = "sub_admin"
+    ok = await db.set_shared_login_state_policy(policy)
+    if not ok:
+        return JSONResponse(status_code=500, content={"success": False, "message": "设置失败"})
+    _invalidate_shared_login_state_policy_cache()
+    return {
+        "success": True,
+        "shared_login_state_enabled": enabled,
+        "scope": scope,
+        "message": "共享登录态已开启" if enabled else "共享登录态已关闭",
+    }
 async def _admin_ai_internal_proxy(request: Request, method: str, path: str, payload: dict | None = None, timeout: float = 15.0):
 
     _, error_response = await _require_admin_token(request, super_admin_only=True)
@@ -9365,11 +9591,9 @@ async def admin_ai_redeem_code_create(request: Request):
 @app.get("/admin/api/im/groups")
 async def admin_im_groups(request: Request, search: str = ''):
 
-    token, role, identity = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, role, identity, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     if not _is_im_admin_role(role):
 
@@ -9428,11 +9652,9 @@ async def admin_im_groups(request: Request, search: str = ''):
 @app.get("/admin/api/im/groups/detail")
 async def admin_im_group_detail(request: Request, conversation_id: int = 0, owner_username: str = ''):
 
-    token, role, identity = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, role, identity, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     group_row = await _find_im_group_conversation(conversation_id=conversation_id, owner_username=_normalize_im_group_owner_username(owner_username))
 
@@ -9475,11 +9697,9 @@ async def admin_im_group_detail(request: Request, conversation_id: int = 0, owne
 @app.post("/admin/api/im/groups/owner/transfer")
 async def admin_im_group_owner_transfer(request: Request):
 
-    token, role, identity = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, role, identity, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -9564,11 +9784,9 @@ async def admin_im_group_owner_transfer(request: Request):
 @app.get("/admin/api/im/groups/admins")
 async def admin_im_group_admins(request: Request, conversation_id: int = 0, owner_username: str = ''):
 
-    token, role, identity = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, role, identity, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     group_row = await _find_im_group_conversation(conversation_id=conversation_id, owner_username=_normalize_im_group_owner_username(owner_username))
 
@@ -9609,11 +9827,9 @@ async def admin_im_group_admins(request: Request, conversation_id: int = 0, owne
 @app.post("/admin/api/im/groups/admins/replace")
 async def admin_im_group_admins_replace(request: Request):
 
-    token, role, identity = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, role, identity, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -9693,11 +9909,9 @@ async def admin_im_group_admins_replace(request: Request):
 @app.get("/admin/api/im/emoji_assets")
 async def admin_im_emoji_assets(request: Request):
 
-    token, _, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, _, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -9729,11 +9943,9 @@ async def admin_im_emoji_assets(request: Request):
 @app.post("/admin/api/im/emoji_assets/import")
 async def admin_im_emoji_assets_import(request: Request):
 
-    token, role, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, role, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     if role != ROLE_SUPER_ADMIN:
 
@@ -9785,11 +9997,9 @@ async def admin_im_emoji_assets_import(request: Request):
 @app.post("/admin/api/im/emoji_assets/upload")
 async def admin_im_emoji_assets_upload(request: Request, files: Optional[list[UploadFile]] = File(None)):
 
-    token, role, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, role, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     if role != ROLE_SUPER_ADMIN:
 
@@ -9849,11 +10059,9 @@ async def admin_im_emoji_assets_upload(request: Request, files: Optional[list[Up
 @app.get("/admin/api/im/file_assets/config")
 async def admin_im_file_assets_config(request: Request):
 
-    token, _, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, _, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     status_code, body = await _get_im_internal_json("/im/internal/file_assets/config")
 
@@ -9891,11 +10099,9 @@ async def admin_im_file_assets_config(request: Request):
 @app.post("/admin/api/im/file_assets/config")
 async def admin_im_file_assets_config_update(request: Request):
 
-    token, role, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, role, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     if role != ROLE_SUPER_ADMIN:
 
@@ -9960,11 +10166,9 @@ async def admin_im_file_assets_config_update(request: Request):
 @app.get("/admin/api/im/image_upload/config")
 async def admin_im_image_upload_config(request: Request):
 
-    token, _, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, _, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     status_code, body = await _get_im_internal_json("/im/internal/image_upload/config")
 
@@ -10029,11 +10233,9 @@ async def admin_im_image_upload_config(request: Request):
 @app.post("/admin/api/im/image_upload/config")
 async def admin_im_image_upload_config_update(request: Request):
 
-    token, role, _ = await _resolve_admin_identity(request)
-
-    if not token:
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, role, _, error_response = await _require_admin_identity(request, 'contacts')
+    if error_response is not None:
+        return error_response
 
     if role != ROLE_SUPER_ADMIN:
 
@@ -10178,7 +10380,7 @@ async def admin_im_image_upload_config_update(request: Request):
 
 async def admin_credits_config(request: Request):
 
-    _, error_response = await _require_admin_token(request)
+    _, error_response = await _require_admin_token_any(request, ('credits', 'whitelist'))
     if error_response is not None:
         return error_response
 
@@ -10244,7 +10446,7 @@ async def admin_credits_overview(request: Request):
 
 async def admin_credits_balance(request: Request):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token_any(request, ('credits', 'whitelist'))
     if error_response is not None:
         return error_response
 
@@ -10308,7 +10510,7 @@ async def admin_credits_transactions(request: Request, admin_name: str = None,
 
                                       limit: int = 50, offset: int = 0):
 
-    token, error_response = await _require_admin_token(request)
+    token, error_response = await _require_admin_token(request, 'credits')
     if error_response is not None:
         return error_response
 
@@ -16398,6 +16600,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
                 proxy_response = JSONResponse(content=result, status_code=200)
                 login_identity_username = _extract_login_result_username(result, account) or account
                 _attach_browser_login_identity_cookies(proxy_response, request, login_identity_username)
+                await _activate_login_device(proxy_response, request, login_identity_username)
                 response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
                 total_ms = _elapsed_ms(request_started_at)
                 _schedule_remote_assist_proxy_event(
@@ -16498,6 +16701,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         if is_login_success:
             login_identity_username = _extract_login_result_username(result, account) or account
             _attach_browser_login_identity_cookies(proxy_response, request, login_identity_username)
+            await _activate_login_device(proxy_response, request, login_identity_username)
         response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         total_ms = _elapsed_ms(request_started_at)
         _schedule_remote_assist_proxy_event(
@@ -16583,6 +16787,14 @@ async def admin_ak_rpc(path: str, request: Request):
     if not session.get("auth_ticket_validated") and path.strip("/").lower() != "login":
         logger.warning(f"[AdminAkRpc/{path}] invalid_ticket bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"}, status_code=401)
+    if path.strip("/").lower() != "login":
+        stale_device_response = await _build_stale_login_device_response(
+            request,
+            session.get("username") or request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
+            f"admin_ak_rpc:{path}",
+        )
+        if stale_device_response is not None:
+            return stale_device_response
 
     try:
         return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)

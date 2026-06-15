@@ -705,6 +705,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_login_payload TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_updated_at TIMESTAMP")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_expires_at TIMESTAMP")
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS active_login_device_id TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS real_name TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_count INTEGER DEFAULT 0")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_first_seen TIMESTAMP")
@@ -1293,6 +1294,35 @@ async def clear_user_saved_password(username: str) -> bool:
             WHERE username = $1
         ''', username)
         return int(result.split()[-1]) > 0
+
+
+async def set_active_login_device_id(username: str, device_id: str) -> bool:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    normalized_device_id = str(device_id or '').strip()
+    if not normalized_username or not normalized_device_id:
+        return False
+    async with pool.acquire() as conn:
+        result = await conn.execute('''
+            INSERT INTO user_stats (username, active_login_device_id)
+            VALUES ($1, $2)
+            ON CONFLICT(username) DO UPDATE SET
+                active_login_device_id = $2
+        ''', normalized_username, normalized_device_id)
+        return int(result.split()[-1]) > 0
+
+
+async def get_active_login_device_id(username: str) -> str:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return ''
+    async with pool.acquire() as conn:
+        value = await conn.fetchval(
+            'SELECT COALESCE(active_login_device_id, \'\') FROM user_stats WHERE username = $1',
+            normalized_username,
+        )
+        return str(value or '').strip()
 
 
 async def update_user_saved_password(username: str, password: str) -> bool:
@@ -4165,6 +4195,41 @@ async def set_whitelist_global_status(enabled: bool) -> bool:
         'whitelist_open_to_all',
         bool(enabled),
         '全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录'
+    )
+
+
+def _normalize_shared_login_state_policy(value: Any) -> Dict[str, Any]:
+    if isinstance(value, bool):
+        return {'global_enabled': bool(value), 'sub_admins': {}}
+    if not isinstance(value, dict):
+        return {'global_enabled': False, 'sub_admins': {}}
+    sub_admins = value.get('sub_admins')
+    if not isinstance(sub_admins, dict):
+        sub_admins = {}
+    return {
+        'global_enabled': bool(value.get('global_enabled', False)),
+        'sub_admins': {
+            str(key or '').strip().lower(): bool(enabled)
+            for key, enabled in sub_admins.items()
+            if str(key or '').strip()
+        },
+    }
+
+
+async def get_shared_login_state_policy() -> Dict[str, Any]:
+    saved = await system_config.get('shared_login_state_policy', None)
+    if saved is None:
+        legacy = await system_config.get('shared_login_state_enabled', None)
+        saved = legacy if isinstance(legacy, bool) else None
+    return _normalize_shared_login_state_policy(saved)
+
+
+async def set_shared_login_state_policy(policy: Dict[str, Any]) -> bool:
+    normalized = _normalize_shared_login_state_policy(policy)
+    return await system_config.set(
+        'shared_login_state_policy',
+        normalized,
+        '共享登录态：总管理员控制全局，子管理员控制自己白名单成员'
     )
 
 
