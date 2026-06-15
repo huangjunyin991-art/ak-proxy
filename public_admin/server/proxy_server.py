@@ -17227,6 +17227,67 @@ def _patch_vue_component_content(text: str) -> str:
     return text
 
 
+def _build_ak_language_pack_cache_version() -> str:
+    base_dir = Path(FRONTEND_LANG_DIR).resolve()
+    files = []
+    signature_parts = []
+    for local_path in sorted(base_dir.glob("*.json")):
+        code = _normalize_ak_local_language_code(local_path.name)
+        if not code:
+            continue
+        try:
+            stat = local_path.stat()
+        except Exception:
+            continue
+        files.append(local_path)
+        signature_parts.append(f"{local_path.name}:{stat.st_mtime_ns}:{stat.st_size}")
+    signature = "|".join(signature_parts)
+    cached = getattr(_build_ak_language_pack_cache_version, "_cache", None)
+    if cached and cached[0] == signature:
+        return cached[1]
+
+    digest = hashlib.sha1()
+    found = False
+    for local_path in files:
+        try:
+            digest.update(local_path.name.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(local_path.read_bytes())
+            digest.update(b"\0")
+            found = True
+        except Exception:
+            continue
+    version = digest.hexdigest()[:12] if found else "0"
+    setattr(_build_ak_language_pack_cache_version, "_cache", (signature, version))
+    return version
+
+
+def _rewrite_base_js_script_version(text: str) -> str:
+    version = _build_ak_language_pack_cache_version()
+    return re.sub(
+        r"(/content/js/base\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
+        rf"\1&ak_static_v=public-rpc-20260616-lang-{version}",
+        str(text or ""),
+    )
+
+
+def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
+    version = _build_ak_language_pack_cache_version()
+
+    def repl(match):
+        prefix = match.group(1)
+        suffix = match.group(2)
+        return f"{prefix}{version}{suffix}"
+
+    next_text, count = re.subn(
+        r"('/content/lang/'\s*\+\s*_currentLanguage\(\)\s*\+\s*'\.json\?v=)(?:27|[0-9a-f]{8,40})(?:&ak_lang_v=[^']*)?(')",
+        repl,
+        str(text or ""),
+        count=1,
+    )
+    return next_text, bool(count)
+
+
 def _rewrite_vue_component_script_version(text: str) -> str:
     return re.sub(
         r"(/content/js/vue-component\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
@@ -17245,6 +17306,7 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
+        text, _ = _patch_base_js_language_pack_version(text)
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
@@ -17459,10 +17521,7 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
     if public_host:
         rewritten = rewritten.replace("www.akapi1.com", public_host)
         rewritten = rewritten.replace("www.akapi3.com", public_host)
-    rewritten = rewritten.replace(
-        "/content/js/base.js?v=28",
-        "/content/js/base.js?v=28&ak_static_v=public-rpc-20260611-mnemonic",
-    )
+    rewritten = _rewrite_base_js_script_version(rewritten)
     rewritten = _rewrite_vue_component_script_version(rewritten)
     rewritten = rewritten.replace(
         "/assets/css/vue-component.css",
@@ -17995,6 +18054,8 @@ async def ak_web_proxy(request: Request, path: str):
                 base_js_rewritten = base_js_rewritten or ban_countdown_rewritten
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
+            text, lang_pack_version_rewritten = _patch_base_js_language_pack_version(text)
+            base_js_rewritten = base_js_rewritten or lang_pack_version_rewritten
             if base_js_rewritten:
                 _admin_ak_trace(lambda: f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
@@ -18025,6 +18086,7 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
+                text = _rewrite_base_js_script_version(text)
                 text = _rewrite_vue_component_script_version(text)
                 if transform_proxied_site_prefetch_html is not None:
                     try:
