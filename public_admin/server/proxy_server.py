@@ -8468,6 +8468,25 @@ async def license_edit(request: Request):
     return await proxy_license_request('POST', '/admin/edit-license', json_body=data)
 
 
+@app.post("/admin/api/license/reset-password")
+
+async def license_reset_password(request: Request):
+
+    token, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
+
+    data = await request.json()
+
+    result = await proxy_license_request('POST', '/admin/reset-password', json_body=data)
+
+    if isinstance(result, dict) and not result.get('error'):
+
+        await db.add_license_log('reset_password', data.get('license_key'), detail='重置激活码绑定机器密码', operator=get_token_role(token))
+
+    return result
+
+
 
 @app.get("/admin/api/license/clients")
 

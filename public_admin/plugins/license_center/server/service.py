@@ -102,6 +102,20 @@ class LicenseCenterService:
         digest = hashlib.pbkdf2_hmac('sha256', str(password or '').encode('utf-8'), salt.encode('ascii'), PASSWORD_HASH_ITERATIONS).hex()
         return f'pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}'
 
+    def generate_client_password(self, length: int = 10) -> str:
+        length = max(10, int(length or 10))
+        groups = [
+            string.ascii_uppercase,
+            string.ascii_lowercase,
+            string.digits,
+            '!@#$%^&*',
+        ]
+        chars = [secrets.choice(group) for group in groups]
+        alphabet = ''.join(groups)
+        chars.extend(secrets.choice(alphabet) for _ in range(length - len(chars)))
+        secrets.SystemRandom().shuffle(chars)
+        return ''.join(chars)
+
     def verify_password_hash(self, password: str, stored_hash: str) -> bool:
         value = str(stored_hash or '')
         parts = value.split('$')
@@ -510,6 +524,41 @@ class LicenseCenterService:
         credentials = await self.repository.update_credentials(license_key, machine_id, fields)
         await self._record_credential_success('google_reset', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': '重置成功', 'data': self.format_credentials_status(credentials)}
+
+    async def admin_reset_login_password(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
+        license_key = str(data.get('license_key') or '').strip().upper()
+        machine_id = str(data.get('machine_id') or '').strip()
+        if not license_key:
+            return {'error': True, 'success': False, 'message': '缺少激活码'}
+        if not machine_id:
+            return {'error': True, 'success': False, 'message': '该激活码尚未绑定机器，无法重置密码'}
+        row = await self.repository.get_license(license_key)
+        if not row:
+            return {'error': True, 'success': False, 'message': '激活码不存在'}
+        device = await self.repository.get_license_device(license_key, machine_id)
+        if not device:
+            return {'error': True, 'success': False, 'message': '机器码未绑定该激活码'}
+
+        password = self.generate_client_password(10)
+        password_hash = self.hash_password(password)
+        existing = await self.repository.get_credentials(license_key, machine_id)
+        fields = {
+            'login_password_hash': password_hash,
+            'failed_attempts': 0,
+            'locked_until': None,
+        }
+        if existing:
+            credentials = await self.repository.update_credentials(license_key, machine_id, fields)
+        else:
+            credentials = await self.repository.upsert_credentials({
+                'license_key': license_key,
+                'machine_id': machine_id,
+                'login_password_hash': password_hash,
+            })
+        await self.repository.add_legacy_log('reset_password', license_key, row.get('product_id'), row.get('billing_mode'), f'重置机器 {machine_id} 登录密码', operator)
+        status = self.format_credentials_status(credentials)
+        status.update({'machine_id': machine_id, 'password': password})
+        return {'error': False, 'success': True, 'message': '重置成功', 'data': status}
 
     async def check_update(self, product_id: str, current_version: str, channel: str = 'stable') -> Dict[str, Any]:
         product_id = self.normalize_product_id(product_id)

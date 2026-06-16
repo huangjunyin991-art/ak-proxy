@@ -4504,12 +4504,13 @@
             
             <!-- 激活码列表 -->
             <div id="licPanelList">
-                <div class="table-container license-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="900" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                <div class="table-container license-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="1060" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
                     <table>
                         <thead>
                             <tr>
                                 <th>激活码</th>
                                 <th>产品</th>
+                                <th>绑定机器</th>
                                 <th>计费模式</th>
                                 <th class="sortable" onclick="toggleLicenseSort()" style="cursor: pointer; user-select: none;">
                                     剩余 <span id="licSortIcon" style="font-size: 12px;">⇅</span>
@@ -4520,7 +4521,7 @@
                             </tr>
                         </thead>
                         <tbody id="licenseTable">
-                            <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                            <tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -9786,6 +9787,17 @@
             if (license.billing_mode === 'time_based') return license.remaining_time || 0;
             return 0;
         }
+
+        function getLicenseMachineId(license) {
+            return String((license && (license.machine_id || license.client_id || license.device_id)) || '').trim();
+        }
+
+        function renderLicenseMachineCell(machineId) {
+            if (!machineId) {
+                return '<span style="color: var(--text-secondary);">未绑定</span>';
+            }
+            return `<span onclick="copyToClipboard(${jsArg(machineId)})" title="点击复制机器码" style="display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;cursor:pointer;font-family:monospace;font-size:12px;color:var(--accent);">${escapeHtml(machineId)}</span>`;
+        }
         
         // 加载激活码列表
         async function loadLicenses(page = 0) {
@@ -9801,7 +9813,7 @@
                 
                 if (data.error) {
                     document.getElementById('licenseTable').innerHTML = 
-                        `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">加载失败: ${escapeHtml(data.message || '')}</td></tr>`;
+                        `<tr><td colspan="8" style="text-align: center; color: var(--accent-red);">加载失败: ${escapeHtml(data.message || '')}</td></tr>`;
                     return;
                 }
                 
@@ -9813,7 +9825,7 @@
             } catch (e) {
                 console.error('加载激活码列表失败', e);
                 document.getElementById('licenseTable').innerHTML = 
-                    `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">网络错误: ${escapeHtml(e.message)}</td></tr>`;
+                    `<tr><td colspan="8" style="text-align: center; color: var(--accent-red);">网络错误: ${escapeHtml(e.message)}</td></tr>`;
             }
         }
         
@@ -9827,7 +9839,7 @@
                 filtered = filtered.filter(l => 
                     l.license_key?.toLowerCase().includes(term) ||
                     l.product_id?.toLowerCase().includes(term) ||
-                    l.machine_id?.toLowerCase().includes(term)
+                    getLicenseMachineId(l).toLowerCase().includes(term)
                 );
             }
             
@@ -9852,13 +9864,15 @@
             
             if (filtered.length === 0) {
                 document.getElementById('licenseTable').innerHTML = 
-                    '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">无匹配的激活码</td></tr>';
+                    '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">无匹配的激活码</td></tr>';
                 renderLicensePagination(licenseTotalCount);
                 return;
             }
             
             document.getElementById('licenseTable').innerHTML = filtered.map(license => {
                 const licenseKey = license.license_key || '';
+                const machineId = getLicenseMachineId(license);
+                const resetDisabled = !licenseKey || !machineId;
                 const statusClass = {
                     'active': 'status-active',
                     'inactive': 'status-inactive',
@@ -9898,12 +9912,14 @@
                             <span style="cursor: pointer;" onclick="copyToClipboard(${jsArg(licenseKey)})" title="点击复制">${escapeHtml(licenseKey)}</span>
                         </td>
                         <td>${escapeHtml(license.product_id || '-')}</td>
+                        <td>${renderLicenseMachineCell(machineId)}</td>
                         <td>${billingText}</td>
                         <td>${remainingText}</td>
                         <td><span class="status ${statusClass}">${statusText}</span></td>
                         <td>${fmtTime(license.created_at)}</td>
-                        <td>
+                        <td style="white-space: nowrap;">
                             <button class="btn-small" onclick="showLicenseDetail(${jsArg(licenseKey)})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">详情</button>
+                            <button class="btn-small" onclick="resetLicensePassword(${jsArg(licenseKey)}, ${jsArg(machineId)})" ${resetDisabled ? 'disabled' : ''} title="${resetDisabled ? '该激活码尚未绑定机器' : '生成新的十位强密码'}" style="padding: 4px 10px; font-size: 12px; background: ${resetDisabled ? 'var(--bg-secondary)' : 'linear-gradient(135deg, var(--accent), var(--accent-green))'}; color: ${resetDisabled ? 'var(--text-secondary)' : '#001018'}; border: 1px solid ${resetDisabled ? 'var(--border)' : 'rgba(0, 255, 136, 0.35)'}; border-radius: 4px; cursor: ${resetDisabled ? 'not-allowed' : 'pointer'}; font-weight: 700;">重置密码</button>
                             ${license.status === 'active' ? `<button class="btn-small" onclick="revokeLicense(${jsArg(licenseKey)})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">撤销</button>` : ''}
                         </td>
                     </tr>
@@ -10479,6 +10495,78 @@
         // 关闭激活码详情弹窗
         function closeLicenseDetailModal() {
             document.getElementById('licenseDetailModal').style.display = 'none';
+        }
+
+        function showLicenseResetPasswordResult(licenseKey, machineId, password) {
+            const oldModal = document.getElementById('licensePasswordModal');
+            if (oldModal) oldModal.remove();
+            const modal = document.createElement('div');
+            modal.id = 'licensePasswordModal';
+            modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+            modal.innerHTML = `
+                <div style="width:min(460px,96vw);background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);padding:22px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
+                        <h3 style="margin:0;color:var(--text-primary);font-size:18px;">密码重置成功</h3>
+                        <button type="button" onclick="document.getElementById('licensePasswordModal')?.remove()" style="width:32px;height:32px;border:1px solid var(--border);border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--accent-green));color:#001018;font-weight:800;cursor:pointer;">×</button>
+                    </div>
+                    <div style="display:grid;gap:10px;margin-bottom:16px;color:var(--text-secondary);font-size:13px;line-height:1.7;">
+                        <div>激活码：<span style="font-family:monospace;color:var(--text-primary);">${escapeHtml(licenseKey)}</span></div>
+                        <div>绑定机器：<span style="font-family:monospace;color:var(--text-primary);word-break:break-all;">${escapeHtml(machineId)}</span></div>
+                    </div>
+                    <div style="padding:14px;border:1px solid rgba(0,255,136,.25);border-radius:10px;background:rgba(0,255,136,.08);font-family:monospace;font-size:20px;font-weight:800;letter-spacing:1px;color:var(--accent);text-align:center;user-select:all;">${escapeHtml(password)}</div>
+                    <div style="display:flex;gap:10px;margin-top:18px;">
+                        <button type="button" onclick="copyToClipboard(${jsArg(password)})" style="flex:1;padding:10px 14px;border:0;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--accent-green));color:#001018;font-weight:800;cursor:pointer;">复制密码</button>
+                        <button type="button" onclick="document.getElementById('licensePasswordModal')?.remove()" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-weight:700;cursor:pointer;">关闭</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', event => {
+                if (event.target === modal) modal.remove();
+            });
+        }
+
+        async function resetLicensePassword(licenseKey, machineId) {
+            if (!licenseKey || !machineId) {
+                showAlert('该激活码尚未绑定机器，无法重置密码', 'error');
+                return;
+            }
+            if (!confirm(`确定要重置激活码 ${licenseKey} 在机器 ${machineId} 上的登录密码吗？`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/reset-password`, {
+                    method: 'POST',
+                    headers: getLicenseHeaders(),
+                    body: JSON.stringify({
+                        license_key: licenseKey,
+                        machine_id: machineId
+                    })
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                if (data.error) {
+                    showAlert('重置失败: ' + (data.message || '未知错误'), 'error');
+                    return;
+                }
+                const password = data.password || data.data?.password || data.data?.login_password || '';
+                if (!password) {
+                    showAlert('重置成功，但服务端未返回新密码', 'warning');
+                    loadLicenses(licenseCurrentPage);
+                    return;
+                }
+                try {
+                    await navigator.clipboard.writeText(password);
+                    showToast('新密码已复制到剪贴板', 'success');
+                } catch (copyError) {
+                    console.warn('自动复制新密码失败', copyError);
+                }
+                showLicenseResetPasswordResult(licenseKey, machineId, password);
+                loadLicenses(licenseCurrentPage);
+            } catch (e) {
+                showAlert('重置失败: ' + e.message, 'error');
+            }
         }
         
         // 撤销激活码

@@ -117,6 +117,17 @@ def create_license_center_router(
             return JSONResponse(status_code=400, content={'error': True, 'message': '请求体无效'})
         return await service.edit_license(data, operator=operator_from_token(token))
 
+    @router.post('/admin/api/license/reset-password')
+    async def license_reset_password(request: Request):
+        token, error = await require_license_admin(request)
+        if error is not None:
+            return error
+        try:
+            data = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400, content={'error': True, 'message': '请求体无效'})
+        return await service.admin_reset_login_password(data, operator=operator_from_token(token))
+
     @router.get('/admin/api/license/products')
     async def license_products(request: Request):
         _, error = await require_license_admin(request)
