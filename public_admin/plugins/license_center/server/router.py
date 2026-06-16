@@ -35,6 +35,14 @@ def create_license_center_router(
             return '', JSONResponse(status_code=403, content={'error': True, 'message': '无激活码管理权限'})
         return token, None
 
+    async def require_license_super_admin(request: Request):
+        token, error = await require_license_admin(request)
+        if error is not None:
+            return '', error
+        if str(get_token_role(token) or '').strip() != 'super_admin':
+            return '', JSONResponse(status_code=403, content={'error': True, 'success': False, 'message': '仅系统总管理员可发布更新'})
+        return token, None
+
     def operator_from_token(token: str) -> str:
         role = str(get_token_role(token) or '').strip()
         sub_name = str(get_token_sub_name(token) or '').strip()
@@ -151,7 +159,7 @@ def create_license_center_router(
 
     @router.post('/admin/api/license/releases/publish')
     async def license_publish_release(request: Request):
-        token, error = await require_license_admin(request)
+        token, error = await require_license_super_admin(request)
         if error is not None:
             return error
         data = await read_json(request)
@@ -161,7 +169,7 @@ def create_license_center_router(
 
     @router.post('/admin/api/license/releases/upload')
     async def license_upload_release(request: Request, file: UploadFile = File(...)):
-        token, error = await require_license_admin(request)
+        token, error = await require_license_super_admin(request)
         if error is not None:
             return error
         return await service.upload_release_file(file, operator=operator_from_token(token))

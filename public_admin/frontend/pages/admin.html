@@ -2667,6 +2667,98 @@
             min-width: 82px;
         }
 
+        #createLicenseModal .license-create-select {
+            position: relative;
+        }
+
+        #createLicenseModal .license-create-native-select {
+            display: none !important;
+        }
+
+        #createLicenseModal .license-create-select-trigger {
+            width: 100%;
+            min-height: 46px;
+            border: 1px solid rgba(0, 212, 255, 0.32);
+            border-radius: 13px;
+            padding: 0 14px;
+            background: linear-gradient(180deg, rgba(2, 13, 24, 0.98), rgba(4, 19, 35, 0.98));
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 800;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        #createLicenseModal .license-create-select.open .license-create-select-trigger {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        #createLicenseModal .license-create-select-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #createLicenseModal .license-create-select-caret {
+            width: 9px;
+            height: 9px;
+            border-right: 2px solid currentColor;
+            border-bottom: 2px solid currentColor;
+            transform: rotate(45deg);
+            transition: transform 0.16s ease;
+            flex: 0 0 auto;
+            opacity: 0.9;
+        }
+
+        #createLicenseModal .license-create-select.open .license-create-select-caret {
+            transform: rotate(225deg);
+            margin-top: 6px;
+        }
+
+        #createLicenseModal .license-create-select-menu {
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 5000;
+            padding: 6px;
+            border: 1px solid rgba(0, 212, 255, 0.28);
+            border-radius: 14px;
+            background: linear-gradient(180deg, #071b2c, #0b1320);
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+        }
+
+        #createLicenseModal .license-create-select.open .license-create-select-menu {
+            display: block;
+        }
+
+        #createLicenseModal .license-create-select-option {
+            width: 100%;
+            min-height: 38px;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-primary);
+            text-align: left;
+            padding: 0 12px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        #createLicenseModal .license-create-select-option:hover,
+        #createLicenseModal .license-create-select-option.active {
+            border-color: rgba(0, 212, 255, 0.25);
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.22), rgba(0, 255, 136, 0.12));
+        }
+
         @media (max-width: 640px) {
             #publishReleaseModal .release-grid {
                 grid-template-columns: 1fr;
@@ -4731,7 +4823,7 @@
                     <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
                         创建激活码
                     </button>
-                    <button onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
+                    <button id="publishReleaseToolbarBtn" onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
                         发布更新
                     </button>
                 </div>
@@ -5598,20 +5690,32 @@
             <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
-                    <select id="licProductId" onchange="onProductTypeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                            border-radius: 8px; color: var(--text-primary);">
+                    <select id="licProductId" class="license-create-native-select" onchange="onProductTypeChange()">
                         <option value="ak_admin_panel">AK智能后台管理系统 (ak_admin_panel)</option>
                     </select>
+                    <div class="license-create-select" id="licProductIdSelect">
+                        <button type="button" class="license-create-select-trigger" onclick="toggleCreateLicenseSelectMenu('licProductIdSelect', event)">
+                            <span class="license-create-select-label" id="licProductIdLabel">AK智能后台管理系统 (ak_admin_panel)</span>
+                            <span class="license-create-select-caret"></span>
+                        </button>
+                        <div class="license-create-select-menu"></div>
+                    </div>
                 </div>
                 
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">计费模式</label>
-                    <select id="licBillingMode" onchange="onBillingModeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                            border-radius: 8px; color: var(--text-primary);">
+                    <select id="licBillingMode" class="license-create-native-select" onchange="onBillingModeChange()">
                         <option value="unlimited">无限制 (unlimited)</option>
                         <option value="per_use">按次数 (per_use)</option>
                         <option value="time_based">按时间 (time_based)</option>
                     </select>
+                    <div class="license-create-select" id="licBillingModeSelect">
+                        <button type="button" class="license-create-select-trigger" onclick="toggleCreateLicenseSelectMenu('licBillingModeSelect', event)">
+                            <span class="license-create-select-label" id="licBillingModeLabel">无限制 (unlimited)</span>
+                            <span class="license-create-select-caret"></span>
+                        </button>
+                        <div class="license-create-select-menu"></div>
+                    </div>
                 </div>
                 
                 <div id="licMaxUsesRow" style="margin-bottom: 15px; display: none;">
@@ -6389,6 +6493,11 @@
             return currentUserRole === ROLE_SUPER_ADMIN;
         }
 
+        function syncLicenseReleaseAdminControls() {
+            const publishBtn = document.getElementById('publishReleaseToolbarBtn');
+            if (publishBtn) publishBtn.style.display = isSuperAdmin() ? '' : 'none';
+        }
+
         function isImAdmin() {
             return currentUserRole === ROLE_SUPER_ADMIN || currentUserRole === ROLE_SUB_ADMIN;
         }
@@ -6616,6 +6725,7 @@
         }
         
         function applyPermissions() {
+            syncLicenseReleaseAdminControls();
             if (isSuperAdmin()) {
                 // 超管显示所有标签
                 document.querySelectorAll('.tab').forEach(t => {
@@ -10126,7 +10236,58 @@
             closeReleaseUpdateTypeMenu();
         }
 
-        document.addEventListener('click', () => closeReleaseUpdateTypeMenu());
+        function closeCreateLicenseSelectMenus() {
+            document.querySelectorAll('#createLicenseModal .license-create-select.open').forEach(el => el.classList.remove('open'));
+        }
+
+        function toggleCreateLicenseSelectMenu(wrapId, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const wrap = document.getElementById(wrapId);
+            if (!wrap) return;
+            document.querySelectorAll('#createLicenseModal .license-create-select.open').forEach(el => {
+                if (el !== wrap) el.classList.remove('open');
+            });
+            closeReleaseUpdateTypeMenu();
+            wrap.classList.toggle('open');
+        }
+
+        function syncCreateLicenseSelect(selectId) {
+            const select = document.getElementById(selectId);
+            const wrap = document.getElementById(`${selectId}Select`);
+            const label = document.getElementById(`${selectId}Label`);
+            if (!select || !wrap || !label) return;
+            const menu = wrap.querySelector('.license-create-select-menu');
+            if (!menu) return;
+            const options = Array.from(select.options || []);
+            const current = select.value || (options[0] && options[0].value) || '';
+            label.textContent = (options.find(option => option.value === current) || options[0] || {}).textContent || '-';
+            menu.innerHTML = options.map(option => {
+                const active = option.value === current ? ' active' : '';
+                return `<button type="button" class="license-create-select-option${active}" data-value="${escapeHtml(option.value)}" onclick="selectCreateLicenseOption('${selectId}', '${escapeHtml(option.value)}', event)">${escapeHtml(option.textContent || option.value)}</button>`;
+            }).join('');
+        }
+
+        function selectCreateLicenseOption(selectId, value, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            select.value = value;
+            if (selectId === 'licProductId') onProductTypeChange();
+            else if (selectId === 'licBillingMode') onBillingModeChange();
+            syncCreateLicenseSelect(selectId);
+            closeCreateLicenseSelectMenus();
+        }
+
+        document.addEventListener('click', () => {
+            closeReleaseUpdateTypeMenu();
+            closeCreateLicenseSelectMenus();
+        });
 
         function initReleaseUploadDropzone() {
             const dropzone = document.getElementById('releaseUploadDropzone');
@@ -10628,6 +10789,8 @@
             document.getElementById('createLicenseProgress').style.display = 'none';
             document.getElementById('createLicenseBtn').disabled = false;
             document.getElementById('createLicenseBtn').textContent = '创建';
+            closeCreateLicenseSelectMenus();
+            syncCreateLicenseSelect('licProductId');
             // 初始化产品类型和计费模式
             onProductTypeChange();
         }
@@ -10637,9 +10800,14 @@
             document.getElementById('createLicenseModal').style.display = 'none';
             document.getElementById('createLicenseMsg').style.display = 'none';
             document.getElementById('createLicenseProgress').style.display = 'none';
+            closeCreateLicenseSelectMenus();
         }
 
         function showPublishReleaseModal() {
+            if (!isSuperAdmin()) {
+                showAlert('仅系统总管理员可发布更新', 'error');
+                return;
+            }
             document.getElementById('publishReleaseModal').style.display = 'flex';
             document.getElementById('releaseVersion').value = '';
             document.getElementById('releaseUpdateType').value = 'recommended';
@@ -10741,6 +10909,7 @@
         // 产品类型变化
         function onProductTypeChange() {
             const billingModeSelect = document.getElementById('licBillingMode');
+            const previousMode = billingModeSelect.value;
             
             // 清空现有选项
             billingModeSelect.innerHTML = '';
@@ -10749,6 +10918,11 @@
                 <option value="unlimited">无限制 (unlimited)</option>
                 <option value="time_based">按时间 (time_based)</option>
             `;
+            if (previousMode && Array.from(billingModeSelect.options).some(option => option.value === previousMode)) {
+                billingModeSelect.value = previousMode;
+            }
+            syncCreateLicenseSelect('licProductId');
+            syncCreateLicenseSelect('licBillingMode');
             
             // 更新计费模式相关显示
             onBillingModeChange();
@@ -10759,6 +10933,7 @@
             const mode = document.getElementById('licBillingMode').value;
             document.getElementById('licMaxUsesRow').style.display = mode === 'per_use' ? 'block' : 'none';
             document.getElementById('licUsageTimeRow').style.display = mode === 'time_based' ? 'block' : 'none';
+            syncCreateLicenseSelect('licBillingMode');
         }
         
         // 创建激活码（支持批量）
