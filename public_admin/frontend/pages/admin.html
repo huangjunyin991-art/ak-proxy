@@ -1803,6 +1803,24 @@
             transform: none;
             filter: none;
         }
+
+        #wlGlobalToggleBtn,
+        #loginSessionPolicyToggle {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            background: linear-gradient(135deg, rgba(0,212,255,0.58), rgba(0,255,136,0.42)) !important;
+            background-image: linear-gradient(135deg, rgba(0,212,255,0.58), rgba(0,255,136,0.42)) !important;
+            border: 1px solid rgba(0,212,255,0.36) !important;
+            color: transparent !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18) !important;
+            opacity: 1 !important;
+        }
+
+        #wlGlobalToggleBtn:hover,
+        #loginSessionPolicyToggle:hover {
+            filter: brightness(1.05);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 22px rgba(0,212,255,0.16) !important;
+        }
         
         /* 实时日志 */
         .live-log {
@@ -4654,7 +4672,7 @@
                         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                             <span id="loginSessionPolicyScope" style="font-size:12px; color:var(--text-secondary);"></span>
                             <span id="loginSessionPolicyStatus" style="font-size:12px; padding:5px 12px; border-radius:999px; color:var(--accent-green); background:rgba(0,255,136,0.12);">关闭</span>
-                            <button id="loginSessionPolicyToggle" class="btn" onclick="toggleLoginSessionPolicy()" style="width:56px;height:30px;border-radius:999px;padding:0;border:1px solid rgba(0,212,255,0.36);background:linear-gradient(135deg, rgba(0,212,255,0.58), rgba(0,255,136,0.42));position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18);">
+                            <button id="loginSessionPolicyToggle" type="button" onclick="toggleLoginSessionPolicy()" style="width:56px;height:30px;border-radius:999px;padding:0;border:1px solid rgba(0,212,255,0.36);background:linear-gradient(135deg, rgba(0,212,255,0.58), rgba(0,255,136,0.42));position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18);">
                                 <span id="loginSessionPolicyKnob" style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#ffffff,#dffbff);box-shadow:0 2px 8px rgba(0,0,0,0.32);transition:left .18s ease;"></span>
                             </button>
                         </div>
@@ -10924,13 +10942,7 @@
                 statusEl.style.background = enabled ? 'rgba(0,212,255,0.14)' : 'rgba(0,255,136,0.12)';
             }
             if (btnEl) {
-                btnEl.style.background = enabled
-                    ? 'linear-gradient(135deg, rgba(0,212,255,0.88), rgba(0,180,255,0.68))'
-                    : 'linear-gradient(135deg, rgba(0,212,255,0.56), rgba(0,255,136,0.38))';
-                btnEl.style.borderColor = enabled ? 'rgba(0,212,255,0.62)' : 'rgba(0,212,255,0.36)';
-                btnEl.style.boxShadow = enabled
-                    ? 'inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 22px rgba(0,212,255,0.16)'
-                    : 'inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18)';
+                applyAkToggleStyle(btnEl, enabled);
                 btnEl.disabled = false;
             }
             if (knobEl) knobEl.style.left = enabled ? '31px' : '3px';
@@ -10941,6 +10953,22 @@
                     ? '总管理员开启后，全体账号允许多设备同时保持登录；关闭后默认单设备登录。'
                     : '开启后，仅你白名单下的账号允许多设备同时保持登录；关闭后默认单设备登录。';
             }
+        }
+
+        function applyAkToggleStyle(btnEl, enabled) {
+            if (!btnEl) return;
+            const bg = enabled
+                ? 'linear-gradient(135deg, rgba(0,212,255,0.88), rgba(0,255,136,0.68))'
+                : 'linear-gradient(135deg, rgba(0,212,255,0.56), rgba(0,255,136,0.38))';
+            const border = enabled ? 'rgba(0,212,255,0.62)' : 'rgba(0,212,255,0.36)';
+            const shadow = enabled
+                ? 'inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 22px rgba(0,212,255,0.16)'
+                : 'inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18)';
+            btnEl.style.setProperty('background', bg, 'important');
+            btnEl.style.setProperty('background-image', bg, 'important');
+            btnEl.style.setProperty('border-color', border, 'important');
+            btnEl.style.setProperty('box-shadow', shadow, 'important');
+            btnEl.style.setProperty('opacity', '1', 'important');
         }
 
         async function loadLoginSessionPolicy() {
@@ -11006,9 +11034,7 @@
                 statusEl.style.color = '#ffa502';
                 statusEl.style.background = 'rgba(255,165,2,0.12)';
                 iconEl.style.background = 'linear-gradient(135deg, #ffa502, #e67e22)';
-                btnEl.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.56), rgba(0,255,136,0.38))';
-                btnEl.style.borderColor = 'rgba(0,212,255,0.36)';
-                btnEl.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.18)';
+                applyAkToggleStyle(btnEl, false);
                 knobEl.style.left = '3px';
                 descEl.innerHTML = '当前所有人可登录AK服务器，点击开关让白名单生效';
             } else {
@@ -11016,9 +11042,7 @@
                 statusEl.style.color = '#00ff88';
                 statusEl.style.background = 'rgba(0,255,136,0.12)';
                 iconEl.style.background = 'linear-gradient(135deg, #00ff88, #00cc6a)';
-                btnEl.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.88), rgba(0,255,136,0.68))';
-                btnEl.style.borderColor = 'rgba(0,212,255,0.62)';
-                btnEl.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 22px rgba(0,212,255,0.16)';
+                applyAkToggleStyle(btnEl, true);
                 knobEl.style.left = '27px';
                 descEl.innerHTML = '当前仅白名单用户可登录，点击开关取消白名单生效';
             }
