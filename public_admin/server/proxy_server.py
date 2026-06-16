@@ -15436,6 +15436,25 @@ def _rpc_payload_is_success(result: dict) -> bool:
     return isinstance(result, dict) and result.get("Error") is False
 
 
+def _rpc_auth_matches_cached_login(params: dict, login_payload: dict, cached: dict, session: Optional[dict] = None) -> tuple[bool, str]:
+    request_key, request_user_id = _rpc_auth_pair(params)
+    expected_key = ""
+    if isinstance(session, dict):
+        expected_key = str(session.get("userkey") or "").strip()
+    expected_key = expected_key or str((cached or {}).get("userkey") or "").strip() or _extract_login_result_userkey(login_payload)
+    expected_user_id = _rpc_user_id_from_login_result(login_payload)
+
+    if not expected_key or not expected_user_id:
+        return False, "missing_cached_identity"
+    if not request_key or not request_user_id:
+        return False, "missing_request_identity"
+    if request_key != expected_key:
+        return False, "key_mismatch"
+    if request_user_id != expected_user_id:
+        return False, "user_id_mismatch"
+    return True, "ok"
+
+
 async def _sync_cached_security_state_after_rpc_success(
     api_path: str,
     params: dict,
@@ -15492,6 +15511,16 @@ async def _sync_cached_security_state_after_rpc_success(
     else:
         user_data = dict(user_data)
     login_payload["UserData"] = user_data
+
+    auth_matches, auth_mismatch_reason = _rpc_auth_matches_cached_login(params, login_payload, cached, session)
+    if not auth_matches:
+        logger.warning(
+            f"[AKSecurityStateSync] skip_identity_mismatch source={source} path={api_path} "
+            f"username={username} reason={auth_mismatch_reason} "
+            f"request_key_fp={fingerprint_log_secret(_rpc_auth_pair(params)[0])} "
+            f"cached_key_fp={fingerprint_log_secret(str((cached or {}).get('userkey') or _extract_login_result_userkey(login_payload) or ''))}"
+        )
+        return
 
     changed = False
     for key, value in state_patch.items():
@@ -15974,8 +16003,6 @@ def _patch_base_js_mnemonic_complete_redirect(text: str) -> tuple[str, bool]:
         "var msg=String((json&&json.Msg)||''),url=String((option&&option.url)||'');"
         "if(url.toLowerCase().indexOf('mnemonic_get12')<0)return false;"
         "if(msg.indexOf('\\u9a8c\\u8bc1\\u5b8c\\u6210')<0)return false;"
-        "try{if(window.APP&&APP.GLOBAL&&typeof APP.GLOBAL.updateUserModel==='function'){APP.GLOBAL.updateUserModel({IsMnemonic:true});}"
-        "else if(window.localStorage){var raw=localStorage.getItem('AK_user_model')||'{}',m={};try{m=JSON.parse(raw)||{};}catch(_e){}m.IsMnemonic=true;localStorage.setItem('AK_user_model',JSON.stringify(m));}}catch(_e2){}"
         "var target='';try{var sp=new URLSearchParams(location.search);target=sp.get('url')||'';}catch(_e3){}"
         "if(!target)target='/pages/home.html?first=true';"
         "try{var u=new URL(target,location.origin);target=u.origin===location.origin?(u.pathname+u.search+u.hash):'/pages/home.html?first=true';}catch(_e4){target='/pages/home.html?first=true';}"
