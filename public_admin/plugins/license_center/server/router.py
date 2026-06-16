@@ -1,7 +1,7 @@
 from typing import Awaitable, Callable, Optional
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from .service import LicenseCenterService
 
@@ -158,6 +158,20 @@ def create_license_center_router(
         if data is None:
             return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.publish_release(data, operator=operator_from_token(token))
+
+    @router.post('/admin/api/license/releases/upload')
+    async def license_upload_release(request: Request, file: UploadFile = File(...)):
+        token, error = await require_license_admin(request)
+        if error is not None:
+            return error
+        return await service.upload_release_file(file, operator=operator_from_token(token))
+
+    @router.get('/downloads/license/{filename}')
+    async def license_download_release(filename: str):
+        path = service.resolve_release_download_path(filename)
+        if path is None:
+            return JSONResponse(status_code=404, content={'error': True, 'success': False, 'message': '文件不存在'})
+        return FileResponse(path)
 
     @router.get('/admin/api/license/logs')
     async def license_logs(request: Request, limit: int = 100, offset: int = 0):

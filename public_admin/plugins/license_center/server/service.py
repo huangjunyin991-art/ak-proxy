@@ -1,12 +1,15 @@
 import base64
 import hashlib
 import hmac
+import os
+import re
 import secrets
 import string
 import struct
 import time
 import urllib.parse
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .credential_guard import LicenseCredentialGuard
@@ -19,6 +22,13 @@ PASSWORD_HASH_ITERATIONS = 200000
 TOTP_INTERVAL_SECONDS = 30
 TOTP_DIGITS = 6
 LICENSE_CREDENTIALS_ISSUER = 'AK授权中心'
+LICENSE_RELEASE_DOWNLOAD_DIR = Path(__file__).resolve().parents[3] / 'downloads' / 'license'
+LICENSE_RELEASE_UPLOAD_MAX_BYTES = 512 * 1024 * 1024
+LICENSE_RELEASE_UPLOAD_EXTENSIONS = {
+    '.exe', '.msi', '.zip', '.7z', '.rar', '.dmg', '.pkg', '.apk', '.ipa',
+    '.tar', '.gz', '.tgz', '.xz', '.bz2',
+}
+LICENSE_RELEASE_UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 class LicenseCenterService:
@@ -96,6 +106,96 @@ class LicenseCenterService:
         if not url.startswith('/'):
             url = f'/{url}'
         return f'{PUBLIC_LICENSE_SERVER_URL}{url}'
+
+    def _normalize_release_filename(self, filename: str) -> tuple[str, str]:
+        original = os.path.basename(str(filename or '').strip())
+        stem, ext = os.path.splitext(original)
+        ext = ext.lower()
+        if not original or not stem:
+            raise ValueError('文件名无效')
+        if ext not in LICENSE_RELEASE_UPLOAD_EXTENSIONS:
+            raise ValueError('不支持的文件类型')
+        safe_stem = re.sub(r'[^A-Za-z0-9._-]+', '_', stem).strip('._-')
+        if not safe_stem:
+            safe_stem = 'release'
+        stored_name = f'{safe_stem}-{int(time.time())}-{secrets.token_hex(4)}{ext}'
+        return original, stored_name
+
+    def resolve_release_download_path(self, filename: str) -> Optional[Path]:
+        safe_name = os.path.basename(str(filename or '').strip())
+        if not safe_name or safe_name != str(filename or '').strip():
+            return None
+        path = (LICENSE_RELEASE_DOWNLOAD_DIR / safe_name).resolve()
+        root = LICENSE_RELEASE_DOWNLOAD_DIR.resolve()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return None
+        if not path.is_file():
+            return None
+        return path
+
+    async def upload_release_file(self, upload_file, operator: str = 'admin') -> Dict[str, Any]:
+        try:
+            original_name, stored_name = self._normalize_release_filename(getattr(upload_file, 'filename', '') or '')
+        except ValueError as exc:
+            return {'error': True, 'success': False, 'message': str(exc)}
+
+        LICENSE_RELEASE_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        target = (LICENSE_RELEASE_DOWNLOAD_DIR / stored_name).resolve()
+        digest = hashlib.sha256()
+        total = 0
+
+        try:
+            with open(target, 'wb') as f:
+                while True:
+                    chunk = await upload_file.read(LICENSE_RELEASE_UPLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > LICENSE_RELEASE_UPLOAD_MAX_BYTES:
+                        f.close()
+                        try:
+                            target.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        return {'error': True, 'success': False, 'message': '文件过大，最大支持 512MB'}
+                    digest.update(chunk)
+                    f.write(chunk)
+        except Exception as exc:
+            try:
+                target.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {'error': True, 'success': False, 'message': f'上传失败: {exc}'}
+        finally:
+            try:
+                await upload_file.close()
+            except Exception:
+                pass
+
+        if total <= 0:
+            try:
+                target.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {'error': True, 'success': False, 'message': '文件为空'}
+
+        download_url = f'/downloads/license/{stored_name}'
+        return {
+            'error': False,
+            'success': True,
+            'message': '上传成功',
+            'data': {
+                'file_name': original_name,
+                'stored_name': stored_name,
+                'download_url': download_url,
+                'public_url': self.public_url(download_url),
+                'file_size': total,
+                'file_hash': digest.hexdigest(),
+                'uploaded_by': operator,
+            },
+        }
 
     def hash_password(self, password: str) -> str:
         salt = secrets.token_hex(16)

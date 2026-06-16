@@ -2399,6 +2399,280 @@
             min-height: 38px;
         }
 
+        #publishReleaseModal .modal-content {
+            max-width: 620px;
+            border-radius: 14px;
+            border: 1px solid rgba(0, 212, 255, 0.22);
+            background: linear-gradient(180deg, rgba(7, 23, 38, 0.98), rgba(3, 13, 25, 0.98));
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+        }
+
+        #publishReleaseModal .release-form {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding-right: 8px;
+        }
+
+        #publishReleaseModal .release-field {
+            margin-bottom: 16px;
+        }
+
+        #publishReleaseModal .release-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        #publishReleaseModal .release-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        #publishReleaseModal .release-input,
+        #publishReleaseModal .release-textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            margin-bottom: 0;
+            background: rgba(2, 10, 20, 0.86);
+            border: 1px solid rgba(62, 129, 160, 0.48);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        }
+
+        #publishReleaseModal .release-input:focus,
+        #publishReleaseModal .release-textarea:focus {
+            border-color: var(--accent);
+            background: rgba(3, 15, 28, 0.96);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.13);
+        }
+
+        #publishReleaseModal .release-textarea {
+            resize: vertical;
+            min-height: 78px;
+        }
+
+        #publishReleaseModal .release-select {
+            position: relative;
+        }
+
+        #publishReleaseModal .release-native-select {
+            display: none !important;
+        }
+
+        #publishReleaseModal .release-select-trigger {
+            width: 100%;
+            min-height: 46px;
+            border: 1px solid rgba(0, 212, 255, 0.36);
+            border-radius: 13px;
+            padding: 0 14px;
+            background: linear-gradient(180deg, rgba(2, 13, 24, 0.98), rgba(4, 19, 35, 0.98));
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 800;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        #publishReleaseModal .release-select.open .release-select-trigger {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        #publishReleaseModal .release-select-caret {
+            width: 9px;
+            height: 9px;
+            border-right: 2px solid currentColor;
+            border-bottom: 2px solid currentColor;
+            transform: rotate(45deg);
+            transition: transform 0.16s ease;
+            opacity: 0.9;
+        }
+
+        #publishReleaseModal .release-select.open .release-select-caret {
+            transform: rotate(225deg);
+            margin-top: 6px;
+        }
+
+        #publishReleaseModal .release-select-menu {
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 5000;
+            padding: 6px;
+            border: 1px solid rgba(0, 212, 255, 0.28);
+            border-radius: 14px;
+            background: linear-gradient(180deg, #071b2c, #0b1320);
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+        }
+
+        #publishReleaseModal .release-select.open .release-select-menu {
+            display: block;
+        }
+
+        #publishReleaseModal .release-select-option {
+            width: 100%;
+            min-height: 38px;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-primary);
+            text-align: left;
+            padding: 0 12px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        #publishReleaseModal .release-select-option:hover,
+        #publishReleaseModal .release-select-option.active {
+            border-color: rgba(0, 212, 255, 0.25);
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.22), rgba(0, 255, 136, 0.12));
+        }
+
+        #publishReleaseModal .release-upload-box {
+            position: relative;
+            border: 1px dashed rgba(0, 212, 255, 0.38);
+            border-radius: 14px;
+            padding: 16px;
+            background: rgba(0, 212, 255, 0.055);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            cursor: pointer;
+            transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+        }
+
+        #publishReleaseModal .release-upload-box:hover,
+        #publishReleaseModal .release-upload-box.dragover {
+            border-color: var(--accent);
+            background: rgba(0, 212, 255, 0.11);
+            transform: translateY(-1px);
+        }
+
+        #publishReleaseModal .release-upload-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            color: #001018;
+            background: linear-gradient(135deg, var(--accent), var(--accent-green));
+            font-weight: 900;
+            flex: 0 0 auto;
+        }
+
+        #publishReleaseModal .release-upload-main {
+            color: var(--text-primary);
+            font-weight: 900;
+            line-height: 1.4;
+        }
+
+        #publishReleaseModal .release-upload-sub,
+        #publishReleaseModal .release-upload-state {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        #publishReleaseModal .release-upload-state {
+            margin-top: 8px;
+        }
+
+        #publishReleaseModal .release-switch-row {
+            display: flex;
+            justify-content: flex-end;
+            margin: 4px 0 16px;
+        }
+
+        #publishReleaseModal .release-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #publishReleaseModal .release-switch input {
+            position: absolute;
+            opacity: 0;
+            width: 1px;
+            height: 1px;
+            margin: 0;
+        }
+
+        #publishReleaseModal .release-switch-track {
+            width: 46px;
+            height: 26px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.36);
+            background: rgba(15, 23, 42, 0.9);
+            position: relative;
+            transition: background 0.16s ease, border-color 0.16s ease;
+        }
+
+        #publishReleaseModal .release-switch-track::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #94a3b8;
+            transition: transform 0.16s ease, background 0.16s ease;
+        }
+
+        #publishReleaseModal .release-switch input:checked + .release-switch-track {
+            border-color: rgba(0, 255, 136, 0.46);
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.42), rgba(0, 255, 136, 0.42));
+        }
+
+        #publishReleaseModal .release-switch input:checked + .release-switch-track::after {
+            transform: translateX(20px);
+            background: #eafff7;
+        }
+
+        #publishReleaseModal .release-switch input:disabled + .release-switch-track {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        #publishReleaseModal .release-actions .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-green));
+            color: #001018;
+            border-radius: 12px;
+            font-weight: 900;
+            min-width: 92px;
+        }
+
+        #publishReleaseModal .release-actions .btn-page {
+            border-radius: 12px;
+            min-width: 82px;
+        }
+
+        @media (max-width: 640px) {
+            #publishReleaseModal .release-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .usage-table-layout {
             width: auto;
             min-width: 0;
@@ -5390,66 +5664,85 @@
     </div>
 
     <div class="modal" id="publishReleaseModal">
-        <div class="modal-content" style="max-width: 560px;">
+        <div class="modal-content">
             <h3 style="flex-shrink: 0;">发布更新</h3>
-            <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品</label>
+            <div class="release-form">
+                <div class="release-field">
+                    <label class="release-label">产品</label>
                     <input type="text" value="AK智能后台管理系统 (ak_admin_panel)" disabled
-                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary);">
+                           class="release-input" style="color: var(--text-secondary);">
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">版本号</label>
-                    <input type="text" id="releaseVersion" placeholder="例如 4.0.1"
-                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                <div class="release-field">
+                    <label class="release-label">版本号</label>
+                    <input type="text" id="releaseVersion" class="release-input" placeholder="例如 4.0.1">
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新类型</label>
-                    <select id="releaseUpdateType" onchange="onReleaseUpdateTypeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                <div class="release-field">
+                    <label class="release-label">更新类型</label>
+                    <select id="releaseUpdateType" class="release-native-select" onchange="onReleaseUpdateTypeChange()">
                         <option value="recommended">建议更新</option>
                         <option value="mandatory">强制更新</option>
                         <option value="optional">可选更新</option>
                     </select>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">下载地址</label>
-                    <input type="text" id="releaseDownloadUrl" placeholder="/downloads/AK_AdminPanel_Setup_v4.0.1.exe 或完整 https 地址"
-                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">文件大小（字节）</label>
-                        <input type="number" id="releaseFileSize" value="0" min="0"
-                               style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
-                    </div>
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">文件哈希</label>
-                        <input type="text" id="releaseFileHash" placeholder="可选"
-                               style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                    <div class="release-select" id="releaseUpdateTypeSelect">
+                        <button type="button" class="release-select-trigger" onclick="toggleReleaseUpdateTypeMenu(event)">
+                            <span id="releaseUpdateTypeLabel">建议更新</span>
+                            <span class="release-select-caret"></span>
+                        </button>
+                        <div class="release-select-menu">
+                            <button type="button" class="release-select-option active" data-value="recommended" onclick="selectReleaseUpdateType('recommended', event)">建议更新</button>
+                            <button type="button" class="release-select-option" data-value="mandatory" onclick="selectReleaseUpdateType('mandatory', event)">强制更新</button>
+                            <button type="button" class="release-select-option" data-value="optional" onclick="selectReleaseUpdateType('optional', event)">可选更新</button>
+                        </div>
                     </div>
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新公告标题</label>
-                    <input type="text" id="releaseAnnouncement" placeholder="可选"
-                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                <div class="release-field">
+                    <label class="release-label">上传发布包</label>
+                    <div class="release-upload-box" id="releaseUploadDropzone" onclick="document.getElementById('releaseUploadInput').click()">
+                        <div class="release-upload-icon">↑</div>
+                        <div>
+                            <div class="release-upload-main" id="releaseUploadTitle">拖入文件或点击选择</div>
+                            <div class="release-upload-sub">支持 exe / msi / zip / 7z / rar / dmg / pkg / apk / ipa，最大 512MB</div>
+                            <div class="release-upload-state" id="releaseUploadState">未选择文件</div>
+                        </div>
+                        <input type="file" id="releaseUploadInput" style="display:none" onchange="handleReleaseFileInput(this)">
+                    </div>
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新公告内容</label>
-                    <textarea id="releaseAnnouncementContent" rows="3" placeholder="可选"
-                              style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); resize: vertical;"></textarea>
+                <div class="release-field">
+                    <label class="release-label">下载地址</label>
+                    <input type="text" id="releaseDownloadUrl" class="release-input" placeholder="/downloads/license/AK_AdminPanel_Setup_v4.0.1.exe 或完整 https 地址">
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新说明</label>
-                    <textarea id="releaseNotes" rows="4" placeholder="可选"
-                              style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); resize: vertical;"></textarea>
+                <div class="release-grid">
+                    <div>
+                        <label class="release-label">文件大小（字节）</label>
+                        <input type="number" id="releaseFileSize" class="release-input" value="0" min="0">
+                    </div>
+                    <div>
+                        <label class="release-label">文件哈希</label>
+                        <input type="text" id="releaseFileHash" class="release-input" placeholder="可选">
+                    </div>
                 </div>
-                <label style="display: flex; gap: 8px; align-items: center; color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
-                    <input type="checkbox" id="releaseCanSkip" checked>
-                    允许用户跳过
-                </label>
+                <div class="release-field">
+                    <label class="release-label">更新公告标题</label>
+                    <input type="text" id="releaseAnnouncement" class="release-input" placeholder="可选">
+                </div>
+                <div class="release-field">
+                    <label class="release-label">更新公告内容</label>
+                    <textarea id="releaseAnnouncementContent" class="release-textarea" rows="3" placeholder="可选"></textarea>
+                </div>
+                <div class="release-field">
+                    <label class="release-label">更新说明</label>
+                    <textarea id="releaseNotes" class="release-textarea" rows="4" placeholder="可选"></textarea>
+                </div>
+                <div class="release-switch-row">
+                    <label class="release-switch">
+                        <input type="checkbox" id="releaseCanSkip" checked>
+                        <span class="release-switch-track"></span>
+                        <span>允许用户跳过</span>
+                    </label>
+                </div>
                 <div id="publishReleaseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
             </div>
-            <div class="modal-buttons" style="flex-shrink: 0;">
+            <div class="modal-buttons release-actions" style="flex-shrink: 0;">
                 <button class="btn-page" onclick="closePublishReleaseModal()">取消</button>
                 <button class="btn btn-primary" id="publishReleaseBtn" onclick="doPublishRelease()">发布</button>
             </div>
@@ -9760,6 +10053,140 @@
                 'Authorization': `Bearer ${sessionStorage.getItem('admin_token') || ''}`
             };
         }
+
+        function getLicenseUploadHeaders() {
+            return {
+                'Authorization': `Bearer ${sessionStorage.getItem('admin_token') || ''}`
+            };
+        }
+
+        function formatReleaseFileSize(bytes) {
+            const size = Number(bytes || 0);
+            if (!size) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let value = size;
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value = value / 1024;
+                unitIndex += 1;
+            }
+            return `${value.toFixed(unitIndex ? 1 : 0)} ${units[unitIndex]}`;
+        }
+
+        function setReleaseUploadState(text, tone = 'muted') {
+            const el = document.getElementById('releaseUploadState');
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = tone === 'error' ? 'var(--accent-red)' : (tone === 'success' ? 'var(--accent-green)' : 'var(--text-secondary)');
+        }
+
+        function resetReleaseUploadState() {
+            const title = document.getElementById('releaseUploadTitle');
+            const input = document.getElementById('releaseUploadInput');
+            if (title) title.textContent = '拖入文件或点击选择';
+            if (input) input.value = '';
+            setReleaseUploadState('未选择文件');
+        }
+
+        function closeReleaseUpdateTypeMenu() {
+            const wrap = document.getElementById('releaseUpdateTypeSelect');
+            if (wrap) wrap.classList.remove('open');
+        }
+
+        function toggleReleaseUpdateTypeMenu(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const wrap = document.getElementById('releaseUpdateTypeSelect');
+            if (wrap) wrap.classList.toggle('open');
+        }
+
+        function syncReleaseUpdateTypeSelect() {
+            const select = document.getElementById('releaseUpdateType');
+            const label = document.getElementById('releaseUpdateTypeLabel');
+            if (!select || !label) return;
+            const option = select.options[select.selectedIndex];
+            label.textContent = option ? option.textContent : '建议更新';
+            document.querySelectorAll('#releaseUpdateTypeSelect .release-select-option').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.value === select.value);
+            });
+        }
+
+        function selectReleaseUpdateType(value, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const select = document.getElementById('releaseUpdateType');
+            if (!select) return;
+            select.value = value;
+            syncReleaseUpdateTypeSelect();
+            onReleaseUpdateTypeChange();
+            closeReleaseUpdateTypeMenu();
+        }
+
+        document.addEventListener('click', () => closeReleaseUpdateTypeMenu());
+
+        function initReleaseUploadDropzone() {
+            const dropzone = document.getElementById('releaseUploadDropzone');
+            if (!dropzone || dropzone.dataset.bound === '1') return;
+            dropzone.dataset.bound = '1';
+            ['dragenter', 'dragover'].forEach(name => {
+                dropzone.addEventListener(name, event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    dropzone.classList.add('dragover');
+                });
+            });
+            ['dragleave', 'drop'].forEach(name => {
+                dropzone.addEventListener(name, event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    dropzone.classList.remove('dragover');
+                });
+            });
+            dropzone.addEventListener('drop', event => {
+                const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+                if (file) uploadReleaseFile(file);
+            });
+        }
+
+        function handleReleaseFileInput(input) {
+            const file = input && input.files && input.files[0];
+            if (file) uploadReleaseFile(file);
+        }
+
+        async function uploadReleaseFile(file) {
+            const title = document.getElementById('releaseUploadTitle');
+            const sizeInput = document.getElementById('releaseFileSize');
+            if (!file) return;
+            if (title) title.textContent = file.name;
+            if (sizeInput) sizeInput.value = file.size || 0;
+            setReleaseUploadState(`正在上传 ${formatReleaseFileSize(file.size)}...`);
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/releases/upload`, {
+                    method: 'POST',
+                    headers: getLicenseUploadHeaders(),
+                    body: formData
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                if (data.error) {
+                    setReleaseUploadState(data.message || '上传失败', 'error');
+                    return;
+                }
+                const info = data.data || {};
+                document.getElementById('releaseDownloadUrl').value = info.download_url || '';
+                document.getElementById('releaseFileSize').value = info.file_size || file.size || 0;
+                document.getElementById('releaseFileHash').value = info.file_hash || '';
+                setReleaseUploadState(`已上传：${info.file_name || file.name} · ${formatReleaseFileSize(info.file_size || file.size)}`, 'success');
+            } catch (err) {
+                setReleaseUploadState(err && err.message ? err.message : '上传失败', 'error');
+            }
+        }
         
         // 加载激活码统计
         async function loadLicenseStats() {
@@ -10226,11 +10653,17 @@
             document.getElementById('publishReleaseMsg').style.display = 'none';
             document.getElementById('publishReleaseBtn').disabled = false;
             document.getElementById('publishReleaseBtn').textContent = '发布';
+            closeReleaseUpdateTypeMenu();
+            syncReleaseUpdateTypeSelect();
+            resetReleaseUploadState();
+            initReleaseUploadDropzone();
+            onReleaseUpdateTypeChange();
         }
 
         function closePublishReleaseModal() {
             document.getElementById('publishReleaseModal').style.display = 'none';
             document.getElementById('publishReleaseMsg').style.display = 'none';
+            closeReleaseUpdateTypeMenu();
         }
 
         function onReleaseUpdateTypeChange() {
@@ -10243,6 +10676,7 @@
                 canSkipEl.disabled = false;
                 if (updateType === 'optional') canSkipEl.checked = true;
             }
+            syncReleaseUpdateTypeSelect();
         }
 
         async function doPublishRelease() {
