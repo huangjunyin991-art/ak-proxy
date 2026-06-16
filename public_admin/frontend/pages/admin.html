@@ -10497,6 +10497,115 @@
             document.getElementById('licenseDetailModal').style.display = 'none';
         }
 
+        async function issueLicenseResetOperationLease(code) {
+            const res = await nativeFetch(`${API_BASE}/admin/api/operation_auth/lease`, {
+                method: 'POST',
+                headers: withAdminAuthHeaders({headers: {'Content-Type': 'application/json'}}).headers,
+                body: JSON.stringify({
+                    scope: 'account_ops',
+                    code,
+                    duration_seconds: 300
+                })
+            });
+            let data = {};
+            try {
+                data = await res.json();
+            } catch (e) {
+                data = {};
+            }
+            if (!res.ok || !data.success || !data.lease_token) {
+                throw new Error(data.message || 'Google 验证失败');
+            }
+            setOperationLease(data.scope || 'account_ops', data.lease_token, data.expires_in || 300);
+            return data.lease_token;
+        }
+
+        function showLicenseResetPasswordConfirm(licenseKey, machineId) {
+            return new Promise(resolve => {
+                const oldModal = document.getElementById('licenseResetConfirmModal');
+                if (oldModal) oldModal.remove();
+                const modal = document.createElement('div');
+                modal.id = 'licenseResetConfirmModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+                modal.innerHTML = `
+                    <div style="width:min(480px,96vw);background:var(--bg-card);border:1px solid rgba(0,255,136,.22);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.42);overflow:hidden;">
+                        <div style="padding:20px 22px 16px;background:linear-gradient(135deg,rgba(0,212,255,.14),rgba(0,255,136,.10));border-bottom:1px solid var(--border);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                                <div>
+                                    <div style="color:var(--accent);font-size:12px;font-weight:800;letter-spacing:.04em;margin-bottom:6px;">安全操作确认</div>
+                                    <h3 style="margin:0;color:var(--text-primary);font-size:19px;">重置绑定机器密码</h3>
+                                </div>
+                                <button type="button" data-license-reset-cancel style="width:34px;height:34px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.04);color:var(--text-secondary);font-size:18px;font-weight:800;cursor:pointer;">×</button>
+                            </div>
+                        </div>
+                        <div style="padding:18px 22px 4px;">
+                            <div style="display:grid;gap:10px;padding:14px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);">
+                                <div style="display:flex;gap:10px;align-items:flex-start;">
+                                    <span style="min-width:64px;color:var(--text-secondary);font-size:13px;">激活码</span>
+                                    <span style="font-family:monospace;color:var(--text-primary);font-size:13px;word-break:break-all;">${escapeHtml(licenseKey)}</span>
+                                </div>
+                                <div style="display:flex;gap:10px;align-items:flex-start;">
+                                    <span style="min-width:64px;color:var(--text-secondary);font-size:13px;">绑定机器</span>
+                                    <span style="font-family:monospace;color:var(--text-primary);font-size:13px;word-break:break-all;">${escapeHtml(machineId)}</span>
+                                </div>
+                            </div>
+                            <div style="margin-top:14px;padding:12px 14px;border-radius:10px;background:rgba(255,193,7,.10);border:1px solid rgba(255,193,7,.24);color:#f4c542;font-size:13px;line-height:1.7;">
+                                确认后会立即生成新的十位强密码，旧密码将无法继续登录。
+                            </div>
+                            <div style="margin-top:14px;">
+                                <label for="licenseResetGoogleCode" style="display:block;color:var(--text-secondary);font-size:13px;margin-bottom:8px;">Google 验证码</label>
+                                <input id="licenseResetGoogleCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="输入 6 位验证码" style="width:100%;box-sizing:border-box;padding:13px 15px;border:1px solid var(--border);border-radius:10px;background:var(--bg-primary);color:var(--text-primary);font-size:18px;text-align:center;letter-spacing:4px;outline:none;">
+                                <div id="licenseResetGoogleError" style="display:none;margin-top:8px;color:var(--accent-red);font-size:13px;line-height:1.6;"></div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;padding:18px 22px 22px;">
+                            <button type="button" data-license-reset-cancel style="flex:1;padding:11px 14px;border:1px solid var(--border);border-radius:9px;background:var(--bg-secondary);color:var(--text-primary);font-weight:700;cursor:pointer;">取消</button>
+                            <button type="button" data-license-reset-confirm style="flex:1;padding:11px 14px;border:0;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent-green));color:#001018;font-weight:900;cursor:pointer;box-shadow:0 10px 22px rgba(0,255,136,.18);">确认重置</button>
+                        </div>
+                    </div>
+                `;
+                const finish = value => {
+                    modal.remove();
+                    resolve(value);
+                };
+                const input = modal.querySelector('#licenseResetGoogleCode');
+                const errorEl = modal.querySelector('#licenseResetGoogleError');
+                const submit = modal.querySelector('[data-license-reset-confirm]');
+                modal.querySelectorAll('[data-license-reset-cancel]').forEach(button => {
+                    button.addEventListener('click', () => finish(''));
+                });
+                submit.addEventListener('click', async () => {
+                    const code = String(input.value || '').trim();
+                    if (!/^\d{6}$/.test(code)) {
+                        errorEl.textContent = '请输入 6 位 Google 验证码';
+                        errorEl.style.display = 'block';
+                        input.focus();
+                        return;
+                    }
+                    submit.disabled = true;
+                    submit.textContent = '验证中...';
+                    try {
+                        const leaseToken = await issueLicenseResetOperationLease(code);
+                        finish(leaseToken);
+                    } catch (e) {
+                        errorEl.textContent = e.message || 'Google 验证失败';
+                        errorEl.style.display = 'block';
+                        submit.disabled = false;
+                        submit.textContent = '确认重置';
+                        input.focus();
+                    }
+                });
+                input.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') submit.click();
+                });
+                modal.addEventListener('click', event => {
+                    if (event.target === modal) finish('');
+                });
+                document.body.appendChild(modal);
+                setTimeout(() => input.focus(), 30);
+            });
+        }
+
         function showLicenseResetPasswordResult(licenseKey, machineId, password) {
             const oldModal = document.getElementById('licensePasswordModal');
             if (oldModal) oldModal.remove();
@@ -10531,14 +10640,15 @@
                 showAlert('该激活码尚未绑定机器，无法重置密码', 'error');
                 return;
             }
-            if (!confirm(`确定要重置激活码 ${licenseKey} 在机器 ${machineId} 上的登录密码吗？`)) {
+            const leaseToken = await showLicenseResetPasswordConfirm(licenseKey, machineId);
+            if (!leaseToken) {
                 return;
             }
 
             try {
                 const res = await fetch(`${API_BASE}/admin/api/license/reset-password`, {
                     method: 'POST',
-                    headers: getLicenseHeaders(),
+                    headers: {...getLicenseHeaders(), 'X-Operation-Lease': leaseToken},
                     body: JSON.stringify({
                         license_key: licenseKey,
                         machine_id: machineId

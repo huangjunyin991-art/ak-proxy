@@ -39,6 +39,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/license/create'): 'account_ops',
             ('POST', '/admin/api/license/revoke'): 'account_ops',
             ('POST', '/admin/api/license/edit'): 'account_ops',
+            ('POST', '/admin/api/license/reset-password'): 'account_ops',
             ('POST', '/admin/api/license/blacklist/add'): 'account_ops',
             ('POST', '/admin/api/license/blacklist/remove'): 'account_ops',
             ('POST', '/admin/api/license/disable-client'): 'account_ops',

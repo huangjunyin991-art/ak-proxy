@@ -53,6 +53,7 @@ REQUIRED_SCOPE_PROBES = (
     OperationAuthProbe("DELETE", "/admin/ak-web/RPC/Login", "dispatcher_ops"),
     OperationAuthProbe("PUT", "/admin/ak-site/RPC/Login", "dispatcher_ops"),
     OperationAuthProbe("POST", "/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1", "dispatcher_ops"),
+    OperationAuthProbe("POST", "/admin/api/license/reset-password", "account_ops"),
     OperationAuthProbe("GET", "/admin/api/operation_auth/secrets", "totp_secret_ops"),
 )
 
@@ -84,6 +85,7 @@ class FallbackOperationScopeResolver:
             ("POST", "/admin/api/license/create"): "account_ops",
             ("POST", "/admin/api/license/revoke"): "account_ops",
             ("POST", "/admin/api/license/edit"): "account_ops",
+            ("POST", "/admin/api/license/reset-password"): "account_ops",
             ("POST", "/admin/api/license/blacklist/add"): "account_ops",
             ("POST", "/admin/api/license/blacklist/remove"): "account_ops",
             ("POST", "/admin/api/license/disable-client"): "account_ops",
