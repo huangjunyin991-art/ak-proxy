@@ -31,7 +31,6 @@
         <article class="ak-metric">
             <span class="ak-metric__label">最新订单 ID</span>
             <strong id="mockLatestId">13339050</strong>
-            <small>来自 /RPC/Public_ACE 首条记录</small>
         </article>
         <article class="ak-metric">
             <span class="ak-metric__label">本地最大 ID</span>
@@ -122,9 +121,8 @@
                 <div class="ak-panel__head">
                     <div>
                         <h2>AK交易数据</h2>
-                        <p>按卖家或买家 ID 查询本地已采集订单，汇总数据和明细表在同一视图内联动。</p>
+                        <p>输入卖家或者买家 ID 可以查询对应的交易订单。</p>
                     </div>
-                    <span class="ak-tag">FlowNumber</span>
                 </div>
                 <div class="ak-search">
                     <select id="flowSearchType" aria-label="查询类型">
@@ -132,7 +130,7 @@
                         <option value="buyer">买家 ID</option>
                     </select>
                     <input id="flowSearchInput" type="number" value="594344" placeholder="输入卖家或买家 ID，例如 594344">
-                    <button class="ak-btn ak-btn--primary" type="button" data-action="search-flow">查询账户</button>
+                    <button class="ak-btn ak-btn--primary" type="button" data-action="search-flow">查询交易</button>
                     <button class="ak-btn ak-btn--ghost" type="button" data-action="reset-flow">显示最近订单</button>
                 </div>
                 <div id="tradeResult" class="ak-trade-result"></div>

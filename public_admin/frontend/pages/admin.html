@@ -4471,6 +4471,7 @@
         <div class="tab" data-panel="usage"><svg class="tab-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> 账号管理</div>
         <div class="tab" data-panel="users"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 账号数据</div>
         <div class="tab" data-panel="pointStats"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-6"/><path d="M6 20h12"/></svg> 点数统计</div>
+        <div class="tab" data-panel="akData"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15h3"/><path d="M12 11h3"/><path d="M17 7h3"/><path d="M7 19v-8"/><path d="M12 19V7"/><path d="M17 19V5"/></svg> AK数据</div>
         <div class="tab" data-panel="recommendTree"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M6 11h12"/><path d="M6 11v4"/><path d="M18 11v4"/><circle cx="12" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><circle cx="18" cy="17" r="2"/></svg> 组织架构</div>
         <div class="tab" data-panel="ips"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> IP管理</div>
         <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表 <span class="online-tab-count banlist-tab-count" id="banlistTabCount">0</span></div>
@@ -4724,6 +4725,9 @@
         
         <div class="panel" id="pointStats">
             <div id="pointStatsPanelMount"></div>
+        </div>
+        <div class="panel" id="akData">
+            <div id="akDataPanelMount"></div>
         </div>
 
         <div class="panel" id="recommendTree">
@@ -6052,7 +6056,8 @@
             systemInspection: 'AKSystemInspectionPanel',
             meetings: 'AKMeetingAdminPanel',
             aiAssistant: 'AKAIAssistantPanel',
-            settings: 'AKAdminSettingsPanel'
+            settings: 'AKAdminSettingsPanel',
+            akData: 'AKDataPanel'
         };
         const adminLazyPanelLoadState = {};
 
@@ -8598,6 +8603,7 @@
             { key: 'usage', label: '账号管理' },
             { key: 'users', label: '账号数据' },
             { key: 'pointStats', label: '点数统计' },
+            { key: 'akData', label: 'AK数据' },
             { key: 'recommendTree', label: '组织架构' },
             { key: 'ips', label: 'IP管理' },
             { key: 'banlist', label: '封禁列表' },
@@ -9469,6 +9475,7 @@
             }
             if (panelName === 'activeDefense') ensureLazyPanelModule('activeDefense');
             if (panelName === 'rateBan') ensureLazyPanelModule('rateBan');
+            if (panelName === 'akData') ensureLazyPanelModule('akData');
             if (panelName === 'monitoring') ensureLazyPanelModule('monitoring');
             if (panelName === 'systemInspection') ensureLazyPanelModule('systemInspection');
             if (panelName === 'meetings') ensureLazyPanelModule('meetings');
@@ -14238,6 +14245,111 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 loadRecommendTreePanelAsset(0, false, 1);
             };
             if (currentPanelName === 'recommendTree') ensureLazyPanelModule('recommendTree');
+        })();
+    </script>
+    <script>
+        (function() {
+            var akDataPanelBuildVersion = '20260617-01';
+            window.AKDataPanelAssetVersion = akDataPanelBuildVersion;
+            var akDataPanelAssets = [
+                'ak_data_api.js',
+                'ak_data_store.js',
+                'ak_data_renderer.js',
+                'ak_data_panel.js'
+            ];
+
+            function reportAkDataPanelLoadFailure(message) {
+                var mount = document.getElementById('akDataPanelMount');
+                if (mount) mount.innerHTML = '<div class="akd-module-error">' + message + '</div>';
+                try {
+                    var isMobile = window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+                    if (!isMobile && typeof showToast === 'function') showToast(message, 'error');
+                } catch (e) {}
+                console.error('[AKDataPanelLoader]', message);
+            }
+
+            function resetAkDataPanelGlobals() {
+                ['AKDataApi', 'AKDataStore', 'AKDataRenderer', 'AKDataPanel'].forEach(function(name) {
+                    try {
+                        delete window[name];
+                    } catch (e) {
+                        window[name] = undefined;
+                    }
+                });
+            }
+
+            function removeAkDataPanelScripts() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-ak-data-panel-loader="1"]')).forEach(function(node) {
+                    if (node && node.parentNode) node.parentNode.removeChild(node);
+                });
+            }
+
+            function buildAkDataPanelUrl(assetName, forceRefresh) {
+                if (forceRefresh) return '/admin/api/ak-data-panel/' + assetName + '?t=' + Date.now();
+                return '/admin/api/ak-data-panel/' + assetName + '?v=' + encodeURIComponent(akDataPanelBuildVersion);
+            }
+
+            function ensureAkDataPanelCss(forceRefresh) {
+                var href = buildAkDataPanelUrl('ak_data_panel.css', forceRefresh);
+                var existing = document.querySelector('link[data-ak-data-panel-css="1"]');
+                if (existing) {
+                    if (existing.getAttribute('href') !== href) existing.href = href;
+                    return;
+                }
+                var link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                link.setAttribute('data-ak-data-panel-css', '1');
+                document.head.appendChild(link);
+            }
+
+            function loadAkDataPanelAsset(index, forceRefresh, attempt) {
+                if (index >= akDataPanelAssets.length) {
+                    if (window.AKDataPanel) {
+                        if (document.querySelector('.tab.active[data-panel="akData"]')) window.AKDataPanel.start();
+                    } else if (attempt < 2) {
+                        resetAkDataPanelGlobals();
+                        removeAkDataPanelScripts();
+                        ensureAkDataPanelCss(true);
+                        loadAkDataPanelAsset(0, true, attempt + 1);
+                    } else {
+                        reportAkDataPanelLoadFailure('AK 数据面板初始化失败，请强制刷新后重试');
+                    }
+                    return;
+                }
+                var script = document.createElement('script');
+                script.src = buildAkDataPanelUrl(akDataPanelAssets[index], forceRefresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-ak-data-panel-loader', '1');
+                script.onload = function() {
+                    loadAkDataPanelAsset(index + 1, forceRefresh, attempt);
+                };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        resetAkDataPanelGlobals();
+                        removeAkDataPanelScripts();
+                        ensureAkDataPanelCss(true);
+                        loadAkDataPanelAsset(0, true, attempt + 1);
+                        return;
+                    }
+                    reportAkDataPanelLoadFailure('AK 数据面板脚本请求失败，请强制刷新后重试');
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.akData = function() {
+                if (window.AKDataPanel) {
+                    if (typeof window.AKDataPanel.start === 'function') window.AKDataPanel.start();
+                    return;
+                }
+                resetAkDataPanelGlobals();
+                removeAkDataPanelScripts();
+                ensureAkDataPanelCss(false);
+                loadAkDataPanelAsset(0, false, 1);
+            };
+            if (currentPanelName === 'akData') ensureLazyPanelModule('akData');
         })();
     </script>
     <script>

@@ -494,6 +494,82 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_point_history_records_user_type_time ON point_history_records(username, point_type, saved_at DESC)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_point_history_records_type_time ON point_history_records(point_type, saved_at DESC)')
         await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ak_trade_summary (
+                trade_id INTEGER PRIMARY KEY,
+                single_price NUMERIC(4, 3) NOT NULL CHECK (single_price >= 0 AND single_price <= 0.400),
+                readonly_stock_count INTEGER NOT NULL CHECK (readonly_stock_count >= 0 AND readonly_stock_count <= 99999),
+                mycancel INTEGER NOT NULL CHECK (mycancel >= 0 AND mycancel <= readonly_stock_count),
+                success INTEGER NOT NULL CHECK (success >= 0 AND success <= readonly_stock_count),
+                success_value NUMERIC(7, 2) NOT NULL CHECK (success_value >= 0),
+                create_time TIMESTAMP NOT NULL,
+                date_key DATE NOT NULL,
+                seller_flow_number VARCHAR(12) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_date ON ak_trade_summary(date_key)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_time ON ak_trade_summary(create_time DESC, trade_id DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_seller_time ON ak_trade_summary(seller_flow_number, create_time DESC, trade_id DESC)')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ak_trade_buyers (
+                trade_id INTEGER NOT NULL REFERENCES ak_trade_summary(trade_id) ON DELETE CASCADE,
+                buyer_flow_number VARCHAR(12) NOT NULL,
+                ak_amount INTEGER NOT NULL CHECK (ak_amount >= 0 AND ak_amount <= 99999),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_buyers_trade ON ak_trade_buyers(trade_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_buyers_flow_trade ON ak_trade_buyers(buyer_flow_number, trade_id)')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ak_daily_summary (
+                date_key DATE PRIMARY KEY,
+                order_count INTEGER NOT NULL DEFAULT 0 CHECK (order_count >= 0),
+                total_stock BIGINT NOT NULL DEFAULT 0 CHECK (total_stock >= 0),
+                total_mycancel BIGINT NOT NULL DEFAULT 0 CHECK (total_mycancel >= 0),
+                total_success BIGINT NOT NULL DEFAULT 0 CHECK (total_success >= 0),
+                total_success_value NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (total_success_value >= 0),
+                platform_gap BIGINT NOT NULL DEFAULT 0 CHECK (platform_gap >= 0),
+                unique_seller_count INTEGER NOT NULL DEFAULT 0 CHECK (unique_seller_count >= 0),
+                unique_buyer_count INTEGER NOT NULL DEFAULT 0 CHECK (unique_buyer_count >= 0),
+                zero_seller_order_count INTEGER NOT NULL DEFAULT 0 CHECK (zero_seller_order_count >= 0),
+                min_trade_id INTEGER,
+                max_trade_id INTEGER,
+                first_trade_time TIMESTAMP,
+                last_trade_time TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ak_scan_runtime (
+                scan_name VARCHAR(64) PRIMARY KEY,
+                running BOOLEAN NOT NULL DEFAULT FALSE,
+                direction VARCHAR(16) NOT NULL DEFAULT 'forward',
+                current_trade_id INTEGER,
+                target_trade_id INTEGER,
+                last_saved_trade_id INTEGER,
+                last_seen_create_time TIMESTAMP,
+                last_trigger_trade_id INTEGER,
+                current_account_username VARCHAR(64),
+                account_switch_count INTEGER NOT NULL DEFAULT 0,
+                next_check_at TIMESTAMP,
+                last_check_skipped_at TIMESTAMP,
+                last_check_skip_reason VARCHAR(100),
+                status VARCHAR(24) NOT NULL DEFAULT 'idle',
+                last_error VARCHAR(500),
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ak_data_config (
+                config_key VARCHAR(64) PRIMARY KEY,
+                config_value TEXT NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS point_history_user_summary (
                 username TEXT PRIMARY KEY,
                 record_count BIGINT NOT NULL DEFAULT 0,

@@ -555,6 +555,13 @@ except Exception as e:
     _RECOMMEND_TREE_IMPORT_ERROR = e
 
 try:
+    from .ak_data import create_ak_data_router
+    _AK_DATA_IMPORT_ERROR = None
+except Exception as e:
+    create_ak_data_router = None
+    _AK_DATA_IMPORT_ERROR = e
+
+try:
     from .security.operation_auth import (
         OperationAuthMiddleware,
         OperationAuthRepository,
@@ -6274,6 +6281,19 @@ elif _RECOMMEND_TREE_IMPORT_ERROR is not None:
 
 
 # --- 启动任务 ---
+
+if create_ak_data_router is not None:
+    try:
+        app.include_router(create_ak_data_router(
+            pool_supplier=db._get_pool,
+            verify_admin_token=verify_admin_token,
+            check_token_permission=check_token_permission,
+        ))
+    except Exception as e:
+        logger.warning(f"[AkData] AK 数据路由注册失败，已跳过: {e}")
+elif _AK_DATA_IMPORT_ERROR is not None:
+    logger.warning(f"[AkData] AK 数据模块不可用，已跳过: {_AK_DATA_IMPORT_ERROR}")
+
 
 @app.on_event("startup")
 
@@ -14096,6 +14116,30 @@ async def point_stats_panel_asset(request: Request, asset_name: str):
     if not media_type:
         return Response(content="// not found", media_type="application/javascript")
     base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "point_stats"))
+    asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
+    if not asset_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
+
+
+@app.get("/admin/api/ak-data-panel/{asset_name:path}")
+async def ak_data_panel_asset(request: Request, asset_name: str):
+    allowed_assets = {
+        "ak_data_api.js": "application/javascript",
+        "ak_data_store.js": "application/javascript",
+        "ak_data_renderer.js": "application/javascript",
+        "ak_data_panel.js": "application/javascript",
+        "ak_data_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "ak_data"))
     asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
     if not asset_path.startswith(base_dir + os.sep):
         return Response(content="// not found", media_type="application/javascript")

@@ -488,24 +488,34 @@ AK 数据看板
 
 ### AK交易数据
 
-管理员面板需要提供“AK交易数据”模块，通过卖家或买家 `FlowNumber` 查询关联订单。这个入口面向业务核验，不以订单 ID 作为主要查询条件。
+管理员面板需要提供“AK交易数据”模块，通过卖家或买家 ID 查询关联订单。这个入口面向业务核验，不以订单 ID 作为主要查询条件。
 
-模块布局应保持紧凑：查询控件、账户汇总卡、关联订单表放在同一个面板内，不再把订单表拆成单独模块。
+模块布局应保持紧凑：查询控件、查询状态条、关联订单表放在同一个面板内，不再把订单表拆成单独模块。查询状态条只提示当前查询对象、命中订单数、最近订单和本地查询状态，详细统计交给表格和图表承载，避免重复展示。
 
 输入：
 
 ```text
 query_type: seller | buyer
-flow_number
+account_id
 ```
 
 交互：
 
 - 选择“卖家 ID”或“买家 ID”。
-- 输入对应账号的 `FlowNumber` 后点击查询。
+- 输入对应卖家或买家 ID 后点击查询。
+- 点击查询后先显示后台查询占位说明，不阻塞用户切换查看其他模块。
+- 查询任务完成后自动刷新查询状态条和关联订单表，展示所有符合条件的订单。
 - 只查本地已采集数据库，不因为账户查询临时打上游。
-- 如果本地不存在，提示“本地暂无该账号记录”，并说明可能是保留期清理或尚未采集到对应时间范围。
-- 如果本地存在，在同一个面板内展示该账号关联订单的汇总卡和明细表。
+- 如果本地不存在，提示“暂无匹配数据”。
+- 如果本地存在，在同一个面板内展示该账号关联订单的状态提示和明细表。
+
+性能设计：
+
+- 卖家查询走 `ak_trade_summary(seller_flow_number, create_time DESC, trade_id DESC)` 复合索引。
+- 买家查询走 `ak_trade_buyers(buyer_flow_number, trade_id)` 索引，再按 `trade_id` join `ak_trade_summary`。
+- 查询结果按时间倒序分页/游标返回，前端持续追加或一次性展示当前命中集；汇总统计由后台查询任务计算后一起返回。
+- 大账号查询必须走后台任务，不在请求线程内长时间同步等待；接口返回 `task_id` 后前端轮询或订阅状态。
+- 查询任务只读本地库，不触发上游 API，不影响全局采集任务。
 
 卖家视角展示字段：
 
@@ -566,7 +576,7 @@ flow_number
 
 - 查询的是卖家还是买家。
 - 本地是否存在关联记录。
-- 当前查询命中的订单数。
+- 当前查询命中的关联订单数。
 - 当前数据保留期。
 - 查询范围是否可能被保留期清理影响。
 
@@ -592,7 +602,9 @@ GET  /admin/api/ak-data/backfill/status
 GET  /admin/api/ak-data/dashboard?start_date=&end_date=
 GET  /admin/api/ak-data/trades?date=&page=&page_size=
 GET  /admin/api/ak-data/trades/{trade_id}/buyers
-GET  /admin/api/ak-data/accounts/{query_type}/{flow_number}/trades?page=&page_size=
+POST /admin/api/ak-data/account-query/start
+GET  /admin/api/ak-data/account-query/{task_id}
+GET  /admin/api/ak-data/accounts/{query_type}/{account_id}/trades?page=&page_size=
 ```
 
 权限：

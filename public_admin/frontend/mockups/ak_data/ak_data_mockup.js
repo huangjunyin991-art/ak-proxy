@@ -9,6 +9,7 @@
         selectedTradeId: 0,
         visibleTrades: [],
         tableMode: 'orders',
+        searchSeq: 0,
         status: 'running',
         charts: {}
     };
@@ -227,64 +228,60 @@
         var flow = String(flowNumber || '').trim();
         var isBuyer = role === 'buyer';
         if (!flow) {
-            node.innerHTML = '<div class="ak-trade-empty">请输入卖家或买家 ID 后查询。</div>';
+            node.innerHTML = '<div class="ak-query-status is-empty">请输入卖家或买家 ID 后查询。</div>';
             return;
         }
         if (!rows || !rows.length) {
             node.innerHTML = [
-                '<div class="ak-trade-empty">',
-                '<div class="ak-trade-card__top">',
-                '<div><h3>' + (isBuyer ? '买家 ' : '卖家 ') + escapeHtml(flow) + '</h3><p>本地数据库暂未找到该账号的采集记录。</p></div>',
-                '<span class="ak-trade-card__status is-missing">无本地记录</span>',
+                '<div class="ak-query-status is-missing">',
+                '<div>',
+                '<strong>' + (isBuyer ? '买家 ' : '卖家 ') + escapeHtml(flow) + '</strong>',
+                '<p>暂无匹配数据。</p>',
                 '</div>',
-                '<p>正式版只查询已采集数据，不因为账户查询去打上游，避免影响全局采集任务。</p>',
+                '<span>无匹配订单</span>',
                 '</div>'
             ].join('');
             return;
         }
 
-        var summary = summarizeFlow(role, flow, rows);
-        var chips = rows.slice(0, 5).map(function(row) {
-            if (isBuyer) {
-                var amount = buyerAmountForFlow(row, flow);
-                return '<div><span>订单 ' + escapeHtml(row.trade_id) + '</span><strong>买入 ' + numberText(amount) + '</strong></div>';
-            }
-            return '<div><span>订单 ' + escapeHtml(row.trade_id) + '</span><strong>成交 ' + numberText(row.success) + '</strong></div>';
-        }).join('');
+        var latest = rows[0] || {};
 
         node.innerHTML = [
-            '<div class="ak-trade-card">',
-            '<div class="ak-trade-card__top">',
-            '<div><h3>' + (isBuyer ? '买家 ' : '卖家 ') + escapeHtml(flow) + '</h3><p>关联订单 ' + numberText(rows.length) + ' 笔 · 最近订单 ' + escapeHtml(summary.latestTradeId) + '</p></div>',
-            '<span class="ak-trade-card__status">本地查询</span>',
+            '<div class="ak-query-status">',
+            '<div>',
+            '<strong>' + (isBuyer ? '买家 ' : '卖家 ') + escapeHtml(flow) + ' · 关联订单 ' + numberText(rows.length) + ' 笔</strong>',
+            '<p>最近订单 ' + escapeHtml(latest.trade_id || '-') + ' · ' + escapeHtml(latest.create_time || '-') + '，下方表格已展示全部关联订单。</p>',
             '</div>',
-            '<div class="ak-trade-stats">',
-            statHtml('订单数', numberText(rows.length)),
-            statHtml(isBuyer ? '买入数量' : '挂卖总数', numberText(isBuyer ? summary.buyAmount : summary.stock)),
-            statHtml(isBuyer ? '买入价值' : '成交价值', moneyText(isBuyer ? summary.buyValue : summary.successValue)),
-            statHtml(isBuyer ? '关联卖家' : '交易销毁', isBuyer ? numberText(summary.sellerCount) : numberText(summary.burn)),
-            statHtml(isBuyer ? '平均买价' : '成交量', isBuyer ? priceText(summary.avgPrice) : numberText(summary.success)),
-            statHtml(isBuyer ? '最近买入' : '平台差额', isBuyer ? numberText(summary.latestBuyAmount) : numberText(summary.gap)),
-            statHtml('首笔时间', summary.firstTime),
-            statHtml('最近时间', summary.latestTime),
-            '</div>',
-            '<div class="ak-mini-buyers">' + chips + '</div>',
+            '<span>本地查询</span>',
             '</div>'
         ].join('');
+    }
+
+    function renderSearchPending(role, flowNumber) {
+        var node = $('#tradeResult');
+        if (!node) return;
+        var isBuyer = role === 'buyer';
+        var flow = String(flowNumber || '').trim();
+        node.innerHTML = [
+            '<div class="ak-query-status is-pending">',
+            '<div class="ak-loading-dot"></div>',
+            '<div>',
+            '<strong>正在后台查询' + (isBuyer ? '买家 ' : '卖家 ') + escapeHtml(flow || '-') + '</strong>',
+            '<p>查询任务已提交，您可以切换查看其他模块；数据返回后会自动更新汇总和关联订单表。</p>',
+            '</div>',
+            '</div>'
+        ].join('');
+        var hint = $('#tableHint');
+        if (hint) {
+            hint.textContent = '后台查询中，当前表格暂时保留上一次结果，返回后会显示所有符合条件的订单。';
+        }
+        var tag = $('#tableModeTag');
+        if (tag) tag.textContent = '查询中';
     }
 
     function renderRecentOverview() {
         var node = $('#tradeResult');
         if (!node) return;
-        var totalSuccess = trades.reduce(function(sum, row) {
-            return sum + Number(row.success || 0);
-        }, 0);
-        var totalBurn = trades.reduce(function(sum, row) {
-            return sum + Number(row.mycancel || 0);
-        }, 0);
-        var totalValue = trades.reduce(function(sum, row) {
-            return sum + Number(row.success_value || 0);
-        }, 0);
         var uniqueSellers = {};
         var uniqueBuyers = {};
         trades.forEach(function(row) {
@@ -294,21 +291,12 @@
             });
         });
         node.innerHTML = [
-            '<div class="ak-trade-card">',
-            '<div class="ak-trade-card__top">',
-            '<div><h3>最近订单概览</h3><p>当前显示模拟采集到的最近 ' + numberText(trades.length) + ' 笔订单。</p></div>',
-            '<span class="ak-trade-card__status">列表视图</span>',
+            '<div class="ak-query-status">',
+            '<div>',
+            '<strong>最近订单 · 当前显示 ' + numberText(trades.length) + ' 笔</strong>',
+            '<p>卖家 ' + numberText(Object.keys(uniqueSellers).length) + ' 个 · 买家 ' + numberText(Object.keys(uniqueBuyers).length) + ' 个，点击订单行查看买家明细。</p>',
             '</div>',
-            '<div class="ak-trade-stats">',
-            statHtml('订单数', numberText(trades.length)),
-            statHtml('成交量', numberText(totalSuccess)),
-            statHtml('交易销毁', numberText(totalBurn)),
-            statHtml('成交价值', moneyText(totalValue)),
-            statHtml('卖家数', numberText(Object.keys(uniqueSellers).length)),
-            statHtml('买家数', numberText(Object.keys(uniqueBuyers).length)),
-            statHtml('最新订单', trades[0] ? trades[0].trade_id : '-'),
-            statHtml('最早订单', trades[trades.length - 1] ? trades[trades.length - 1].trade_id : '-'),
-            '</div>',
+            '<span>列表视图</span>',
             '</div>'
         ].join('');
     }
@@ -357,10 +345,6 @@
         summary.sellerCount = Object.keys(sellerSet).length;
         summary.avgPrice = summary.buyAmount > 0 ? summary.buyValue / summary.buyAmount : 0;
         return summary;
-    }
-
-    function statHtml(label, value) {
-        return '<div><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>';
     }
 
     function renderTable(rows) {
@@ -858,14 +842,21 @@
         var type = $('#flowSearchType');
         var flow = input ? input.value : '';
         var role = type ? type.value : 'seller';
-        var rows = findTradesByFlow(role, flow);
         state.selectedFlowNumber = String(flow || '').trim();
         state.selectedFlowRole = role;
-        state.visibleTrades = rows;
-        state.selectedTradeId = rows[0] ? rows[0].trade_id : 0;
-        renderAccountResult(role, flow, rows);
-        renderTable(rows);
-        toast(rows.length ? '已查询到 ' + rows.length + ' 笔关联订单' : '本地暂无该账号记录');
+        state.searchSeq += 1;
+        var seq = state.searchSeq;
+        renderSearchPending(role, flow);
+        toast('查询任务已提交，后台正在检索交易订单');
+        window.setTimeout(function() {
+            if (seq !== state.searchSeq) return;
+            var rows = findTradesByFlow(role, flow);
+            state.visibleTrades = rows;
+            state.selectedTradeId = rows[0] ? rows[0].trade_id : 0;
+            renderAccountResult(role, flow, rows);
+            renderTable(rows);
+            toast(rows.length ? '已返回 ' + rows.length + ' 笔符合条件的订单' : '暂无匹配数据');
+        }, 720);
     }
 
     function resetFlowSearch() {
