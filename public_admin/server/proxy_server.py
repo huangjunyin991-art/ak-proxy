@@ -17383,8 +17383,17 @@ def _build_ak_tab_bar_language_fallback_script() -> str:
         "try{if(window.APP&&APP.CONFIG&&APP.CONFIG.SYSTEM_KEYS&&APP.CONFIG.SYSTEM_KEYS.LANGUAGE_KEY){var v=fromLocalStorage(APP.CONFIG.SYSTEM_KEYS.LANGUAGE_KEY);if(v)return norm(v);}}catch(e){}"
         "var stored=fromLocalStorage('AK_current_langeuage');return norm(stored||'cn');}"
         "window.__akTabBarInitialLanguage=function(){var pack=FALLBACK[current()]||FALLBACK.cn||{};var out={};for(var k in pack){if(Object.prototype.hasOwnProperty.call(pack,k))out[k]=pack[k];}return out;};"
+        "window.__akApplyInitialTabMenus=function(vm){var pack=window.__akTabBarInitialLanguage?window.__akTabBarInitialLanguage():{};"
+        "try{if(vm){if(!vm.language||!Object.keys(vm.language).length){vm.language={};}for(var key in pack){if(Object.prototype.hasOwnProperty.call(pack,key))vm.language[key]=pack[key];}"
+        "if(vm.menus&&vm.menus.length){for(var i=0;i<vm.menus.length;i++){var text=pack['BOTTOM_MENU_'+(i+1)];if(text&&vm.menus[i])vm.menus[i].text=text;}}}}catch(e){}return pack;};"
         "}catch(e){}})();\n"
     )
+
+
+def _patch_base_js_tab_bar_language_fallback(text: str) -> tuple[str, bool]:
+    if "__akTabBarInitialLanguageInstalled" in str(text or ""):
+        return text, False
+    return _build_ak_tab_bar_language_fallback_script() + str(text or ""), True
 
 
 def _patch_vue_component_tab_bar_language(text: str) -> tuple[str, bool]:
@@ -17485,12 +17494,53 @@ def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
     return next_text, bool(count)
 
 
+_AK_TAB_BAR_PAGE_JS_PATHS = {
+    "content/js/pages/home.js",
+    "content/js/pages/ace.list.js",
+    "content/js/pages/ep.list.js",
+    "content/js/pages/center.js",
+}
+
+
 def _rewrite_vue_component_script_version(text: str) -> str:
     return re.sub(
         r"(/content/js/vue-component\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
-        r"\1&ak_static_v=tabbar-initial-20260614",
+        r"\1&ak_static_v=tabbar-initial-20260617",
         str(text or ""),
     )
+
+
+def _rewrite_tab_bar_page_script_versions(text: str) -> str:
+    return re.sub(
+        r"(/content/js/pages/(?:home|ace\.list|ep\.list|center)\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
+        r"\1&ak_static_v=tabbar-initial-20260617",
+        str(text or ""),
+    )
+
+
+def _patch_tab_bar_page_js_language(text: str) -> tuple[str, bool]:
+    patched = False
+    text = str(text or "")
+    next_text, count = re.subn(
+        r"('language'\s*:\s*)\{\}",
+        r"\1((window.__akTabBarInitialLanguage&&window.__akTabBarInitialLanguage())||{})",
+        text,
+        count=1,
+    )
+    if count:
+        text = next_text
+        patched = True
+    if "__akApplyInitialTabMenus(this)" not in text:
+        next_text, count = re.subn(
+            r"(created\s*:\s*function\s*\(\)\s*\{\s*)",
+            r"\1if(window.__akApplyInitialTabMenus){window.__akApplyInitialTabMenus(this);}\n        ",
+            text,
+            count=1,
+        )
+        if count:
+            text = next_text
+            patched = True
+    return text, patched
 
 
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
@@ -17503,11 +17553,16 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
+        text, _ = _patch_base_js_tab_bar_language_fallback(text)
         text, _ = _patch_base_js_language_pack_version(text)
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
         return _patch_vue_component_content(text).encode("utf-8")
+    if normalized_path.lower() in _AK_TAB_BAR_PAGE_JS_PATHS and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
+        text = content.decode("utf-8", errors="replace")
+        text, _ = _patch_tab_bar_page_js_language(text)
+        return text.encode("utf-8")
     return content
 
 
@@ -17516,7 +17571,7 @@ def _build_public_cached_static_response(cached_static, normalized_path: str) ->
     body = cached_static.body or b""
     lowered_content_type = str(content_type or "").lower()
     lowered_path = str(normalized_path or "").lower()
-    if lowered_path.endswith("base.js") or lowered_path == "content/js/vue-component.js" or "text/css" in lowered_content_type:
+    if lowered_path.endswith("base.js") or lowered_path == "content/js/vue-component.js" or lowered_path in _AK_TAB_BAR_PAGE_JS_PATHS or "text/css" in lowered_content_type:
         body = _transform_ak_public_static_content(normalized_path, content_type, body)
         headers = {
             k: v
@@ -17720,6 +17775,7 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
         rewritten = rewritten.replace("www.akapi3.com", public_host)
     rewritten = _rewrite_base_js_script_version(rewritten)
     rewritten = _rewrite_vue_component_script_version(rewritten)
+    rewritten = _rewrite_tab_bar_page_script_versions(rewritten)
     rewritten = rewritten.replace(
         "/assets/css/vue-component.css",
         "/assets/css/vue-component.css?ak_static_v=public-css-20260611",
@@ -18251,6 +18307,8 @@ async def ak_web_proxy(request: Request, path: str):
                 base_js_rewritten = base_js_rewritten or ban_countdown_rewritten
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
+            text, tab_bar_language_rewritten = _patch_base_js_tab_bar_language_fallback(text)
+            base_js_rewritten = base_js_rewritten or tab_bar_language_rewritten
             text, lang_pack_version_rewritten = _patch_base_js_language_pack_version(text)
             base_js_rewritten = base_js_rewritten or lang_pack_version_rewritten
             if base_js_rewritten:
@@ -18263,6 +18321,13 @@ async def ak_web_proxy(request: Request, path: str):
             if patched_text != text:
                 content = patched_text.encode("utf-8")
                 _admin_ak_trace(lambda: f"[AkVueComponentRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
+
+        if normalized_path in _AK_TAB_BAR_PAGE_JS_PATHS and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
+            text = content.decode("utf-8", errors="replace")
+            patched_text, tab_page_rewritten = _patch_tab_bar_page_js_language(text)
+            if tab_page_rewritten:
+                content = patched_text.encode("utf-8")
+                _admin_ak_trace(lambda: f"[AkTabPageJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
 
         if any(t in content_type.lower() for t in ("javascript", "ecmascript")) and normalized_path in debug_body_targets:
             js_text = content.decode("utf-8", errors="replace")
@@ -18285,6 +18350,7 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_widget_asset_urls(text)
                 text = _rewrite_base_js_script_version(text)
                 text = _rewrite_vue_component_script_version(text)
+                text = _rewrite_tab_bar_page_script_versions(text)
                 if transform_proxied_site_prefetch_html is not None:
                     try:
                         text, proxied_site_prefetch_injected = transform_proxied_site_prefetch_html(
