@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .repository import AkDataRepository
 from .service import AkDataService
+from .worker import AkDataWorker
 
 
 def _extract_bearer_token(request: Request) -> str:
@@ -22,7 +23,8 @@ def create_ak_data_router(
     check_token_permission: Optional[Callable[[str, str], bool]] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/ak-data")
-    service = AkDataService(AkDataRepository(pool_supplier=pool_supplier))
+    repository = AkDataRepository(pool_supplier=pool_supplier)
+    service = AkDataService(repository, AkDataWorker(repository))
 
     async def require_admin(request: Request):
         token = _extract_bearer_token(request)
@@ -49,6 +51,26 @@ def create_ak_data_router(
             return error_response
         try:
             return await service.get_storage()
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.get("/config")
+    async def ak_data_config(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.get_config()
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.post("/config")
+    async def ak_data_save_config(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.save_config(await request.json())
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
 
@@ -89,6 +111,56 @@ def create_ak_data_router(
             return error_response
         try:
             return await service.get_trade_buyers(trade_id)
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.get("/backfill/status")
+    async def ak_data_backfill_status(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.get_backfill_status()
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.post("/backfill/start")
+    async def ak_data_backfill_start(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.start_backfill(await request.json())
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.post("/backfill/pause")
+    async def ak_data_backfill_pause(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.pause_backfill()
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.post("/probe/start")
+    async def ak_data_probe_start(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.start_probe(await request.json())
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
+    @router.post("/cleanup")
+    async def ak_data_cleanup(request: Request):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.cleanup()
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
 

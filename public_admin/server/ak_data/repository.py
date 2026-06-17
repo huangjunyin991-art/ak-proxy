@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+import json
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 
@@ -8,6 +9,7 @@ AK_TABLES = (
     "ak_trade_summary",
     "ak_trade_buyers",
     "ak_daily_summary",
+    "ak_trade_fetch_state",
     "ak_scan_runtime",
     "ak_data_config",
 )
@@ -22,6 +24,142 @@ class AkDataRepository:
 
     async def _table_exists(self, conn, table_name: str) -> bool:
         return bool(await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", f"public.{table_name}"))
+
+    async def ensure_main_runtime(self) -> None:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_scan_runtime"):
+                return
+            await conn.execute(
+                """
+                INSERT INTO ak_scan_runtime (scan_name)
+                VALUES ('main')
+                ON CONFLICT (scan_name) DO NOTHING
+                """
+            )
+
+    async def load_config(self) -> dict[str, Any]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_data_config"):
+                return {}
+            rows = await conn.fetch("SELECT config_key, config_value FROM ak_data_config")
+        config: dict[str, Any] = {}
+        for row in rows:
+            key = str(row["config_key"] or "").strip()
+            if not key:
+                continue
+            raw = str(row["config_value"] or "").strip()
+            try:
+                config[key] = json.loads(raw)
+            except Exception:
+                config[key] = raw
+        return config
+
+    async def save_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        pool = self._pool()
+        rows = []
+        for key, value in sorted((config or {}).items()):
+            rows.append((str(key), json.dumps(value, ensure_ascii=False)))
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_data_config"):
+                return {}
+            async with conn.transaction():
+                for key, value in rows:
+                    await conn.execute(
+                        """
+                        INSERT INTO ak_data_config (config_key, config_value, updated_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (config_key)
+                        DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()
+                        """,
+                        key,
+                        value,
+                    )
+        return await self.load_config()
+
+    async def update_runtime(self, **fields: Any) -> None:
+        if not fields:
+            return
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_scan_runtime"):
+                return
+            await conn.execute(
+                """
+                INSERT INTO ak_scan_runtime (scan_name)
+                VALUES ('main')
+                ON CONFLICT (scan_name) DO NOTHING
+                """
+            )
+            parts = []
+            values = ["main"]
+            for key, value in fields.items():
+                parts.append(f"{key} = ${len(values) + 1}")
+                values.append(value)
+            await conn.execute(
+                f"""
+                UPDATE ak_scan_runtime
+                SET {', '.join(parts)}, updated_at = NOW()
+                WHERE scan_name = $1
+                """,
+                *values,
+            )
+
+    async def get_runtime(self) -> dict[str, Any]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_scan_runtime"):
+                return {}
+            await conn.execute(
+                """
+                INSERT INTO ak_scan_runtime (scan_name)
+                VALUES ('main')
+                ON CONFLICT (scan_name) DO NOTHING
+                """
+            )
+            row = await conn.fetchrow(
+                """
+                SELECT scan_name, running, direction, current_trade_id, target_trade_id, last_saved_trade_id,
+                       last_seen_create_time, last_trigger_trade_id, current_account_username, account_switch_count,
+                       next_check_at, last_check_skipped_at, last_check_skip_reason, status, last_error,
+                       started_at, finished_at, updated_at
+                FROM ak_scan_runtime
+                WHERE scan_name = 'main'
+                """
+            )
+            return dict(row) if row else {}
+
+    async def list_accounts(self, limit: int = 100) -> list[dict[str, Any]]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT username, ak_userkey, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at
+                FROM user_stats
+                WHERE COALESCE(ak_userkey, '') <> ''
+                ORDER BY ak_auth_updated_at DESC NULLS LAST, username ASC
+                LIMIT $1
+                """,
+                max(1, min(int(limit or 100), 500)),
+            )
+        result = []
+        for row in rows:
+            payload = row["ak_login_payload"] or "{}"
+            try:
+                login_payload = json.loads(payload) if isinstance(payload, str) else dict(payload or {})
+            except Exception:
+                login_payload = {}
+            user_data = login_payload.get("UserData") if isinstance(login_payload, dict) else {}
+            result.append({
+                "username": str(row["username"] or "").strip().lower(),
+                "userkey": str(row["ak_userkey"] or "").strip(),
+                "user_id": str((user_data or {}).get("Id") or (user_data or {}).get("ID") or login_payload.get("UserID") or "").strip(),
+                "expires_at": row["ak_auth_expires_at"],
+                "updated_at": row["ak_auth_updated_at"],
+                "login_payload": login_payload,
+            })
+        return result
 
     async def get_status(self) -> dict[str, Any]:
         pool = self._pool()
@@ -137,6 +275,12 @@ class AkDataRepository:
             if not await self._table_exists(conn, "ak_trade_summary"):
                 return {"success": True, "rows": []}
             has_buyers = await self._table_exists(conn, "ak_trade_buyers")
+            complete_filter = """
+                AND NOT EXISTS (
+                    SELECT 1 FROM ak_trade_fetch_state fs
+                    WHERE fs.trade_id = s.trade_id AND fs.fetch_status <> 'complete'
+                )
+            """ if await self._table_exists(conn, "ak_trade_fetch_state") else ""
             buyer_join = """
                 LEFT JOIN (
                     SELECT trade_id, COUNT(*)::bigint AS buyer_count
@@ -152,6 +296,8 @@ class AkDataRepository:
                        COALESCE(b.buyer_count, 0) AS buyer_count
                 FROM ak_trade_summary s
                 {buyer_join}
+                WHERE 1=1
+                {complete_filter}
                 ORDER BY s.create_time DESC, s.trade_id DESC
                 LIMIT $1
                 """,
@@ -173,16 +319,25 @@ class AkDataRepository:
             if role == "buyer":
                 if not has_buyers:
                     return {"success": True, "query_type": role, "account_id": account, "total": 0, "rows": []}
+                has_fetch_state = await self._table_exists(conn, "ak_trade_fetch_state")
+                complete_filter = """
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ak_trade_fetch_state fs
+                          WHERE fs.trade_id = s.trade_id AND fs.fetch_status <> 'complete'
+                      )
+                """ if has_fetch_state else ""
                 total = await conn.fetchval(
-                    """
+                    f"""
                     SELECT COUNT(DISTINCT b.trade_id)::bigint
                     FROM ak_trade_buyers b
+                    JOIN ak_trade_summary s ON s.trade_id = b.trade_id
                     WHERE b.buyer_flow_number = $1
+                    {complete_filter}
                     """,
                     account,
                 )
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT s.trade_id, s.create_time, s.seller_flow_number, s.single_price,
                            s.readonly_stock_count, s.mycancel, s.success, s.success_value,
                            GREATEST(s.readonly_stock_count - s.mycancel - s.success, 0) AS platform_gap,
@@ -200,6 +355,8 @@ class AkDataRepository:
                         FROM ak_trade_buyers
                         GROUP BY trade_id
                     ) b_all ON b_all.trade_id = s.trade_id
+                    WHERE 1=1
+                    {complete_filter}
                     ORDER BY s.create_time DESC, s.trade_id DESC
                     LIMIT $2
                     """,
@@ -214,8 +371,19 @@ class AkDataRepository:
                         GROUP BY trade_id
                     ) b ON b.trade_id = s.trade_id
                 """ if has_buyers else "LEFT JOIN (SELECT 0::integer AS trade_id, 0::bigint AS buyer_count) b ON false"
+                complete_filter = """
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ak_trade_fetch_state fs
+                          WHERE fs.trade_id = s.trade_id AND fs.fetch_status <> 'complete'
+                      )
+                """ if await self._table_exists(conn, "ak_trade_fetch_state") else ""
                 total = await conn.fetchval(
-                    "SELECT COUNT(*)::bigint FROM ak_trade_summary WHERE seller_flow_number = $1",
+                    f"""
+                    SELECT COUNT(*)::bigint
+                    FROM ak_trade_summary s
+                    WHERE s.seller_flow_number = $1
+                    {complete_filter}
+                    """,
                     account,
                 )
                 rows = await conn.fetch(
@@ -228,6 +396,7 @@ class AkDataRepository:
                     FROM ak_trade_summary s
                     {buyer_join}
                     WHERE s.seller_flow_number = $1
+                    {complete_filter}
                     ORDER BY s.create_time DESC, s.trade_id DESC
                     LIMIT $2
                     """,
@@ -260,3 +429,271 @@ class AkDataRepository:
                 tid,
             )
         return {"success": True, "trade_id": tid, "rows": [dict(row) for row in rows]}
+
+    async def upsert_trade_summary(self, trade: dict[str, Any], seller_flow_number: str) -> None:
+        if not trade:
+            return
+        pool = self._pool()
+        trade_id = int(trade.get("Id") or 0)
+        if trade_id <= 0:
+            return
+        single_price = float(trade.get("SinglePrice") or 0)
+        readonly_stock_count = int(trade.get("ReadonlyStockCount") or 0)
+        mycancel = int(trade.get("mycancel") or 0)
+        success = int(trade.get("success") or 0)
+        success_value = round(float(trade.get("successvalue") or 0), 2)
+        create_time = self._parse_datetime(trade.get("CreateTime"))
+        date_key = create_time.date() if create_time else date.today()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_summary"):
+                return
+            await conn.execute(
+                """
+                INSERT INTO ak_trade_summary (
+                    trade_id, single_price, readonly_stock_count, mycancel, success,
+                    success_value, create_time, date_key, seller_flow_number, created_at, updated_at
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+                ON CONFLICT (trade_id)
+                DO UPDATE SET
+                    single_price = EXCLUDED.single_price,
+                    readonly_stock_count = EXCLUDED.readonly_stock_count,
+                    mycancel = EXCLUDED.mycancel,
+                    success = EXCLUDED.success,
+                    success_value = EXCLUDED.success_value,
+                    create_time = EXCLUDED.create_time,
+                    date_key = EXCLUDED.date_key,
+                    seller_flow_number = EXCLUDED.seller_flow_number,
+                    updated_at = NOW()
+                """,
+                trade_id,
+                single_price,
+                readonly_stock_count,
+                mycancel,
+                success,
+                success_value,
+                create_time or datetime.now(),
+                date_key,
+                str(seller_flow_number or "").strip(),
+            )
+            if await self._table_exists(conn, "ak_trade_fetch_state"):
+                await conn.execute(
+                    """
+                    INSERT INTO ak_trade_fetch_state (
+                        trade_id, fetch_status, attempt_count, last_error, first_seen_at,
+                        last_attempt_at, fetched_at, updated_at
+                    )
+                    VALUES ($1, 'complete', 0, '', NOW(), NOW(), NOW(), NOW())
+                    ON CONFLICT (trade_id)
+                    DO UPDATE SET
+                        fetch_status = 'complete',
+                        last_error = '',
+                        last_attempt_at = NOW(),
+                        fetched_at = NOW(),
+                        updated_at = NOW()
+                    """,
+                    trade_id,
+                )
+
+    async def replace_trade_buyers(self, trade_id: int, rows: list[dict[str, Any]]) -> None:
+        tid = int(trade_id or 0)
+        if tid <= 0:
+            return
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_buyers"):
+                return
+            async with conn.transaction():
+                await conn.execute("DELETE FROM ak_trade_buyers WHERE trade_id = $1", tid)
+                if rows:
+                    await conn.executemany(
+                        """
+                        INSERT INTO ak_trade_buyers (trade_id, buyer_flow_number, ak_amount, created_at)
+                        VALUES ($1, $2, $3, NOW())
+                        """,
+                        [
+                            (tid, str(row.get("buyer_flow_number") or "").strip(), int(row.get("ak_amount") or 0))
+                            for row in rows
+                            if str(row.get("buyer_flow_number") or "").strip()
+                        ],
+                    )
+
+    async def get_latest_trade_id(self) -> int:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_summary"):
+                return 0
+            value = await conn.fetchval("SELECT COALESCE(MAX(trade_id), 0)::bigint FROM ak_trade_summary")
+        return int(value or 0)
+
+    async def delete_old_data(self, summary_days: int, buyer_days: int) -> dict[str, int]:
+        pool = self._pool()
+        removed_summary = 0
+        removed_buyers = 0
+        async with pool.acquire() as conn:
+            if await self._table_exists(conn, "ak_trade_buyers"):
+                removed_buyers = int(await conn.fetchval(
+                    """
+                    WITH deleted AS (
+                        DELETE FROM ak_trade_buyers
+                        WHERE created_at < NOW() - ($1 || ' days')::interval
+                        RETURNING 1
+                    )
+                    SELECT COUNT(*)::bigint FROM deleted
+                    """,
+                    int(buyer_days or 30),
+                ) or 0)
+            if await self._table_exists(conn, "ak_trade_summary"):
+                removed_summary = int(await conn.fetchval(
+                    """
+                    WITH deleted AS (
+                        DELETE FROM ak_trade_summary
+                        WHERE create_time < NOW() - ($1 || ' days')::interval
+                        RETURNING 1
+                    )
+                    SELECT COUNT(*)::bigint FROM deleted
+                    """,
+                    int(summary_days or 365),
+                ) or 0)
+            if await self._table_exists(conn, "ak_trade_fetch_state"):
+                await conn.execute(
+                    """
+                    DELETE FROM ak_trade_fetch_state
+                    WHERE trade_id NOT IN (SELECT trade_id FROM ak_trade_summary)
+                      AND first_seen_at < NOW() - ($1 || ' days')::interval
+                    """,
+                    int(summary_days or 365),
+                )
+        return {"removed_summary": removed_summary, "removed_buyers": removed_buyers}
+
+    async def mark_trade_placeholder(self, trade_id: int, status: str = "pending", error: str = "") -> None:
+        tid = int(trade_id or 0)
+        if tid <= 0:
+            return
+        normalized = "pending" if str(status or "").strip().lower() not in {"pending", "error"} else str(status).strip().lower()
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_fetch_state"):
+                return
+            await conn.execute(
+                """
+                INSERT INTO ak_trade_fetch_state (
+                    trade_id, fetch_status, attempt_count, last_error, first_seen_at,
+                    last_attempt_at, updated_at
+                )
+                VALUES ($1, $2, 1, $3, NOW(), NOW(), NOW())
+                ON CONFLICT (trade_id)
+                DO UPDATE SET
+                    fetch_status = CASE
+                        WHEN ak_trade_fetch_state.fetch_status = 'complete' THEN 'complete'
+                        ELSE EXCLUDED.fetch_status
+                    END,
+                    attempt_count = ak_trade_fetch_state.attempt_count + 1,
+                    last_error = EXCLUDED.last_error,
+                    last_attempt_at = NOW(),
+                    updated_at = NOW()
+                """,
+                tid,
+                normalized,
+                str(error or "")[:500],
+            )
+
+    async def list_incomplete_trade_ids(self, limit: int = 500) -> list[int]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_fetch_state"):
+                return []
+            rows = await conn.fetch(
+                """
+                SELECT trade_id
+                FROM ak_trade_fetch_state
+                WHERE fetch_status <> 'complete'
+                ORDER BY updated_at ASC, trade_id DESC
+                LIMIT $1
+                """,
+                max(1, min(int(limit or 500), 5000)),
+            )
+        return [int(row["trade_id"]) for row in rows]
+
+    async def refresh_daily_summary(self, day: date) -> None:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_daily_summary"):
+                return
+            await conn.execute(
+                """
+                WITH buyer_daily AS (
+                    SELECT s.date_key,
+                           COUNT(DISTINCT b.buyer_flow_number)::integer AS unique_buyer_count
+                    FROM ak_trade_summary s
+                    LEFT JOIN ak_trade_buyers b ON b.trade_id = s.trade_id
+                    WHERE s.date_key = $1
+                    GROUP BY s.date_key
+                )
+                INSERT INTO ak_daily_summary (
+                    date_key, order_count, total_stock, total_mycancel, total_success,
+                    total_success_value, platform_gap, unique_seller_count, unique_buyer_count,
+                    zero_seller_order_count, min_trade_id, max_trade_id, first_trade_time,
+                    last_trade_time, updated_at
+                )
+                SELECT s.date_key,
+                       COUNT(*)::integer,
+                       COALESCE(SUM(s.readonly_stock_count), 0)::bigint,
+                       COALESCE(SUM(s.mycancel), 0)::bigint,
+                       COALESCE(SUM(s.success), 0)::bigint,
+                       COALESCE(SUM(s.success_value), 0)::numeric(14,2),
+                       COALESCE(SUM(GREATEST(s.readonly_stock_count - s.mycancel - s.success, 0)), 0)::bigint,
+                       COUNT(DISTINCT NULLIF(s.seller_flow_number, ''))::integer,
+                       COALESCE((SELECT unique_buyer_count FROM buyer_daily WHERE buyer_daily.date_key = s.date_key), 0)::integer,
+                       COUNT(*) FILTER (WHERE s.seller_flow_number = '0')::integer,
+                       MIN(s.trade_id),
+                       MAX(s.trade_id),
+                       MIN(s.create_time),
+                       MAX(s.create_time),
+                       NOW()
+                FROM ak_trade_summary s
+                WHERE s.date_key = $1
+                GROUP BY s.date_key
+                ON CONFLICT (date_key)
+                DO UPDATE SET
+                    order_count = EXCLUDED.order_count,
+                    total_stock = EXCLUDED.total_stock,
+                    total_mycancel = EXCLUDED.total_mycancel,
+                    total_success = EXCLUDED.total_success,
+                    total_success_value = EXCLUDED.total_success_value,
+                    platform_gap = EXCLUDED.platform_gap,
+                    unique_seller_count = EXCLUDED.unique_seller_count,
+                    unique_buyer_count = EXCLUDED.unique_buyer_count,
+                    zero_seller_order_count = EXCLUDED.zero_seller_order_count,
+                    min_trade_id = EXCLUDED.min_trade_id,
+                    max_trade_id = EXCLUDED.max_trade_id,
+                    first_trade_time = EXCLUDED.first_trade_time,
+                    last_trade_time = EXCLUDED.last_trade_time,
+                    updated_at = NOW()
+                """,
+                day,
+            )
+
+    async def trade_exists(self, trade_id: int) -> bool:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_summary"):
+                return False
+            return bool(await conn.fetchval("SELECT EXISTS(SELECT 1 FROM ak_trade_summary WHERE trade_id = $1)", int(trade_id or 0)))
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value
+        text = str(value or "").strip()
+        if not text:
+            return None
+        for pattern in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(text[:19], pattern)
+            except Exception:
+                pass
+        try:
+            return datetime.fromisoformat(text.replace("/", "-"))
+        except Exception:
+            return None

@@ -522,6 +522,19 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_buyers_trade ON ak_trade_buyers(trade_id)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_buyers_flow_trade ON ak_trade_buyers(buyer_flow_number, trade_id)')
         await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ak_trade_fetch_state (
+                trade_id INTEGER PRIMARY KEY,
+                fetch_status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+                last_error VARCHAR(500),
+                first_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                last_attempt_at TIMESTAMP,
+                fetched_at TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_fetch_state_status ON ak_trade_fetch_state(fetch_status, updated_at DESC)')
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS ak_daily_summary (
                 date_key DATE PRIMARY KEY,
                 order_count INTEGER NOT NULL DEFAULT 0 CHECK (order_count >= 0),
@@ -791,6 +804,13 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE point_history_records ADD COLUMN IF NOT EXISTS record_date DATE")
             await conn.execute("ALTER TABLE point_history_records ADD COLUMN IF NOT EXISTS resolved_category TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE ban_list ADD COLUMN IF NOT EXISTS released_at TIMESTAMP")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS fetch_status VARCHAR(16) DEFAULT 'pending'")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS last_error VARCHAR(500)")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMP DEFAULT NOW()")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMP")
+            await conn.execute("ALTER TABLE ak_trade_fetch_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
             await conn.execute("ALTER TABLE authorized_accounts DROP COLUMN IF EXISTS persistent_login")
             await conn.execute("ALTER TABLE authorized_accounts DROP COLUMN IF EXISTS remark")
         except Exception:

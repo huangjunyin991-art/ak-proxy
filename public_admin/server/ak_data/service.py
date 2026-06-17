@@ -4,12 +4,15 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import Any
 
+from .config import normalize_config
 from .repository import AkDataRepository
+from .worker import AkDataWorker
 
 
 class AkDataService:
-    def __init__(self, repository: AkDataRepository):
+    def __init__(self, repository: AkDataRepository, worker: AkDataWorker | None = None):
         self.repository = repository
+        self.worker = worker or AkDataWorker(repository)
 
     def _json_value(self, value: Any) -> Any:
         if isinstance(value, Decimal):
@@ -24,7 +27,17 @@ class AkDataService:
     async def get_status(self) -> dict[str, Any]:
         payload = await self.repository.get_status()
         payload["runtime"] = self._json_row(payload.get("runtime") or {})
+        payload["backfill"] = self.worker.snapshot()
         return self._json_row(payload)
+
+    async def get_config(self) -> dict[str, Any]:
+        config = normalize_config(await self.repository.load_config())
+        return {"success": True, "item": config.to_dict()}
+
+    async def save_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        config = normalize_config(payload)
+        saved = normalize_config(await self.repository.save_config(config.to_dict()))
+        return {"success": True, "item": saved.to_dict(), "message": "AK 数据配置已保存"}
 
     async def get_storage(self) -> dict[str, Any]:
         payload = await self.repository.get_storage()
@@ -51,3 +64,21 @@ class AkDataService:
         payload = await self.repository.get_trade_buyers(trade_id)
         payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]
         return payload
+
+    async def get_backfill_status(self) -> dict[str, Any]:
+        return {"success": True, "item": self._json_row(self.worker.snapshot())}
+
+    async def start_backfill(self, payload: dict[str, Any]) -> dict[str, Any]:
+        state = await self.worker.start_backfill(payload or {})
+        return {"success": state.get("status") != "error", "item": self._json_row(state), "message": state.get("message") or ""}
+
+    async def start_probe(self, payload: dict[str, Any]) -> dict[str, Any]:
+        state = await self.worker.start_probe(payload or {})
+        return {"success": state.get("status") != "error", "item": self._json_row(state), "message": state.get("message") or ""}
+
+    async def pause_backfill(self) -> dict[str, Any]:
+        state = await self.worker.pause()
+        return {"success": True, "item": self._json_row(state), "message": state.get("message") or ""}
+
+    async def cleanup(self) -> dict[str, Any]:
+        return await self.worker.cleanup()

@@ -76,6 +76,62 @@
         }).join('');
     }
 
+    function renderConfig(state) {
+        var cfg = state.config || {};
+        return [
+            '<div class="akd-config-grid">',
+            '<label><span>启用采集</span><button class="akd-switch ' + (cfg.enabled ? 'is-on' : '') + '" data-action="toggle-config" data-key="enabled" type="button"><i></i><em>' + (cfg.enabled ? '启用' : '关闭') + '</em></button></label>',
+            '<label><span>请求间隔（毫秒）</span><input id="akDataConfigRequestInterval" type="number" min="300" max="10000" value="' + html(cfg.request_interval_ms || 1000) + '"></label>',
+            '<label><span>最大切号次数</span><input id="akDataConfigMaxSwitch" type="number" min="0" max="50" value="' + html(cfg.max_account_switches || 5) + '"></label>',
+            '<label><span>兜底账号</span><input id="akDataConfigFallback" type="text" value="' + html(cfg.fallback_username || '') + '" placeholder="留空表示自动选择"></label>',
+            '<label><span>挂卖数据保留天数</span><input id="akDataConfigSummaryRetention" type="number" min="1" max="3650" value="' + html(cfg.summary_retention_days || 365) + '"></label>',
+            '<label><span>买家数据保留天数</span><input id="akDataConfigBuyerRetention" type="number" min="1" max="3650" value="' + html(cfg.buyer_retention_days || 30) + '"></label>',
+            '<label><span>任务后检查间隔（分钟）</span><input id="akDataConfigCheckInterval" type="number" min="1" max="1440" value="' + html(cfg.post_task_check_interval_minutes || 60) + '"></label>',
+            '<label><span>403 冷却（秒）</span><input id="akDataConfigForbiddenCooldown" type="number" min="0" max="86400" value="' + html(cfg.forbidden_cooldown_seconds || 300) + '"></label>',
+            '<label><span>最大重试轮次</span><input id="akDataConfigRetryRounds" type="number" min="1" max="50" value="' + html(cfg.retry_rounds || 10) + '"></label>',
+            '<label><span>流水线并发</span><input id="akDataConfigPipelineConcurrency" type="number" min="1" max="5" value="' + html(cfg.pipeline_concurrency || 2) + '"></label>',
+            '<label><span>买家明细开关</span><button class="akd-switch ' + (cfg.save_buyers ? 'is-on' : '') + '" data-action="toggle-config" data-key="save_buyers" type="button"><i></i><em>' + (cfg.save_buyers ? '保存' : '不保存') + '</em></button></label>',
+            '<label><span>买家分页大小</span><input id="akDataConfigBuyerPageSize" type="number" min="1" max="100" value="' + html(cfg.buyer_page_size || 15) + '"></label>',
+            '<label><span>买家最大页数</span><input id="akDataConfigBuyerMaxPages" type="number" min="1" max="200" value="' + html(cfg.buyer_max_pages || 20) + '"></label>',
+            '<label><span>默认目标日期</span><input id="akDataConfigTargetDate" type="date" value="' + html(cfg.default_target_date || '2026-05-29') + '"></label>',
+            '<label><span>基础统计起始日</span><input id="akDataConfigBaseDate" type="date" value="' + html(cfg.base_stat_date || '2026-06-01') + '"></label>',
+            '<label><span>上游超时（秒）</span><input id="akDataConfigTimeout" type="number" min="3" max="60" value="' + html(cfg.upstream_timeout_seconds || 12) + '"></label>',
+            '</div>',
+            '<div class="akd-config-actions"><button class="akd-btn primary" data-action="save-config">保存配置</button><button class="akd-btn ghost" data-action="cleanup">清理过期数据</button></div>'
+        ].join('');
+    }
+
+    function renderBackfill(state) {
+        var bf = state.backfill || {};
+        var running = bf.status === 'running';
+        return [
+            '<div class="akd-backfill">',
+            '<div class="akd-backfill-head"><h3>历史回填</h3><span>' + html(bf.message || '未启动') + '</span></div>',
+            '<div class="akd-backfill-grid">',
+            '<label><span>起始订单 ID</span><input id="akDataBackfillStartId" type="number" min="1" value="' + html(bf.start_trade_id || state.status && state.status.local_max_trade_id || 0) + '"></label>',
+            '<label><span>目标日期</span><input id="akDataBackfillTargetDate" type="date" value="' + html(bf.target_date || (state.config && state.config.default_target_date) || '2026-05-29') + '"></label>',
+            '<label><span>请求间隔（毫秒）</span><input id="akDataBackfillInterval" type="number" min="300" max="10000" value="' + html(bf.request_interval_ms || (state.config && state.config.request_interval_ms) || 1000) + '"></label>',
+            '<label><span>探测 300 笔</span><input id="akDataProbeLimit" type="number" min="1" max="1000" value="300"></label>',
+            '</div>',
+            '<div class="akd-backfill-actions">' +
+                '<button class="akd-btn primary" data-action="start-backfill"' + (running ? ' disabled' : '') + '>开始回填</button>' +
+                '<button class="akd-btn ghost" data-action="pause-backfill"' + (!running ? ' disabled' : '') + '>暂停</button>' +
+                '<button class="akd-btn ghost" data-action="start-probe"' + (running ? ' disabled' : '') + '>限流探测</button>' +
+            '</div>',
+            '<div class="akd-backfill-status">' +
+                '<span>状态：' + html(bf.status || 'idle') + '</span>' +
+                '<span>当前 ID：' + number(bf.current_trade_id || 0) + '</span>' +
+                '<span>已保存：' + number(bf.saved || 0) + '</span>' +
+                '<span>买家明细：' + number(bf.buyer_rows || 0) + '</span>' +
+                '<span>403 次数：' + number(bf.forbidden || 0) + '</span>' +
+                '<span>重试轮次：' + number(bf.retry_round || 0) + '/' + number(bf.retry_rounds || 0) + '</span>' +
+                '<span>待补订单：' + number(bf.pending_count || 0) + '</span>' +
+                (bf.cooldown_until ? '<span>冷却至：' + time(new Date(Number(bf.cooldown_until || 0) * 1000).toISOString()) + '</span>' : '') +
+            '</div>',
+            '</div>'
+        ].join('');
+    }
+
     function renderDashboardBars(state) {
         var rows = state.dashboard || [];
         if (!rows.length) return '<div class="akd-chart-empty">暂无统计数据</div>';
@@ -172,6 +228,8 @@
             '<section class="akd-layout">',
             '<aside class="akd-side">',
             '<section class="akd-panel"><div class="akd-panel-head"><h3>表占用</h3><span>' + bytes((state.storage || []).reduce(function(total, row) { return total + Number(row.total_bytes || 0); }, 0)) + '</span></div><div class="akd-storage">' + renderStorage(state) + '</div></section>',
+            '<section class="akd-panel"><div class="akd-panel-head"><div><h3>采集配置</h3><p>请求间隔、切号上限、兜底账号、保留期都在这里调整。</p></div></div>' + renderConfig(state) + '</section>',
+            '<section class="akd-panel"><div class="akd-panel-head"><div><h3>一次性回填</h3><p>可向前补到指定日期并保存到数据库。</p></div></div>' + renderBackfill(state) + '</section>',
             '<section class="akd-panel"><div class="akd-panel-head"><h3>日统计范围</h3></div><div class="akd-segment"><button class="' + (state.dashboardDays === 7 ? 'active' : '') + '" data-action="range" data-days="7">近 7 天</button><button class="' + (state.dashboardDays === 14 ? 'active' : '') + '" data-action="range" data-days="14">近 14 天</button><button class="' + (state.dashboardDays === 30 ? 'active' : '') + '" data-action="range" data-days="30">近 30 天</button></div></section>',
             '</aside>',
             '<main class="akd-main">',

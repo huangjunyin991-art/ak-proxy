@@ -35,11 +35,27 @@
         }).then(parseResponse);
     }
 
+    function post(path, payload) {
+        return fetch('/admin/api/ak-data' + path, {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            credentials: 'same-origin',
+            body: JSON.stringify(payload || {})
+        }).then(parseResponse);
+    }
+
     window.AKDataApi = {
         status: function() { return get('/status'); },
+        config: function() { return get('/config'); },
+        saveConfig: function(payload) { return post('/config', payload || {}); },
         storage: function() { return get('/storage'); },
         dashboard: function(days) { return get('/dashboard', { days: days || 7 }); },
         recentTrades: function(limit) { return get('/trades/recent', { limit: limit || 50 }); },
+        backfillStatus: function() { return get('/backfill/status'); },
+        startBackfill: function(payload) { return post('/backfill/start', payload || {}); },
+        pauseBackfill: function() { return post('/backfill/pause', {}); },
+        startProbe: function(payload) { return post('/probe/start', payload || {}); },
+        cleanup: function() { return post('/cleanup', {}); },
         accountQuery: function(payload) {
             return get('/account-query', {
                 query_type: payload && payload.queryType ? payload.queryType : 'seller',

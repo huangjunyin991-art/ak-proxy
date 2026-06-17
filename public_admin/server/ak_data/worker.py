@@ -1,0 +1,625 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from collections import deque
+from dataclasses import asdict, dataclass
+from datetime import date, datetime
+from typing import Any
+
+from .config import AkDataConfig, normalize_config
+from .repository import AkDataRepository
+from .upstream import AkUpstreamClient
+
+
+@dataclass
+class AkBackfillState:
+    status: str = "idle"
+    message: str = "历史回填未启动"
+    mode: str = ""
+    started_at: float = 0
+    finished_at: float = 0
+    current_trade_id: int = 0
+    start_trade_id: int = 0
+    target_date: str = ""
+    processed: int = 0
+    saved: int = 0
+    buyer_rows: int = 0
+    failed: int = 0
+    forbidden: int = 0
+    missing: int = 0
+    last_error: str = ""
+    stop_reason: str = ""
+    cooldown_until: float = 0
+    current_account: str = ""
+    request_interval_ms: int = 1000
+    retry_rounds: int = 10
+    retry_round: int = 0
+    pending_count: int = 0
+    pipeline_concurrency: int = 2
+    stop_requested: bool = False
+
+    def snapshot(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["running"] = self.status == "running"
+        return data
+
+
+class AkDataWorker:
+    def __init__(self, repository: AkDataRepository):
+        self.repository = repository
+        self._task: asyncio.Task | None = None
+        self._lock = asyncio.Lock()
+        self._state = AkBackfillState()
+
+    def snapshot(self) -> dict[str, Any]:
+        return self._state.snapshot()
+
+    async def start_backfill(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        async with self._lock:
+            if self._task and not self._task.done():
+                return self.snapshot()
+            payload = dict(payload or {})
+            config = normalize_config(await self.repository.load_config())
+            start_trade_id = self._int(payload.get("start_trade_id"), 0)
+            if start_trade_id <= 0:
+                start_trade_id = await self.repository.get_latest_trade_id()
+            if start_trade_id <= 0:
+                return self._set_error("缺少起始订单 ID，且数据库没有可推断的最大订单 ID")
+            target_date = self._date_text(payload.get("target_date"), config.default_target_date)
+            interval = self._int(payload.get("request_interval_ms"), config.request_interval_ms)
+            self._state = AkBackfillState(
+                status="running",
+                message="历史回填已启动",
+                mode="backfill",
+                started_at=time.time(),
+                current_trade_id=start_trade_id,
+                start_trade_id=start_trade_id,
+                target_date=target_date,
+                request_interval_ms=max(300, min(interval, 10000)),
+                retry_rounds=max(1, int(config.retry_rounds)),
+                pipeline_concurrency=max(1, int(config.pipeline_concurrency)),
+            )
+            await self.repository.update_runtime(
+                running=True,
+                direction="backward",
+                current_trade_id=start_trade_id,
+                target_trade_id=None,
+                status="running",
+                last_error="",
+                started_at=datetime.now(),
+                finished_at=None,
+            )
+            self._task = asyncio.create_task(self._run_backfill(config), name="ak-data-backfill")
+            return self.snapshot()
+
+    async def start_probe(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        async with self._lock:
+            if self._task and not self._task.done():
+                return self.snapshot()
+            payload = dict(payload or {})
+            config = normalize_config(await self.repository.load_config())
+            start_trade_id = self._int(payload.get("start_trade_id"), 0)
+            if start_trade_id <= 0:
+                start_trade_id = await self.repository.get_latest_trade_id()
+            if start_trade_id <= 0:
+                return self._set_error("缺少探测起始订单 ID")
+            limit = max(1, min(self._int(payload.get("limit"), 300), 1000))
+            interval = max(300, min(self._int(payload.get("request_interval_ms"), config.request_interval_ms), 10000))
+            key = str(payload.get("key") or "").strip()
+            user_id = str(payload.get("user_id") or payload.get("UserID") or "").strip()
+            self._state = AkBackfillState(
+                status="running",
+                message=f"限流探测已启动：{limit} 笔",
+                mode="probe",
+                started_at=time.time(),
+                current_trade_id=start_trade_id,
+                start_trade_id=start_trade_id,
+                request_interval_ms=interval,
+                retry_rounds=max(1, int(config.retry_rounds)),
+                pipeline_concurrency=max(1, int(config.pipeline_concurrency)),
+            )
+            self._task = asyncio.create_task(
+                self._run_probe(config, start_trade_id, limit, interval, key, user_id, stop_on_403=True),
+                name="ak-data-probe",
+            )
+            return self.snapshot()
+
+    async def pause(self) -> dict[str, Any]:
+        self._state.stop_requested = True
+        self._state.message = "正在停止任务..."
+        return self.snapshot()
+
+    async def cleanup(self) -> dict[str, Any]:
+        config = normalize_config(await self.repository.load_config())
+        result = await self.repository.delete_old_data(config.summary_retention_days, config.buyer_retention_days)
+        return {"success": True, **result}
+
+    async def _run_probe(self, config: AkDataConfig, start_trade_id: int, limit: int, interval: int,
+                         key: str, user_id: str, stop_on_403: bool = False) -> None:
+        try:
+            account = await self._resolve_account(config, key=key, user_id=user_id)
+            client = self._client(config)
+            rounds = max(1, int(config.retry_rounds))
+            candidate_ids = [start_trade_id - offset for offset in range(limit)]
+            for round_index in range(1, rounds + 1):
+                if self._state.stop_requested:
+                    self._finish("paused", "探测已停止")
+                    return
+                self._state.retry_round = round_index
+                self._state.pending_count = len(candidate_ids)
+                batch = await self._run_pipeline_round(
+                    client,
+                    account,
+                    config,
+                    candidate_ids,
+                    persist=False,
+                    interval_ms=interval,
+                    stop_on_403=stop_on_403,
+                )
+                if batch.get("paused"):
+                    self._finish("paused", "探测已停止")
+                    return
+                if batch.get("forbidden"):
+                    self._finish("finished", f"探测命中 403，已停止：{self._state.processed} 笔")
+                    return
+                failed_ids = [int(item.get("trade_id") or 0) for item in batch.get("failed") or [] if int(item.get("trade_id") or 0) > 0]
+                if not failed_ids:
+                    self._finish("finished", f"探测完成：{self._state.processed} 笔，403 {self._state.forbidden} 次")
+                    return
+                candidate_ids = failed_ids
+                self._state.message = f"探测第 {round_index} 轮结束，待重试 {len(candidate_ids)} 笔"
+            self._finish("finished", f"探测结束：仍有 {len(candidate_ids)} 笔未成功，403 {self._state.forbidden} 次")
+        except Exception as exc:
+            self._finish("error", f"探测失败：{exc}", str(exc))
+
+    async def _run_backfill(self, config: AkDataConfig) -> None:
+        try:
+            if not config.enabled:
+                self._finish("error", "AK 数据采集未启用", "disabled")
+                return
+            account = await self._resolve_account(config)
+            client = self._client(config)
+            target_day = date.fromisoformat(self._state.target_date)
+            current = int(self._state.current_trade_id or 0)
+            if current <= 0:
+                self._finish("error", "缺少起始订单 ID", "missing_start_trade_id")
+                return
+            pending_ids = await self.repository.list_incomplete_trade_ids(limit=5000)
+            pending_ids = [int(tid) for tid in pending_ids if int(tid or 0) > 0]
+            rounds = max(1, int(config.retry_rounds))
+            candidate_ids = pending_ids[:]
+            for round_index in range(1, rounds + 1):
+                if self._state.stop_requested:
+                    self._finish("paused", "历史回填已暂停")
+                    return
+                self._state.retry_round = round_index
+                self._state.pending_count = len(candidate_ids)
+                if round_index == 1:
+                    batch = await self._run_backfill_first_round(client, account, config, current, target_day, candidate_ids)
+                    target_reached = bool(batch.get("target_reached"))
+                else:
+                    batch = await self._run_pipeline_round(
+                        client,
+                        account,
+                        config,
+                        candidate_ids,
+                        persist=True,
+                        interval_ms=self._state.request_interval_ms,
+                        stop_on_403=True,
+                    )
+                    target_reached = False
+                if batch.get("paused"):
+                    self._finish("paused", "历史回填已暂停")
+                    return
+                if batch.get("forbidden"):
+                    bad_item = (batch.get("failed") or [{}])[0]
+                    await self._cooldown(config, int(bad_item.get("trade_id") or self._state.current_trade_id or 0), bad_item)
+                    return
+                failed_ids = []
+                for item in batch.get("failed") or []:
+                    trade_id = int(item.get("trade_id") or 0)
+                    if trade_id <= 0:
+                        continue
+                    failed_ids.append(trade_id)
+                    await self.repository.mark_trade_placeholder(trade_id, status="error", error=str(item.get("error") or ""))
+                if not failed_ids:
+                    message = f"已回填到目标日期 {self._state.target_date}" if round_index == 1 and target_reached else "历史回填完成"
+                    self._finish("finished", message)
+                    return
+                candidate_ids = failed_ids
+                self._state.message = f"第 {round_index} 轮结束，待重试 {len(candidate_ids)} 笔"
+            for trade_id in candidate_ids:
+                await self.repository.mark_trade_placeholder(int(trade_id), status="pending", error=self._state.last_error or "pending retry")
+            self._finish("finished", f"历史回填结束，仍有 {len(candidate_ids)} 笔待补")
+        except Exception as exc:
+            self._finish("error", f"历史回填失败：{exc}", str(exc))
+
+    async def _run_backfill_first_round(self, client: AkUpstreamClient, account: dict[str, str],
+                                        config: AkDataConfig, start_trade_id: int,
+                                        target_day: date, pending_ids: list[int]) -> dict[str, Any]:
+        queue: deque[int] = deque()
+        seen = set()
+        for trade_id in pending_ids:
+            tid = int(trade_id or 0)
+            if tid > 0 and tid not in seen:
+                queue.append(tid)
+                seen.add(tid)
+        seq_current = int(start_trade_id or 0)
+        target_reached = False
+
+        def next_trade_id() -> int | None:
+            nonlocal seq_current, target_reached
+            if queue:
+                return queue.popleft()
+            if target_reached:
+                return None
+            while seq_current > 0 and seq_current in seen:
+                seq_current -= 1
+            if seq_current <= 0:
+                return None
+            tid = seq_current
+            seen.add(tid)
+            seq_current -= 1
+            return tid
+
+        async def on_success(result: dict[str, Any]) -> None:
+            nonlocal target_reached
+            trade_day = result.get("date")
+            if isinstance(trade_day, date) and trade_day < target_day:
+                target_reached = True
+
+        batch = await self._run_pipeline_source(
+            client,
+            account,
+            config,
+            next_trade_id,
+            persist=True,
+            interval_ms=self._state.request_interval_ms,
+            stop_on_403=True,
+            on_success=on_success,
+        )
+        batch["target_reached"] = target_reached
+        return batch
+
+    async def _run_pipeline_round(self, client: AkUpstreamClient, account: dict[str, str],
+                                  config: AkDataConfig, trade_ids: list[int], persist: bool,
+                                  interval_ms: int, stop_on_403: bool) -> dict[str, Any]:
+        queue = deque(int(tid) for tid in trade_ids if int(tid or 0) > 0)
+
+        def next_trade_id() -> int | None:
+            return queue.popleft() if queue else None
+
+        return await self._run_pipeline_source(
+            client,
+            account,
+            config,
+            next_trade_id,
+            persist=persist,
+            interval_ms=interval_ms,
+            stop_on_403=stop_on_403,
+        )
+
+    async def _run_pipeline_source(self, client: AkUpstreamClient, account: dict[str, str],
+                                   config: AkDataConfig, next_trade_id,
+                                   persist: bool, interval_ms: int, stop_on_403: bool,
+                                   on_success=None) -> dict[str, Any]:
+        in_flight: dict[asyncio.Task, dict[str, Any]] = {}
+        failed: list[dict[str, Any]] = []
+        concurrency = max(1, min(int(config.pipeline_concurrency or 2), 5))
+        interval = max(0.1, float(interval_ms or 1000) / 1000.0)
+        last_detail_started = 0.0
+        source_done = False
+
+        while in_flight or not source_done:
+            if self._state.stop_requested:
+                return {"paused": True, "failed": failed}
+
+            now = time.monotonic()
+            if not source_done and len(in_flight) < concurrency and (now - last_detail_started >= interval or last_detail_started == 0):
+                trade_id = next_trade_id()
+                if trade_id is None:
+                    source_done = True
+                else:
+                    self._state.current_trade_id = int(trade_id)
+                    task = asyncio.create_task(self._fetch_detail(client, account, int(trade_id)))
+                    in_flight[task] = {"stage": "detail", "trade_id": int(trade_id)}
+                    last_detail_started = now
+                    continue
+
+            if not in_flight:
+                await asyncio.sleep(0.05)
+                continue
+
+            done, _pending = await asyncio.wait(in_flight.keys(), timeout=0.1, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                continue
+
+            for task in done:
+                meta = in_flight.pop(task)
+                try:
+                    result = task.result()
+                except Exception as exc:
+                    result = {
+                        "ok": False,
+                        "trade_id": int(meta.get("trade_id") or 0),
+                        "stage": str(meta.get("stage") or ""),
+                        "error": str(exc)[:500],
+                    }
+                trade_id = int(result.get("trade_id") or meta.get("trade_id") or 0)
+                self._state.current_trade_id = trade_id
+                if result.get("forbidden"):
+                    self._apply_fetch_result(result)
+                    failed.append(result)
+                    if stop_on_403:
+                        return {"forbidden": True, "failed": failed}
+                if meta.get("stage") == "detail":
+                    if not result.get("ok"):
+                        self._apply_fetch_result(result)
+                        failed.append(result)
+                        continue
+                    if config.save_buyers and result.get("seller_user_id"):
+                        task = asyncio.create_task(self._fetch_buyers(client, account, config, result))
+                        in_flight[task] = {"stage": "buyers", "trade_id": trade_id, "detail": result}
+                    else:
+                        final = await self._persist_pipeline_result(config, result, [], persist)
+                        self._apply_fetch_result(final)
+                        if on_success:
+                            await on_success(final)
+                else:
+                    detail = meta.get("detail") or {}
+                    if not result.get("ok"):
+                        self._apply_fetch_result(result)
+                        failed.append(result)
+                        continue
+                    final = await self._persist_pipeline_result(config, detail, result.get("buyers") or [], persist)
+                    self._apply_fetch_result(final)
+                    if on_success:
+                        await on_success(final)
+        return {"failed": failed}
+
+    async def _fetch_detail(self, client: AkUpstreamClient, account: dict[str, str], trade_id: int) -> dict[str, Any]:
+        key = account.get("key") or ""
+        user_id = account.get("user_id") or ""
+        detail_status, detail_payload = await client.detail(trade_id, key, user_id)
+        if detail_status == 403:
+            return {"ok": False, "forbidden": True, "trade_id": trade_id, "stage": "detail", "error": f"detail status={detail_status}"}
+        if detail_status >= 400 or detail_status == 0:
+            return {"ok": False, "trade_id": trade_id, "stage": "detail", "error": f"detail status={detail_status}: {self._payload_message(detail_payload)}"}
+        detail = detail_payload.get("Data") if isinstance(detail_payload, dict) else None
+        if not isinstance(detail, dict) or detail_payload.get("Error") is True:
+            return {"ok": False, "missing": True, "trade_id": trade_id, "stage": "detail", "error": self._payload_message(detail_payload) or "detail empty"}
+        user = detail.get("User") if isinstance(detail.get("User"), dict) else {}
+        trade_time = self._parse_datetime(detail.get("CreateTime"))
+        return {
+            "ok": True,
+            "trade_id": int(detail.get("Id") or trade_id),
+            "stage": "detail",
+            "detail": detail,
+            "seller_flow": str(user.get("FlowNumber") or "").strip(),
+            "seller_user_id": str(user.get("Id") or user.get("ID") or "").strip(),
+            "date": trade_time.date() if trade_time else None,
+        }
+
+    async def _fetch_buyers(self, client: AkUpstreamClient, account: dict[str, str],
+                            config: AkDataConfig, detail_result: dict[str, Any]) -> dict[str, Any]:
+        trade_id = int(detail_result.get("trade_id") or 0)
+        seller_user_id = str(detail_result.get("seller_user_id") or "").strip()
+        key = account.get("key") or ""
+        user_id = account.get("user_id") or ""
+        buyers_status, buyers_payload = await client.buyers(
+            trade_id,
+            seller_user_id,
+            key,
+            user_id,
+            page=1,
+            page_size=config.buyer_page_size,
+        )
+        if buyers_status == 403:
+            return {"ok": False, "forbidden": True, "trade_id": trade_id, "stage": "buyers", "error": f"buyers status={buyers_status}"}
+        if buyers_status >= 400 or buyers_status == 0:
+            return {"ok": False, "trade_id": trade_id, "stage": "buyers", "error": f"buyers status={buyers_status}: {self._payload_message(buyers_payload)}"}
+        return {
+            "ok": True,
+            "trade_id": trade_id,
+            "stage": "buyers",
+            "buyers": self._normalize_buyers(buyers_payload),
+        }
+
+    async def _persist_pipeline_result(self, config: AkDataConfig, detail_result: dict[str, Any],
+                                       buyers: list[dict[str, Any]], persist: bool) -> dict[str, Any]:
+        trade_id = int(detail_result.get("trade_id") or 0)
+        trade_time = None
+        detail = detail_result.get("detail") if isinstance(detail_result.get("detail"), dict) else {}
+        if detail:
+            trade_time = self._parse_datetime(detail.get("CreateTime"))
+        if persist and detail:
+            await self.repository.upsert_trade_summary(detail, str(detail_result.get("seller_flow") or ""))
+            if config.save_buyers:
+                await self.repository.replace_trade_buyers(trade_id, buyers)
+            if trade_time:
+                await self.repository.refresh_daily_summary(trade_time.date())
+            await self.repository.update_runtime(
+                current_trade_id=trade_id,
+                last_saved_trade_id=trade_id,
+                last_seen_create_time=trade_time,
+                status="running",
+            )
+        return {
+            "ok": True,
+            "trade_id": trade_id,
+            "buyers": len(buyers),
+            "date": trade_time.date() if trade_time else detail_result.get("date"),
+        }
+
+    async def _cooldown(self, config: AkDataConfig, trade_id: int, result: dict[str, Any]) -> None:
+        await self.repository.mark_trade_placeholder(
+            int(trade_id),
+            status="pending",
+            error=str(result.get("error") or "403"),
+        )
+        cooldown = max(0, int(config.forbidden_cooldown_seconds))
+        until = time.time() + cooldown if cooldown > 0 else 0
+        await self.repository.update_runtime(
+            running=False,
+            status="cooldown",
+            last_error=self._state.last_error or "upstream forbidden",
+            last_check_skip_reason="403 cooldown",
+            next_check_at=datetime.fromtimestamp(until) if until else None,
+            last_check_skipped_at=datetime.now(),
+        )
+        self._state.cooldown_until = until
+        self._finish("cooldown", f"遇到 403，进入冷却 {cooldown} 秒")
+
+    async def _resolve_account(self, config: AkDataConfig, key: str = "", user_id: str = "") -> dict[str, str]:
+        if key and user_id:
+            return {"username": "manual", "key": key, "user_id": user_id}
+        accounts = await self.repository.list_accounts(limit=100)
+        fallback = config.fallback_username
+        selected = None
+        if fallback:
+            selected = next((item for item in accounts if item.get("username") == fallback), None)
+        if selected is None:
+            selected = next((item for item in accounts if item.get("userkey") and item.get("user_id")), None)
+        if not selected:
+            raise RuntimeError("没有可用 AK 登录态，请先让账号登录一次或配置兜底账号")
+        self._state.current_account = selected.get("username") or ""
+        return {
+            "username": selected.get("username") or "",
+            "key": selected.get("userkey") or "",
+            "user_id": selected.get("user_id") or "",
+        }
+
+    @staticmethod
+    def _client(config: AkDataConfig) -> AkUpstreamClient:
+        return AkUpstreamClient(
+            timeout_seconds=config.upstream_timeout_seconds,
+            retry_attempts=config.upstream_retry_attempts,
+            retry_backoff_ms=config.upstream_retry_backoff_ms,
+        )
+
+    async def _fetch_one(self, client: AkUpstreamClient, account: dict[str, str], trade_id: int,
+                         config: AkDataConfig, persist: bool) -> dict[str, Any]:
+        key = account.get("key") or ""
+        user_id = account.get("user_id") or ""
+        detail_status, detail_payload = await client.detail(trade_id, key, user_id)
+        if detail_status == 403:
+            return {"ok": False, "forbidden": True, "error": f"detail status={detail_status}"}
+        if detail_status >= 400:
+            return {"ok": False, "error": f"detail status={detail_status}"}
+        detail = detail_payload.get("Data") if isinstance(detail_payload, dict) else None
+        if not isinstance(detail, dict) or detail_payload.get("Error") is True:
+            return {"ok": False, "missing": True, "error": str((detail_payload or {}).get("Msg") or "detail empty")[:200]}
+        user = detail.get("User") if isinstance(detail.get("User"), dict) else {}
+        seller_flow = str(user.get("FlowNumber") or "").strip()
+        seller_user_id = str(user.get("Id") or user.get("ID") or "").strip()
+        buyers = []
+        if config.save_buyers and seller_user_id:
+            buyers_status, buyers_payload = await client.buyers(
+                trade_id,
+                seller_user_id,
+                key,
+                user_id,
+                page=1,
+                page_size=config.buyer_page_size,
+            )
+            if buyers_status == 403:
+                return {"ok": False, "forbidden": True, "error": f"buyers status={buyers_status}"}
+            if buyers_status < 400:
+                buyers = self._normalize_buyers(buyers_payload)
+        trade_time = self._parse_datetime(detail.get("CreateTime"))
+        if persist:
+            await self.repository.upsert_trade_summary(detail, seller_flow)
+            if config.save_buyers:
+                await self.repository.replace_trade_buyers(int(detail.get("Id") or trade_id), buyers)
+            if trade_time:
+                await self.repository.refresh_daily_summary(trade_time.date())
+            await self.repository.update_runtime(
+                current_trade_id=trade_id,
+                last_saved_trade_id=int(detail.get("Id") or trade_id),
+                last_seen_create_time=trade_time,
+                current_account_username=account.get("username") or "",
+                status="running",
+            )
+        return {"ok": True, "buyers": len(buyers), "date": trade_time.date() if trade_time else None}
+
+    def _apply_fetch_result(self, result: dict[str, Any]) -> None:
+        self._state.processed += 1
+        if result.get("forbidden"):
+            self._state.forbidden += 1
+        if result.get("missing"):
+            self._state.missing += 1
+        if result.get("ok"):
+            self._state.saved += 1
+            self._state.buyer_rows += int(result.get("buyers") or 0)
+            self._state.message = f"处理中：已保存 {self._state.saved} 笔，买家明细 {self._state.buyer_rows} 条"
+        else:
+            self._state.failed += 1
+            self._state.last_error = str(result.get("error") or "")[:500]
+
+    def _finish(self, status: str, message: str, error: str = "") -> None:
+        self._state.status = status
+        self._state.message = message
+        self._state.finished_at = time.time()
+        self._state.last_error = error or self._state.last_error
+        self._state.stop_reason = status
+        self._state.stop_requested = False
+        try:
+            asyncio.create_task(self.repository.update_runtime(
+                running=False,
+                status=status,
+                last_error=self._state.last_error or "",
+                finished_at=datetime.now(),
+            ))
+        except Exception:
+            pass
+
+    def _set_error(self, message: str) -> dict[str, Any]:
+        self._state = AkBackfillState(status="error", message=message, last_error=message, finished_at=time.time())
+        return self.snapshot()
+
+    @staticmethod
+    def _normalize_buyers(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = payload.get("Data") if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            return []
+        result = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            user = row.get("User") if isinstance(row.get("User"), dict) else {}
+            flow = str(user.get("FlowNumber") or "").strip()
+            amount = int(row.get("AceAmount") or 0)
+            if flow:
+                result.append({"buyer_flow_number": flow, "ak_amount": amount})
+        return result
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime | None:
+        text = str(value or "").strip()
+        for pattern in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(text[:19], pattern)
+            except Exception:
+                pass
+        return None
+
+    @staticmethod
+    def _payload_message(payload: Any) -> str:
+        if isinstance(payload, dict):
+            return str(payload.get("Msg") or payload.get("message") or payload.get("Error") or "")[:500]
+        return str(payload or "")[:500]
+
+    @staticmethod
+    def _int(value: Any, default: int) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return int(default)
+
+    @staticmethod
+    def _date_text(value: Any, default: str) -> str:
+        try:
+            return date.fromisoformat(str(value or "").strip()).isoformat()
+        except Exception:
+            return default

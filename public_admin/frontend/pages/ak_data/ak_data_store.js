@@ -6,6 +6,8 @@
             loading: false,
             error: '',
             status: null,
+            config: {},
+            backfill: { status: 'idle', message: '历史回填未启动' },
             storage: [],
             dashboardDays: 7,
             dashboard: [],
@@ -30,6 +32,8 @@
 
         function setBootstrap(payload) {
             state.status = payload.status || null;
+            state.config = payload.config || state.config || {};
+            state.backfill = payload.backfill || state.backfill || {};
             state.storage = Array.isArray(payload.storage) ? payload.storage : [];
             state.dashboard = Array.isArray(payload.dashboard) ? payload.dashboard : [];
             state.recentTrades = Array.isArray(payload.recentTrades) ? payload.recentTrades : [];
@@ -41,6 +45,14 @@
         function setDashboard(days, rows) {
             state.dashboardDays = Number(days || 7);
             state.dashboard = Array.isArray(rows) ? rows : [];
+        }
+
+        function setConfig(payload) {
+            state.config = payload && payload.item ? payload.item : (payload || {});
+        }
+
+        function setBackfill(payload) {
+            state.backfill = payload && payload.item ? payload.item : (payload || state.backfill || {});
         }
 
         function setQueryResult(payload) {
@@ -78,6 +90,8 @@
             state: state,
             setError: setError,
             setBootstrap: setBootstrap,
+            setConfig: setConfig,
+            setBackfill: setBackfill,
             setDashboard: setDashboard,
             setQueryResult: setQueryResult,
             resetToRecent: resetToRecent,

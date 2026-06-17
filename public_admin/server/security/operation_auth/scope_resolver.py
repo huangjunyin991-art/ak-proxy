@@ -108,6 +108,13 @@ class OperationScopeResolver:
             ('GET', '/admin/api/ak-data/dashboard'): 'ak_data_ops',
             ('GET', '/admin/api/ak-data/trades/recent'): 'ak_data_ops',
             ('GET', '/admin/api/ak-data/account-query'): 'ak_data_ops',
+            ('GET', '/admin/api/ak-data/config'): 'ak_data_ops',
+            ('POST', '/admin/api/ak-data/config'): 'ak_data_ops',
+            ('GET', '/admin/api/ak-data/backfill/status'): 'ak_data_ops',
+            ('POST', '/admin/api/ak-data/backfill/start'): 'ak_data_ops',
+            ('POST', '/admin/api/ak-data/backfill/pause'): 'ak_data_ops',
+            ('POST', '/admin/api/ak-data/probe/start'): 'ak_data_ops',
+            ('POST', '/admin/api/ak-data/cleanup'): 'ak_data_ops',
         }
         self.prefixes = [
             ('POST', '/admin/api/db/insert/', 'db_write_ops'),
