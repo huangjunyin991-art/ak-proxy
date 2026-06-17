@@ -115,20 +115,20 @@
     ];
 
     var daily = [
-        { date: '06-11', orders: 284, success: 1628000, burn: 181000, value: 413560 },
-        { date: '06-12', orders: 311, success: 1795000, burn: 199000, value: 456940 },
-        { date: '06-13', orders: 276, success: 1519000, burn: 169000, value: 386020 },
-        { date: '06-14', orders: 338, success: 1942000, burn: 215000, value: 493640 },
-        { date: '06-15', orders: 354, success: 2049000, burn: 227000, value: 520720 },
-        { date: '06-16', orders: 391, success: 2268000, burn: 251000, value: 576110 },
-        { date: '06-17', orders: 263, success: 1486000, burn: 165000, value: 377820 },
-        { date: '06-18', orders: 372, success: 2115000, burn: 235000, value: 537210 },
-        { date: '06-19', orders: 345, success: 1983000, burn: 220000, value: 503710 },
-        { date: '06-20', orders: 418, success: 2417000, burn: 268000, value: 614160 },
-        { date: '06-21', orders: 386, success: 2241000, burn: 249000, value: 569600 },
-        { date: '06-22', orders: 404, success: 2389000, burn: 265000, value: 606700 },
-        { date: '06-23', orders: 352, success: 2056000, burn: 228000, value: 522230 },
-        { date: '06-24', orders: 377, success: 2191000, burn: 243000, value: 556510 }
+        { date: '06-11', orders: 284, success: 1628000, burn: 181000, fee: 181000, value: 413560, price: 0.254 },
+        { date: '06-12', orders: 311, success: 1795000, burn: 199000, fee: 199000, value: 456940, price: 0.255 },
+        { date: '06-13', orders: 276, success: 1519000, burn: 169000, fee: 169000, value: 386020, price: 0.254 },
+        { date: '06-14', orders: 338, success: 1942000, burn: 215000, fee: 216000, value: 493640, price: 0.255 },
+        { date: '06-15', orders: 354, success: 2049000, burn: 227000, fee: 228000, value: 520720, price: 0.254 },
+        { date: '06-16', orders: 391, success: 2268000, burn: 251000, fee: 252000, value: 576110, price: 0.254 },
+        { date: '06-17', orders: 263, success: 1486000, burn: 165000, fee: 165000, value: 377820, price: 0.253 },
+        { date: '06-18', orders: 372, success: 2115000, burn: 235000, fee: 235000, value: 537210, price: 0.254 },
+        { date: '06-19', orders: 345, success: 1983000, burn: 220000, fee: 220000, value: 503710, price: 0.253 },
+        { date: '06-20', orders: 418, success: 2417000, burn: 268000, fee: 269000, value: 614160, price: 0.255 },
+        { date: '06-21', orders: 386, success: 2241000, burn: 249000, fee: 249000, value: 569600, price: 0.254 },
+        { date: '06-22', orders: 404, success: 2389000, burn: 265000, fee: 265000, value: 606700, price: 0.255 },
+        { date: '06-23', orders: 352, success: 2056000, burn: 228000, fee: 229000, value: 522230, price: 0.253 },
+        { date: '06-24', orders: 377, success: 2191000, burn: 243000, fee: 243000, value: 556510, price: 0.254 }
     ];
 
     function $(selector) {
@@ -175,6 +175,10 @@
 
     function platformGap(trade) {
         return Number(trade.readonly_stock_count || 0) - Number(trade.mycancel || 0) - Number(trade.success || 0);
+    }
+
+    function dailyStock(row) {
+        return Number(row.success || 0) + Number(row.burn || 0) + Number(row.fee || 0);
     }
 
     function findTradesByFlow(role, flowNumber) {
@@ -520,14 +524,24 @@
                         data: rows.map(function(row) { return row.success; }),
                         backgroundColor: 'rgba(14,170,166,0.72)',
                         borderRadius: 6,
-                        stack: 'ak-volume'
+                        stack: 'ak-volume',
+                        order: 1
                     },
                     {
                         label: '交易销毁',
                         data: rows.map(function(row) { return row.burn; }),
                         backgroundColor: 'rgba(183,121,31,0.62)',
                         borderRadius: 6,
-                        stack: 'ak-volume'
+                        stack: 'ak-volume',
+                        order: 1
+                    },
+                    {
+                        label: '手续费扣除',
+                        data: rows.map(function(row) { return row.fee; }),
+                        backgroundColor: 'rgba(196,91,91,0.58)',
+                        borderRadius: 6,
+                        stack: 'ak-volume',
+                        order: 1
                     }
                 ]
             },
@@ -539,6 +553,20 @@
         var options = chartBaseOptions();
         options.scales.x.stacked = true;
         options.scales.y.stacked = true;
+        options.interaction = { mode: 'index', intersect: false };
+        options.plugins.tooltip.callbacks = {
+            title: function(items) {
+                return items && items.length ? items[0].label : '';
+            },
+            beforeBody: function(items) {
+                var index = items && items.length ? items[0].dataIndex : -1;
+                var row = index >= 0 ? daily.slice(Math.max(0, daily.length - state.rangeDays))[index] : null;
+                return row ? ['挂卖量：' + numberText(dailyStock(row))] : [];
+            },
+            label: function(item) {
+                return item.dataset.label + '：' + numberText(item.parsed.y);
+            }
+        };
         return options;
     }
 
@@ -559,21 +587,41 @@
                         fill: true,
                         pointRadius: 3,
                         pointHoverRadius: 5,
-                        tension: 0.28
+                        tension: 0.28,
+                        yAxisID: 'y'
                     },
                     {
-                        label: '订单数',
-                        data: rows.map(function(row) { return row.orders * 1000; }),
+                        label: '成交价格',
+                        data: rows.map(function(row) { return row.price; }),
                         borderColor: '#b7791f',
                         backgroundColor: 'rgba(183,121,31,0.1)',
                         fill: false,
                         pointRadius: 3,
-                        tension: 0.28
+                        tension: 0.28,
+                        yAxisID: 'price'
                     }
                 ]
             },
-            options: chartBaseOptions()
+            options: dealChartOptions()
         });
+    }
+
+    function dealChartOptions() {
+        var options = chartBaseOptions();
+        options.scales.price = {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            min: 0.250,
+            max: 0.258,
+            ticks: {
+                color: '#b7791f',
+                font: { size: 11 },
+                callback: function(value) {
+                    return Number(value || 0).toFixed(3);
+                }
+            }
+        };
+        return options;
     }
 
     function setupCanvas(canvas) {
@@ -590,14 +638,15 @@
     }
 
     function drawLegend(ctx, items, x, y) {
+        var cursor = x;
         items.forEach(function(item, index) {
-            var offset = index * 86;
             ctx.fillStyle = item.color;
-            roundedRect(ctx, x + offset, y + 1, 10, 10, 3);
+            roundedRect(ctx, cursor, y + 1, 10, 10, 3);
             ctx.fill();
             ctx.fillStyle = '#617174';
             ctx.font = '700 12px "Microsoft YaHei UI", sans-serif';
-            ctx.fillText(item.label, x + offset + 16, y + 10);
+            ctx.fillText(item.label, cursor + 16, y + 10);
+            cursor += 28 + ctx.measureText(item.label).width;
         });
     }
 
@@ -644,6 +693,51 @@
         ctx.closePath();
     }
 
+    function chartTooltipNode() {
+        var node = $('#akChartTooltip');
+        if (node) return node;
+        node = document.createElement('div');
+        node.id = 'akChartTooltip';
+        node.className = 'ak-chart-tooltip';
+        document.body.appendChild(node);
+        return node;
+    }
+
+    function hideChartTooltip() {
+        var node = $('#akChartTooltip');
+        if (node) node.classList.remove('is-visible');
+    }
+
+    function showChartTooltip(event, row) {
+        var node = chartTooltipNode();
+        node.innerHTML = [
+            '<strong>' + escapeHtml(row.date) + '</strong>',
+            '<span><i data-color="stock"></i>挂卖量：' + numberText(dailyStock(row)) + '</span>',
+            '<span><i data-color="success"></i>成交量：' + numberText(row.success) + '</span>',
+            '<span><i data-color="burn"></i>交易销毁：' + numberText(row.burn) + '</span>',
+            '<span><i data-color="fee"></i>手续费扣除：' + numberText(row.fee) + '</span>'
+        ].join('');
+        node.style.left = Math.round(event.clientX + 14) + 'px';
+        node.style.top = Math.round(event.clientY + 14) + 'px';
+        node.classList.add('is-visible');
+    }
+
+    function bindVolumeTooltip(canvas, rows, box) {
+        canvas.onmousemove = function(event) {
+            var rect = canvas.getBoundingClientRect();
+            var x = event.clientX - rect.left;
+            var y = event.clientY - rect.top;
+            if (x < box.left || x > box.left + box.width || y < box.top || y > box.top + box.height) {
+                hideChartTooltip();
+                return;
+            }
+            var groupWidth = box.width / rows.length;
+            var index = Math.max(0, Math.min(rows.length - 1, Math.floor((x - box.left) / groupWidth)));
+            showChartTooltip(event, rows[index]);
+        };
+        canvas.onmouseleave = hideChartTooltip;
+    }
+
     function renderFallbackVolumeChart(labels, rows) {
         var canvas = $('#volumeChart');
         if (!canvas) return;
@@ -651,12 +745,13 @@
         var ctx = surface.ctx;
         var box = { left: 54, top: 24, width: surface.width - 72, height: surface.height - 64 };
         var maxValue = Math.max.apply(null, rows.map(function(row) {
-            return Number(row.success || 0) + Number(row.burn || 0);
+            return dailyStock(row);
         })) || 1;
         drawAxes(ctx, box, labels, maxValue);
         drawLegend(ctx, [
             { label: '成交量', color: '#0eaaa6' },
-            { label: '交易销毁', color: '#b7791f' }
+            { label: '交易销毁', color: '#b7791f' },
+            { label: '手续费扣除', color: '#c45b5b' }
         ], box.left, 4);
 
         var groupWidth = box.width / rows.length;
@@ -665,6 +760,7 @@
             var barWidth = Math.max(14, groupWidth * 0.28);
             var successHeight = box.height * row.success / maxValue;
             var burnHeight = box.height * row.burn / maxValue;
+            var feeHeight = box.height * row.fee / maxValue;
             var baseY = box.top + box.height;
 
             ctx.fillStyle = 'rgba(14,170,166,0.78)';
@@ -674,7 +770,12 @@
             ctx.fillStyle = 'rgba(183,121,31,0.66)';
             roundedRect(ctx, x, baseY - successHeight - burnHeight, barWidth, burnHeight + 3, 5);
             ctx.fill();
+
+            ctx.fillStyle = 'rgba(196,91,91,0.58)';
+            roundedRect(ctx, x, baseY - successHeight - burnHeight - feeHeight, barWidth, feeHeight + 3, 5);
+            ctx.fill();
         });
+        bindVolumeTooltip(canvas, rows, box);
     }
 
     function renderFallbackValueChart(labels, rows) {
@@ -684,9 +785,26 @@
         var ctx = surface.ctx;
         var box = { left: 54, top: 24, width: surface.width - 72, height: surface.height - 64 };
         var values = rows.map(function(row) { return row.value; });
+        var prices = rows.map(function(row) { return row.price; });
         var maxValue = Math.max.apply(null, values) || 1;
+        var minPrice = Math.min.apply(null, prices) || 0.250;
+        var maxPrice = Math.max.apply(null, prices) || 0.258;
+        var pricePad = Math.max(0.001, (maxPrice - minPrice) * 0.35);
+        minPrice = Math.max(0, minPrice - pricePad);
+        maxPrice = maxPrice + pricePad;
         drawAxes(ctx, box, labels, maxValue);
-        drawLegend(ctx, [{ label: '成交价值', color: '#087c82' }], box.left, 4);
+        drawLegend(ctx, [
+            { label: '成交价值', color: '#087c82' },
+            { label: '成交价格', color: '#b7791f' }
+        ], box.left, 4);
+
+        ctx.fillStyle = '#b7791f';
+        ctx.font = '11px "Microsoft YaHei UI", sans-serif';
+        for (var tick = 0; tick <= 4; tick++) {
+            var py = box.top + (box.height / 4) * tick;
+            var priceValue = maxPrice - (maxPrice - minPrice) * (tick / 4);
+            ctx.fillText(priceValue.toFixed(3), box.left + box.width + 8, py + 4);
+        }
 
         ctx.beginPath();
         values.forEach(function(value, index) {
@@ -707,6 +825,29 @@
             ctx.arc(x, y, 4, 0, Math.PI * 2);
             ctx.fill();
             ctx.strokeStyle = '#087c82';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        });
+
+        ctx.beginPath();
+        prices.forEach(function(price, index) {
+            var x = box.left + (box.width / Math.max(prices.length - 1, 1)) * index;
+            var y = box.top + box.height - (box.height * (price - minPrice) / Math.max(maxPrice - minPrice, 0.001));
+            if (index === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = '#b7791f';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        prices.forEach(function(price, index) {
+            var x = box.left + (box.width / Math.max(prices.length - 1, 1)) * index;
+            var y = box.top + box.height - (box.height * (price - minPrice) / Math.max(maxPrice - minPrice, 0.001));
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#b7791f';
             ctx.lineWidth = 2;
             ctx.stroke();
         });

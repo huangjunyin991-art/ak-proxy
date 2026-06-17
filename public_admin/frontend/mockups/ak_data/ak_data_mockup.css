@@ -511,6 +511,65 @@ button {
     max-height: 238px;
 }
 
+.ak-chart-tooltip {
+    position: fixed;
+    z-index: 30;
+    display: grid;
+    gap: 7px;
+    min-width: 188px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(19, 35, 38, 0.94);
+    color: #ffffff;
+    box-shadow: 0 18px 48px rgba(20, 42, 45, 0.26);
+    font-size: 13px;
+    line-height: 1.35;
+    opacity: 0;
+    transform: translateY(4px);
+    pointer-events: none;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ak-chart-tooltip.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.ak-chart-tooltip strong {
+    font-size: 14px;
+}
+
+.ak-chart-tooltip span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.ak-chart-tooltip i {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: #94a3b8;
+}
+
+.ak-chart-tooltip i[data-color="stock"] {
+    border: 2px solid #d8e3e5;
+    background: transparent;
+}
+
+.ak-chart-tooltip i[data-color="success"] {
+    background: #0eaaa6;
+}
+
+.ak-chart-tooltip i[data-color="burn"] {
+    background: #b7791f;
+}
+
+.ak-chart-tooltip i[data-color="fee"] {
+    background: #c45b5b;
+}
+
 .ak-table-wrap {
     overflow: auto;
     border: 1px solid var(--ak-line);
