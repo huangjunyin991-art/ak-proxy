@@ -121,8 +121,8 @@
             <section class="ak-panel ak-panel--query">
                 <div class="ak-panel__head">
                     <div>
-                        <h2>账户交易查询</h2>
-                        <p>按卖家或买家 ID 查询本地已采集订单，适合核验某个账号的卖出和买入情况。</p>
+                        <h2>AK交易数据</h2>
+                        <p>按卖家或买家 ID 查询本地已采集订单，汇总数据和明细表在同一视图内联动。</p>
                     </div>
                     <span class="ak-tag">FlowNumber</span>
                 </div>
@@ -136,6 +136,19 @@
                     <button class="ak-btn ak-btn--ghost" type="button" data-action="reset-flow">显示最近订单</button>
                 </div>
                 <div id="tradeResult" class="ak-trade-result"></div>
+                <div class="ak-data-table-head">
+                    <div>
+                        <h3>关联订单</h3>
+                        <p id="tableHint">展示模拟采集到的最近订单。</p>
+                    </div>
+                    <span id="tableModeTag" class="ak-tag ak-tag--ok">订单列表</span>
+                </div>
+                <div class="ak-table-wrap">
+                    <table id="tradeTable" class="ak-table">
+                        <thead id="tradeTableHead"></thead>
+                        <tbody id="tradeTableBody"></tbody>
+                    </table>
+                </div>
             </section>
 
             <section class="ak-panel">
@@ -159,22 +172,6 @@
                         <div class="ak-chart-card__title">AK成交统计</div>
                         <canvas id="valueChart" height="230"></canvas>
                     </div>
-                </div>
-            </section>
-
-            <section class="ak-panel">
-                <div class="ak-panel__head">
-                    <div>
-                        <h2>订单明细预览</h2>
-                        <p id="tableHint">展示模拟采集到的最近订单。</p>
-                    </div>
-                    <span id="tableModeTag" class="ak-tag ak-tag--ok">订单列表</span>
-                </div>
-                <div class="ak-table-wrap">
-                    <table id="tradeTable" class="ak-table">
-                        <thead id="tradeTableHead"></thead>
-                        <tbody id="tradeTableBody"></tbody>
-                    </table>
                 </div>
             </section>
         </section>
