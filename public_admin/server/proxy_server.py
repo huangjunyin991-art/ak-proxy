@@ -17521,7 +17521,7 @@ _AK_TAB_BAR_PAGE_JS_PATHS = {
     "content/js/pages/center.js",
 }
 _AK_TAB_BAR_PAGE_JS_VERSION = "tabbar-initial-20260617"
-_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617"
+_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617-v2"
 
 
 def _rewrite_vue_component_script_version(text: str) -> str:
