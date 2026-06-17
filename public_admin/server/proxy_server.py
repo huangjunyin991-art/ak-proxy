@@ -17520,20 +17520,27 @@ _AK_TAB_BAR_PAGE_JS_PATHS = {
     "content/js/pages/ep.list.js",
     "content/js/pages/center.js",
 }
+_AK_TAB_BAR_PAGE_JS_VERSION = "tabbar-initial-20260617"
+_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617"
 
 
 def _rewrite_vue_component_script_version(text: str) -> str:
     return re.sub(
         r"(/content/js/vue-component\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
-        r"\1&ak_static_v=tabbar-initial-20260617",
+        rf"\1&ak_static_v={_AK_TAB_BAR_PAGE_JS_VERSION}",
         str(text or ""),
     )
 
 
 def _rewrite_tab_bar_page_script_versions(text: str) -> str:
+    def repl(match):
+        script_name = str(match.group(2) or "")
+        version = _AK_CENTER_PAGE_JS_VERSION if script_name == "center" else _AK_TAB_BAR_PAGE_JS_VERSION
+        return f"{match.group(1)}&ak_static_v={version}"
+
     return re.sub(
-        r"(/content/js/pages/(?:home|ace\.list|ep\.list|center)\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
-        r"\1&ak_static_v=tabbar-initial-20260617",
+        r"(/content/js/pages/(home|ace\.list|ep\.list|center)\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
+        repl,
         str(text or ""),
     )
 
@@ -17563,6 +17570,60 @@ def _patch_tab_bar_page_js_language(text: str) -> tuple[str, bool]:
     return text, patched
 
 
+def _build_ak_center_deferred_bootstrap_script() -> str:
+    return (
+        "\n;(function(){try{"
+        "if(window.__akCenterDeferredBootstrapInstalled)return;"
+        "window.__akCenterDeferredBootstrapInstalled=1;"
+        "function afterLoad(fn){"
+        "if(document.readyState==='complete'){setTimeout(fn,0);return;}"
+        "window.addEventListener('load',function(){setTimeout(fn,0);},{once:true});"
+        "}"
+        "window.__akCenterScheduleDeferred=function(vm){"
+        "afterLoad(function(){"
+        "try{if(vm){vm.akCenterDeferredReady=true;}}catch(e){}"
+        "try{if(vm&&typeof vm.loadPageData==='function')vm.loadPageData();}catch(e){}"
+        "});"
+        "};"
+        "}catch(e){}})();\n"
+    )
+
+
+def _patch_center_page_js_deferred_load(text: str) -> tuple[str, bool]:
+    patched = False
+    text = str(text or "")
+    if "__akCenterDeferredBootstrapInstalled" not in text:
+        text = _build_ak_center_deferred_bootstrap_script() + text
+        patched = True
+    next_text, count = re.subn(
+        r"(langFileInitFinished:\s*false)(\s*\n\s*\})",
+        r"\1,\n        akCenterDeferredReady: false\2",
+        text,
+        count=1,
+    )
+    if count:
+        text = next_text
+        patched = True
+    replacements = {
+        "bgImage: '/assets/images/image13@3x.png'": "bgImage: this.akCenterDeferredReady ? '/assets/images/image13@3x.png' : ''",
+        "bgImage: '/assets/images/image14@3x.png'": "bgImage: this.akCenterDeferredReady ? '/assets/images/image14@3x.png' : ''",
+    }
+    for old, new in replacements.items():
+        if old in text:
+            text = text.replace(old, new, 1)
+            patched = True
+    next_text, count = re.subn(
+        r"(created\s*:\s*function\s*\(\)\s*\{\s*(?:if\(window\.__akApplyInitialTabMenus\)\{window\.__akApplyInitialTabMenus\(this\);\}\s*)?this\.changeLanguage\(\);\s*)this\.loadPageData\(\);",
+        r"\1if(window.__akCenterScheduleDeferred){window.__akCenterScheduleDeferred(this);}else{this.akCenterDeferredReady=true;this.loadPageData();}",
+        text,
+        count=1,
+    )
+    if count:
+        text = next_text
+        patched = True
+    return text, patched
+
+
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
     lowered_content_type = str(content_type or "").lower()
     if not content:
@@ -17582,6 +17643,8 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
     if normalized_path.lower() in _AK_TAB_BAR_PAGE_JS_PATHS and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
         text, _ = _patch_tab_bar_page_js_language(text)
+        if normalized_path.lower() == "content/js/pages/center.js":
+            text, _ = _patch_center_page_js_deferred_load(text)
         return text.encode("utf-8")
     return content
 
