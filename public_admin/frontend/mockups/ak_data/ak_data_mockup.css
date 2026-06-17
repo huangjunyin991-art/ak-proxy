@@ -256,6 +256,7 @@ button {
 
 .ak-form input,
 .ak-form select,
+.ak-search select,
 .ak-search input {
     width: 100%;
     height: 38px;
@@ -270,6 +271,7 @@ button {
 
 .ak-form input:focus,
 .ak-form select:focus,
+.ak-search select:focus,
 .ak-search input:focus {
     border-color: rgba(14, 170, 166, 0.72);
     box-shadow: 0 0 0 3px rgba(14, 170, 166, 0.12);
@@ -345,6 +347,12 @@ button {
 
 .ak-search input {
     max-width: 360px;
+}
+
+.ak-search select {
+    max-width: 128px;
+    color: var(--ak-primary-dark);
+    font-weight: 700;
 }
 
 .ak-trade-result {

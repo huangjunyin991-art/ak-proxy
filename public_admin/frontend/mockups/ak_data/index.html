@@ -121,15 +121,19 @@
             <section class="ak-panel ak-panel--query">
                 <div class="ak-panel__head">
                     <div>
-                        <h2>订单 ID 查询</h2>
-                        <p>先查本地，缺失时总管理员可单笔从上游抓取。</p>
+                        <h2>账户交易查询</h2>
+                        <p>按卖家或买家 ID 查询本地已采集订单，适合核验某个账号的卖出和买入情况。</p>
                     </div>
-                    <span class="ak-tag">精确核验</span>
+                    <span class="ak-tag">FlowNumber</span>
                 </div>
                 <div class="ak-search">
-                    <input id="tradeSearchInput" type="number" value="13339000" plakholder="输入订单 ID，例如 13339000">
-                    <button class="ak-btn ak-btn--primary" type="button" data-action="search-trade">查询</button>
-                    <button class="ak-btn ak-btn--ghost" type="button" data-action="fetch-trade">上游抓取</button>
+                    <select id="flowSearchType" aria-label="查询类型">
+                        <option value="seller" selected>卖家 ID</option>
+                        <option value="buyer">买家 ID</option>
+                    </select>
+                    <input id="flowSearchInput" type="number" value="594344" placeholder="输入卖家或买家 ID，例如 594344">
+                    <button class="ak-btn ak-btn--primary" type="button" data-action="search-flow">查询账户</button>
+                    <button class="ak-btn ak-btn--ghost" type="button" data-action="reset-flow">显示最近订单</button>
                 </div>
                 <div id="tradeResult" class="ak-trade-result"></div>
             </section>
