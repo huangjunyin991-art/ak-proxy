@@ -339,18 +339,27 @@
                         label: '成交量',
                         data: rows.map(function(row) { return row.success; }),
                         backgroundColor: 'rgba(14,170,166,0.72)',
-                        borderRadius: 6
+                        borderRadius: 6,
+                        stack: 'ak-volume'
                     },
                     {
                         label: '交易销毁',
                         data: rows.map(function(row) { return row.burn; }),
                         backgroundColor: 'rgba(183,121,31,0.62)',
-                        borderRadius: 6
+                        borderRadius: 6,
+                        stack: 'ak-volume'
                     }
                 ]
             },
-            options: chartBaseOptions()
+            options: stackedBarOptions()
         });
+    }
+
+    function stackedBarOptions() {
+        var options = chartBaseOptions();
+        options.scales.x.stacked = true;
+        options.scales.y.stacked = true;
+        return options;
     }
 
     function renderValueChart(labels, rows) {
@@ -462,7 +471,7 @@
         var ctx = surface.ctx;
         var box = { left: 54, top: 24, width: surface.width - 72, height: surface.height - 64 };
         var maxValue = Math.max.apply(null, rows.map(function(row) {
-            return Math.max(row.success, row.burn);
+            return Number(row.success || 0) + Number(row.burn || 0);
         })) || 1;
         drawAxes(ctx, box, labels, maxValue);
         drawLegend(ctx, [
@@ -472,17 +481,18 @@
 
         var groupWidth = box.width / rows.length;
         rows.forEach(function(row, index) {
-            var x = box.left + index * groupWidth + groupWidth * 0.22;
-            var barWidth = Math.max(8, groupWidth * 0.22);
+            var x = box.left + index * groupWidth + groupWidth * 0.34;
+            var barWidth = Math.max(14, groupWidth * 0.28);
             var successHeight = box.height * row.success / maxValue;
             var burnHeight = box.height * row.burn / maxValue;
+            var baseY = box.top + box.height;
 
             ctx.fillStyle = 'rgba(14,170,166,0.78)';
-            roundedRect(ctx, x, box.top + box.height - successHeight, barWidth, successHeight, 5);
+            roundedRect(ctx, x, baseY - successHeight, barWidth, successHeight, 5);
             ctx.fill();
 
             ctx.fillStyle = 'rgba(183,121,31,0.66)';
-            roundedRect(ctx, x + barWidth + 4, box.top + box.height - burnHeight, barWidth, burnHeight, 5);
+            roundedRect(ctx, x, baseY - successHeight - burnHeight, barWidth, burnHeight + 3, 5);
             ctx.fill();
         });
     }
