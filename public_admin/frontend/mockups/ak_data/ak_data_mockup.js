@@ -8,6 +8,7 @@
         selectedFlowRole: 'seller',
         selectedTradeId: 0,
         visibleTrades: [],
+        tableMode: 'orders',
         status: 'running',
         charts: {}
     };
@@ -359,9 +360,32 @@
     }
 
     function renderTable(rows) {
+        state.tableMode = 'orders';
+        var table = $('#tradeTable');
+        var head = $('#tradeTableHead');
         var body = $('#tradeTableBody');
         if (!body) return;
         var list = rows || state.visibleTrades || trades;
+        if (table) {
+            table.classList.remove('is-buyer-view');
+            table.classList.add('is-switching');
+            setTimeout(function() { table.classList.remove('is-switching'); }, 190);
+        }
+        if (head) {
+            head.innerHTML = [
+                '<tr>',
+                '<th>订单 ID</th>',
+                '<th>成交时间</th>',
+                '<th>卖家 ID</th>',
+                '<th data-align="right">成交价</th>',
+                '<th data-align="right">挂卖总数</th>',
+                '<th data-align="right">交易销毁</th>',
+                '<th data-align="right">成交量</th>',
+                '<th data-align="right">成交价值</th>',
+                '<th data-align="right">买家数</th>',
+                '</tr>'
+            ].join('');
+        }
         body.innerHTML = list.map(function(row) {
             var selected = Number(row.trade_id) === Number(state.selectedTradeId);
             return [
@@ -382,9 +406,53 @@
         var hint = $('#tableHint');
         if (hint) {
             hint.textContent = list === trades
-                ? '展示模拟采集到的最近订单。'
-                : '展示当前账户关联的 ' + numberText(list.length) + ' 笔订单。';
+                ? '展示模拟采集到的最近订单，点击任一订单可查看买家明细。'
+                : '展示当前账户关联的 ' + numberText(list.length) + ' 笔订单，点击任一订单可查看买家明细。';
         }
+        var tag = $('#tableModeTag');
+        if (tag) tag.textContent = '订单列表';
+    }
+
+    function renderBuyerTable(trade) {
+        var table = $('#tradeTable');
+        var head = $('#tradeTableHead');
+        var body = $('#tradeTableBody');
+        if (!trade || !body) return;
+        state.tableMode = 'buyers';
+        state.selectedTradeId = trade.trade_id;
+        if (table) {
+            table.classList.add('is-buyer-view', 'is-switching');
+            setTimeout(function() { table.classList.remove('is-switching'); }, 190);
+        }
+        if (head) {
+            head.innerHTML = [
+                '<tr>',
+                '<th>订单 ID</th>',
+                '<th>成交时间</th>',
+                '<th>卖家 ID</th>',
+                '<th data-align="right">购买数量</th>',
+                '<th data-align="right">买家 ID</th>',
+                '</tr>'
+            ].join('');
+        }
+        body.innerHTML = (trade.buyers || []).map(function(buyer) {
+            return [
+                '<tr class="is-buyer-row" data-buyer-flow="' + escapeHtml(buyer.buyer_flow_number) + '">',
+                '<td>' + escapeHtml(trade.trade_id) + '</td>',
+                '<td>' + escapeHtml(trade.create_time) + '</td>',
+                '<td>' + escapeHtml(trade.seller_flow_number) + '</td>',
+                '<td data-align="right">' + numberText(buyer.ak_amount) + '</td>',
+                '<td data-align="right">' + escapeHtml(buyer.buyer_flow_number) + '</td>',
+                '</tr>'
+            ].join('');
+        }).join('');
+
+        var hint = $('#tableHint');
+        if (hint) {
+            hint.textContent = '正在查看订单 ' + trade.trade_id + ' 的买家明细，共 ' + numberText((trade.buyers || []).length) + ' 条；重新查询或点击“显示最近订单”可返回订单列表。';
+        }
+        var tag = $('#tableModeTag');
+        if (tag) tag.textContent = '买家明细';
     }
 
     function renderCharts() {
@@ -729,8 +797,26 @@
             var row = event.target.closest('tr[data-trade-id]');
             if (row) {
                 var id = Number(row.getAttribute('data-trade-id'));
+                var list = state.visibleTrades && state.visibleTrades.length ? state.visibleTrades : trades;
+                var trade = list.find(function(item) {
+                    return Number(item.trade_id) === id;
+                });
                 state.selectedTradeId = id;
-                renderTable(state.visibleTrades && state.visibleTrades.length ? state.visibleTrades : trades);
+                if (trade) {
+                    renderBuyerTable(trade);
+                    toast('已切换到订单 ' + id + ' 的买家明细');
+                }
+                return;
+            }
+
+            var buyerRow = event.target.closest('tr[data-buyer-flow]');
+            if (buyerRow) {
+                var buyerFlow = buyerRow.getAttribute('data-buyer-flow') || '';
+                var input = $('#flowSearchInput');
+                var type = $('#flowSearchType');
+                if (input) input.value = buyerFlow;
+                if (type) type.value = 'buyer';
+                searchFlow();
             }
         });
 

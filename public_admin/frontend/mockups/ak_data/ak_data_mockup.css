@@ -522,6 +522,15 @@ button {
     min-width: 900px;
     border-collapse: collapse;
     background: #ffffff;
+    transition: min-width 0.22s ease;
+}
+
+.ak-table.is-buyer-view {
+    min-width: 640px;
+}
+
+.ak-table.is-switching {
+    animation: akTableSwitch 0.2s ease;
 }
 
 .ak-table th,
@@ -543,6 +552,15 @@ button {
     font-weight: 800;
 }
 
+.ak-table th[data-align="right"],
+.ak-table td[data-align="right"] {
+    text-align: right;
+}
+
+.ak-table tbody tr {
+    cursor: pointer;
+}
+
 .ak-table tr:hover td {
     background: #f7fbfb;
 }
@@ -551,8 +569,20 @@ button {
     background: var(--ak-primary-soft);
 }
 
-.ak-table td[data-align="right"] {
-    text-align: right;
+.ak-table tr.is-buyer-row:hover td {
+    background: #f4fbfa;
+}
+
+@keyframes akTableSwitch {
+    from {
+        opacity: 0.68;
+        transform: translateY(4px) scaleX(0.992);
+        transform-origin: left center;
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scaleX(1);
+    }
 }
 
 .ak-toast {

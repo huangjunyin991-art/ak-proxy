@@ -168,23 +168,11 @@
                         <h2>订单明细预览</h2>
                         <p id="tableHint">展示模拟采集到的最近订单。</p>
                     </div>
-                    <span class="ak-tag ak-tag--ok">已校验</span>
+                    <span id="tableModeTag" class="ak-tag ak-tag--ok">订单列表</span>
                 </div>
                 <div class="ak-table-wrap">
-                    <table class="ak-table">
-                        <thead>
-                        <tr>
-                            <th>订单 ID</th>
-                            <th>成交时间</th>
-                            <th>卖家 ID</th>
-                            <th>成交价</th>
-                            <th>挂卖总数</th>
-                            <th>交易销毁</th>
-                            <th>成交量</th>
-                            <th>成交价值</th>
-                            <th>买家数</th>
-                        </tr>
-                        </thead>
+                    <table id="tradeTable" class="ak-table">
+                        <thead id="tradeTableHead"></thead>
                         <tbody id="tradeTableBody"></tbody>
                     </table>
                 </div>
