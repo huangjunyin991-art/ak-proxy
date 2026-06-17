@@ -17793,6 +17793,25 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
     return rewritten
 
 
+def _build_ak_public_cached_page_response(cached_static, request: Request, cache_state: str = "HIT") -> Response:
+    content_type = cached_static.content_type or "text/html; charset=utf-8"
+    raw_text = (cached_static.body or b"").decode("utf-8", errors="replace")
+    content = _transform_ak_public_page_html(raw_text, request).encode("utf-8")
+    headers = {
+        k: v
+        for k, v in dict(cached_static.headers or {}).items()
+        if str(k or "").lower() not in {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+    }
+    response = Response(
+        content=content,
+        status_code=cached_static.status_code,
+        headers=headers,
+        media_type=content_type,
+    )
+    response.headers["X-AK-Static-Cache"] = cache_state
+    return _apply_no_store_headers(response)
+
+
 async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
     request_started_at = time.perf_counter()
     normalized_path = str(page_path or "").strip("/").lower()
@@ -17823,7 +17842,7 @@ async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
                     content_type=cached_static.content_type,
                     response_bytes=len(cached_static.body or b""),
                 )
-                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+                return _build_ak_public_cached_page_response(cached_static, request)
             static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(cache_request)
             await static_cache_lock.acquire()
             cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
@@ -17840,7 +17859,7 @@ async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
                     content_type=cached_static.content_type,
                     response_bytes=len(cached_static.body or b""),
                 )
-                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+                return _build_ak_public_cached_page_response(cached_static, request)
 
         selected_exit = _get_direct_exit() if _should_force_direct_ak_web(_AK_WEB_PREFIX) else _select_forward_exit(normalized_path or "page")
         proxy_url = selected_exit.proxy_url if selected_exit and selected_exit.proxy_url else None
@@ -17866,6 +17885,7 @@ async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
             headers=headers,
             media_type=content_type or "text/html; charset=utf-8",
         )
+        _apply_no_store_headers(response)
         static_cache_state = "BYPASS"
         if cache_request:
             stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
@@ -17885,6 +17905,7 @@ async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
                 cache_request.path,
                 content_type or "text/html; charset=utf-8",
             )
+            _apply_no_store_headers(response)
         _record_request_metric(
             kind="static_asset",
             method=request.method,
@@ -18212,6 +18233,8 @@ async def ak_web_proxy(request: Request, path: str):
                 content_type=cached_static.content_type,
                 response_bytes=len(cached_static.body or b""),
             )
+            if normalized_path.startswith("pages/") and normalized_path.endswith(".html") and "text/html" in str(cached_static.content_type or "").lower():
+                return _build_ak_public_cached_page_response(cached_static, request)
             return _build_public_cached_static_response(cached_static, normalized_path)
         static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(static_cache_request)
         await static_cache_lock.acquire()
@@ -18230,6 +18253,8 @@ async def ak_web_proxy(request: Request, path: str):
                 content_type=cached_static.content_type,
                 response_bytes=len(cached_static.body or b""),
             )
+            if normalized_path.startswith("pages/") and normalized_path.endswith(".html") and "text/html" in str(cached_static.content_type or "").lower():
+                return _build_ak_public_cached_page_response(cached_static, request)
             return _build_public_cached_static_response(cached_static, normalized_path)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
