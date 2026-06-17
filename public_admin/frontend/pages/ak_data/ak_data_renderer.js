@@ -167,7 +167,7 @@
     function render(state) {
         return [
             '<div class="akd-root">',
-            '<section class="akd-hero"><div><span>AK 数据看板</span><h2>市场订单采集与交易查询</h2><p>查看本地采集状态、表占用、日统计和卖家/买家关联订单。</p></div><button class="akd-btn primary" data-action="refresh">刷新数据</button></section>',
+            '<section class="akd-hero"><div><h2>AK交易订单统计与交易查询</h2></div><button class="akd-btn primary" data-action="refresh">刷新数据</button></section>',
             '<section class="akd-metrics">' + renderMetrics(state) + '</section>',
             '<section class="akd-layout">',
             '<aside class="akd-side">',

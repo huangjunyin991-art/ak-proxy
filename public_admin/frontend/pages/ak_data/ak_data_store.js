@@ -20,7 +20,7 @@
             buyerRows: [],
             buyerLoading: false,
             buyerError: '',
-            lastMessage: '正在初始化 AK 数据看板...'
+            lastMessage: '正在初始化 AK 数据...'
         };
 
         function setError(message) {
@@ -34,7 +34,7 @@
             state.dashboard = Array.isArray(payload.dashboard) ? payload.dashboard : [];
             state.recentTrades = Array.isArray(payload.recentTrades) ? payload.recentTrades : [];
             if (!state.visibleTrades.length) state.visibleTrades = state.recentTrades.slice();
-            state.lastMessage = 'AK 数据看板已就绪';
+            state.lastMessage = 'AK 数据已就绪';
             state.error = '';
         }
 
