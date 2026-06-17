@@ -17521,7 +17521,7 @@ _AK_TAB_BAR_PAGE_JS_PATHS = {
     "content/js/pages/center.js",
 }
 _AK_TAB_BAR_PAGE_JS_VERSION = "tabbar-initial-20260617"
-_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617-v2"
+_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617-v3"
 
 
 def _rewrite_vue_component_script_version(text: str) -> str:
@@ -17582,7 +17582,7 @@ def _build_ak_center_deferred_bootstrap_script() -> str:
         "window.__akCenterScheduleDeferred=function(vm){"
         "afterLoad(function(){"
         "try{if(vm){vm.akCenterDeferredReady=true;}}catch(e){}"
-        "try{if(vm&&typeof vm.loadPageData==='function')vm.loadPageData();}catch(e){}"
+        "try{if(vm&&typeof vm.loadPageData==='function'&&!vm.akCenterQuestionLoaded)vm.loadPageData();}catch(e){}"
         "});"
         "};"
         "}catch(e){}})();\n"
@@ -17597,7 +17597,7 @@ def _patch_center_page_js_deferred_load(text: str) -> tuple[str, bool]:
         patched = True
     next_text, count = re.subn(
         r"(langFileInitFinished:\s*false)(\s*\n\s*\})",
-        r"\1,\n        akCenterDeferredReady: false\2",
+        r"\1,\n        akCenterDeferredReady: false,\n        akCenterQuestionLoading: false,\n        akCenterQuestionLoaded: false\2",
         text,
         count=1,
     )
@@ -17611,6 +17611,64 @@ def _patch_center_page_js_deferred_load(text: str) -> tuple[str, bool]:
     for old, new in replacements.items():
         if old in text:
             text = text.replace(old, new, 1)
+            patched = True
+    next_text, count = re.subn(
+        r"('loadPageData':\s*function\s*\(\)\s*\{\s*const _this = this\s*)\n\s*APP\.GLOBAL\.ajax\(\{",
+        r"\1\n            if (_this.akCenterQuestionLoading) return;\n            _this.akCenterQuestionLoading = true;\n\n            APP.GLOBAL.ajax({",
+        text,
+        count=1,
+    )
+    if count:
+        text = next_text
+        patched = True
+    next_text, count = re.subn(
+        r"(success:\s*function\s*\(result\)\s*\{\s*)if \(result\.Error\) \{\s*APP\.GLOBAL\.toastMsg\(result\.Msg\);\s*return;\s*\}",
+        r"\1_this.akCenterQuestionLoading = false;\n                    if (result.Error) {\n                        APP.GLOBAL.toastMsg(result.Msg);\n                        return;\n                    }",
+        text,
+        count=1,
+    )
+    if count:
+        text = next_text
+        patched = True
+    next_text, count = re.subn(
+        r"(_this\.display\.questionDisplay = result\.QTitle;\s*_this\.form\.qId = result\.Qid;)",
+        r"\1\n                    _this.akCenterQuestionLoaded = true;",
+        text,
+        count=1,
+    )
+    if count:
+        text = next_text
+        patched = True
+    on_demand_method = (
+        "\n        'akCenterOpenVerifyModal': function (flagName) {\n"
+        "            if (!flagName) return;\n"
+        "            this[flagName] = true;\n"
+        "            if (this.display && !this.display.questionDisplay) {\n"
+        "                this.display.questionDisplay = '\\u6b63\\u5728\\u52a0\\u8f7d...';\n"
+        "            }\n"
+        "            if (!this.akCenterQuestionLoaded && !this.akCenterQuestionLoading) {\n"
+        "                this.loadPageData();\n"
+        "            }\n"
+        "        },\n"
+    )
+    if "'akCenterOpenVerifyModal': function" not in text:
+        next_text, count = re.subn(
+            r"(\n\s*handleItems2Click\(key\)\s*\{)",
+            lambda match: on_demand_method + match.group(1),
+            text,
+            count=1,
+        )
+        if count:
+            text = next_text
+            patched = True
+    modal_replacements = {
+        "_this.isfriendsPassowrdShow = true": "_this.akCenterOpenVerifyModal('isfriendsPassowrdShow')",
+        "_this.isFansPassowrdShow = true": "_this.akCenterOpenVerifyModal('isFansPassowrdShow')",
+        "_this.isFansmapPassowrdShow = true": "_this.akCenterOpenVerifyModal('isFansmapPassowrdShow')",
+    }
+    for old, new in modal_replacements.items():
+        if old in text:
+            text = text.replace(old, new)
             patched = True
     next_text, count = re.subn(
         r"(created\s*:\s*function\s*\(\)\s*\{\s*(?:if\(window\.__akApplyInitialTabMenus\)\{window\.__akApplyInitialTabMenus\(this\);\}\s*)?this\.changeLanguage\(\);\s*)this\.loadPageData\(\);",
