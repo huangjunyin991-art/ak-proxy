@@ -17308,19 +17308,39 @@ def _build_ak_local_language_pack_response(request: Request, normalized_path: st
     local_path = _get_ak_local_language_pack_path(normalized_path)
     if local_path is None:
         return None
+    try:
+        stat = local_path.stat()
+    except OSError:
+        return None
+    query = parse_qs(str(request.url.query or ""), keep_blank_values=True)
+    version = str((query.get("v") or [""])[0] or "").strip().lower()
+    is_content_versioned = bool(re.fullmatch(r"[0-9a-f]{8,40}", version))
+    etag = f'"ak-lang-{local_path.stem}-{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+    last_modified = formatdate(stat.st_mtime, usegmt=True)
+    cache_control = (
+        "public, max-age=604800, immutable"
+        if is_content_versioned
+        else "no-cache, must-revalidate"
+    )
+    headers = {
+        "Cache-Control": cache_control,
+        "ETag": etag,
+        "Last-Modified": last_modified,
+        "X-AK-Static-Cache": "LOCAL",
+        "X-AK-Language-Source": "local",
+        "X-AK-Language-Path": local_path.name,
+        "X-Content-Type-Options": "nosniff",
+    }
+    if not is_content_versioned:
+        headers["Pragma"] = "no-cache"
+        headers["Expires"] = "0"
+    if str(request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(status_code=304, headers=headers)
     body = b"" if request.method == "HEAD" else local_path.read_bytes()
     return Response(
         content=body,
         media_type="application/json",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-            "X-AK-Static-Cache": "LOCAL",
-            "X-AK-Language-Source": "local",
-            "X-AK-Language-Path": local_path.name,
-            "X-Content-Type-Options": "nosniff",
-        },
+        headers=headers,
     )
 
 
