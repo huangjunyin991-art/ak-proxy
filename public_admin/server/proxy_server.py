@@ -17521,7 +17521,7 @@ _AK_TAB_BAR_PAGE_JS_PATHS = {
     "content/js/pages/center.js",
 }
 _AK_TAB_BAR_PAGE_JS_VERSION = "tabbar-initial-20260617"
-_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617-v3"
+_AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617-v4"
 
 
 def _rewrite_vue_component_script_version(text: str) -> str:
@@ -17604,14 +17604,6 @@ def _patch_center_page_js_deferred_load(text: str) -> tuple[str, bool]:
     if count:
         text = next_text
         patched = True
-    replacements = {
-        "bgImage: '/assets/images/image13@3x.png'": "bgImage: this.akCenterDeferredReady ? '/assets/images/image13@3x.png' : ''",
-        "bgImage: '/assets/images/image14@3x.png'": "bgImage: this.akCenterDeferredReady ? '/assets/images/image14@3x.png' : ''",
-    }
-    for old, new in replacements.items():
-        if old in text:
-            text = text.replace(old, new, 1)
-            patched = True
     next_text, count = re.subn(
         r"('loadPageData':\s*function\s*\(\)\s*\{\s*const _this = this\s*)\n\s*APP\.GLOBAL\.ajax\(\{",
         r"\1\n            if (_this.akCenterQuestionLoading) return;\n            _this.akCenterQuestionLoading = true;\n\n            APP.GLOBAL.ajax({",
