@@ -1,10 +1,10 @@
-# ACE 数据采集与看板设计
+﻿# AK 数据采集与看板设计
 
 日期：2026-06-17
 
 ## 目标
 
-建设一个独立的 ACE 数据模块，用于持续采集 `/RPC/Public_ACE_Detail` 与 `/RPC/Public_ACE_Detail_List` 的订单详情和买家明细，并在管理员面板中展示当日和历史统计。
+建设一个独立的 AK 数据模块，用于持续采集 `/RPC/Public_ACE_Detail` 与 `/RPC/Public_ACE_Detail_List` 的订单详情和买家明细，并在管理员面板中展示当日和历史统计。
 
 模块目标：
 
@@ -21,8 +21,8 @@
 建议新增独立目录：
 
 ```text
-public_admin/server/ace_data/
-public_admin/frontend/pages/ace_data/
+public_admin/server/ak_data/
+public_admin/frontend/pages/ak_data/
 ```
 
 后端职责：
@@ -42,7 +42,7 @@ public_admin/frontend/pages/ace_data/
 - 表占用查看。
 - ECharts 数据看板。
 
-不建议放进现有 `point_stats`，因为 ACE 是市场订单数据，不是账号点数流水；两者查询、采集、保留策略都不同。
+不建议放进现有 `point_stats`，因为 AK 是市场订单数据，不是账号点数流水；两者查询、采集、保留策略都不同。
 
 ## 数据来源
 
@@ -101,7 +101,7 @@ Data[0].Id 或 Data.List[0].Id
 | --- | --- | --- | --- |
 | trade_id | 请求参数 `tId` | INTEGER | 关联订单 |
 | buyer_flow_number | `User.FlowNumber` | VARCHAR(12) | 买家 ID |
-| ace_amount | `AceAmount` | INTEGER | 买入数量 |
+| ak_amount | `AceAmount` | INTEGER | 买入数量 |
 
 买家明细保存策略：
 
@@ -113,10 +113,10 @@ Data[0].Id 或 Data.List[0].Id
 
 ## 数据表设计
 
-### ace_trade_summary
+### ak_trade_summary
 
 ```sql
-CREATE TABLE ace_trade_summary (
+CREATE TABLE ak_trade_summary (
     trade_id INTEGER PRIMARY KEY,
     single_price NUMERIC(4, 3) NOT NULL CHECK (single_price >= 0 AND single_price <= 0.400),
     readonly_stock_count INTEGER NOT NULL CHECK (readonly_stock_count >= 0 AND readonly_stock_count <= 99999),
@@ -134,18 +134,18 @@ CREATE TABLE ace_trade_summary (
 索引：
 
 ```sql
-CREATE INDEX idx_ace_trade_summary_date ON ace_trade_summary(date_key);
-CREATE INDEX idx_ace_trade_summary_time ON ace_trade_summary(create_time);
-CREATE INDEX idx_ace_trade_summary_seller ON ace_trade_summary(seller_flow_number);
+CREATE INDEX idx_ak_trade_summary_date ON ak_trade_summary(date_key);
+CREATE INDEX idx_ak_trade_summary_time ON ak_trade_summary(create_time);
+CREATE INDEX idx_ak_trade_summary_seller ON ak_trade_summary(seller_flow_number);
 ```
 
-### ace_trade_buyers
+### ak_trade_buyers
 
 ```sql
-CREATE TABLE ace_trade_buyers (
-    trade_id INTEGER NOT NULL REFERENCES ace_trade_summary(trade_id) ON DELETE CASCADE,
+CREATE TABLE ak_trade_buyers (
+    trade_id INTEGER NOT NULL REFERENCES ak_trade_summary(trade_id) ON DELETE CASCADE,
     buyer_flow_number VARCHAR(12) NOT NULL,
-    ace_amount INTEGER NOT NULL CHECK (ace_amount >= 0 AND ace_amount <= 99999),
+    ak_amount INTEGER NOT NULL CHECK (ak_amount >= 0 AND ak_amount <= 99999),
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
@@ -153,8 +153,8 @@ CREATE TABLE ace_trade_buyers (
 索引：
 
 ```sql
-CREATE INDEX idx_ace_trade_buyers_trade ON ace_trade_buyers(trade_id);
-CREATE INDEX idx_ace_trade_buyers_flow ON ace_trade_buyers(buyer_flow_number);
+CREATE INDEX idx_ak_trade_buyers_trade ON ak_trade_buyers(trade_id);
+CREATE INDEX idx_ak_trade_buyers_flow ON ak_trade_buyers(buyer_flow_number);
 ```
 
 ### 字段容量校准
@@ -164,7 +164,7 @@ CREATE INDEX idx_ace_trade_buyers_flow ON ace_trade_buyers(buyer_flow_number);
 ```text
 mycancel <= readonly_stock_count
 success <= readonly_stock_count
-单个买家 ace_amount <= readonly_stock_count
+单个买家 ak_amount <= readonly_stock_count
 ```
 
 因此单笔数量类字段不需要超过五位整数。
@@ -176,7 +176,7 @@ success <= readonly_stock_count
 | readonly_stock_count | INTEGER + CHECK <= 99999 | 5 位整数 |
 | mycancel | INTEGER + CHECK <= readonly_stock_count | 5 位整数 |
 | success | INTEGER + CHECK <= readonly_stock_count | 5 位整数 |
-| ace_amount | INTEGER + CHECK <= 99999 | 5 位整数 |
+| ak_amount | INTEGER + CHECK <= 99999 | 5 位整数 |
 | single_price | NUMERIC(4,3) + CHECK <= 0.400 | 1 位整数 + 3 位小数 |
 | success_value | NUMERIC(7,2) | 5 位整数 + 2 位小数 |
 
@@ -190,12 +190,12 @@ success <= readonly_stock_count
 
 日汇总字段是多笔订单累加，不受单笔五位限制，因此可以比单笔字段大。日汇总表只有每天一行，适当放大不会造成明显存储压力。
 
-### ace_daily_summary
+### ak_daily_summary
 
 看板默认读日汇总表，避免每次扫明细大表。
 
 ```sql
-CREATE TABLE ace_daily_summary (
+CREATE TABLE ak_daily_summary (
     date_key DATE PRIMARY KEY,
     order_count INTEGER NOT NULL DEFAULT 0 CHECK (order_count >= 0),
     total_stock BIGINT NOT NULL DEFAULT 0 CHECK (total_stock >= 0),
@@ -214,10 +214,10 @@ CREATE TABLE ace_daily_summary (
 );
 ```
 
-### ace_scan_runtime
+### ak_scan_runtime
 
 ```sql
-CREATE TABLE ace_scan_runtime (
+CREATE TABLE ak_scan_runtime (
     scan_name VARCHAR(64) PRIMARY KEY,
     running BOOLEAN NOT NULL DEFAULT FALSE,
     direction VARCHAR(16) NOT NULL DEFAULT 'forward',
@@ -239,10 +239,10 @@ CREATE TABLE ace_scan_runtime (
 );
 ```
 
-### ace_data_config
+### ak_data_config
 
 ```sql
-CREATE TABLE ace_data_config (
+CREATE TABLE ak_data_config (
     config_key VARCHAR(64) PRIMARY KEY,
     config_value TEXT NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -271,7 +271,7 @@ CREATE TABLE ace_data_config (
 
 1. 用户正常访问 `/RPC/Public_ACE`。
 2. 代理层从成功响应中读取最新订单 ID。
-3. 对比 `SELECT MAX(trade_id) FROM ace_trade_summary`。
+3. 对比 `SELECT MAX(trade_id) FROM ak_trade_summary`。
 4. 如果最新 ID 更大，只记录高水位并异步唤醒采集任务。
 5. 用户请求不等待采集任务，照常返回。
 6. 采集任务全局单例，从 `db_max_trade_id + 1` 扫到 `latest_trade_id`。
@@ -338,12 +338,12 @@ next_check_at = finished_at + post_task_check_interval_minutes
 ### 单订单处理
 
 1. 调用 `Public_ACE_Detail`。
-2. 解析并 upsert `ace_trade_summary`。
+2. 解析并 upsert `ak_trade_summary`。
 3. 如果开启买家明细，取详情里的临时 `Data.User.Id` 调 `Public_ACE_Detail_List`。
 4. 分页抓取买家明细，直到空页、少于 pageSize、重复页签名或超过上限。
 5. 删除该 `trade_id` 旧明细，插入本次明细。
-6. 校验 `SUM(ace_amount)` 与 `success`，不一致只记录警告，不阻断任务。
-7. 更新 `ace_daily_summary`。
+6. 校验 `SUM(ak_amount)` 与 `success`，不一致只记录警告，不阻断任务。
+7. 更新 `ak_daily_summary`。
 
 ### 历史回填
 
@@ -389,7 +389,7 @@ failure_reason
 新增模块名建议：
 
 ```text
-ACE 数据看板
+AK 数据看板
 ```
 
 ### 顶部状态区
@@ -428,10 +428,10 @@ ACE 数据看板
 
 显示表：
 
-- `ace_trade_summary`
-- `ace_trade_buyers`
-- `ace_daily_summary`
-- `ace_scan_runtime`
+- `ak_trade_summary`
+- `ak_trade_buyers`
+- `ak_daily_summary`
+- `ak_scan_runtime`
 
 指标：
 
@@ -486,7 +486,7 @@ ACE 数据看板
 - 买家数/卖家数趋势。
 - `FlowNumber=0` 订单占比。
 
-默认读 `ace_daily_summary`，点击某天再查明细表。
+默认读 `ak_daily_summary`，点击某天再查明细表。
 
 ### 订单查询区
 
@@ -536,7 +536,7 @@ trade_id
 - 最近采集时间。
 - 最近更新/重抓时间。
 - 买家明细是否完整。
-- `SUM(ace_amount)` 是否等于 `success`。
+- `SUM(ak_amount)` 是否等于 `success`。
 - 如果不一致，显示差额。
 - 如果上游查询失败，显示脱敏后的错误原因。
 
@@ -550,20 +550,20 @@ trade_id
 ## API 设计
 
 ```text
-GET  /admin/api/ace-data/status
-GET  /admin/api/ace-data/config
-POST /admin/api/ace-data/config
-GET  /admin/api/ace-data/storage
-POST /admin/api/ace-data/cleanup
-POST /admin/api/ace-data/backfill/start
-POST /admin/api/ace-data/backfill/pause
-POST /admin/api/ace-data/backfill/resume
-GET  /admin/api/ace-data/backfill/status
-GET  /admin/api/ace-data/dashboard?start_date=&end_date=
-GET  /admin/api/ace-data/trades?date=&page=&page_size=
-GET  /admin/api/ace-data/trades/{trade_id}/buyers
-GET  /admin/api/ace-data/trades/{trade_id}
-POST /admin/api/ace-data/trades/{trade_id}/fetch
+GET  /admin/api/ak-data/status
+GET  /admin/api/ak-data/config
+POST /admin/api/ak-data/config
+GET  /admin/api/ak-data/storage
+POST /admin/api/ak-data/cleanup
+POST /admin/api/ak-data/backfill/start
+POST /admin/api/ak-data/backfill/pause
+POST /admin/api/ak-data/backfill/resume
+GET  /admin/api/ak-data/backfill/status
+GET  /admin/api/ak-data/dashboard?start_date=&end_date=
+GET  /admin/api/ak-data/trades?date=&page=&page_size=
+GET  /admin/api/ak-data/trades/{trade_id}/buyers
+GET  /admin/api/ak-data/trades/{trade_id}
+POST /admin/api/ak-data/trades/{trade_id}/fetch
 ```
 
 权限：
@@ -576,8 +576,8 @@ POST /admin/api/ace-data/trades/{trade_id}/fetch
 
 粗略估算：
 
-- `ace_trade_summary` 每行约 120 到 180 字节，加索引按 250 到 350 字节估。
-- `ace_trade_buyers` 每行约 50 到 90 字节，加索引按 120 到 180 字节估。
+- `ak_trade_summary` 每行约 120 到 180 字节，加索引按 250 到 350 字节估。
+- `ak_trade_buyers` 每行约 50 到 90 字节，加索引按 120 到 180 字节估。
 
 如果每天订单 1000 条、每单平均 5 条买家明细：
 
@@ -653,4 +653,4 @@ buyers: 5000 * 180B ≈ 0.9MB/天
 2. 买家明细默认保留 30 天是否合适。
 3. 兜底账号是否允许在线时被采集任务使用，建议默认不允许。
 4. 一次性回填目标是否确定为扫到 2026-05-29，统计基础从 2026-06-01 开始。
-5. 子管理员是否只读 ACE 看板，建议第一版只允许总管理员配置和回填。
+5. 子管理员是否只读 AK 看板，建议第一版只允许总管理员配置和回填。

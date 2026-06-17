@@ -1,0 +1,194 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AK 数据看板模拟页</title>
+    <link rel="stylesheet" href="./ak_data_mockup.css">
+    <script src="../../shared/lib/chart.umd.min.js" defer></script>
+    <script src="./ak_data_mockup.js" defer></script>
+</head>
+<body>
+<main class="ak-page">
+    <header class="ak-header">
+        <div>
+            <div class="ak-eyebrow">AK 数据采集 · UI Mockup</div>
+            <h1>市场订单采集看板</h1>
+            <p>用模拟数据验证采集状态、订单查询、历史回填、存储占用和日统计看板的管理体验。</p>
+        </div>
+        <div class="ak-header-actions">
+            <button class="ak-btn ak-btn--ghost" type="button" data-action="simulate-error">模拟异常</button>
+            <button class="ak-btn ak-btn--primary" type="button" data-action="advance-progress">推进采集</button>
+        </div>
+    </header>
+
+    <section class="ak-status-grid" aria-label="采集状态">
+        <article class="ak-metric">
+            <span class="ak-metric__label">当前状态</span>
+            <strong id="mockStatusText">增量采集中</strong>
+            <small id="mockStatusHint">正在扫描 13338981 - 13339050</small>
+        </article>
+        <article class="ak-metric">
+            <span class="ak-metric__label">最新订单 ID</span>
+            <strong id="mockLatestId">13339050</strong>
+            <small>来自 /RPC/Public_ACE 首条记录</small>
+        </article>
+        <article class="ak-metric">
+            <span class="ak-metric__label">本地最大 ID</span>
+            <strong id="mockLocalMax">13339018</strong>
+            <small id="mockGapText">待补 32 笔订单</small>
+        </article>
+        <article class="ak-metric">
+            <span class="ak-metric__label">下次检查</span>
+            <strong id="mockNextCheck">58 分钟后</strong>
+            <small>任务结束后按配置间隔检查</small>
+        </article>
+    </section>
+
+    <section class="ak-layout">
+        <aside class="ak-side">
+            <section class="ak-panel">
+                <div class="ak-panel__head">
+                    <h2>采集配置</h2>
+                    <span class="ak-tag">模拟</span>
+                </div>
+                <div class="ak-form">
+                    <label>
+                        <span>数据保留</span>
+                        <select id="retentionSelect">
+                            <option value="7">7 天</option>
+                            <option value="30" selected>30 天</option>
+                            <option value="90">90 天</option>
+                            <option value="365">365 天</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>任务结束后检查间隔</span>
+                        <select id="checkIntervalSelect">
+                            <option value="15">15 分钟</option>
+                            <option value="30">30 分钟</option>
+                            <option value="60" selected>60 分钟</option>
+                            <option value="180">180 分钟</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>账号切换上限</span>
+                        <input id="switchLimitInput" type="number" min="1" max="20" value="5">
+                    </label>
+                    <label>
+                        <span>兜底账号</span>
+                        <input type="text" value="AK_FALLBACK_01">
+                    </label>
+                </div>
+                <button class="ak-btn ak-btn--primary ak-btn--full" type="button" data-action="save-config">保存模拟配置</button>
+            </section>
+
+            <section class="ak-panel">
+                <div class="ak-panel__head">
+                    <h2>历史回填</h2>
+                    <span class="ak-tag ak-tag--warm">一次性</span>
+                </div>
+                <div class="ak-progress">
+                    <div class="ak-progress__top">
+                        <span>回填到 2026-05-29</span>
+                        <strong id="backfillPercent">64%</strong>
+                    </div>
+                    <div class="ak-progress__bar"><span id="backfillBar" style="width:64%"></span></div>
+                    <p id="backfillText">已保存 1,284 笔，当前扫描 ID 13337766。</p>
+                </div>
+                <div class="ak-row-actions">
+                    <button class="ak-btn ak-btn--primary" type="button" data-action="start-backfill">开始回填</button>
+                    <button class="ak-btn ak-btn--ghost" type="button" data-action="pause-backfill">暂停</button>
+                </div>
+            </section>
+
+            <section class="ak-panel">
+                <div class="ak-panel__head">
+                    <h2>表占用</h2>
+                    <span class="ak-tag ak-tag--ok">轻量</span>
+                </div>
+                <div class="ak-storage">
+                    <div><span>订单主表</span><strong>18.4 MB</strong></div>
+                    <div><span>买家明细</span><strong>46.7 MB</strong></div>
+                    <div><span>日汇总</span><strong>0.3 MB</strong></div>
+                    <div><span>索引估算</span><strong>22.1 MB</strong></div>
+                </div>
+                <button class="ak-btn ak-btn--ghost ak-btn--full" type="button" data-action="cleanup">按保留期清理</button>
+            </section>
+        </aside>
+
+        <section class="ak-main">
+            <section class="ak-panel ak-panel--query">
+                <div class="ak-panel__head">
+                    <div>
+                        <h2>订单 ID 查询</h2>
+                        <p>先查本地，缺失时总管理员可单笔从上游抓取。</p>
+                    </div>
+                    <span class="ak-tag">精确核验</span>
+                </div>
+                <div class="ak-search">
+                    <input id="tradeSearchInput" type="number" value="13339000" plakholder="输入订单 ID，例如 13339000">
+                    <button class="ak-btn ak-btn--primary" type="button" data-action="search-trade">查询</button>
+                    <button class="ak-btn ak-btn--ghost" type="button" data-action="fetch-trade">上游抓取</button>
+                </div>
+                <div id="tradeResult" class="ak-trade-result"></div>
+            </section>
+
+            <section class="ak-panel">
+                <div class="ak-panel__head">
+                    <div>
+                        <h2>日统计看板</h2>
+                        <p>默认读日汇总表，点击日期查看订单明细。</p>
+                    </div>
+                    <div class="ak-segment" role="tablist" aria-label="统计范围">
+                        <button class="is-active" type="button" data-range="7">近 7 天</button>
+                        <button type="button" data-range="14">近 14 天</button>
+                        <button type="button" data-range="30">近 30 天</button>
+                    </div>
+                </div>
+                <div class="ak-chart-grid">
+                    <div class="ak-chart-card">
+                        <div class="ak-chart-card__title">成交量与销毁</div>
+                        <canvas id="volumeChart" height="230"></canvas>
+                    </div>
+                    <div class="ak-chart-card">
+                        <div class="ak-chart-card__title">成交价值</div>
+                        <canvas id="valueChart" height="230"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ak-panel">
+                <div class="ak-panel__head">
+                    <div>
+                        <h2>订单明细预览</h2>
+                        <p id="tableHint">展示模拟采集到的最近订单。</p>
+                    </div>
+                    <span class="ak-tag ak-tag--ok">已校验</span>
+                </div>
+                <div class="ak-table-wrap">
+                    <table class="ak-table">
+                        <thead>
+                        <tr>
+                            <th>订单 ID</th>
+                            <th>成交时间</th>
+                            <th>卖家 ID</th>
+                            <th>成交价</th>
+                            <th>挂卖总数</th>
+                            <th>交易销毁</th>
+                            <th>成交量</th>
+                            <th>成交价值</th>
+                            <th>买家数</th>
+                        </tr>
+                        </thead>
+                        <tbody id="tradeTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+    </section>
+</main>
+
+<div id="toast" class="ak-toast" role="status" aria-live="polite"></div>
+</body>
+</html>
