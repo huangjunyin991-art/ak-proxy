@@ -135,12 +135,13 @@
 
     function renderBackfill(state) {
         var bf = state.backfill || {};
+        var runtime = state.status && state.status.runtime || {};
         var running = bf.status === 'running';
         return [
             '<div class="akd-backfill">',
             '<div class="akd-backfill-head"><h3>历史回填</h3><span>' + html(bf.message || '未启动') + '</span></div>',
             '<div class="akd-backfill-grid">',
-            '<label><span>起始订单 ID</span><input id="akDataBackfillStartId" type="number" min="1" value="' + html(bf.start_trade_id || state.status && state.status.local_max_trade_id || 0) + '"></label>',
+            '<label><span>起始订单 ID</span><input id="akDataBackfillStartId" type="number" min="1" value="' + html(bf.current_trade_id || runtime.current_trade_id || bf.start_trade_id || state.status && state.status.local_max_trade_id || 0) + '"></label>',
             '<label><span>目标日期</span><input id="akDataBackfillTargetDate" type="date" value="' + html(bf.target_date || (state.config && state.config.default_target_date) || '2026-05-29') + '"></label>',
             '<label><span>请求间隔（毫秒）</span><input id="akDataBackfillInterval" type="number" min="300" max="10000" value="' + html(bf.request_interval_ms || (state.config && state.config.request_interval_ms) || 1000) + '"></label>',
             '<label><span>探测 300 笔</span><input id="akDataProbeLimit" type="number" min="1" max="1000" value="300"></label>',
@@ -159,6 +160,9 @@
                 '<span>403 次数：' + number(bf.forbidden || 0) + '</span>' +
                 '<span>重试轮次：' + number(bf.retry_round || 0) + '/' + number(bf.retry_rounds || 0) + '</span>' +
                 '<span>待补订单：' + number(bf.pending_count || 0) + '</span>' +
+                '<span>当前采集日：' + html(bf.current_day || '-') + '</span>' +
+                '<span>当日缓存：' + number(bf.day_buffer_count || 0) + '</span>' +
+                '<span>已提交天数：' + number(bf.committed_days || 0) + '</span>' +
                 (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until)) + '</span>' : '') +
             '</div>',
             '</div>'

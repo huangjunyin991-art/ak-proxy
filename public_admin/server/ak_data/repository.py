@@ -549,6 +549,127 @@ class AkDataRepository:
                         ],
                     )
 
+    async def commit_trade_day_batch(self, day: date, items: list[dict[str, Any]], save_buyers: bool = True) -> dict[str, int]:
+        valid_items = [item for item in items or [] if int(item.get("trade_id") or 0) > 0 and isinstance(item.get("detail"), dict)]
+        if not valid_items:
+            return {"orders": 0, "buyers": 0}
+        trade_ids = sorted({int(item.get("trade_id") or 0) for item in valid_items}, reverse=True)
+        if len(trade_ids) != len(valid_items):
+            raise ValueError(f"AK 日批次订单 ID 重复: day={day} unique={len(trade_ids)} total={len(valid_items)}")
+        if len(trade_ids) != trade_ids[0] - trade_ids[-1] + 1:
+            raise ValueError(f"AK 日批次订单 ID 不连续: day={day} max={trade_ids[0]} min={trade_ids[-1]} count={len(trade_ids)}")
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_summary"):
+                return {"orders": 0, "buyers": 0}
+            has_buyers = await self._table_exists(conn, "ak_trade_buyers")
+            has_state = await self._table_exists(conn, "ak_trade_fetch_state")
+            has_daily = await self._table_exists(conn, "ak_daily_summary")
+            summary_rows = []
+            buyer_rows = []
+            trade_ids = []
+            for item in valid_items:
+                trade = item.get("detail") or {}
+                trade_id = int(trade.get("Id") or item.get("trade_id") or 0)
+                if trade_id <= 0:
+                    continue
+                create_time = self._parse_datetime(trade.get("CreateTime")) or datetime.now()
+                date_key = create_time.date()
+                if date_key != day:
+                    raise ValueError(f"AK 日批次日期不一致: expected={day} actual={date_key} trade_id={trade_id}")
+                summary_rows.append((
+                    trade_id,
+                    float(trade.get("SinglePrice") or 0),
+                    int(trade.get("ReadonlyStockCount") or 0),
+                    int(trade.get("mycancel") or 0),
+                    int(trade.get("success") or 0),
+                    round(float(trade.get("successvalue") or 0), 2),
+                    create_time,
+                    date_key,
+                    str(item.get("seller_flow") or "").strip(),
+                ))
+                trade_ids.append(trade_id)
+                if save_buyers:
+                    for buyer in item.get("buyers") or []:
+                        buyer_flow = str(buyer.get("buyer_flow_number") or "").strip()
+                        if buyer_flow:
+                            buyer_rows.append((trade_id, buyer_flow, int(buyer.get("ak_amount") or 0)))
+            if not summary_rows:
+                return {"orders": 0, "buyers": 0}
+            async with conn.transaction():
+                await conn.executemany(
+                    """
+                    INSERT INTO ak_trade_summary (
+                        trade_id, single_price, readonly_stock_count, mycancel, success,
+                        success_value, create_time, date_key, seller_flow_number, created_at, updated_at
+                    )
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+                    ON CONFLICT (trade_id)
+                    DO UPDATE SET
+                        single_price = EXCLUDED.single_price,
+                        readonly_stock_count = EXCLUDED.readonly_stock_count,
+                        mycancel = EXCLUDED.mycancel,
+                        success = EXCLUDED.success,
+                        success_value = EXCLUDED.success_value,
+                        create_time = EXCLUDED.create_time,
+                        date_key = EXCLUDED.date_key,
+                        seller_flow_number = EXCLUDED.seller_flow_number,
+                        updated_at = NOW()
+                    """,
+                    summary_rows,
+                )
+                if has_buyers and save_buyers:
+                    await conn.execute("DELETE FROM ak_trade_buyers WHERE trade_id = ANY($1::int[])", trade_ids)
+                    if buyer_rows:
+                        await conn.executemany(
+                            """
+                            INSERT INTO ak_trade_buyers (trade_id, buyer_flow_number, ak_amount, created_at)
+                            VALUES ($1, $2, $3, NOW())
+                            """,
+                            buyer_rows,
+                        )
+                if has_state:
+                    await conn.executemany(
+                        """
+                        INSERT INTO ak_trade_fetch_state (
+                            trade_id, fetch_status, attempt_count, last_error, first_seen_at,
+                            last_attempt_at, fetched_at, updated_at
+                        )
+                        VALUES ($1, 'complete', 0, '', NOW(), NOW(), NOW(), NOW())
+                        ON CONFLICT (trade_id)
+                        DO UPDATE SET
+                            fetch_status = 'complete',
+                            last_error = '',
+                            last_attempt_at = NOW(),
+                            fetched_at = NOW(),
+                            updated_at = NOW()
+                        """,
+                        [(trade_id,) for trade_id in trade_ids],
+                    )
+                if has_daily:
+                    await self._refresh_daily_summary_on_conn(conn, day)
+                latest = max(summary_rows, key=lambda row: row[6])
+                await conn.execute(
+                    """
+                    INSERT INTO ak_scan_runtime (
+                        scan_name, running, current_trade_id, last_saved_trade_id,
+                        last_seen_create_time, status, updated_at
+                    )
+                    VALUES ('main', TRUE, $1, $2, $3, 'running', NOW())
+                    ON CONFLICT (scan_name)
+                    DO UPDATE SET
+                        current_trade_id = EXCLUDED.current_trade_id,
+                        last_saved_trade_id = EXCLUDED.last_saved_trade_id,
+                        last_seen_create_time = EXCLUDED.last_seen_create_time,
+                        status = EXCLUDED.status,
+                        updated_at = NOW()
+                    """,
+                    max(min(trade_ids) - 1, 0),
+                    max(trade_ids),
+                    latest[6],
+                )
+        return {"orders": len(summary_rows), "buyers": len(buyer_rows)}
+
     async def get_latest_trade_id(self) -> int:
         pool = self._pool()
         async with pool.acquire() as conn:
@@ -651,59 +772,62 @@ class AkDataRepository:
         async with pool.acquire() as conn:
             if not await self._table_exists(conn, "ak_daily_summary"):
                 return
-            await conn.execute(
-                """
-                WITH buyer_daily AS (
-                    SELECT s.date_key,
-                           COUNT(DISTINCT b.buyer_flow_number)::integer AS unique_buyer_count
-                    FROM ak_trade_summary s
-                    LEFT JOIN ak_trade_buyers b ON b.trade_id = s.trade_id
-                    WHERE s.date_key = $1
-                    GROUP BY s.date_key
-                )
-                INSERT INTO ak_daily_summary (
-                    date_key, order_count, total_stock, total_mycancel, total_success,
-                    total_success_value, platform_gap, unique_seller_count, unique_buyer_count,
-                    zero_seller_order_count, min_trade_id, max_trade_id, first_trade_time,
-                    last_trade_time, updated_at
-                )
+            await self._refresh_daily_summary_on_conn(conn, day)
+
+    async def _refresh_daily_summary_on_conn(self, conn, day: date) -> None:
+        await conn.execute(
+            """
+            WITH buyer_daily AS (
                 SELECT s.date_key,
-                       COUNT(*)::integer,
-                       COALESCE(SUM(s.readonly_stock_count), 0)::bigint,
-                       COALESCE(SUM(s.mycancel), 0)::bigint,
-                       COALESCE(SUM(s.success), 0)::bigint,
-                       COALESCE(SUM(s.success_value), 0)::numeric(14,2),
-                       COALESCE(SUM(GREATEST(s.readonly_stock_count - s.mycancel - s.success, 0)), 0)::bigint,
-                       COUNT(DISTINCT NULLIF(s.seller_flow_number, ''))::integer,
-                       COALESCE((SELECT unique_buyer_count FROM buyer_daily WHERE buyer_daily.date_key = s.date_key), 0)::integer,
-                       COUNT(*) FILTER (WHERE s.seller_flow_number = '0')::integer,
-                       MIN(s.trade_id),
-                       MAX(s.trade_id),
-                       MIN(s.create_time),
-                       MAX(s.create_time),
-                       NOW()
+                       COUNT(DISTINCT b.buyer_flow_number)::integer AS unique_buyer_count
                 FROM ak_trade_summary s
+                LEFT JOIN ak_trade_buyers b ON b.trade_id = s.trade_id
                 WHERE s.date_key = $1
                 GROUP BY s.date_key
-                ON CONFLICT (date_key)
-                DO UPDATE SET
-                    order_count = EXCLUDED.order_count,
-                    total_stock = EXCLUDED.total_stock,
-                    total_mycancel = EXCLUDED.total_mycancel,
-                    total_success = EXCLUDED.total_success,
-                    total_success_value = EXCLUDED.total_success_value,
-                    platform_gap = EXCLUDED.platform_gap,
-                    unique_seller_count = EXCLUDED.unique_seller_count,
-                    unique_buyer_count = EXCLUDED.unique_buyer_count,
-                    zero_seller_order_count = EXCLUDED.zero_seller_order_count,
-                    min_trade_id = EXCLUDED.min_trade_id,
-                    max_trade_id = EXCLUDED.max_trade_id,
-                    first_trade_time = EXCLUDED.first_trade_time,
-                    last_trade_time = EXCLUDED.last_trade_time,
-                    updated_at = NOW()
-                """,
-                day,
             )
+            INSERT INTO ak_daily_summary (
+                date_key, order_count, total_stock, total_mycancel, total_success,
+                total_success_value, platform_gap, unique_seller_count, unique_buyer_count,
+                zero_seller_order_count, min_trade_id, max_trade_id, first_trade_time,
+                last_trade_time, updated_at
+            )
+            SELECT s.date_key,
+                   COUNT(*)::integer,
+                   COALESCE(SUM(s.readonly_stock_count), 0)::bigint,
+                   COALESCE(SUM(s.mycancel), 0)::bigint,
+                   COALESCE(SUM(s.success), 0)::bigint,
+                   COALESCE(SUM(s.success_value), 0)::numeric(14,2),
+                   COALESCE(SUM(GREATEST(s.readonly_stock_count - s.mycancel - s.success, 0)), 0)::bigint,
+                   COUNT(DISTINCT NULLIF(s.seller_flow_number, ''))::integer,
+                   COALESCE((SELECT unique_buyer_count FROM buyer_daily WHERE buyer_daily.date_key = s.date_key), 0)::integer,
+                   COUNT(*) FILTER (WHERE s.seller_flow_number = '0')::integer,
+                   MIN(s.trade_id),
+                   MAX(s.trade_id),
+                   MIN(s.create_time),
+                   MAX(s.create_time),
+                   NOW()
+            FROM ak_trade_summary s
+            WHERE s.date_key = $1
+            GROUP BY s.date_key
+            ON CONFLICT (date_key)
+            DO UPDATE SET
+                order_count = EXCLUDED.order_count,
+                total_stock = EXCLUDED.total_stock,
+                total_mycancel = EXCLUDED.total_mycancel,
+                total_success = EXCLUDED.total_success,
+                total_success_value = EXCLUDED.total_success_value,
+                platform_gap = EXCLUDED.platform_gap,
+                unique_seller_count = EXCLUDED.unique_seller_count,
+                unique_buyer_count = EXCLUDED.unique_buyer_count,
+                zero_seller_order_count = EXCLUDED.zero_seller_order_count,
+                min_trade_id = EXCLUDED.min_trade_id,
+                max_trade_id = EXCLUDED.max_trade_id,
+                first_trade_time = EXCLUDED.first_trade_time,
+                last_trade_time = EXCLUDED.last_trade_time,
+                updated_at = NOW()
+            """,
+            day,
+        )
 
     async def trade_exists(self, trade_id: int) -> bool:
         pool = self._pool()

@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import Any
 
 from .config import AkDataConfig, normalize_config
+from .day_buffer import AkTradeDayBatch, AkTradeDayBuffer
 from .repository import AkDataRepository
 from .upstream import AkUpstreamClient
 
@@ -36,6 +37,9 @@ class AkBackfillState:
     retry_rounds: int = 10
     retry_round: int = 0
     pending_count: int = 0
+    current_day: str = ""
+    day_buffer_count: int = 0
+    committed_days: int = 0
     pipeline_concurrency: int = 2
     stop_requested: bool = False
 
@@ -185,102 +189,96 @@ class AkDataWorker:
             if current <= 0:
                 self._finish("error", "缺少起始订单 ID", "missing_start_trade_id")
                 return
-            pending_ids = await self.repository.list_incomplete_trade_ids(limit=5000)
-            pending_ids = [int(tid) for tid in pending_ids if int(tid or 0) > 0]
+            buffer = AkTradeDayBuffer()
             rounds = max(1, int(config.retry_rounds))
-            candidate_ids = pending_ids[:]
-            for round_index in range(1, rounds + 1):
+            while current > 0:
                 if self._state.stop_requested:
-                    self._finish("paused", "历史回填已暂停")
+                    self._finish("paused", "历史回填已暂停，未跨日的当日缓存未提交")
                     return
-                self._state.retry_round = round_index
-                self._state.pending_count = len(candidate_ids)
-                if round_index == 1:
-                    batch = await self._run_backfill_first_round(client, account, config, current, target_day, candidate_ids)
-                    target_reached = bool(batch.get("target_reached"))
-                else:
-                    batch = await self._run_pipeline_round(
-                        client,
-                        account,
-                        config,
-                        candidate_ids,
-                        persist=True,
-                        interval_ms=self._state.request_interval_ms,
-                        stop_on_403=True,
+                self._state.current_trade_id = current
+                self._state.current_day = buffer.date_key.isoformat() if buffer.date_key else ""
+                self._state.day_buffer_count = buffer.count
+                result = await self._fetch_full_trade_with_retries(client, account, config, current, rounds)
+                if result.get("paused"):
+                    self._finish("paused", "历史回填已暂停，未跨日的当日缓存未提交")
+                    return
+                if result.get("forbidden"):
+                    await self._cooldown(config, current, result)
+                    return
+                if not result.get("ok"):
+                    await self.repository.mark_trade_placeholder(current, status="pending", error=str(result.get("error") or "fetch failed"))
+                    await self.repository.update_runtime(
+                        current_trade_id=current,
+                        status="pending",
+                        last_error=str(result.get("error") or "")[:500],
                     )
-                    target_reached = False
-                if batch.get("paused"):
-                    self._finish("paused", "历史回填已暂停")
+                    self._apply_fetch_result(result)
+                    self._finish("finished", f"订单 {current} 未完整获取，已记录待补；当前日未提交")
                     return
-                if batch.get("forbidden"):
-                    bad_item = (batch.get("failed") or [{}])[0]
-                    await self._cooldown(config, int(bad_item.get("trade_id") or self._state.current_trade_id or 0), bad_item)
-                    return
-                failed_ids = []
-                for item in batch.get("failed") or []:
-                    trade_id = int(item.get("trade_id") or 0)
-                    if trade_id <= 0:
-                        continue
-                    failed_ids.append(trade_id)
-                    await self.repository.mark_trade_placeholder(trade_id, status="error", error=str(item.get("error") or ""))
-                if not failed_ids:
-                    message = f"已回填到目标日期 {self._state.target_date}" if round_index == 1 and target_reached else "历史回填完成"
-                    self._finish("finished", message)
-                    return
-                candidate_ids = failed_ids
-                self._state.message = f"第 {round_index} 轮结束，待重试 {len(candidate_ids)} 笔"
-            for trade_id in candidate_ids:
-                await self.repository.mark_trade_placeholder(int(trade_id), status="pending", error=self._state.last_error or "pending retry")
-            self._finish("finished", f"历史回填结束，仍有 {len(candidate_ids)} 笔待补")
+                closed = buffer.add(result)
+                self._state.processed += 1
+                self._state.current_day = buffer.date_key.isoformat() if buffer.date_key else ""
+                self._state.day_buffer_count = buffer.count
+                self._state.message = f"采集中：{self._state.current_day or '-'} 已缓存 {self._state.day_buffer_count} 笔"
+                if closed:
+                    committed = await self._commit_day_batch(config, closed)
+                    self._state.message = f"已提交 {closed.date_key.isoformat()}：{committed['orders']} 笔，买家明细 {committed['buyers']} 条"
+                    if closed.date_key <= target_day:
+                        self._finish("finished", f"已完整回填到目标日期 {self._state.target_date}")
+                        return
+                current -= 1
+                await self._sleep_interval(self._state.request_interval_ms)
+            self._finish("finished", "历史回填完成，最后一天未跨日确认所以未提交")
         except Exception as exc:
             self._finish("error", f"历史回填失败：{exc}", str(exc))
 
-    async def _run_backfill_first_round(self, client: AkUpstreamClient, account: dict[str, str],
-                                        config: AkDataConfig, start_trade_id: int,
-                                        target_day: date, pending_ids: list[int]) -> dict[str, Any]:
-        queue: deque[int] = deque()
-        seen = set()
-        for trade_id in pending_ids:
-            tid = int(trade_id or 0)
-            if tid > 0 and tid not in seen:
-                queue.append(tid)
-                seen.add(tid)
-        seq_current = int(start_trade_id or 0)
-        target_reached = False
+    async def _fetch_full_trade_with_retries(self, client: AkUpstreamClient, account: dict[str, str],
+                                             config: AkDataConfig, trade_id: int, rounds: int) -> dict[str, Any]:
+        last_result: dict[str, Any] = {"ok": False, "trade_id": trade_id, "error": "not fetched"}
+        for attempt in range(1, max(1, int(rounds or 1)) + 1):
+            if self._state.stop_requested:
+                return {"paused": True, "trade_id": trade_id}
+            self._state.retry_round = attempt
+            self._state.message = f"正在获取订单 {trade_id}，第 {attempt}/{rounds} 轮"
+            result = await self._fetch_full_trade(client, account, config, trade_id)
+            if result.get("ok") or result.get("forbidden"):
+                return result
+            last_result = result
+            self._state.last_error = str(result.get("error") or "")[:500]
+            if attempt < rounds:
+                await self._sleep_interval(self._state.request_interval_ms)
+        return last_result
 
-        def next_trade_id() -> int | None:
-            nonlocal seq_current, target_reached
-            if queue:
-                return queue.popleft()
-            if target_reached:
-                return None
-            while seq_current > 0 and seq_current in seen:
-                seq_current -= 1
-            if seq_current <= 0:
-                return None
-            tid = seq_current
-            seen.add(tid)
-            seq_current -= 1
-            return tid
+    async def _fetch_full_trade(self, client: AkUpstreamClient, account: dict[str, str],
+                                config: AkDataConfig, trade_id: int) -> dict[str, Any]:
+        detail = await self._fetch_detail(client, account, trade_id)
+        if not detail.get("ok"):
+            return detail
+        buyers: list[dict[str, Any]] = []
+        if config.save_buyers and detail.get("seller_user_id"):
+            buyer_result = await self._fetch_buyers(client, account, config, detail)
+            if not buyer_result.get("ok"):
+                return buyer_result
+            buyers = buyer_result.get("buyers") or []
+        detail["buyers"] = buyers
+        return detail
 
-        async def on_success(result: dict[str, Any]) -> None:
-            nonlocal target_reached
-            trade_day = result.get("date")
-            if isinstance(trade_day, date) and trade_day < target_day:
-                target_reached = True
+    async def _commit_day_batch(self, config: AkDataConfig, batch: AkTradeDayBatch) -> dict[str, int]:
+        if not batch.is_contiguous:
+            ids = batch.trade_ids
+            raise RuntimeError(
+                f"AK 日批次订单 ID 不连续: day={batch.date_key} max={ids[0] if ids else 0} "
+                f"min={ids[-1] if ids else 0} count={len(ids)}"
+            )
+        result = await self.repository.commit_trade_day_batch(batch.date_key, batch.items, save_buyers=config.save_buyers)
+        self._state.saved += int(result.get("orders") or 0)
+        self._state.buyer_rows += int(result.get("buyers") or 0)
+        self._state.committed_days += 1
+        self._state.day_buffer_count = 0
+        return result
 
-        batch = await self._run_pipeline_source(
-            client,
-            account,
-            config,
-            next_trade_id,
-            persist=True,
-            interval_ms=self._state.request_interval_ms,
-            stop_on_403=True,
-            on_success=on_success,
-        )
-        batch["target_reached"] = target_reached
-        return batch
+    async def _sleep_interval(self, interval_ms: int) -> None:
+        await asyncio.sleep(max(0.1, float(interval_ms or 1000) / 1000.0))
 
     async def _run_pipeline_round(self, client: AkUpstreamClient, account: dict[str, str],
                                   config: AkDataConfig, trade_ids: list[int], persist: bool,
