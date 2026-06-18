@@ -118,8 +118,44 @@
         '</label>';
     }
 
+    function ruleMeta(rule) {
+        var id = String(rule && rule.id || '');
+        var prefix = String(rule && rule.route_prefix || '');
+        var meta = {
+            badge: '通用接口',
+            desc: '匹配该路径前缀的请求会进入限速统计，超过阈值后按策略封禁访问 IP。'
+        };
+        if (id.indexOf('license_credentials') === 0) {
+            meta.badge = '管理面板软件授权';
+            meta.desc = '管理面板软件的客户端登录、二级验证、Google 绑定和重置密码接口；不包含后台子管理员 Google 验证。';
+        } else if (id.indexOf('license_activate') === 0 || prefix.indexOf('/activate') >= 0) {
+            meta.badge = '管理面板软件激活';
+            meta.desc = '管理面板软件首次绑定激活码和机器码的接口，默认超过 10 次/分钟封禁 IP 1 小时。';
+        } else if (id.indexOf('license_verify') === 0 || prefix.indexOf('/verify') >= 0) {
+            meta.badge = '管理面板软件校验';
+            meta.desc = '管理面板软件启动或心跳时校验授权有效性的接口。';
+        } else if (id.indexOf('license_consume') === 0) {
+            meta.badge = '授权扣次';
+            meta.desc = '按次授权消耗额度的接口。';
+        } else if (id.indexOf('license_check_update') === 0 || prefix.indexOf('check-update') >= 0) {
+            meta.badge = '更新检查';
+            meta.desc = '管理面板软件检查新版本和下载信息的接口。';
+        } else if (id === 'admin_api') {
+            meta.badge = '管理员后台';
+            meta.desc = '管理员后台 API 的整体限速保护。子管理员 Google 操作验证在 operation_auth 模块内单独处理。';
+        } else if (id === 'im_api' || id === 'im_chat') {
+            meta.badge = 'IM 业务';
+            meta.desc = 'IM 聊天与 IM API 的请求限速保护。';
+        } else if (id === 'notify_public') {
+            meta.badge = '通知公开接口';
+            meta.desc = '公开通知接口的请求限速保护。';
+        }
+        return meta;
+    }
+
     function ruleCard(rule, index) {
         var enabled = rule.enabled !== false;
+        var meta = ruleMeta(rule);
         var html = '<div class="rb-rule-card" id="rbRule' + escapeHtml(rule.id || index) + '" data-rule-index="' + index + '">' +
             '<div class="rb-rule-header">' +
                 '<label class="rb-rule-toggle">' +
@@ -127,8 +163,9 @@
                     '<span class="rb-switch-control"></span>' +
                 '</label>' +
                 '<div class="rb-rule-title">' +
-                    '<strong>' + escapeHtml(rule.label || rule.id || '规则 ' + (index + 1)) + '</strong>' +
+                    '<div class="rb-rule-name-row"><strong>' + escapeHtml(rule.label || rule.id || '规则 ' + (index + 1)) + '</strong><span class="rb-rule-badge">' + escapeHtml(meta.badge) + '</span></div>' +
                     '<small>' + escapeHtml(rule.route_prefix || '/') + '</small>' +
+                    '<p>' + escapeHtml(meta.desc) + '</p>' +
                 '</div>' +
             '</div>' +
             '<div class="rb-rule-fields">' +
@@ -201,7 +238,7 @@
             '.rb-switch-control{position:relative;width:46px;height:26px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);transition:background .2s,border-color .2s;display:inline-block;flex-shrink:0}',
             '.rb-switch-control:after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#d8e5ec;box-shadow:0 2px 6px rgba(0,0,0,.28);transition:transform .2s,background .2s;display:block}',
             '.rb-rule-toggle input:checked+.rb-switch-control,.rb-toggle-card input:checked+.rb-switch-control{background:linear-gradient(135deg,var(--accent),var(--accent-green));border-color:rgba(0,255,136,.42)}.rb-rule-toggle input:checked+.rb-switch-control:after,.rb-toggle-card input:checked+.rb-switch-control:after{transform:translateX(20px);background:#fff}',
-            '.rb-rule-title strong{display:block;color:var(--text-primary);font-size:14px}.rb-rule-title small{display:block;color:var(--text-secondary);font-size:12px;margin-top:2px}',
+            '.rb-rule-title{min-width:0;flex:1}.rb-rule-name-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.rb-rule-title strong{display:block;color:var(--text-primary);font-size:14px}.rb-rule-title small{display:block;color:var(--text-secondary);font-size:12px;margin-top:2px}.rb-rule-title p{margin:7px 0 0;color:#8fb6c8;font-size:12px;line-height:1.55}.rb-rule-badge{display:inline-flex;align-items:center;min-height:22px;border:1px solid rgba(0,212,255,.24);border-radius:999px;padding:2px 8px;background:rgba(0,212,255,.08);color:var(--accent);font-size:11px;font-weight:900;white-space:nowrap}',
             '.rb-rule-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}',
             '.rb-field{display:flex;flex-direction:column;gap:7px;border:1px solid rgba(255,255,255,.07);border-radius:16px;background:rgba(0,0,0,.13);padding:10px 12px;min-width:0}.rb-field span{color:var(--text-primary);font-size:12px;font-weight:800}.rb-field small{color:var(--text-secondary);font-size:11px;line-height:1.35}',
             '.rb-input{width:100%;min-height:36px;border:1px solid rgba(255,255,255,.1);border-radius:11px;padding:8px 10px;color:var(--text-primary);background:rgba(2,10,18,.72);font-size:14px;outline:none}.rb-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.13)}',
