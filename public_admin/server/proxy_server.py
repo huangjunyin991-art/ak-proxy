@@ -532,6 +532,14 @@ except Exception as e:
     _RATE_BAN_IMPORT_ERROR = e
 
 try:
+    from .ip_intelligence import IpIntelligenceService, create_ip_intelligence_router
+    _IP_INTELLIGENCE_IMPORT_ERROR = None
+except Exception as e:
+    IpIntelligenceService = None
+    create_ip_intelligence_router = None
+    _IP_INTELLIGENCE_IMPORT_ERROR = e
+
+try:
     from .risk_isolation import (
         RiskIsolationLoginGuard,
         RiskIsolationRepository,
@@ -995,6 +1003,12 @@ rate_ban_config_service = (
         logger=logger,
     )
     if RateBanConfigService is not None else None
+)
+
+
+ip_intelligence_service = (
+    IpIntelligenceService(db._get_pool, db.system_config, logger=logger)
+    if IpIntelligenceService is not None else None
 )
 
 
@@ -6285,6 +6299,20 @@ if rate_ban_config_service is not None and create_rate_ban_router is not None:
 elif _RATE_BAN_IMPORT_ERROR is not None:
     logger.warning(f"[RateBan] 限速封禁模块不可用，已跳过: {_RATE_BAN_IMPORT_ERROR}")
 
+if ip_intelligence_service is not None and create_ip_intelligence_router is not None:
+    try:
+        app.include_router(create_ip_intelligence_router(
+            service=ip_intelligence_service,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            super_admin_role=ROLE_SUPER_ADMIN,
+            check_token_permission=check_token_permission,
+        ))
+    except Exception as e:
+        logger.warning(f"[IpIntelligence] IP 情报路由注册失败，已跳过: {e}")
+elif _IP_INTELLIGENCE_IMPORT_ERROR is not None:
+    logger.warning(f"[IpIntelligence] IP 情报模块不可用，已跳过: {_IP_INTELLIGENCE_IMPORT_ERROR}")
+
 if risk_isolation_service is not None and create_risk_isolation_router is not None:
     try:
         app.include_router(create_risk_isolation_router(
@@ -6398,6 +6426,13 @@ async def admin_startup():
             logger.info("[NotifyCenter] 通知中心已初始化")
         except Exception as e:
             logger.warning(f"[NotifyCenter] 初始化数据表或启动 worker 失败，已跳过: {e}")
+
+    if ip_intelligence_service is not None:
+        try:
+            await ip_intelligence_service.ensure_schema()
+            logger.info("[IpIntelligence] IP intelligence cache initialized")
+        except Exception as e:
+            logger.warning(f"[IpIntelligence] 初始化缓存表失败，已跳过: {e}")
 
     if risk_isolation_service is not None:
         async def _initialize_risk_isolation():
@@ -14072,6 +14107,8 @@ async def admin_theme_css(request: Request):
 async def admin_shared_asset(request: Request, asset_path: str):
     allowed_assets = {
         "lib/chart.umd.min.js": "application/javascript",
+        "lib/echarts.min.js": "application/javascript",
+        "lib/echarts-world.json": "application/json",
         "sticky_table/sticky_table.css": "text/css",
         "sticky_table/sticky_table.js": "application/javascript",
         "dashboard/dashboard.css": "text/css",

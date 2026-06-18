@@ -184,7 +184,7 @@
         var banCount = Object.keys(recentBans).length;
         var banList = Object.keys(recentBans).slice(0, 5).map(function(ip) {
             var info = recentBans[ip] || {};
-            return '<div class="rb-ban-item"><span class="rb-ban-ip">' + escapeHtml(ip) + '</span><small>' + escapeHtml(info.rule_id || '') + '</small><span class="rb-ban-dur">' + (info.duration_seconds ? Math.round(info.duration_seconds / 60) + 'min' : '-') + '</span></div>';
+            return '<div class="rb-ban-item"><button type="button" class="rb-ban-ip" data-ip="' + escapeHtml(ip) + '">' + escapeHtml(ip) + '</button><small>' + escapeHtml(info.rule_id || '') + '</small><span class="rb-ban-dur">' + (info.duration_seconds ? Math.round(info.duration_seconds / 60) + 'min' : '-') + '</span></div>';
         }).join('');
         return '<div class="rb-metrics">' +
             '<div class="rb-metric"><strong>' + (runtime.tracked_ips || 0) + '</strong><span>追踪中的 IP</span></div>' +
@@ -219,7 +219,7 @@
             '.rb-ban-list-head{color:var(--text-secondary);font-size:11px;font-weight:800;margin-bottom:8px;letter-spacing:.08em;text-transform:uppercase}',
             '.rb-ban-item{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}',
             '.rb-ban-item:last-child{border-bottom:none}',
-            '.rb-ban-ip{color:var(--text-primary);font-weight:700;min-width:100px}',
+            '.rb-ban-ip{appearance:none;border:0;background:transparent;color:var(--accent);font-weight:800;min-width:100px;text-align:left;cursor:pointer;padding:0}.rb-ban-ip:hover{text-decoration:underline;color:var(--accent-green)}',
             '.rb-ban-item small{color:var(--text-secondary);flex:1}',
             '.rb-ban-dur{color:var(--accent-yellow);font-size:11px}',
             '.rb-section-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}',
@@ -389,6 +389,19 @@
         if (refreshBtn) refreshBtn.onclick = function() { load(true); };
         if (saveBtn) saveBtn.onclick = save;
         if (clearBtn) clearBtn.onclick = clearRuntime;
+        var runtimeBlock = document.getElementById('rbRuntimeBlock');
+        if (runtimeBlock) {
+            runtimeBlock.onclick = function(event) {
+                var target = event.target && event.target.closest ? event.target.closest('.rb-ban-ip[data-ip]') : null;
+                if (!target) return;
+                var ip = target.getAttribute('data-ip') || '';
+                if (ip && typeof window.showIpInfoModal === 'function') {
+                    window.showIpInfoModal(ip);
+                } else if (ip) {
+                    notify('请在封禁列表中查看 IP 来源详情', 'info');
+                }
+            };
+        }
     }
 
     function load(force) {
