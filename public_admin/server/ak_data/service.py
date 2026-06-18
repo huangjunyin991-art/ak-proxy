@@ -66,7 +66,13 @@ class AkDataService:
         return payload
 
     async def get_backfill_status(self) -> dict[str, Any]:
-        return {"success": True, "item": self._json_row(self.worker.snapshot())}
+        status = await self.repository.get_status()
+        item = self._json_row(self.worker.snapshot())
+        item["local_min_trade_id"] = int(status.get("local_min_trade_id") or 0)
+        item["local_max_trade_id"] = int(status.get("local_max_trade_id") or 0)
+        item["order_count"] = int(status.get("order_count") or 0)
+        item["first_trade_time"] = self._json_value(status.get("first_trade_time"))
+        return {"success": True, "item": item}
 
     async def start_backfill(self, payload: dict[str, Any]) -> dict[str, Any]:
         state = await self.worker.start_backfill(payload or {})

@@ -115,6 +115,7 @@ except ImportError:
     REQUEST_TIMEOUT = 30
 
     ENABLE_LOCAL_BAN = True
+    BAN_CACHE_REFRESH_SECONDS = int(os.environ.get("BAN_CACHE_REFRESH_SECONDS", "60"))
 
     DB_HOST = "127.0.0.1"
 
@@ -797,6 +798,47 @@ def _is_ip_in_memory_ban(client_ip: str) -> bool:
     return True
 
 
+def _remember_ip_ban(client_ip: str, expires_at: float | None = None) -> None:
+    normalized_ip = str(client_ip or "").strip()
+    if not normalized_ip:
+        return
+    stats.banned_ips.add(normalized_ip)
+    if expires_at:
+        stats.banned_ip_expiries[normalized_ip] = float(expires_at)
+    else:
+        stats.banned_ip_expiries.pop(normalized_ip, None)
+
+
+def _forget_ip_ban(client_ip: str) -> None:
+    normalized_ip = str(client_ip or "").strip()
+    if not normalized_ip:
+        return
+    stats.banned_ips.discard(normalized_ip)
+    stats.banned_ip_expiries.pop(normalized_ip, None)
+
+
+async def _refresh_ban_cache(reason: str = "manual") -> bool:
+    if not ENABLE_LOCAL_BAN:
+        return False
+    try:
+        banned_accounts, banned_ips, banned_ip_expiries = await db.load_banned_sets()
+        stats.banned_accounts = banned_accounts
+        stats.banned_ips = banned_ips
+        stats.banned_ip_expiries = banned_ip_expiries
+        stats.banned_cache_ready = True
+        logger.info(
+            f"[BanCache] refreshed reason={reason} username={len(banned_accounts)} ip={len(banned_ips)}"
+        )
+        return True
+    except Exception as e:
+        if not stats.banned_cache_ready:
+            stats.banned_accounts = set()
+            stats.banned_ips = set()
+            stats.banned_ip_expiries = {}
+        logger.warning(f"[BanCache] refresh failed reason={reason}: {e}")
+        return False
+
+
 def _is_loopback_ip(client_ip: str) -> bool:
     candidate = str(client_ip or "").strip()
     if not candidate or candidate == "unknown":
@@ -813,12 +855,7 @@ async def _is_ip_banned_for_penalty(client_ip: str) -> bool:
     normalized_ip = str(client_ip or "").strip()
     if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return False
-    if _is_ip_in_memory_ban(normalized_ip):
-        return True
-    try:
-        return await db.is_banned(ip_address=normalized_ip)
-    except Exception:
-        return _is_ip_in_memory_ban(normalized_ip)
+    return _is_ip_in_memory_ban(normalized_ip)
 
 
 def _format_public_ban_remaining(seconds: int) -> str:
@@ -1201,8 +1238,7 @@ async def _record_missing_indexdata_followup(client_ip: str, username: str) -> N
         return
     if count >= IP_PREBAN_AUTO_BAN_THRESHOLD:
         ban_reason = f"{IP_PREBAN_WINDOW_SECONDS}秒内连续触发异常{count}次: {reason}"
-        stats.banned_ips.add(client_ip)
-        stats.banned_ip_expiries[client_ip] = time.time() + IP_PREBAN_AUTO_BAN_DAYS * 86400
+        _remember_ip_ban(client_ip, time.time() + IP_PREBAN_AUTO_BAN_DAYS * 86400)
         await db.ban_ip(client_ip, ban_reason, duration_days=IP_PREBAN_AUTO_BAN_DAYS)
         try:
             await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": client_ip, "reason": ban_reason}})
@@ -4353,8 +4389,7 @@ async def api_ban(request: Request):
 
     elif ban_type == "ip" and value:
 
-        stats.banned_ips.add(value)
-        stats.banned_ip_expiries.pop(value, None)
+        _remember_ip_ban(value)
 
         try:
 
@@ -4412,8 +4447,7 @@ async def api_unban(request: Request):
 
     elif ban_type == "ip" and value:
 
-        stats.banned_ips.discard(value)
-        stats.banned_ip_expiries.pop(value, None)
+        _forget_ip_ban(value)
 
         try:
 
@@ -4651,9 +4685,8 @@ async def ban_ip_with_policy(
     duration_seconds = min(penalty_base_seconds * max(1, level), penalty_max_seconds)
     reason_prefix = trigger_reason or f"自动防御触发{fail_count}次"
     reason = f"{reason_prefix}，封禁倍率{level}倍，封禁{_format_duration_zh(duration_seconds)}"
-    stats.banned_ips.add(normalized_ip)
     banned_until_ts = time.time() + duration_seconds
-    stats.banned_ip_expiries[normalized_ip] = banned_until_ts
+    _remember_ip_ban(normalized_ip, banned_until_ts)
     await db.ban_ip(normalized_ip, reason, duration_days=duration_seconds / 86400)
     try:
         await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": normalized_ip, "reason": reason}})
@@ -4703,8 +4736,7 @@ async def ban_db_auth_fail_ip(ip: str, fail_count: int):
         return
 
     reason = f"数据库二级密码验证失败{fail_count}次"
-    stats.banned_ips.add(ip)
-    stats.banned_ip_expiries[ip] = time.time() + DB_AUTH_BAN_DAYS * 86400
+    _remember_ip_ban(ip, time.time() + DB_AUTH_BAN_DAYS * 86400)
 
     try:
 
@@ -6380,25 +6412,15 @@ async def admin_startup():
 
     if ENABLE_LOCAL_BAN:
 
-        try:
+        await _refresh_ban_cache("startup")
 
-            stats.banned_accounts, stats.banned_ips, stats.banned_ip_expiries = await db.load_banned_sets()
+        async def _ban_cache_refresh_loop():
+            interval = max(10, int(BAN_CACHE_REFRESH_SECONDS or 60))
+            while True:
+                await asyncio.sleep(interval)
+                await _refresh_ban_cache("periodic")
 
-            stats.banned_cache_ready = True
-
-            logger.info(f"[BanCache] 已加载 username={len(stats.banned_accounts)} ip={len(stats.banned_ips)}")
-
-        except Exception as e:
-
-            stats.banned_accounts = set()
-
-            stats.banned_ips = set()
-
-            stats.banned_ip_expiries = {}
-
-            stats.banned_cache_ready = False
-
-            logger.warning(f"[BanCache] 加载失败，RPC封禁检查回退数据库: {e}")
+        asyncio.create_task(_ban_cache_refresh_loop())
 
     await _browse_session_persist_queue.start()
 
@@ -7541,8 +7563,7 @@ async def admin_ban_ip(request: Request):
 
     await db.ban_ip(value, reason)
 
-    stats.banned_ips.add(value)
-    stats.banned_ip_expiries.pop(value, None)
+    _remember_ip_ban(value)
 
     await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": value, "reason": reason}})
 
@@ -7564,8 +7585,7 @@ async def admin_unban_ip(request: Request):
 
     await db.unban_ip(value)
 
-    stats.banned_ips.discard(value)
-    stats.banned_ip_expiries.pop(value, None)
+    _forget_ip_ban(value)
 
     await ws_manager.broadcast({"type": "ip_unbanned", "data": {"ip": value}})
 

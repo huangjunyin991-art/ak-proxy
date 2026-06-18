@@ -77,7 +77,7 @@
             immediate: false,
             dedupeKey: BACKFILL_POLL_ID,
             runWhen: function() {
-                return panelActive() && store && store.state.backfill && store.state.backfill.status === 'running';
+                return panelActive() && store && store.state.backfill && ['running', 'cooldown'].indexOf(store.state.backfill.status) !== -1;
             },
             task: refreshBackfillStatus
         });

@@ -29,6 +29,38 @@
         return String(value).replace('T', ' ').slice(0, 19);
     }
 
+    function pad(value) {
+        var text = String(value);
+        return text.length >= 2 ? text : '0' + text;
+    }
+
+    function localTimeFromSeconds(seconds) {
+        var ts = Number(seconds || 0);
+        if (!ts) return '-';
+        var date = new Date(ts * 1000);
+        if (isNaN(date.getTime())) return '-';
+        return [
+            date.getFullYear(),
+            '-',
+            pad(date.getMonth() + 1),
+            '-',
+            pad(date.getDate()),
+            ' ',
+            pad(date.getHours()),
+            ':',
+            pad(date.getMinutes()),
+            ':',
+            pad(date.getSeconds())
+        ].join('');
+    }
+
+    function cooldownText(seconds) {
+        var ts = Number(seconds || 0);
+        if (!ts) return '';
+        var remaining = Math.max(0, Math.ceil(ts - Date.now() / 1000));
+        return '冷却剩余：' + number(remaining) + ' 秒，至 ' + localTimeFromSeconds(ts);
+    }
+
     function bytes(value) {
         var size = Number(value || 0);
         if (size >= 1024 * 1024 * 1024) return (size / 1024 / 1024 / 1024).toFixed(2) + ' GB';
@@ -64,7 +96,7 @@
             metric('当前状态', latestStatus(state), s.last_trade_time ? '最近 ' + time(s.last_trade_time) : '暂无采集数据', s.ready ? 'ok' : ''),
             metric('最新订单 ID', number(s.latest_trade_id), '由采集状态或本地最大 ID 推断', 'cyan'),
             metric('本地最大 ID', number(s.local_max_trade_id), Number(s.pending_count || 0) > 0 ? '待补 ' + number(s.pending_count) + ' 笔' : '已追平', 'green'),
-            metric('本地订单', number(s.order_count), s.first_trade_time ? '起始 ' + time(s.first_trade_time) : '等待数据', '')
+            metric('数据库最早 ID', number(s.local_min_trade_id), s.first_trade_time ? '起始 ' + time(s.first_trade_time) : '等待数据', '')
         ].join('');
     }
 
@@ -121,12 +153,13 @@
             '<div class="akd-backfill-status">' +
                 '<span>状态：' + html(bf.status || 'idle') + '</span>' +
                 '<span>当前 ID：' + number(bf.current_trade_id || 0) + '</span>' +
+                '<span>数据库最早 ID：' + number(bf.local_min_trade_id || (state.status && state.status.local_min_trade_id) || 0) + '</span>' +
                 '<span>已保存：' + number(bf.saved || 0) + '</span>' +
                 '<span>买家明细：' + number(bf.buyer_rows || 0) + '</span>' +
                 '<span>403 次数：' + number(bf.forbidden || 0) + '</span>' +
                 '<span>重试轮次：' + number(bf.retry_round || 0) + '/' + number(bf.retry_rounds || 0) + '</span>' +
                 '<span>待补订单：' + number(bf.pending_count || 0) + '</span>' +
-                (bf.cooldown_until ? '<span>冷却至：' + time(new Date(Number(bf.cooldown_until || 0) * 1000).toISOString()) + '</span>' : '') +
+                (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until)) + '</span>' : '') +
             '</div>',
             '</div>'
         ].join('');

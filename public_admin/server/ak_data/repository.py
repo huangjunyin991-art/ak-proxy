@@ -182,6 +182,7 @@ class AkDataRepository:
                     "ready": False,
                     "latest_trade_id": 0,
                     "local_max_trade_id": 0,
+                    "local_min_trade_id": 0,
                     "pending_count": 0,
                     "order_count": 0,
                     "first_trade_time": None,
@@ -191,6 +192,7 @@ class AkDataRepository:
             row = await conn.fetchrow(
                 """
                 SELECT COALESCE(MAX(trade_id), 0) AS local_max_trade_id,
+                       COALESCE(MIN(trade_id), 0) AS local_min_trade_id,
                        COUNT(*)::bigint AS order_count,
                        MIN(create_time) AS first_trade_time,
                        MAX(create_time) AS last_trade_time
@@ -204,6 +206,7 @@ class AkDataRepository:
                 "ready": True,
                 "latest_trade_id": latest,
                 "local_max_trade_id": local_max,
+                "local_min_trade_id": int(row["local_min_trade_id"] or 0) if row else 0,
                 "pending_count": max(0, latest - local_max),
                 "order_count": int(row["order_count"] or 0) if row else 0,
                 "first_trade_time": row["first_trade_time"] if row else None,
@@ -430,7 +433,7 @@ class AkDataRepository:
             )
         return {"success": True, "trade_id": tid, "rows": [dict(row) for row in rows]}
 
-    async def upsert_trade_summary(self, trade: dict[str, Any], seller_flow_number: str) -> None:
+    async def upsert_trade_summary(self, trade: dict[str, Any], seller_flow_number: str, complete: bool = True) -> None:
         if not trade:
             return
         pool = self._pool()
@@ -483,17 +486,45 @@ class AkDataRepository:
                         trade_id, fetch_status, attempt_count, last_error, first_seen_at,
                         last_attempt_at, fetched_at, updated_at
                     )
-                    VALUES ($1, 'complete', 0, '', NOW(), NOW(), NOW(), NOW())
+                    VALUES ($1, $2, 0, $3, NOW(), NOW(), CASE WHEN $2 = 'complete' THEN NOW() ELSE NULL END, NOW())
                     ON CONFLICT (trade_id)
                     DO UPDATE SET
-                        fetch_status = 'complete',
-                        last_error = '',
+                        fetch_status = EXCLUDED.fetch_status,
+                        last_error = EXCLUDED.last_error,
                         last_attempt_at = NOW(),
-                        fetched_at = NOW(),
+                        fetched_at = CASE WHEN EXCLUDED.fetch_status = 'complete' THEN NOW() ELSE ak_trade_fetch_state.fetched_at END,
                         updated_at = NOW()
                     """,
                     trade_id,
+                    "complete" if complete else "pending",
+                    "" if complete else "buyers pending",
                 )
+
+    async def mark_trade_complete(self, trade_id: int) -> None:
+        tid = int(trade_id or 0)
+        if tid <= 0:
+            return
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_fetch_state"):
+                return
+            await conn.execute(
+                """
+                INSERT INTO ak_trade_fetch_state (
+                    trade_id, fetch_status, attempt_count, last_error, first_seen_at,
+                    last_attempt_at, fetched_at, updated_at
+                )
+                VALUES ($1, 'complete', 0, '', NOW(), NOW(), NOW(), NOW())
+                ON CONFLICT (trade_id)
+                DO UPDATE SET
+                    fetch_status = 'complete',
+                    last_error = '',
+                    last_attempt_at = NOW(),
+                    fetched_at = NOW(),
+                    updated_at = NOW()
+                """,
+                tid,
+            )
 
     async def replace_trade_buyers(self, trade_id: int, rows: list[dict[str, Any]]) -> None:
         tid = int(trade_id or 0)

@@ -349,33 +349,39 @@ class AkDataWorker:
                 trade_id = int(result.get("trade_id") or meta.get("trade_id") or 0)
                 self._state.current_trade_id = trade_id
                 if result.get("forbidden"):
-                    self._apply_fetch_result(result)
+                    if meta.get("stage") == "detail":
+                        self._apply_fetch_result(result)
+                    else:
+                        self._apply_buyers_result(result)
                     failed.append(result)
                     if stop_on_403:
                         return {"forbidden": True, "failed": failed}
+                    continue
                 if meta.get("stage") == "detail":
                     if not result.get("ok"):
                         self._apply_fetch_result(result)
                         failed.append(result)
                         continue
+                    partial = await self._persist_trade_detail(config, result, persist, complete=not config.save_buyers)
+                    self._apply_fetch_result(partial)
+                    if on_success:
+                        await on_success(partial)
+                    if not config.save_buyers:
+                        continue
                     if config.save_buyers and result.get("seller_user_id"):
                         task = asyncio.create_task(self._fetch_buyers(client, account, config, result))
                         in_flight[task] = {"stage": "buyers", "trade_id": trade_id, "detail": result}
                     else:
-                        final = await self._persist_pipeline_result(config, result, [], persist)
-                        self._apply_fetch_result(final)
-                        if on_success:
-                            await on_success(final)
+                        final = await self._persist_trade_buyers(config, result, [], persist)
+                        self._apply_buyers_result(final)
                 else:
                     detail = meta.get("detail") or {}
                     if not result.get("ok"):
-                        self._apply_fetch_result(result)
+                        self._apply_buyers_result(result)
                         failed.append(result)
                         continue
-                    final = await self._persist_pipeline_result(config, detail, result.get("buyers") or [], persist)
-                    self._apply_fetch_result(final)
-                    if on_success:
-                        await on_success(final)
+                    final = await self._persist_trade_buyers(config, detail, result.get("buyers") or [], persist)
+                    self._apply_buyers_result(final)
         return {"failed": failed}
 
     async def _fetch_detail(self, client: AkUpstreamClient, account: dict[str, str], trade_id: int) -> dict[str, Any]:
@@ -426,17 +432,19 @@ class AkDataWorker:
             "buyers": self._normalize_buyers(buyers_payload),
         }
 
-    async def _persist_pipeline_result(self, config: AkDataConfig, detail_result: dict[str, Any],
-                                       buyers: list[dict[str, Any]], persist: bool) -> dict[str, Any]:
+    async def _persist_trade_detail(self, config: AkDataConfig, detail_result: dict[str, Any],
+                                    persist: bool, complete: bool = False) -> dict[str, Any]:
         trade_id = int(detail_result.get("trade_id") or 0)
         trade_time = None
         detail = detail_result.get("detail") if isinstance(detail_result.get("detail"), dict) else {}
         if detail:
             trade_time = self._parse_datetime(detail.get("CreateTime"))
         if persist and detail:
-            await self.repository.upsert_trade_summary(detail, str(detail_result.get("seller_flow") or ""))
-            if config.save_buyers:
-                await self.repository.replace_trade_buyers(trade_id, buyers)
+            await self.repository.upsert_trade_summary(
+                detail,
+                str(detail_result.get("seller_flow") or ""),
+                complete=complete,
+            )
             if trade_time:
                 await self.repository.refresh_daily_summary(trade_time.date())
             await self.repository.update_runtime(
@@ -448,8 +456,22 @@ class AkDataWorker:
         return {
             "ok": True,
             "trade_id": trade_id,
-            "buyers": len(buyers),
+            "buyers": 0,
             "date": trade_time.date() if trade_time else detail_result.get("date"),
+        }
+
+    async def _persist_trade_buyers(self, config: AkDataConfig, detail_result: dict[str, Any],
+                                    buyers: list[dict[str, Any]], persist: bool) -> dict[str, Any]:
+        trade_id = int(detail_result.get("trade_id") or 0)
+        if persist and trade_id > 0:
+            if config.save_buyers:
+                await self.repository.replace_trade_buyers(trade_id, buyers)
+            await self.repository.mark_trade_complete(trade_id)
+        return {
+            "ok": True,
+            "trade_id": trade_id,
+            "buyers": len(buyers),
+            "date": detail_result.get("date"),
         }
 
     async def _cooldown(self, config: AkDataConfig, trade_id: int, result: dict[str, Any]) -> None:
@@ -551,6 +573,16 @@ class AkDataWorker:
             self._state.missing += 1
         if result.get("ok"):
             self._state.saved += 1
+            self._state.buyer_rows += int(result.get("buyers") or 0)
+            self._state.message = f"处理中：已保存 {self._state.saved} 笔，买家明细 {self._state.buyer_rows} 条"
+        else:
+            self._state.failed += 1
+            self._state.last_error = str(result.get("error") or "")[:500]
+
+    def _apply_buyers_result(self, result: dict[str, Any]) -> None:
+        if result.get("forbidden"):
+            self._state.forbidden += 1
+        if result.get("ok"):
             self._state.buyer_rows += int(result.get("buyers") or 0)
             self._state.message = f"处理中：已保存 {self._state.saved} 笔，买家明细 {self._state.buyer_rows} 条"
         else:

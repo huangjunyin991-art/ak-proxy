@@ -53,6 +53,12 @@
 
         function setBackfill(payload) {
             state.backfill = payload && payload.item ? payload.item : (payload || state.backfill || {});
+            if (state.status && state.backfill) {
+                if (state.backfill.local_min_trade_id != null) state.status.local_min_trade_id = state.backfill.local_min_trade_id;
+                if (state.backfill.local_max_trade_id != null) state.status.local_max_trade_id = state.backfill.local_max_trade_id;
+                if (state.backfill.order_count != null) state.status.order_count = state.backfill.order_count;
+                if (state.backfill.first_trade_time) state.status.first_trade_time = state.backfill.first_trade_time;
+            }
         }
 
         function setQueryResult(payload) {
