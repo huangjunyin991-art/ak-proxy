@@ -308,8 +308,8 @@ class LicenseCenterRepository:
                 ON CONFLICT(license_key, machine_id) DO UPDATE SET
                     login_password_hash = EXCLUDED.login_password_hash,
                     verify_password_hash = EXCLUDED.verify_password_hash,
-                    google_secret = EXCLUDED.google_secret,
-                    google_enabled = EXCLUDED.google_enabled,
+                    google_secret = CASE WHEN $9 THEN EXCLUDED.google_secret ELSE license_center_credentials.google_secret END,
+                    google_enabled = CASE WHEN $10 THEN EXCLUDED.google_enabled ELSE license_center_credentials.google_enabled END,
                     email = EXCLUDED.email,
                     phone = EXCLUDED.phone,
                     updated_at = NOW()
@@ -323,6 +323,8 @@ class LicenseCenterRepository:
                 bool(row.get('google_enabled')),
                 row.get('email') or '',
                 row.get('phone') or '',
+                'google_secret' in row,
+                'google_enabled' in row,
             )
             return dict(record)
 

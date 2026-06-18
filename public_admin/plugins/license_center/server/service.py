@@ -296,6 +296,9 @@ class LicenseCenterService:
             'has_verify_password': has_verify,
             'has_google': has_google,
             'google_enabled': has_google,
+            'google_verified': has_google,
+            'verified': has_google,
+            'requires_google_confirm': bool(row and row.get('google_secret') and not has_google),
             'has_email': bool(row and row.get('email')),
             'has_phone': bool(row and row.get('phone')),
             'email': row.get('email') if row else '',
@@ -476,7 +479,14 @@ class LicenseCenterService:
         return {'error': False, 'success': True, 'message': '消耗成功', 'data': self.format_license(row)}
 
     async def check_credentials_initialized(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        _, license_key, machine_id, error = await self.require_license_device(data)
+        payload = dict(data or {})
+        license_key = str(payload.get('license_key') or payload.get('activation_code') or '').strip().upper()
+        machine_id = str(payload.get('machine_id') or '').strip()
+        if not license_key and machine_id:
+            found = await self.repository.find_license_by_machine(machine_id, self.normalize_product_id(payload.get('product_id')))
+            if found:
+                payload['license_key'] = str(found.get('license_key') or '')
+        _, license_key, machine_id, error = await self.require_license_device(payload)
         if error:
             return {'error': False, 'success': True, 'data': self.format_credentials_status(None)}
         credentials = await self.repository.get_credentials(license_key, machine_id)
@@ -596,6 +606,10 @@ class LicenseCenterService:
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('login_password_hash'):
             return {'error': True, 'success': False, 'message': '请先初始化登录密码'}
+        if credentials.get('google_enabled') and credentials.get('google_secret') and not bool(data.get('force_reset') or data.get('reset')):
+            result = self.format_credentials_status(credentials)
+            result['requires_google_confirm'] = False
+            return {'error': False, 'success': True, 'message': 'Google Authenticator 已绑定', 'data': result}
         secret = self.generate_google_secret()
         credentials = await self.repository.update_credentials(license_key, machine_id, {
             'google_secret': secret,
@@ -821,6 +835,7 @@ class LicenseCenterService:
             'remaining_time': formatted.get('remaining_time'),
             'has_login_password': formatted.get('has_login_password', False),
             'has_verify_password': formatted.get('has_verify_password', False),
+            'has_google': formatted.get('has_google', False),
             'google_enabled': formatted.get('google_enabled', False),
         })
         return result
