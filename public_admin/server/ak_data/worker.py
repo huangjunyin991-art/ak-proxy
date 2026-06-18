@@ -250,12 +250,14 @@ class AkDataWorker:
                     await self.repository.mark_trade_placeholder(current, status="pending", error=str(result.get("error") or "fetch failed"))
                     await self.repository.update_runtime(
                         current_trade_id=current,
-                        status="pending",
+                        status="running",
                         last_error=str(result.get("error") or "")[:500],
                     )
                     self._apply_fetch_result(result)
-                    self._finish("finished", f"订单 {current} 未完整获取，已记录待补；当前日未提交")
-                    return
+                    self._state.message = f"订单 {current} 未完整获取，已记录待补，继续向前回填"
+                    current -= 1
+                    await self._sleep_interval(self._state.request_interval_ms)
+                    continue
                 closed = buffer.add(result)
                 self._state.processed += 1
                 self._state.current_day = buffer.date_key.isoformat() if buffer.date_key else ""
