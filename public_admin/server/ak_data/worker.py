@@ -41,6 +41,7 @@ class AkBackfillState:
     day_buffer_count: int = 0
     committed_days: int = 0
     pipeline_concurrency: int = 2
+    account_switch_count: int = 0
     stop_requested: bool = False
 
     def snapshot(self) -> dict[str, Any]:
@@ -57,6 +58,17 @@ class AkDataWorker:
         self._state = AkBackfillState()
 
     def snapshot(self) -> dict[str, Any]:
+        if self._state.status == "cooldown" and self._state.cooldown_until:
+            remaining = int(max(0, self._state.cooldown_until - time.time()))
+            if remaining <= 0:
+                self._state.status = "idle"
+                self._state.message = "冷却已结束，可重新开始任务"
+                self._state.cooldown_until = 0
+                self._state.stop_reason = "cooldown_finished"
+            else:
+                data = self._state.snapshot()
+                data["cooldown_remaining_seconds"] = remaining
+                return data
         return self._state.snapshot()
 
     async def start_backfill(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -91,6 +103,8 @@ class AkDataWorker:
                 target_trade_id=None,
                 status="running",
                 last_error="",
+                current_account_username="",
+                account_switch_count=0,
                 started_at=datetime.now(),
                 finished_at=None,
             )
@@ -182,7 +196,14 @@ class AkDataWorker:
             if not config.enabled:
                 self._finish("error", "AK 数据采集未启用", "disabled")
                 return
-            account = await self._resolve_account(config)
+            accounts = await self._resolve_account_candidates(config)
+            account_index = 0
+            account = accounts[account_index]
+            await self.repository.update_runtime(
+                current_account_username=account.get("username") or "",
+                account_switch_count=0,
+                status="running",
+            )
             client = self._client(config)
             target_day = date.fromisoformat(self._state.target_date)
             current = int(self._state.current_trade_id or 0)
@@ -203,6 +224,26 @@ class AkDataWorker:
                     self._finish("paused", "历史回填已暂停，未跨日的当日缓存未提交")
                     return
                 if result.get("forbidden"):
+                    self._apply_fetch_result(result)
+                    if account_index + 1 < len(accounts):
+                        failed_account = account.get("username") or "-"
+                        account_index += 1
+                        account = accounts[account_index]
+                        self._state.account_switch_count += 1
+                        self._state.current_account = account.get("username") or ""
+                        self._state.message = (
+                            f"账号 {failed_account} 返回 403，已切换到 {self._state.current_account or '-'} "
+                            f"重试订单 {current}"
+                        )
+                        await self.repository.update_runtime(
+                            current_trade_id=current,
+                            current_account_username=self._state.current_account,
+                            account_switch_count=self._state.account_switch_count,
+                            status="running",
+                            last_error=str(result.get("error") or "")[:500],
+                        )
+                        await self._sleep_interval(self._state.request_interval_ms)
+                        continue
                     await self._cooldown(config, current, result)
                     return
                 if not result.get("ok"):
@@ -492,22 +533,52 @@ class AkDataWorker:
         self._finish("cooldown", f"遇到 403，进入冷却 {cooldown} 秒")
 
     async def _resolve_account(self, config: AkDataConfig, key: str = "", user_id: str = "") -> dict[str, str]:
+        accounts = await self._resolve_account_candidates(config, key=key, user_id=user_id)
+        return accounts[0]
+
+    async def _resolve_account_candidates(self, config: AkDataConfig, key: str = "", user_id: str = "") -> list[dict[str, str]]:
         if key and user_id:
-            return {"username": "manual", "key": key, "user_id": user_id}
-        accounts = await self.repository.list_accounts(limit=100)
+            account = {"username": "manual", "key": key, "user_id": user_id}
+            self._state.current_account = account["username"]
+            return [account]
+        accounts = await self.repository.list_accounts(limit=200)
         fallback = config.fallback_username
-        selected = None
-        if fallback:
-            selected = next((item for item in accounts if item.get("username") == fallback), None)
-        if selected is None:
-            selected = next((item for item in accounts if item.get("userkey") and item.get("user_id")), None)
-        if not selected:
+        normal: list[dict[str, Any]] = []
+        fallback_item = None
+        seen: set[str] = set()
+        for item in accounts:
+            username = str(item.get("username") or "").strip().lower()
+            if not username or username in seen:
+                continue
+            if not item.get("userkey") or not item.get("user_id"):
+                continue
+            seen.add(username)
+            if fallback and username == fallback:
+                fallback_item = item
+            else:
+                normal.append(item)
+
+        max_attempts = max(1, int(config.max_account_switches or 0) + 1)
+        selected_items = normal[:max_attempts]
+        if fallback_item and all(item.get("username") != fallback for item in selected_items):
+            if len(selected_items) < max_attempts:
+                selected_items.append(fallback_item)
+            elif max_attempts > 1:
+                selected_items[-1] = fallback_item
+            elif not selected_items:
+                selected_items.append(fallback_item)
+        if not selected_items:
             raise RuntimeError("没有可用 AK 登录态，请先让账号登录一次或配置兜底账号")
-        self._state.current_account = selected.get("username") or ""
+        candidates = [self._account_from_row(item) for item in selected_items]
+        self._state.current_account = candidates[0].get("username") or ""
+        return candidates
+
+    @staticmethod
+    def _account_from_row(row: dict[str, Any]) -> dict[str, str]:
         return {
-            "username": selected.get("username") or "",
-            "key": selected.get("userkey") or "",
-            "user_id": selected.get("user_id") or "",
+            "username": str(row.get("username") or ""),
+            "key": str(row.get("userkey") or ""),
+            "user_id": str(row.get("user_id") or ""),
         }
 
     @staticmethod

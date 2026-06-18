@@ -138,6 +138,7 @@ class AkDataRepository:
                 SELECT username, ak_userkey, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at
                 FROM user_stats
                 WHERE COALESCE(ak_userkey, '') <> ''
+                  AND (ak_auth_expires_at IS NULL OR ak_auth_expires_at > NOW())
                 ORDER BY ak_auth_updated_at DESC NULLS LAST, username ASC
                 LIMIT $1
                 """,

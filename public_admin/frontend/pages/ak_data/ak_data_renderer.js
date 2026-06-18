@@ -54,10 +54,10 @@
         ].join('');
     }
 
-    function cooldownText(seconds) {
+    function cooldownText(seconds, remainingSeconds) {
         var ts = Number(seconds || 0);
         if (!ts) return '';
-        var remaining = Math.max(0, Math.ceil(ts - Date.now() / 1000));
+        var remaining = remainingSeconds == null ? Math.max(0, Math.ceil(ts - Date.now() / 1000)) : Math.max(0, Number(remainingSeconds || 0));
         return '冷却剩余：' + number(remaining) + ' 秒，至 ' + localTimeFromSeconds(ts);
     }
 
@@ -163,7 +163,10 @@
                 '<span>当前采集日：' + html(bf.current_day || '-') + '</span>' +
                 '<span>当日缓存：' + number(bf.day_buffer_count || 0) + '</span>' +
                 '<span>已提交天数：' + number(bf.committed_days || 0) + '</span>' +
-                (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until)) + '</span>' : '') +
+                (bf.current_account ? '<span>当前账号：' + html(bf.current_account) + '</span>' : '') +
+                '<span>切号次数：' + number(bf.account_switch_count || 0) + '</span>' +
+                (bf.last_error ? '<span title="' + html(bf.last_error) + '">最近错误：' + html(String(bf.last_error).slice(0, 36)) + '</span>' : '') +
+                (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until, bf.cooldown_remaining_seconds)) + '</span>' : '') +
             '</div>',
             '</div>'
         ].join('');
