@@ -606,10 +606,16 @@ class LicenseCenterService:
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('login_password_hash'):
             return {'error': True, 'success': False, 'message': '请先初始化登录密码'}
-        if credentials.get('google_enabled') and credentials.get('google_secret') and not bool(data.get('force_reset') or data.get('reset')):
+        should_reset = bool(data.get('force_reset') or data.get('reset'))
+        if credentials.get('google_secret') and not should_reset:
             result = self.format_credentials_status(credentials)
-            result['requires_google_confirm'] = False
-            return {'error': False, 'success': True, 'message': 'Google Authenticator 已绑定', 'data': result}
+            result['google_secret'] = credentials.get('google_secret') or ''
+            result['otpauth_uri'] = self.google_otpauth_uri(license_key, machine_id, credentials.get('google_secret') or '')
+            if result.get('google_enabled'):
+                result['requires_google_confirm'] = False
+                return {'error': False, 'success': True, 'message': 'Google Authenticator 已绑定', 'data': result}
+            result['requires_google_confirm'] = True
+            return {'error': False, 'success': True, 'message': '请使用已有 Google Authenticator 密钥完成绑定', 'data': result}
         secret = self.generate_google_secret()
         credentials = await self.repository.update_credentials(license_key, machine_id, {
             'google_secret': secret,
