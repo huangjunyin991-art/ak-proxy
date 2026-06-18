@@ -67,6 +67,7 @@ class RateBanService:
             rule.id,
             rule.window_seconds,
             rule.requests_per_second,
+            rule.window_request_limit,
         )
 
         if not exceeded:
@@ -78,15 +79,15 @@ class RateBanService:
                 normalized_ip,
                 count,
                 reason,
-                base_seconds=policy.ban_base_seconds,
-                max_seconds=policy.ban_base_seconds * 10,
+                base_seconds=int(rule.ban_seconds or policy.ban_base_seconds),
+                max_seconds=int(rule.ban_seconds or policy.ban_base_seconds),
                 progressive=True,
             )
             self._store.record_ban(
                 normalized_ip,
                 rule.id,
                 reason,
-                ban_result.get("duration_seconds", policy.ban_base_seconds),
+                ban_result.get("duration_seconds", int(rule.ban_seconds or policy.ban_base_seconds)),
             )
             return RateBanDecision(
                 allowed=False,
@@ -94,8 +95,8 @@ class RateBanService:
                 rule_id=rule.id,
                 message=ban_result.get("reason") or reason,
                 count=count,
-                duration_seconds=int(ban_result.get("duration_seconds") or policy.ban_base_seconds),
-                remaining_seconds=int(ban_result.get("duration_seconds") or policy.ban_base_seconds),
+                duration_seconds=int(ban_result.get("duration_seconds") or int(rule.ban_seconds or policy.ban_base_seconds)),
+                remaining_seconds=int(ban_result.get("duration_seconds") or int(rule.ban_seconds or policy.ban_base_seconds)),
                 banned_until=str(ban_result.get("banned_until") or ""),
                 level=int(ban_result.get("level") or 1),
                 reason=reason,

@@ -17,6 +17,7 @@ class RateBanRuntimeStore:
         rule_id: str,
         window_seconds: int,
         max_per_second: int,
+        window_request_limit: int = 0,
     ) -> tuple[bool, int]:
         """
         Record a request and check if rate limit exceeded.
@@ -30,7 +31,7 @@ class RateBanRuntimeStore:
             ts_list[:] = [t for t in ts_list if now - t <= window_seconds]
             ts_list.append(now)
             count = len(ts_list)
-            limit = max(1, max_per_second * window_seconds)
+            limit = max(1, int(window_request_limit or 0) or (max_per_second * window_seconds))
             return count > limit, count
 
     def clear_ip(self, ip: str) -> None:

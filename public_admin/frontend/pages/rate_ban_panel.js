@@ -134,6 +134,8 @@
             '<div class="rb-rule-fields">' +
                 numberField('rbRps' + index, '速率上限 (req/s)', '每秒允许的最大请求数', rule.requests_per_second, 1, 10000) +
                 numberField('rbWindow' + index, '统计窗口 (秒)', '时间窗口内累计请求数', rule.window_seconds, 1, 3600) +
+                numberField('rbWindowLimit' + index, '窗口总次数', '0 表示按每秒速率换算', rule.window_request_limit || 0, 0, 1000000) +
+                numberField('rbBanSeconds' + index, '封禁时长（秒）', '0 表示使用全局基础时长', rule.ban_seconds || 0, 0, 86400 * 7) +
             '</div>' +
         '</div>';
         return html;
@@ -200,7 +202,7 @@
             '.rb-switch-control:after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#d8e5ec;box-shadow:0 2px 6px rgba(0,0,0,.28);transition:transform .2s,background .2s;display:block}',
             '.rb-rule-toggle input:checked+.rb-switch-control,.rb-toggle-card input:checked+.rb-switch-control{background:linear-gradient(135deg,var(--accent),var(--accent-green));border-color:rgba(0,255,136,.42)}.rb-rule-toggle input:checked+.rb-switch-control:after,.rb-toggle-card input:checked+.rb-switch-control:after{transform:translateX(20px);background:#fff}',
             '.rb-rule-title strong{display:block;color:var(--text-primary);font-size:14px}.rb-rule-title small{display:block;color:var(--text-secondary);font-size:12px;margin-top:2px}',
-            '.rb-rule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}',
+            '.rb-rule-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}',
             '.rb-field{display:flex;flex-direction:column;gap:7px;border:1px solid rgba(255,255,255,.07);border-radius:16px;background:rgba(0,0,0,.13);padding:10px 12px;min-width:0}.rb-field span{color:var(--text-primary);font-size:12px;font-weight:800}.rb-field small{color:var(--text-secondary);font-size:11px;line-height:1.35}',
             '.rb-input{width:100%;min-height:36px;border:1px solid rgba(255,255,255,.1);border-radius:11px;padding:8px 10px;color:var(--text-primary);background:rgba(2,10,18,.72);font-size:14px;outline:none}.rb-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.13)}',
             '.rb-toggle-card{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;min-height:72px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.045);cursor:pointer;transition:border-color .2s,background .2s,transform .2s}',
@@ -303,9 +305,13 @@
             var enabledEl = document.querySelector('#rbRule' + escapeHtml(rule.id || i) + ' .rb-rule-enabled');
             var rpsEl = document.getElementById('rbRps' + i);
             var winEl = document.getElementById('rbWindow' + i);
+            var limitEl = document.getElementById('rbWindowLimit' + i);
+            var banEl = document.getElementById('rbBanSeconds' + i);
             if (enabledEl) enabledEl.checked = rule.enabled !== false;
             if (rpsEl) rpsEl.value = rule.requests_per_second || 10;
             if (winEl) winEl.value = rule.window_seconds || 60;
+            if (limitEl) limitEl.value = rule.window_request_limit || 0;
+            if (banEl) banEl.value = rule.ban_seconds || 0;
         });
     }
 
@@ -316,6 +322,8 @@
             var enabledEl = ruleEl && ruleEl.querySelector('.rb-rule-enabled');
             var rpsEl = document.getElementById('rbRps' + i);
             var winEl = document.getElementById('rbWindow' + i);
+            var limitEl = document.getElementById('rbWindowLimit' + i);
+            var banEl = document.getElementById('rbBanSeconds' + i);
             return {
                 id: rule.id,
                 label: rule.label,
@@ -323,6 +331,8 @@
                 methods: rule.methods || [],
                 requests_per_second: Number(rpsEl && rpsEl.value || 10),
                 window_seconds: Number(winEl && winEl.value || 60),
+                window_request_limit: Number(limitEl && limitEl.value || 0),
+                ban_seconds: Number(banEl && banEl.value || 0),
                 exclude_loopback: rule.exclude_loopback !== false,
                 enabled: !!(enabledEl && enabledEl.checked)
             };

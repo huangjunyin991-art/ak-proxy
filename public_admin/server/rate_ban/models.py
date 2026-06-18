@@ -22,6 +22,8 @@ class RateBanRule:
     methods: tuple[str, ...]
     requests_per_second: int = 10
     window_seconds: int = 60
+    window_request_limit: int = 0
+    ban_seconds: int = 0
     exclude_loopback: bool = True
     enabled: bool = True
 
@@ -38,6 +40,8 @@ class RateBanRule:
             methods=tuple(data.get("methods") or ()),
             requests_per_second=_int_range(data.get("requests_per_second"), 1, 10000, 10),
             window_seconds=_int_range(data.get("window_seconds"), 1, 3600, 60),
+            window_request_limit=_int_range(data.get("window_request_limit"), 0, 1000000, 0),
+            ban_seconds=_int_range(data.get("ban_seconds"), 0, 86400 * 7, 0),
             exclude_loopback=_bool(data.get("exclude_loopback"), True),
             enabled=_bool(data.get("enabled"), True),
         )
@@ -86,8 +90,10 @@ class RateBanPolicy:
             label="授权激活接口 legacy",
             route_prefix="/api/license/activate",
             methods=("POST",),
-            requests_per_second=5,
+            requests_per_second=10,
             window_seconds=60,
+            window_request_limit=10,
+            ban_seconds=3600,
             exclude_loopback=True,
             enabled=True,
         ),
@@ -116,8 +122,10 @@ class RateBanPolicy:
             label="授权激活接口 v1",
             route_prefix="/api/v1/activate",
             methods=("POST",),
-            requests_per_second=5,
+            requests_per_second=10,
             window_seconds=60,
+            window_request_limit=10,
+            ban_seconds=3600,
             exclude_loopback=True,
             enabled=True,
         ),
@@ -209,15 +217,34 @@ class RateBanPolicy:
         )
 
     def with_missing_default_rules(self) -> "RateBanPolicy":
-        existing_ids = {str(rule.id or "").strip() for rule in self.rules}
+        default_by_id = {str(rule.id or "").strip(): rule for rule in self.DEFAULT_RULES}
+        merged_rules = tuple(self._merge_default_rule(rule, default_by_id.get(str(rule.id or "").strip())) for rule in self.rules)
+        existing_ids = {str(rule.id or "").strip() for rule in merged_rules}
         missing = tuple(rule for rule in self.DEFAULT_RULES if rule.id not in existing_ids)
-        if not missing:
+        if not missing and merged_rules == self.rules:
             return self
         return RateBanPolicy(
             enabled=self.enabled,
             ignore_loopback=self.ignore_loopback,
             ban_base_seconds=self.ban_base_seconds,
-            rules=tuple(self.rules) + missing,
+            rules=merged_rules + missing,
+        )
+
+    @staticmethod
+    def _merge_default_rule(rule: RateBanRule, default: RateBanRule | None) -> RateBanRule:
+        if default is None:
+            return rule
+        return RateBanRule(
+            id=rule.id or default.id,
+            label=rule.label or default.label,
+            route_prefix=rule.route_prefix or default.route_prefix,
+            methods=rule.methods or default.methods,
+            requests_per_second=rule.requests_per_second or default.requests_per_second,
+            window_seconds=rule.window_seconds or default.window_seconds,
+            window_request_limit=rule.window_request_limit or default.window_request_limit,
+            ban_seconds=rule.ban_seconds or default.ban_seconds,
+            exclude_loopback=rule.exclude_loopback,
+            enabled=rule.enabled,
         )
 
     def to_dict(self) -> dict[str, Any]:

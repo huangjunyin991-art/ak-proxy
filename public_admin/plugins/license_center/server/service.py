@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -8,6 +9,7 @@ import string
 import struct
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,7 +20,8 @@ from .repository import LicenseCenterRepository
 
 PUBLIC_LICENSE_SERVER_URL = 'https://ak2025.vip'
 DEFAULT_PRODUCT_ID = 'ak_admin_panel'
-PASSWORD_HASH_ITERATIONS = 200000
+PASSWORD_HASH_ITERATIONS = max(50000, min(200000, int(os.environ.get('LICENSE_PASSWORD_HASH_ITERATIONS', '100000') or '100000')))
+PASSWORD_HASH_WORKERS = max(1, int(os.environ.get('LICENSE_PASSWORD_HASH_WORKERS', '2') or '2'))
 TOTP_INTERVAL_SECONDS = 30
 TOTP_DIGITS = 6
 LICENSE_CREDENTIALS_ISSUER = 'AK授权中心'
@@ -29,6 +32,10 @@ LICENSE_RELEASE_UPLOAD_EXTENSIONS = {
     '.tar', '.gz', '.tgz', '.xz', '.bz2',
 }
 LICENSE_RELEASE_UPLOAD_CHUNK_SIZE = 1024 * 1024
+_PASSWORD_HASH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=PASSWORD_HASH_WORKERS,
+    thread_name_prefix='license-pwd-hash',
+)
 
 
 class LicenseCenterService:
@@ -202,6 +209,10 @@ class LicenseCenterService:
         digest = hashlib.pbkdf2_hmac('sha256', str(password or '').encode('utf-8'), salt.encode('ascii'), PASSWORD_HASH_ITERATIONS).hex()
         return f'pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}'
 
+    async def hash_password_async(self, password: str) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_PASSWORD_HASH_EXECUTOR, self.hash_password, password)
+
     def generate_client_password(self, length: int = 10) -> str:
         length = max(10, int(length or 10))
         groups = [
@@ -229,6 +240,22 @@ class LicenseCenterService:
             return hmac.compare_digest(digest, expected)
         except Exception:
             return False
+
+    async def verify_password_hash_async(self, password: str, stored_hash: str) -> bool:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_PASSWORD_HASH_EXECUTOR, self.verify_password_hash, password, stored_hash)
+
+    def password_hash_iterations(self, stored_hash: str) -> int:
+        parts = str(stored_hash or '').split('$')
+        if len(parts) != 4 or parts[0] != 'pbkdf2_sha256':
+            return 0
+        try:
+            return int(parts[1])
+        except Exception:
+            return 0
+
+    def password_hash_needs_rehash(self, stored_hash: str) -> bool:
+        return self.password_hash_iterations(stored_hash) != PASSWORD_HASH_ITERATIONS
 
     def generate_google_secret(self) -> str:
         return base64.b32encode(secrets.token_bytes(20)).decode('ascii').rstrip('=')
@@ -472,8 +499,8 @@ class LicenseCenterService:
         credentials = await self.repository.upsert_credentials({
             'license_key': license_key,
             'machine_id': machine_id,
-            'login_password_hash': self.hash_password(login_password),
-            'verify_password_hash': self.hash_password(verify_password) if verify_password else '',
+            'login_password_hash': await self.hash_password_async(login_password),
+            'verify_password_hash': await self.hash_password_async(verify_password) if verify_password else '',
             'google_secret': google_secret,
             'google_enabled': False,
             'email': str(data.get('email') or '').strip(),
@@ -503,7 +530,8 @@ class LicenseCenterService:
                 'message': '密码错误次数过多，账号已临时锁定',
                 'data': {'is_locked': True, 'locked_until': locked_until, 'remaining_attempts': 0}
             }
-        if not self.verify_password_hash(str(data.get('login_password') or data.get('password') or ''), credentials.get('login_password_hash')):
+        login_password_value = str(data.get('login_password') or data.get('password') or '')
+        if not await self.verify_password_hash_async(login_password_value, credentials.get('login_password_hash')):
             guard_block = await self._record_credential_failure('login', license_key, machine_id, ip_address)
             if guard_block:
                 return guard_block
@@ -524,12 +552,15 @@ class LicenseCenterService:
                     'locked_reason': '密码错误次数过多' if failed_attempts >= 5 else '',
                 }
             }
-        credentials = await self.repository.update_credentials(license_key, machine_id, {
+        login_update_fields = {
             'login_count': int(credentials.get('login_count') or 0) + 1,
             'failed_attempts': 0,
             'locked_until': None,
             'last_login_at': datetime.now(),
-        })
+        }
+        if self.password_hash_needs_rehash(credentials.get('login_password_hash')):
+            login_update_fields['login_password_hash'] = await self.hash_password_async(login_password_value)
+        credentials = await self.repository.update_credentials(license_key, machine_id, login_update_fields)
         await self._record_credential_success('login', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': '登录成功', 'data': self.format_credentials_status(credentials)}
 
@@ -543,13 +574,18 @@ class LicenseCenterService:
         credentials = await self.repository.get_credentials(license_key, machine_id)
         if not credentials or not credentials.get('verify_password_hash'):
             return {'error': True, 'success': False, 'message': '尚未设置二次验证码'}
-        if not self.verify_password_hash(str(data.get('verify_password') or ''), credentials.get('verify_password_hash')):
+        verify_password_value = str(data.get('verify_password') or '')
+        if not await self.verify_password_hash_async(verify_password_value, credentials.get('verify_password_hash')):
             guard_block = await self._record_credential_failure('verify_password', license_key, machine_id, ip_address)
             if guard_block:
                 return guard_block
             return {'error': True, 'success': False, 'message': '二次验证码错误'}
         result = self.format_credentials_status(credentials)
         result['verified'] = True
+        if self.password_hash_needs_rehash(credentials.get('verify_password_hash')):
+            await self.repository.update_credentials(license_key, machine_id, {
+                'verify_password_hash': await self.hash_password_async(verify_password_value),
+            })
         await self._record_credential_success('verify_password', license_key, machine_id, ip_address)
         return {'error': False, 'success': True, 'message': '验证成功', 'data': result}
 
@@ -612,11 +648,11 @@ class LicenseCenterService:
         if login_password:
             if len(login_password) < 6:
                 return {'error': True, 'success': False, 'message': '登录密码至少需要6位字符'}
-            fields['login_password_hash'] = self.hash_password(login_password)
+            fields['login_password_hash'] = await self.hash_password_async(login_password)
         if verify_password:
             if len(verify_password) < 6:
                 return {'error': True, 'success': False, 'message': '二次验证码至少需要6位字符'}
-            fields['verify_password_hash'] = self.hash_password(verify_password)
+            fields['verify_password_hash'] = await self.hash_password_async(verify_password)
         if not fields:
             return {'error': True, 'success': False, 'message': '请至少填写一个需要重置的密码'}
         fields['failed_attempts'] = 0
@@ -640,7 +676,7 @@ class LicenseCenterService:
             return {'error': True, 'success': False, 'message': '机器码未绑定该激活码'}
 
         password = self.generate_client_password(10)
-        password_hash = self.hash_password(password)
+        password_hash = await self.hash_password_async(password)
         existing = await self.repository.get_credentials(license_key, machine_id)
         fields = {
             'login_password_hash': password_hash,
