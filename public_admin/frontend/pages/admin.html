@@ -2592,66 +2592,27 @@
             margin-top: 8px;
         }
 
-        #publishReleaseModal .release-switch-row {
-            display: flex;
-            justify-content: flex-end;
-            margin: 4px 0 16px;
-        }
-
-        #publishReleaseModal .release-switch {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            color: var(--text-secondary);
-            font-size: 14px;
-            font-weight: 800;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        #publishReleaseModal .release-switch input {
-            position: absolute;
-            opacity: 0;
-            width: 1px;
-            height: 1px;
-            margin: 0;
-        }
-
-        #publishReleaseModal .release-switch-track {
-            width: 46px;
-            height: 26px;
+        #publishReleaseModal .release-upload-progress {
+            width: 100%;
+            height: 7px;
+            margin-top: 10px;
             border-radius: 999px;
-            border: 1px solid rgba(148, 163, 184, 0.36);
-            background: rgba(15, 23, 42, 0.9);
-            position: relative;
-            transition: background 0.16s ease, border-color 0.16s ease;
+            background: rgba(148, 163, 184, 0.18);
+            overflow: hidden;
+            display: none;
         }
 
-        #publishReleaseModal .release-switch-track::after {
-            content: "";
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #94a3b8;
-            transition: transform 0.16s ease, background 0.16s ease;
+        #publishReleaseModal .release-upload-progress.is-active {
+            display: block;
         }
 
-        #publishReleaseModal .release-switch input:checked + .release-switch-track {
-            border-color: rgba(0, 255, 136, 0.46);
-            background: linear-gradient(135deg, rgba(0, 212, 255, 0.42), rgba(0, 255, 136, 0.42));
-        }
-
-        #publishReleaseModal .release-switch input:checked + .release-switch-track::after {
-            transform: translateX(20px);
-            background: #eafff7;
-        }
-
-        #publishReleaseModal .release-switch input:disabled + .release-switch-track {
-            opacity: 0.55;
-            cursor: not-allowed;
+        #publishReleaseModal .release-upload-progress-bar {
+            width: 0%;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--accent), var(--accent-green));
+            box-shadow: 0 0 18px rgba(0, 212, 255, 0.36);
+            transition: width 0.18s ease;
         }
 
         #publishReleaseModal .release-actions .btn-primary {
@@ -5811,6 +5772,9 @@
                             <div class="release-upload-main" id="releaseUploadTitle">拖入文件或点击选择</div>
                             <div class="release-upload-sub">支持 exe / msi / zip / 7z / rar / dmg / pkg / apk / ipa，最大 512MB</div>
                             <div class="release-upload-state" id="releaseUploadState">未选择文件</div>
+                            <div class="release-upload-progress" id="releaseUploadProgress">
+                                <div class="release-upload-progress-bar" id="releaseUploadProgressBar"></div>
+                            </div>
                         </div>
                         <input type="file" id="releaseUploadInput" style="display:none" onchange="handleReleaseFileInput(this)">
                     </div>
@@ -5840,13 +5804,6 @@
                 <div class="release-field">
                     <label class="release-label">更新说明</label>
                     <textarea id="releaseNotes" class="release-textarea" rows="4" placeholder="可选"></textarea>
-                </div>
-                <div class="release-switch-row">
-                    <label class="release-switch">
-                        <input type="checkbox" id="releaseCanSkip" checked>
-                        <span class="release-switch-track"></span>
-                        <span>允许用户跳过</span>
-                    </label>
                 </div>
                 <div id="publishReleaseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
             </div>
@@ -10177,6 +10134,29 @@
             };
         }
 
+        function parseLicenseJsonText(raw, status, contentType) {
+            if (!raw) return {};
+            try {
+                return JSON.parse(raw);
+            } catch (e) {
+                const isHtml = String(contentType || '').includes('text/html') || /^\s*</.test(raw);
+                const message = isHtml
+                    ? `接口返回了非 JSON 内容（HTTP ${status}），请确认登录状态和权限`
+                    : `接口响应格式异常（HTTP ${status}）`;
+                return {
+                    error: true,
+                    success: false,
+                    message,
+                    raw_message: raw.slice(0, 200)
+                };
+            }
+        }
+
+        async function readLicenseJsonResponse(response) {
+            const raw = await response.text();
+            return parseLicenseJsonText(raw, response.status, response.headers.get('content-type') || '');
+        }
+
         function formatReleaseFileSize(bytes) {
             const size = Number(bytes || 0);
             if (!size) return '0 B';
@@ -10325,6 +10305,55 @@
             if (file) uploadReleaseFile(file);
         }
 
+        function setReleaseUploadProgress(percent, text) {
+            const progressWrap = document.getElementById('releaseUploadProgress');
+            const progressBar = document.getElementById('releaseUploadProgressBar');
+            const state = document.getElementById('releaseUploadState');
+            if (progressWrap && progressBar) {
+                const value = Math.max(0, Math.min(100, Number(percent || 0)));
+                progressWrap.classList.toggle('is-active', value > 0 && value < 100);
+                progressBar.style.width = `${value}%`;
+            }
+            if (state && text) {
+                state.textContent = text;
+            }
+        }
+
+        function uploadReleaseFileWithProgress(file, onProgress) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${API_BASE}/admin/api/license/releases/upload`, true);
+                xhr.responseType = 'text';
+                const headers = getLicenseUploadHeaders();
+                Object.keys(headers).forEach(key => {
+                    if (headers[key]) xhr.setRequestHeader(key, headers[key]);
+                });
+                xhr.upload.onprogress = event => {
+                    if (!event.lengthComputable) return;
+                    const percent = event.total ? Math.round((event.loaded / event.total) * 100) : 0;
+                    if (typeof onProgress === 'function') onProgress(percent, event.loaded, event.total);
+                };
+                xhr.onerror = () => reject(new Error('网络错误，上传失败'));
+                xhr.onload = () => {
+                    const raw = xhr.responseText || '';
+                    const data = parseLicenseJsonText(raw, xhr.status, xhr.getResponseHeader('content-type') || '');
+                    if (xhr.status === 401) {
+                        checkTokenValid({status: xhr.status});
+                        reject(new Error(data.message || '登录状态已失效'));
+                        return;
+                    }
+                    if (xhr.status < 200 || xhr.status >= 300) {
+                        reject(new Error(data.message || `上传失败（HTTP ${xhr.status}）`));
+                        return;
+                    }
+                    resolve(data);
+                };
+                const formData = new FormData();
+                formData.append('file', file);
+                xhr.send(formData);
+            });
+        }
+
         async function uploadReleaseFile(file) {
             const title = document.getElementById('releaseUploadTitle');
             const sizeInput = document.getElementById('releaseFileSize');
@@ -10332,17 +10361,12 @@
             if (title) title.textContent = file.name;
             if (sizeInput) sizeInput.value = file.size || 0;
             setReleaseUploadState(`正在上传 ${formatReleaseFileSize(file.size)}...`);
-            const formData = new FormData();
-            formData.append('file', file);
             try {
-                const res = await fetch(`${API_BASE}/admin/api/license/releases/upload`, {
-                    method: 'POST',
-                    headers: getLicenseUploadHeaders(),
-                    body: formData
+                const data = await uploadReleaseFileWithProgress(file, (percent, loaded, total) => {
+                    setReleaseUploadProgress(percent, `正在上传 ${percent}% · ${formatReleaseFileSize(loaded)} / ${formatReleaseFileSize(total)}`);
                 });
-                if (!checkTokenValid(res)) return;
-                const data = await res.json();
                 if (data.error) {
+                    setReleaseUploadProgress(0, '');
                     setReleaseUploadState(data.message || '上传失败', 'error');
                     return;
                 }
@@ -10350,8 +10374,10 @@
                 document.getElementById('releaseDownloadUrl').value = info.download_url || '';
                 document.getElementById('releaseFileSize').value = info.file_size || file.size || 0;
                 document.getElementById('releaseFileHash').value = info.file_hash || '';
+                setReleaseUploadProgress(100, `已完成 ${formatReleaseFileSize(info.file_size || file.size)}`);
                 setReleaseUploadState(`已上传：${info.file_name || file.name} · ${formatReleaseFileSize(info.file_size || file.size)}`, 'success');
             } catch (err) {
+                setReleaseUploadProgress(0, '');
                 setReleaseUploadState(err && err.message ? err.message : '上传失败', 'error');
             }
         }
@@ -10824,7 +10850,6 @@
             document.getElementById('releaseAnnouncement').value = '';
             document.getElementById('releaseAnnouncementContent').value = '';
             document.getElementById('releaseNotes').value = '';
-            document.getElementById('releaseCanSkip').checked = true;
             document.getElementById('publishReleaseMsg').style.display = 'none';
             document.getElementById('publishReleaseBtn').disabled = false;
             document.getElementById('publishReleaseBtn').textContent = '发布';
@@ -10842,15 +10867,6 @@
         }
 
         function onReleaseUpdateTypeChange() {
-            const updateType = document.getElementById('releaseUpdateType').value;
-            const canSkipEl = document.getElementById('releaseCanSkip');
-            if (updateType === 'mandatory') {
-                canSkipEl.checked = false;
-                canSkipEl.disabled = true;
-            } else {
-                canSkipEl.disabled = false;
-                if (updateType === 'optional') canSkipEl.checked = true;
-            }
             syncReleaseUpdateTypeSelect();
         }
 
@@ -10878,7 +10894,7 @@
                         channel: 'stable',
                         update_type: updateType,
                         is_mandatory: updateType === 'mandatory',
-                        can_skip: document.getElementById('releaseCanSkip').checked,
+                        can_skip: updateType !== 'mandatory',
                         download_url: document.getElementById('releaseDownloadUrl').value.trim(),
                         file_size: parseInt(document.getElementById('releaseFileSize').value) || 0,
                         file_hash: document.getElementById('releaseFileHash').value.trim(),

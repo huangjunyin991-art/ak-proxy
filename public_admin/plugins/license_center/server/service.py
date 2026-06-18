@@ -734,13 +734,14 @@ class LicenseCenterService:
             return {'error': True, 'success': False, 'message': '版本号不能为空'}
         update_type = str(data.get('update_type') or 'recommended').strip().lower()
         is_mandatory = bool(data.get('is_mandatory')) or update_type == 'mandatory'
+        can_skip = False if is_mandatory else bool(data.get('can_skip', True))
         release = await self.repository.upsert_release({
             'product_id': self.normalize_product_id(data.get('product_id')),
             'version': version,
             'channel': str(data.get('channel') or 'stable').strip() or 'stable',
             'update_type': update_type,
             'is_mandatory': is_mandatory,
-            'can_skip': bool(data.get('can_skip', not is_mandatory)),
+            'can_skip': can_skip,
             'download_url': str(data.get('download_url') or '').strip(),
             'file_size': int(data.get('file_size') or 0),
             'file_hash': str(data.get('file_hash') or '').strip(),
