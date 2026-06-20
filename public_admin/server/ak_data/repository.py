@@ -341,39 +341,47 @@ class AkDataRepository:
             rows = await conn.fetch(
                 """
                 WITH price_bucket AS (
+                    SELECT single_price,
+                           COUNT(*)::integer AS price_order_count,
+                           COALESCE(SUM(success), 0)::bigint AS price_total_success,
+                           (COALESCE(SUM(success), 0) * single_price)::numeric(14,2) AS price_total_trade_value
+                    FROM ak_trade_summary
+                    GROUP BY single_price
+                ),
+                daily_price AS (
                     SELECT date_key,
-                           single_price,
                            COUNT(*)::integer AS order_count,
                            COALESCE(SUM(success), 0)::bigint AS total_success,
                            COALESCE(SUM(success_value), 0)::numeric(14,2) AS total_trade_value,
-                           (COALESCE(SUM(success_value), 0) / 0.005)::numeric(18,2) AS market_value,
                            CASE
-                               WHEN single_price > 0
-                               THEN ((COALESCE(SUM(success_value), 0) / 0.005) / single_price)::numeric(18,2)
-                               ELSE 0::numeric(18,2)
-                           END AS stock_count,
+                               WHEN SUM(success) > 0
+                               THEN (SUM(success_value) / SUM(success))::numeric(4,3)
+                               ELSE 0::numeric(4,3)
+                           END AS avg_price,
                            MIN(create_time) AS first_trade_time,
                            MAX(create_time) AS last_trade_time
                     FROM ak_trade_summary
                     WHERE date_key BETWEEN $1 AND $2
-                    GROUP BY date_key, single_price
+                    GROUP BY date_key
                 ),
                 daily_market AS (
-                    SELECT date_key,
-                           SUM(order_count)::integer AS order_count,
-                           SUM(total_success)::bigint AS total_success,
-                           SUM(total_trade_value)::numeric(14,2) AS total_trade_value,
+                    SELECT d.date_key,
+                           d.order_count,
+                           d.total_success,
+                           COALESCE(p.price_total_trade_value, 0)::numeric(14,2) AS total_trade_value,
+                           d.avg_price,
+                           (COALESCE(p.price_total_trade_value, 0) / 0.005)::numeric(18,2) AS market_value,
                            CASE
-                               WHEN SUM(total_success) > 0
-                               THEN (SUM(total_trade_value) / SUM(total_success))::numeric(4,3)
-                               ELSE 0::numeric(4,3)
-                           END AS avg_price,
-                           SUM(market_value)::numeric(18,2) AS market_value,
-                           SUM(stock_count)::numeric(18,2) AS stock_count,
-                           MIN(first_trade_time) AS first_trade_time,
-                           MAX(last_trade_time) AS last_trade_time
-                    FROM price_bucket
-                    GROUP BY date_key
+                               WHEN d.avg_price > 0
+                               THEN ((COALESCE(p.price_total_trade_value, 0) / 0.005) / d.avg_price)::numeric(18,2)
+                               ELSE 0::numeric(18,2)
+                           END AS stock_count,
+                           COALESCE(p.price_order_count, 0)::integer AS price_order_count,
+                           COALESCE(p.price_total_success, 0)::bigint AS price_total_success,
+                           d.first_trade_time,
+                           d.last_trade_time
+                    FROM daily_price d
+                    LEFT JOIN price_bucket p ON p.single_price = d.avg_price
                 )
                 SELECT date_key,
                        order_count,
@@ -382,6 +390,8 @@ class AkDataRepository:
                        avg_price,
                        market_value,
                        stock_count,
+                       price_order_count,
+                       price_total_success,
                        CASE
                            WHEN LAG(market_value) OVER (ORDER BY date_key) > 0
                            THEN (((market_value - LAG(market_value) OVER (ORDER BY date_key))

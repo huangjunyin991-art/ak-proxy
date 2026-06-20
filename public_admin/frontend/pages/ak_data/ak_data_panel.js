@@ -329,6 +329,8 @@
         var marketValues = sortedRows.map(function(row) { return Number(row.market_value || 0); });
         var stockCounts = sortedRows.map(function(row) { return Number(row.stock_count || 0); });
         var orderCounts = sortedRows.map(function(row) { return Number(row.order_count || 0); });
+        var priceOrderCounts = sortedRows.map(function(row) { return Number(row.price_order_count || 0); });
+        var priceSuccessCounts = sortedRows.map(function(row) { return Number(row.price_total_success || 0); });
         var inflationRates = sortedRows.map(function(row) {
             return row.market_inflation_rate == null ? null : Number(row.market_inflation_rate || 0);
         });
@@ -348,12 +350,14 @@
                     var inflation = inflationRates[idx] == null ? '-' : (inflationRates[idx] >= 0 ? '+' : '') + inflationRates[idx].toFixed(2) + '%';
                     return [
                         '<b>' + labels[idx] + '</b>',
-                        '成交总价值：' + formatNumber(tradeValues[idx], 2),
                         '平均成交价：' + formatPrice(avgPrices[idx]),
+                        '成交总量：' + formatNumber(priceSuccessCounts[idx]),
+                        '成交总价值：' + formatNumber(tradeValues[idx], 2),
                         '总市值：' + formatNumber(marketValues[idx], 2),
                         '总市值膨胀率：' + inflation,
                         '股票总数：' + formatNumber(stockCounts[idx], 2),
-                        '订单数：' + formatNumber(orderCounts[idx])
+                        '当日订单数：' + formatNumber(orderCounts[idx]),
+                        '订单数：' + formatNumber(priceOrderCounts[idx])
                     ].join('<br>');
                 }
             },
