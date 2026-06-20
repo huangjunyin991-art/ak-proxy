@@ -351,7 +351,7 @@ class AkDataRepository:
                            s.date_key,
                            LAG(s.single_price) OVER (ORDER BY s.create_time ASC, s.trade_id ASC) AS previous_price
                     FROM ak_trade_summary s
-                    WHERE s.date_key <= $2 + 1
+                    WHERE s.date_key <= ($2::date + 1)
                 ),
                 segmented_trades AS (
                     SELECT *,
