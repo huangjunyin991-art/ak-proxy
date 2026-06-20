@@ -207,8 +207,8 @@
             },
             series: [
                 { name: '成交量', type: 'bar', stack: 'trade', data: success, barWidth: '58%', barMaxWidth: 78, itemStyle: { opacity: 0.86 }, emphasis: { focus: 'series' } },
-                { name: '交易销毁', type: 'bar', stack: 'trade', data: burn, barWidth: '58%', barMaxWidth: 78, itemStyle: { opacity: 0.82 }, emphasis: { focus: 'series' } },
-                { name: '手续费扣除', type: 'bar', stack: 'trade', data: fee, barWidth: '58%', barMaxWidth: 78, itemStyle: { opacity: 0.84, borderRadius: [7, 7, 0, 0] }, emphasis: { focus: 'series' } }
+                { name: '交易销毁', type: 'bar', stack: 'trade', data: burn, barWidth: '58%', barMaxWidth: 78, barMinHeight: 3, itemStyle: { opacity: 0.92 }, emphasis: { focus: 'series' } },
+                { name: '手续费扣除', type: 'bar', stack: 'trade', data: fee, barWidth: '58%', barMaxWidth: 78, barMinHeight: 3, itemStyle: { opacity: 0.88, borderRadius: [7, 7, 0, 0] }, emphasis: { focus: 'series' } }
             ]
         }, true);
     }
@@ -321,13 +321,17 @@
     function setMarketChartOption(rows) {
         if (!marketChart) return;
         var sortedRows = (rows || []).slice().sort(function(a, b) {
-            return Number(a.single_price || 0) - Number(b.single_price || 0);
+            return String(a.date_key || '').localeCompare(String(b.date_key || ''));
         });
-        var labels = sortedRows.map(function(row) { return formatPrice(row.single_price); });
+        var labels = sortedRows.map(function(row) { return chartDayText(row.date_key); });
         var tradeValues = sortedRows.map(function(row) { return Number(row.total_trade_value || 0); });
+        var avgPrices = sortedRows.map(function(row) { return Number(row.avg_price || 0); });
         var marketValues = sortedRows.map(function(row) { return Number(row.market_value || 0); });
         var stockCounts = sortedRows.map(function(row) { return Number(row.stock_count || 0); });
         var orderCounts = sortedRows.map(function(row) { return Number(row.order_count || 0); });
+        var inflationRates = sortedRows.map(function(row) {
+            return row.market_inflation_rate == null ? null : Number(row.market_inflation_rate || 0);
+        });
         marketChart.setOption({
             color: ['#21b8b2', '#c0903f'],
             grid: { left: 82, right: 74, top: 58, bottom: 42, containLabel: false },
@@ -341,10 +345,13 @@
                 textStyle: { color: '#dff8f2', fontSize: 12, fontWeight: 700, lineHeight: 20 },
                 formatter: function(items) {
                     var idx = items && items[0] ? items[0].dataIndex : 0;
+                    var inflation = inflationRates[idx] == null ? '-' : (inflationRates[idx] >= 0 ? '+' : '') + inflationRates[idx].toFixed(2) + '%';
                     return [
-                        '<b>成交价格：' + labels[idx] + '</b>',
+                        '<b>' + labels[idx] + '</b>',
                         '成交总价值：' + formatNumber(tradeValues[idx], 2),
+                        '平均成交价：' + formatPrice(avgPrices[idx]),
                         '总市值：' + formatNumber(marketValues[idx], 2),
+                        '总市值膨胀率：' + inflation,
                         '股票总数：' + formatNumber(stockCounts[idx], 2),
                         '订单数：' + formatNumber(orderCounts[idx])
                     ].join('<br>');

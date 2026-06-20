@@ -340,22 +340,58 @@ class AkDataRepository:
                 return {"success": True, "start_date": start_day.isoformat(), "end_date": end_day.isoformat(), "rows": []}
             rows = await conn.fetch(
                 """
-                SELECT single_price,
-                       COUNT(*)::integer AS order_count,
-                       COALESCE(SUM(success), 0)::bigint AS total_success,
-                       COALESCE(SUM(success_value), 0)::numeric(14,2) AS total_trade_value,
-                       (COALESCE(SUM(success_value), 0) / 0.005)::numeric(18,2) AS market_value,
+                WITH price_bucket AS (
+                    SELECT date_key,
+                           single_price,
+                           COUNT(*)::integer AS order_count,
+                           COALESCE(SUM(success), 0)::bigint AS total_success,
+                           COALESCE(SUM(success_value), 0)::numeric(14,2) AS total_trade_value,
+                           (COALESCE(SUM(success_value), 0) / 0.005)::numeric(18,2) AS market_value,
+                           CASE
+                               WHEN single_price > 0
+                               THEN ((COALESCE(SUM(success_value), 0) / 0.005) / single_price)::numeric(18,2)
+                               ELSE 0::numeric(18,2)
+                           END AS stock_count,
+                           MIN(create_time) AS first_trade_time,
+                           MAX(create_time) AS last_trade_time
+                    FROM ak_trade_summary
+                    WHERE date_key BETWEEN $1 AND $2
+                    GROUP BY date_key, single_price
+                ),
+                daily_market AS (
+                    SELECT date_key,
+                           SUM(order_count)::integer AS order_count,
+                           SUM(total_success)::bigint AS total_success,
+                           SUM(total_trade_value)::numeric(14,2) AS total_trade_value,
+                           CASE
+                               WHEN SUM(total_success) > 0
+                               THEN (SUM(total_trade_value) / SUM(total_success))::numeric(4,3)
+                               ELSE 0::numeric(4,3)
+                           END AS avg_price,
+                           SUM(market_value)::numeric(18,2) AS market_value,
+                           SUM(stock_count)::numeric(18,2) AS stock_count,
+                           MIN(first_trade_time) AS first_trade_time,
+                           MAX(last_trade_time) AS last_trade_time
+                    FROM price_bucket
+                    GROUP BY date_key
+                )
+                SELECT date_key,
+                       order_count,
+                       total_success,
+                       total_trade_value,
+                       avg_price,
+                       market_value,
+                       stock_count,
                        CASE
-                           WHEN single_price > 0
-                           THEN ((COALESCE(SUM(success_value), 0) / 0.005) / single_price)::numeric(18,2)
-                           ELSE 0::numeric(18,2)
-                       END AS stock_count,
-                       MIN(create_time) AS first_trade_time,
-                       MAX(create_time) AS last_trade_time
-                FROM ak_trade_summary
-                WHERE date_key BETWEEN $1 AND $2
-                GROUP BY single_price
-                ORDER BY single_price ASC
+                           WHEN LAG(market_value) OVER (ORDER BY date_key) > 0
+                           THEN (((market_value - LAG(market_value) OVER (ORDER BY date_key))
+                               / LAG(market_value) OVER (ORDER BY date_key)) * 100)::numeric(10,2)
+                           ELSE NULL
+                       END AS market_inflation_rate,
+                       first_trade_time,
+                       last_trade_time
+                FROM daily_market
+                ORDER BY date_key ASC
                 """,
                 start_day,
                 end_day,
