@@ -4,6 +4,8 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
+from .config import normalize_config
+
 
 AK_TABLES = (
     "ak_trade_summary",
@@ -334,6 +336,11 @@ class AkDataRepository:
         days = max(1, min(int(days or 7), 90))
         end_day = date.today()
         start_day = end_day - timedelta(days=days - 1)
+        config = normalize_config(await self.load_config())
+        try:
+            base_day = date.fromisoformat(config.base_stat_date)
+        except Exception:
+            base_day = date(2026, 6, 1)
         pool = self._pool()
         async with pool.acquire() as conn:
             if not await self._table_exists(conn, "ak_trade_summary"):
@@ -351,7 +358,8 @@ class AkDataRepository:
                            s.date_key,
                            LAG(s.single_price) OVER (ORDER BY s.create_time ASC, s.trade_id ASC) AS previous_price
                     FROM ak_trade_summary s
-                    WHERE s.date_key <= ($2::date + 1)
+                    WHERE s.date_key >= $3
+                      AND s.date_key <= ($2::date + 1)
                 ),
                 segmented_trades AS (
                     SELECT *,
@@ -407,14 +415,12 @@ class AkDataRepository:
                            sc.next_price::numeric(4,3) AS avg_price,
                            CASE
                                WHEN sc.previous_price > 0
-                               THEN GREATEST(
-                                   ((ss.price_total_trade_value / 0.005) / sc.previous_price)
-                                       - ss.price_total_mycancel
-                                       - ss.price_total_fee_stock,
-                                   0
-                               )::numeric(18,2)
+                               THEN (((ss.price_total_trade_value / 0.005) / sc.previous_price)
+                                   - ss.price_total_mycancel
+                                   - ss.price_total_fee_stock)::numeric(18,2)
                                ELSE 0::numeric(18,2)
-                           END AS stock_count,
+                           END AS inferred_stock_count,
+                           (ss.price_total_mycancel + ss.price_total_fee_stock)::numeric(18,2) AS exit_stock_count,
                            ss.price_order_count,
                            ss.price_total_success,
                            ss.first_trade_time,
@@ -422,7 +428,18 @@ class AkDataRepository:
                     FROM segment_change sc
                     JOIN segment_stats ss ON ss.price_segment = sc.price_segment - 1
                     LEFT JOIN daily_stats ds ON ds.date_key = sc.date_key
-                    WHERE sc.date_key BETWEEN $1 AND $2
+                ),
+                computed_market AS (
+                    SELECT *,
+                           GREATEST(
+                               FIRST_VALUE(inferred_stock_count) OVER (ORDER BY price_change_time, price_trade_id)
+                                   - (
+                                       SUM(exit_stock_count) OVER (ORDER BY price_change_time, price_trade_id)
+                                       - FIRST_VALUE(exit_stock_count) OVER (ORDER BY price_change_time, price_trade_id)
+                                   ),
+                               0
+                           )::numeric(18,2) AS stock_count
+                    FROM visible_market
                 )
                 SELECT date_key,
                        price_trade_id,
@@ -440,15 +457,17 @@ class AkDataRepository:
                            WHEN LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id) > 0
                            THEN ((((stock_count * avg_price) - LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id))
                                / LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
-                           ELSE NULL
+                       ELSE NULL
                        END AS market_inflation_rate,
                        first_trade_time,
                        last_trade_time
-                FROM visible_market
+                FROM computed_market
+                WHERE date_key BETWEEN $1 AND $2
                 ORDER BY price_change_time ASC, price_trade_id ASC
                 """,
                 start_day,
                 end_day,
+                base_day,
             )
         return {
             "success": True,
