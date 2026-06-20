@@ -13,12 +13,19 @@
             dashboard: [],
             marketRows: [],
             recentTrades: [],
+            recentTotal: 0,
             visibleTrades: [],
             tableMode: 'orders',
             queryType: 'seller',
             accountId: '',
             queryLoading: false,
             queryTotal: 0,
+            tablePage: 1,
+            tablePageSize: 50,
+            tableLimit: 50,
+            tableOffset: 0,
+            tableHasMore: false,
+            openSelect: '',
             selectedTradeId: 0,
             buyerRows: [],
             buyerLoading: false,
@@ -31,6 +38,28 @@
             if (message) state.lastMessage = message;
         }
 
+        function applyTradePage(payload, isQuery) {
+            var rows = Array.isArray(payload && payload.rows) ? payload.rows : [];
+            var limit = Number(payload && payload.limit || state.tablePageSize || 50);
+            var offset = Number(payload && payload.offset || 0);
+            var total = Number(payload && payload.total || 0);
+            state.visibleTrades = rows;
+            state.tableLimit = limit;
+            state.tableOffset = offset;
+            state.tablePageSize = limit;
+            state.tablePage = Math.floor(offset / Math.max(limit, 1)) + 1;
+            state.tableHasMore = !!(payload && payload.has_more);
+            if (isQuery) {
+                state.queryTotal = total;
+            } else {
+                state.recentTotal = total;
+                state.queryTotal = 0;
+            }
+            state.selectedTradeId = rows[0] ? Number(rows[0].trade_id || 0) : 0;
+            state.buyerRows = [];
+            state.buyerError = '';
+        }
+
         function setBootstrap(payload) {
             state.status = payload.status || null;
             state.config = payload.config || state.config || {};
@@ -38,8 +67,8 @@
             state.storage = Array.isArray(payload.storage) ? payload.storage : [];
             state.dashboard = Array.isArray(payload.dashboard) ? payload.dashboard : [];
             state.marketRows = Array.isArray(payload.marketRows) ? payload.marketRows : [];
-            state.recentTrades = Array.isArray(payload.recentTrades) ? payload.recentTrades : [];
-            if (!state.visibleTrades.length) state.visibleTrades = state.recentTrades.slice();
+            state.recentTrades = Array.isArray(payload.recentTrades && payload.recentTrades.rows) ? payload.recentTrades.rows : [];
+            applyTradePage(payload.recentTrades || { rows: state.recentTrades, total: state.recentTrades.length, limit: state.tablePageSize, offset: 0 }, false);
             state.lastMessage = 'AK 数据已就绪';
             state.error = '';
         }
@@ -72,21 +101,15 @@
             state.tableMode = 'orders';
             state.queryType = payload.query_type || state.queryType;
             state.accountId = payload.account_id || state.accountId;
-            state.queryTotal = Number(payload.total || 0);
-            state.visibleTrades = Array.isArray(payload.rows) ? payload.rows : [];
-            state.selectedTradeId = state.visibleTrades[0] ? Number(state.visibleTrades[0].trade_id || 0) : 0;
-            state.buyerRows = [];
-            state.buyerError = '';
+            applyTradePage(payload, true);
             state.lastMessage = state.visibleTrades.length ? '已返回 ' + state.visibleTrades.length + ' 笔关联订单' : '暂无匹配数据';
         }
 
-        function resetToRecent() {
+        function setRecentTrades(payload) {
             state.tableMode = 'orders';
-            state.visibleTrades = state.recentTrades.slice();
-            state.queryTotal = 0;
-            state.selectedTradeId = 0;
-            state.buyerRows = [];
-            state.buyerError = '';
+            state.accountId = '';
+            state.recentTrades = Array.isArray(payload && payload.rows) ? payload.rows : [];
+            applyTradePage(payload || {}, false);
             state.lastMessage = '已显示最近订单';
         }
 
@@ -107,7 +130,7 @@
             setDashboard: setDashboard,
             setMarketValue: setMarketValue,
             setQueryResult: setQueryResult,
-            resetToRecent: resetToRecent,
+            setRecentTrades: setRecentTrades,
             setBuyerRows: setBuyerRows
         };
     }

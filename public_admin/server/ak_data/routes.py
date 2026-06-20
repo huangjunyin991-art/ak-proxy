@@ -95,22 +95,22 @@ def create_ak_data_router(
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
 
     @router.get("/trades/recent")
-    async def ak_data_recent_trades(request: Request, limit: int = 50):
+    async def ak_data_recent_trades(request: Request, limit: int = 50, offset: int = 0):
         error_response = await require_admin(request)
         if error_response is not None:
             return error_response
         try:
-            return await service.get_recent_trades(limit)
+            return await service.get_recent_trades(limit, offset)
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
 
     @router.get("/account-query")
-    async def ak_data_account_query(request: Request, query_type: str = "seller", account_id: str = "", limit: int = 500):
+    async def ak_data_account_query(request: Request, query_type: str = "seller", account_id: str = "", limit: int = 50, offset: int = 0):
         error_response = await require_admin(request)
         if error_response is not None:
             return error_response
         try:
-            return await service.query_account_trades(query_type, account_id, limit)
+            return await service.query_account_trades(query_type, account_id, limit, offset)
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
 

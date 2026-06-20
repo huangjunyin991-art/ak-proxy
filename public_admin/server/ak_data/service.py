@@ -55,13 +55,13 @@ class AkDataService:
         payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]
         return payload
 
-    async def get_recent_trades(self, limit: int = 50) -> dict[str, Any]:
-        payload = await self.repository.get_recent_trades(limit)
+    async def get_recent_trades(self, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        payload = await self.repository.get_recent_trades(limit, offset)
         payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]
         return payload
 
-    async def query_account_trades(self, query_type: str, account_id: str, limit: int = 500) -> dict[str, Any]:
-        payload = await self.repository.query_account_trades(query_type, account_id, limit)
+    async def query_account_trades(self, query_type: str, account_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        payload = await self.repository.query_account_trades(query_type, account_id, limit, offset)
         payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]
         return payload
 

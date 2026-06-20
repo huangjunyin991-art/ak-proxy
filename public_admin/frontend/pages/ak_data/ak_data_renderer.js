@@ -169,6 +169,9 @@
 
     function queryStatus(state) {
         if (state.queryLoading) {
+            if (!state.accountId) {
+                return '<div class="akd-query-status is-loading"><i></i><div><b>正在读取最近订单</b><p>数据返回后会自动更新关联订单表。</p></div></div>';
+            }
             return '<div class="akd-query-status is-loading"><i></i><div><b>正在后台查询' + (state.queryType === 'buyer' ? '买家 ' : '卖家 ') + html(state.accountId || '-') + '</b><p>查询任务已提交，您可以切换查看其他模块；数据返回后会自动更新汇总和关联订单表。</p></div></div>';
         }
         if (!state.accountId && !state.visibleTrades.length) {
@@ -179,9 +182,57 @@
         }
         if (state.accountId && state.queryTotal > 0) {
             var latest = state.visibleTrades[0] || {};
-            return '<div class="akd-query-status"><div><b>' + (state.queryType === 'buyer' ? '买家 ' : '卖家 ') + html(state.accountId) + ' · 关联订单 ' + number(state.queryTotal) + ' 笔</b><p>最近订单 ' + html(latest.trade_id || '-') + ' · ' + time(latest.create_time) + '，下方表格已展示全部关联订单。</p></div><span>本地查询</span></div>';
+            return '<div class="akd-query-status"><div><b>' + (state.queryType === 'buyer' ? '买家 ' : '卖家 ') + html(state.accountId) + ' · 关联订单 ' + number(state.queryTotal) + ' 笔</b><p>最近订单 ' + html(latest.trade_id || '-') + ' · ' + time(latest.create_time) + '，下方表格已展示当前页关联订单。</p></div><span>本地查询</span></div>';
         }
         return '<div class="akd-query-status"><div><b>最近订单 · 当前显示 ' + number(state.visibleTrades.length) + ' 笔</b><p>点击订单行可查看买家明细。</p></div><span>列表视图</span></div>';
+    }
+
+    function renderSelect(state, id, value, options, action) {
+        var current = options[0] || { value: '', label: '-' };
+        options.forEach(function(item) {
+            if (String(item.value) === String(value)) current = item;
+        });
+        var open = state.openSelect === id ? ' is-open' : '';
+        return '<div class="akd-select' + open + '" data-select-id="' + html(id) + '">' +
+            '<button type="button" class="akd-select-trigger" data-action="toggle-select" data-select-id="' + html(id) + '">' +
+                '<span>' + html(current.label) + '</span><i></i>' +
+            '</button>' +
+            '<div class="akd-select-menu">' + options.map(function(item) {
+                var active = String(item.value) === String(value) ? ' active' : '';
+                return '<button type="button" class="akd-select-option' + active + '" data-action="' + html(action) + '" data-value="' + html(item.value) + '">' + html(item.label) + '</button>';
+            }).join('') + '</div>' +
+        '</div>';
+    }
+
+    function pageMeta(state) {
+        var total = Number(state.queryTotal || state.recentTotal || 0);
+        var size = Math.max(Number(state.tablePageSize || state.tableLimit || 50), 1);
+        var page = Math.max(Number(state.tablePage || 1), 1);
+        var pages = Math.max(Math.ceil(total / size), 1);
+        var offset = Math.max(Number(state.tableOffset || 0), 0);
+        var start = total && state.visibleTrades && state.visibleTrades.length ? offset + 1 : 0;
+        var end = total && state.visibleTrades ? Math.min(offset + state.visibleTrades.length, total) : 0;
+        return { total: total, size: size, page: Math.min(page, pages), pages: pages, start: start, end: end };
+    }
+
+    function renderPagination(state) {
+        var meta = pageMeta(state);
+        var disabledPrev = meta.page <= 1 ? ' disabled' : '';
+        var disabledNext = meta.page >= meta.pages ? ' disabled' : '';
+        return '<div class="akd-pagination">' +
+            '<div class="akd-page-size"><span>每页</span>' + renderSelect(state, 'akDataPageSize', String(meta.size), [
+                { value: '10', label: '10 笔' },
+                { value: '20', label: '20 笔' },
+                { value: '50', label: '50 笔' },
+                { value: '100', label: '100 笔' }
+            ], 'select-page-size') + '</div>' +
+            '<div class="akd-page-info">' + number(meta.start) + '-' + number(meta.end) + ' / ' + number(meta.total) + '</div>' +
+            '<div class="akd-page-actions">' +
+                '<button class="akd-page-btn" data-action="page-prev"' + disabledPrev + '>上一页</button>' +
+                '<span>' + number(meta.page) + ' / ' + number(meta.pages) + '</span>' +
+                '<button class="akd-page-btn" data-action="page-next"' + disabledNext + '>下一页</button>' +
+            '</div>' +
+        '</div>';
     }
 
     function renderOrderRows(state) {
@@ -218,8 +269,10 @@
             return '<div class="akd-table-head"><div><h3>买家明细</h3><p>订单 ' + html(state.selectedTradeId || '-') + ' 的买入记录。</p></div><button class="akd-btn ghost" data-action="back-orders">返回订单</button></div>' +
                 '<div class="akd-table-wrap"><table class="akd-table akd-table--buyers"><thead><tr><th>订单 ID</th><th data-align="right">购买数量</th><th data-align="right">买家 ID</th></tr></thead><tbody>' + renderBuyerRows(state) + '</tbody></table></div>';
         }
-        return '<div class="akd-table-head"><div><h3>关联订单</h3><p>' + (state.queryTotal ? '显示当前查询关联订单。' : '显示最近采集订单。') + '</p></div><span>' + number((state.visibleTrades || []).length) + ' 笔</span></div>' +
-            '<div class="akd-table-wrap"><table class="akd-table"><thead><tr><th>订单 ID</th><th>成交时间</th><th>卖家 ID</th><th data-align="right">成交价</th><th data-align="right">挂卖量</th><th data-align="right">交易销毁</th><th data-align="right">成交量</th><th data-align="right">成交价值</th><th data-align="right">买家数</th></tr></thead><tbody>' + renderOrderRows(state) + '</tbody></table></div>';
+        var meta = pageMeta(state);
+        return '<div class="akd-table-head"><div><h3>关联订单</h3><p>' + (state.queryTotal ? '显示当前查询关联订单。' : '显示最近采集订单。') + '</p></div><span>' + number(meta.total || (state.visibleTrades || []).length) + ' 笔</span></div>' +
+            '<div class="akd-table-wrap"><table class="akd-table"><thead><tr><th>订单 ID</th><th>成交时间</th><th>卖家 ID</th><th data-align="right">成交价</th><th data-align="right">挂卖量</th><th data-align="right">交易销毁</th><th data-align="right">成交量</th><th data-align="right">成交价值</th><th data-align="right">买家数</th></tr></thead><tbody>' + renderOrderRows(state) + '</tbody></table></div>' +
+            renderPagination(state);
     }
 
     function render(state) {
@@ -234,7 +287,12 @@
             '<section class="akd-panel"><div class="akd-panel-head"><div><h3>一次性回填</h3><p>可向前补到指定日期并保存到数据库。</p></div></div>' + renderBackfill(state) + '</section>',
             '</aside>',
             '<main class="akd-main">',
-            '<section class="akd-panel akd-query-panel"><div class="akd-panel-head"><div><h3>AK交易数据</h3><p>输入卖家或者买家 ID 可以查询对应的交易订单。</p></div></div><div class="akd-search"><select id="akDataQueryType"><option value="seller"' + (state.queryType === 'seller' ? ' selected' : '') + '>卖家 ID</option><option value="buyer"' + (state.queryType === 'buyer' ? ' selected' : '') + '>买家 ID</option></select><input id="akDataAccountId" type="number" value="' + html(state.accountId) + '" placeholder="输入卖家或买家 ID"><button class="akd-btn primary" data-action="search">查询交易</button><button class="akd-btn ghost" data-action="reset">最近订单</button></div>' + queryStatus(state) + renderTable(state) + '</section>',
+            '<section class="akd-panel akd-query-panel"><div class="akd-panel-head"><div><h3>AK交易数据</h3><p>输入卖家或者买家 ID 可以查询对应的交易订单。</p></div></div><div class="akd-search">' +
+                renderSelect(state, 'akDataQueryType', state.queryType || 'seller', [
+                    { value: 'seller', label: '卖家 ID' },
+                    { value: 'buyer', label: '买家 ID' }
+                ], 'select-query-type') +
+                '<input id="akDataAccountId" type="number" value="' + html(state.accountId) + '" placeholder="输入卖家或买家 ID"><button class="akd-btn primary" data-action="search">查询交易</button><button class="akd-btn ghost" data-action="reset">最近订单</button></div>' + queryStatus(state) + renderTable(state) + '</section>',
             '<section class="akd-panel akd-chart-panel"><div class="akd-panel-head akd-panel-head--chart"><div><h3>日统计看板</h3><p>默认读日汇总表，点击日期查看订单明细。</p></div><div class="akd-segment"><button class="' + (state.dashboardDays === 7 ? 'active' : '') + '" data-action="range" data-days="7">近 7 天</button><button class="' + (state.dashboardDays === 14 ? 'active' : '') + '" data-action="range" data-days="14">近 14 天</button><button class="' + (state.dashboardDays === 30 ? 'active' : '') + '" data-action="range" data-days="30">近 30 天</button></div></div><div class="akd-chart-grid"><div class="akd-chart-card"><strong>AK交易统计</strong><div id="akDataTradeChart" class="akd-echart"></div><div class="akd-chart-empty" id="akDataTradeChartEmpty">暂无统计数据</div></div><div class="akd-chart-card"><strong>AK成交统计</strong><div id="akDataDealChart" class="akd-echart"></div><div class="akd-chart-empty" id="akDataDealChartEmpty">暂无统计数据</div></div><div class="akd-chart-card akd-chart-card--wide"><strong>AK市值变化</strong><div id="akDataMarketChart" class="akd-echart"></div><div class="akd-chart-empty" id="akDataMarketChartEmpty">暂无市值数据</div></div></div></section>',
             '</main>',
             '</section>',

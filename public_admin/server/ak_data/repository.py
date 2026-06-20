@@ -439,12 +439,13 @@ class AkDataRepository:
             "rows": [dict(row) for row in rows],
         }
 
-    async def get_recent_trades(self, limit: int = 50) -> dict[str, Any]:
+    async def get_recent_trades(self, limit: int = 50, offset: int = 0) -> dict[str, Any]:
         limit = max(1, min(int(limit or 50), 200))
+        offset = max(0, int(offset or 0))
         pool = self._pool()
         async with pool.acquire() as conn:
             if not await self._table_exists(conn, "ak_trade_summary"):
-                return {"success": True, "rows": []}
+                return {"success": True, "total": 0, "limit": limit, "offset": offset, "has_more": False, "rows": []}
             has_buyers = await self._table_exists(conn, "ak_trade_buyers")
             complete_filter = """
                 AND NOT EXISTS (
@@ -459,6 +460,14 @@ class AkDataRepository:
                     GROUP BY trade_id
                 ) b ON b.trade_id = s.trade_id
             """ if has_buyers else "LEFT JOIN (SELECT 0::integer AS trade_id, 0::bigint AS buyer_count) b ON false"
+            total = await conn.fetchval(
+                f"""
+                SELECT COUNT(*)::bigint
+                FROM ak_trade_summary s
+                WHERE 1=1
+                {complete_filter}
+                """
+            )
             rows = await conn.fetch(
                 f"""
                 SELECT s.trade_id, s.create_time, s.seller_flow_number, s.single_price,
@@ -471,25 +480,36 @@ class AkDataRepository:
                 {complete_filter}
                 ORDER BY s.create_time DESC, s.trade_id DESC
                 LIMIT $1
+                OFFSET $2
                 """,
                 limit,
+                offset,
             )
-        return {"success": True, "rows": [dict(row) for row in rows]}
+        total_int = int(total or 0)
+        return {
+            "success": True,
+            "total": total_int,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + limit < total_int,
+            "rows": [dict(row) for row in rows],
+        }
 
-    async def query_account_trades(self, query_type: str, account_id: str, limit: int = 500) -> dict[str, Any]:
+    async def query_account_trades(self, query_type: str, account_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
         role = "buyer" if str(query_type or "").lower() == "buyer" else "seller"
         account = str(account_id or "").strip()
-        limit = max(1, min(int(limit or 500), 1000))
+        limit = max(1, min(int(limit or 50), 200))
+        offset = max(0, int(offset or 0))
         if not account:
-            return {"success": True, "query_type": role, "account_id": account, "total": 0, "rows": []}
+            return {"success": True, "query_type": role, "account_id": account, "total": 0, "limit": limit, "offset": offset, "has_more": False, "rows": []}
         pool = self._pool()
         async with pool.acquire() as conn:
             if not await self._table_exists(conn, "ak_trade_summary"):
-                return {"success": True, "query_type": role, "account_id": account, "total": 0, "rows": []}
+                return {"success": True, "query_type": role, "account_id": account, "total": 0, "limit": limit, "offset": offset, "has_more": False, "rows": []}
             has_buyers = await self._table_exists(conn, "ak_trade_buyers")
             if role == "buyer":
                 if not has_buyers:
-                    return {"success": True, "query_type": role, "account_id": account, "total": 0, "rows": []}
+                    return {"success": True, "query_type": role, "account_id": account, "total": 0, "limit": limit, "offset": offset, "has_more": False, "rows": []}
                 has_fetch_state = await self._table_exists(conn, "ak_trade_fetch_state")
                 complete_filter = """
                       AND NOT EXISTS (
@@ -530,9 +550,11 @@ class AkDataRepository:
                     {complete_filter}
                     ORDER BY s.create_time DESC, s.trade_id DESC
                     LIMIT $2
+                    OFFSET $3
                     """,
                     account,
                     limit,
+                    offset,
                 )
             else:
                 buyer_join = """
@@ -570,15 +592,21 @@ class AkDataRepository:
                     {complete_filter}
                     ORDER BY s.create_time DESC, s.trade_id DESC
                     LIMIT $2
+                    OFFSET $3
                     """,
                     account,
                     limit,
+                    offset,
                 )
+        total_int = int(total or 0)
         return {
             "success": True,
             "query_type": role,
             "account_id": account,
-            "total": int(total or 0),
+            "total": total_int,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + limit < total_int,
             "rows": [dict(row) for row in rows],
         }
 

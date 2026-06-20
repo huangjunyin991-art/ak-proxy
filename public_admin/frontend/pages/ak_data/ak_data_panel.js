@@ -469,7 +469,7 @@
             api.storage(),
             api.dashboard(store.state.dashboardDays),
             api.marketValue(store.state.dashboardDays),
-            api.recentTrades(50)
+            api.recentTrades(store.state.tablePageSize || 50, 0)
         ]).then(function(results) {
             store.setBootstrap({
                 status: results[0],
@@ -478,7 +478,7 @@
                 storage: results[2] && results[2].rows,
                 dashboard: results[3] && results[3].rows,
                 marketRows: results[4] && results[4].rows,
-                recentTrades: results[5] && results[5].rows
+                recentTrades: results[5]
             });
             ensureBackfillPolling();
         }).catch(function(error) {
@@ -634,21 +634,28 @@
         });
     }
 
-    function runQuery() {
+    function currentOffset(page) {
+        var size = Math.max(Number(store.state.tablePageSize || 50), 1);
+        return (Math.max(Number(page || 1), 1) - 1) * size;
+    }
+
+    function runQuery(page) {
         if (!api || !store) return;
-        var type = document.getElementById('akDataQueryType');
         var input = document.getElementById('akDataAccountId');
-        store.state.queryType = type ? type.value : 'seller';
         store.state.accountId = input ? String(input.value || '').trim() : '';
         store.state.queryLoading = true;
         store.state.tableMode = 'orders';
+        store.state.tablePage = Math.max(Number(page || 1), 1);
+        store.state.tableOffset = currentOffset(store.state.tablePage);
+        store.state.openSelect = '';
         var seq = ++querySeq;
         render();
         notify('查询任务已提交，后台正在检索交易订单', 'info');
         api.accountQuery({
             queryType: store.state.queryType,
             accountId: store.state.accountId,
-            limit: 500
+            limit: store.state.tablePageSize || 50,
+            offset: store.state.tableOffset || 0
         }).then(function(payload) {
             if (seq !== querySeq) return;
             store.setQueryResult(payload || {});
@@ -661,6 +668,38 @@
         }).finally(function() {
             if (seq === querySeq) render();
         });
+    }
+
+    function loadRecent(page) {
+        if (!api || !store) return;
+        store.state.queryLoading = true;
+        store.state.tableMode = 'orders';
+        store.state.accountId = '';
+        store.state.tablePage = Math.max(Number(page || 1), 1);
+        store.state.tableOffset = currentOffset(store.state.tablePage);
+        store.state.openSelect = '';
+        var seq = ++querySeq;
+        render();
+        api.recentTrades(store.state.tablePageSize || 50, store.state.tableOffset || 0).then(function(payload) {
+            if (seq !== querySeq) return;
+            store.state.queryLoading = false;
+            store.setRecentTrades(payload || {});
+        }).catch(function(error) {
+            if (seq !== querySeq) return;
+            store.state.queryLoading = false;
+            store.setError(error.message || '最近订单加载失败');
+            notify(store.state.error, 'error');
+        }).finally(function() {
+            if (seq === querySeq) render();
+        });
+    }
+
+    function loadTablePage(page) {
+        if (store.state.accountId) {
+            runQuery(page);
+        } else {
+            loadRecent(page);
+        }
     }
 
     function loadRange(days) {
@@ -703,10 +742,27 @@
         if (action === 'refresh') {
             bootstrap();
         } else if (action === 'search') {
-            runQuery();
+            runQuery(1);
         } else if (action === 'reset') {
-            store.resetToRecent();
+            loadRecent(1);
+        } else if (action === 'toggle-select') {
+            var selectId = node.getAttribute('data-select-id') || '';
+            store.state.openSelect = store.state.openSelect === selectId ? '' : selectId;
             render();
+        } else if (action === 'select-query-type') {
+            var currentInput = document.getElementById('akDataAccountId');
+            if (currentInput) store.state.accountId = String(currentInput.value || '').trim();
+            store.state.queryType = node.getAttribute('data-value') === 'buyer' ? 'buyer' : 'seller';
+            store.state.openSelect = '';
+            render();
+        } else if (action === 'select-page-size') {
+            store.state.tablePageSize = Number(node.getAttribute('data-value') || 50);
+            store.state.openSelect = '';
+            loadTablePage(1);
+        } else if (action === 'page-prev') {
+            loadTablePage(Math.max(Number(store.state.tablePage || 1) - 1, 1));
+        } else if (action === 'page-next') {
+            loadTablePage(Number(store.state.tablePage || 1) + 1);
         } else if (action === 'range') {
             loadRange(node.getAttribute('data-days') || 7);
         } else if (action === 'trade-buyers') {

@@ -51,7 +51,7 @@
         storage: function() { return get('/storage'); },
         dashboard: function(days) { return get('/dashboard', { days: days || 7 }); },
         marketValue: function(days) { return get('/market-value', { days: days || 7 }); },
-        recentTrades: function(limit) { return get('/trades/recent', { limit: limit || 50 }); },
+        recentTrades: function(limit, offset) { return get('/trades/recent', { limit: limit || 50, offset: offset || 0 }); },
         backfillStatus: function() { return get('/backfill/status'); },
         startBackfill: function(payload) { return post('/backfill/start', payload || {}); },
         pauseBackfill: function() { return post('/backfill/pause', {}); },
@@ -61,7 +61,8 @@
             return get('/account-query', {
                 query_type: payload && payload.queryType ? payload.queryType : 'seller',
                 account_id: payload && payload.accountId ? payload.accountId : '',
-                limit: payload && payload.limit ? payload.limit : 500
+                limit: payload && payload.limit ? payload.limit : 50,
+                offset: payload && payload.offset ? payload.offset : 0
             });
         },
         tradeBuyers: function(tradeId) { return get('/trades/' + encodeURIComponent(tradeId) + '/buyers'); }
