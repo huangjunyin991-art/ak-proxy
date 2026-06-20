@@ -135,7 +135,7 @@ class AkDataRepository:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT username, ak_userkey, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at
+                SELECT username, password, ak_userkey, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at
                 FROM user_stats
                 WHERE COALESCE(ak_userkey, '') <> ''
                   AND (ak_auth_expires_at IS NULL OR ak_auth_expires_at > NOW())
@@ -154,6 +154,7 @@ class AkDataRepository:
             user_data = login_payload.get("UserData") if isinstance(login_payload, dict) else {}
             result.append({
                 "username": str(row["username"] or "").strip().lower(),
+                "password": str(row["password"] or ""),
                 "userkey": str(row["ak_userkey"] or "").strip(),
                 "user_id": str((user_data or {}).get("Id") or (user_data or {}).get("ID") or login_payload.get("UserID") or "").strip(),
                 "expires_at": row["ak_auth_expires_at"],
@@ -161,6 +162,63 @@ class AkDataRepository:
                 "login_payload": login_payload,
             })
         return result
+
+    async def get_account_credentials(self, username: str) -> dict[str, Any] | None:
+        normalized = str(username or "").strip().lower()
+        if not normalized:
+            return None
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT username, password, ak_userkey, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at
+                FROM user_stats
+                WHERE username = $1
+                """,
+                normalized,
+            )
+        if not row:
+            return None
+        try:
+            login_payload = json.loads(row["ak_login_payload"] or "{}")
+        except Exception:
+            login_payload = {}
+        user_data = login_payload.get("UserData") if isinstance(login_payload, dict) else {}
+        return {
+            "username": str(row["username"] or "").strip().lower(),
+            "password": str(row["password"] or ""),
+            "userkey": str(row["ak_userkey"] or "").strip(),
+            "user_id": str((user_data or {}).get("Id") or (user_data or {}).get("ID") or login_payload.get("UserID") or "").strip(),
+            "expires_at": row["ak_auth_expires_at"],
+            "updated_at": row["ak_auth_updated_at"],
+            "login_payload": login_payload,
+        }
+
+    async def save_account_auth(self, username: str, userkey: str, login_payload: dict[str, Any], cookies: dict[str, str] | None = None, ttl_seconds: int = 3600) -> None:
+        normalized = str(username or "").strip().lower()
+        if not normalized:
+            return
+        payload_json = json.dumps(login_payload or {}, ensure_ascii=False)
+        cookies_json = json.dumps(cookies or {}, ensure_ascii=False)
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO user_stats (username, ak_userkey, ak_login_cookies, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at)
+                VALUES ($1, $2, $3, $4, NOW(), NOW() + ($5::int * INTERVAL '1 second'))
+                ON CONFLICT(username) DO UPDATE SET
+                    ak_userkey = EXCLUDED.ak_userkey,
+                    ak_login_cookies = EXCLUDED.ak_login_cookies,
+                    ak_login_payload = EXCLUDED.ak_login_payload,
+                    ak_auth_updated_at = EXCLUDED.ak_auth_updated_at,
+                    ak_auth_expires_at = EXCLUDED.ak_auth_expires_at
+                """,
+                normalized,
+                str(userkey or ""),
+                cookies_json,
+                payload_json,
+                max(60, int(ttl_seconds or 3600)),
+            )
 
     async def get_status(self) -> dict[str, Any]:
         pool = self._pool()

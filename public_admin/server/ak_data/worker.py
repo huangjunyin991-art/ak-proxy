@@ -178,8 +178,9 @@ class AkDataWorker:
                 if batch.get("paused"):
                     self._finish("paused", "探测已停止")
                     return
-                if batch.get("forbidden"):
-                    self._finish("finished", f"探测命中 403，已停止：{self._state.processed} 笔")
+                if batch.get("forbidden") or batch.get("auth_invalid"):
+                    reason = "登录态失效" if batch.get("auth_invalid") else "403"
+                    self._finish("finished", f"探测命中 {reason}，已停止：{self._state.processed} 笔")
                     return
                 failed_ids = [int(item.get("trade_id") or 0) for item in batch.get("failed") or [] if int(item.get("trade_id") or 0) > 0]
                 if not failed_ids:
@@ -223,16 +224,32 @@ class AkDataWorker:
                 if result.get("paused"):
                     self._finish("paused", "历史回填已暂停，未跨日的当日缓存未提交")
                     return
-                if result.get("forbidden"):
+                if self._needs_account_switch(result):
                     self._apply_fetch_result(result)
+                    if result.get("auth_invalid"):
+                        refreshed = await self._refresh_account_auth(client, account)
+                        if refreshed:
+                            account = refreshed
+                            self._state.current_account = account.get("username") or ""
+                            self._state.message = f"账号 {self._state.current_account or '-'} 登录态已刷新，重试订单 {current}"
+                            await self.repository.update_runtime(
+                                current_trade_id=current,
+                                current_account_username=self._state.current_account,
+                                account_switch_count=self._state.account_switch_count,
+                                status="running",
+                                last_error="",
+                            )
+                            await self._sleep_interval(self._state.request_interval_ms)
+                            continue
                     if account_index + 1 < len(accounts):
                         failed_account = account.get("username") or "-"
                         account_index += 1
                         account = accounts[account_index]
                         self._state.account_switch_count += 1
                         self._state.current_account = account.get("username") or ""
+                        reason_text = "登录态失效" if result.get("auth_invalid") else "返回 403"
                         self._state.message = (
-                            f"账号 {failed_account} 返回 403，已切换到 {self._state.current_account or '-'} "
+                            f"账号 {failed_account} {reason_text}，已切换到 {self._state.current_account or '-'} "
                             f"重试订单 {current}"
                         )
                         await self.repository.update_runtime(
@@ -244,6 +261,9 @@ class AkDataWorker:
                         )
                         await self._sleep_interval(self._state.request_interval_ms)
                         continue
+                    if result.get("auth_invalid"):
+                        self._finish("error", "所有候选账号登录态失效，且账号密码刷新失败", str(result.get("error") or "auth invalid"))
+                        return
                     await self._cooldown(config, current, result)
                     return
                 if not result.get("ok"):
@@ -284,7 +304,7 @@ class AkDataWorker:
             self._state.retry_round = attempt
             self._state.message = f"正在获取订单 {trade_id}，第 {attempt}/{rounds} 轮"
             result = await self._fetch_full_trade(client, account, config, trade_id)
-            if result.get("ok") or result.get("forbidden"):
+            if result.get("ok") or self._needs_account_switch(result):
                 return result
             last_result = result
             self._state.last_error = str(result.get("error") or "")[:500]
@@ -389,14 +409,18 @@ class AkDataWorker:
                     }
                 trade_id = int(result.get("trade_id") or meta.get("trade_id") or 0)
                 self._state.current_trade_id = trade_id
-                if result.get("forbidden"):
+                if self._needs_account_switch(result):
                     if meta.get("stage") == "detail":
                         self._apply_fetch_result(result)
                     else:
                         self._apply_buyers_result(result)
                     failed.append(result)
                     if stop_on_403:
-                        return {"forbidden": True, "failed": failed}
+                        return {
+                            "forbidden": bool(result.get("forbidden")),
+                            "auth_invalid": bool(result.get("auth_invalid")),
+                            "failed": failed,
+                        }
                     continue
                 if meta.get("stage") == "detail":
                     if not result.get("ok"):
@@ -431,6 +455,14 @@ class AkDataWorker:
         detail_status, detail_payload = await client.detail(trade_id, key, user_id)
         if detail_status == 403:
             return {"ok": False, "forbidden": True, "trade_id": trade_id, "stage": "detail", "error": f"detail status={detail_status}"}
+        if self._is_auth_invalid_response(detail_status, detail_payload):
+            return {
+                "ok": False,
+                "auth_invalid": True,
+                "trade_id": trade_id,
+                "stage": "detail",
+                "error": f"detail auth invalid status={detail_status}: {self._payload_message(detail_payload)}",
+            }
         if detail_status >= 400 or detail_status == 0:
             return {"ok": False, "trade_id": trade_id, "stage": "detail", "error": f"detail status={detail_status}: {self._payload_message(detail_payload)}"}
         detail = detail_payload.get("Data") if isinstance(detail_payload, dict) else None
@@ -464,6 +496,14 @@ class AkDataWorker:
         )
         if buyers_status == 403:
             return {"ok": False, "forbidden": True, "trade_id": trade_id, "stage": "buyers", "error": f"buyers status={buyers_status}"}
+        if self._is_auth_invalid_response(buyers_status, buyers_payload):
+            return {
+                "ok": False,
+                "auth_invalid": True,
+                "trade_id": trade_id,
+                "stage": "buyers",
+                "error": f"buyers auth invalid status={buyers_status}: {self._payload_message(buyers_payload)}",
+            }
         if buyers_status >= 400 or buyers_status == 0:
             return {"ok": False, "trade_id": trade_id, "stage": "buyers", "error": f"buyers status={buyers_status}: {self._payload_message(buyers_payload)}"}
         return {
@@ -560,15 +600,18 @@ class AkDataWorker:
             else:
                 normal.append(item)
 
+        if fallback and fallback_item is None:
+            fallback_item = await self.repository.get_account_credentials(fallback)
         max_attempts = max(1, int(config.max_account_switches or 0) + 1)
-        selected_items = normal[:max_attempts]
-        if fallback_item and all(item.get("username") != fallback for item in selected_items):
-            if len(selected_items) < max_attempts:
-                selected_items.append(fallback_item)
-            elif max_attempts > 1:
-                selected_items[-1] = fallback_item
-            elif not selected_items:
-                selected_items.append(fallback_item)
+        selected_items = []
+        if fallback_item:
+            selected_items.append(fallback_item)
+        for item in normal:
+            if len(selected_items) >= max_attempts:
+                break
+            if fallback and str(item.get("username") or "").strip().lower() == fallback:
+                continue
+            selected_items.append(item)
         if not selected_items:
             raise RuntimeError("没有可用 AK 登录态，请先让账号登录一次或配置兜底账号")
         candidates = [self._account_from_row(item) for item in selected_items]
@@ -581,6 +624,7 @@ class AkDataWorker:
             "username": str(row.get("username") or ""),
             "key": str(row.get("userkey") or ""),
             "user_id": str(row.get("user_id") or ""),
+            "password": str(row.get("password") or ""),
         }
 
     @staticmethod
@@ -598,6 +642,8 @@ class AkDataWorker:
         detail_status, detail_payload = await client.detail(trade_id, key, user_id)
         if detail_status == 403:
             return {"ok": False, "forbidden": True, "error": f"detail status={detail_status}"}
+        if self._is_auth_invalid_response(detail_status, detail_payload):
+            return {"ok": False, "auth_invalid": True, "error": f"detail auth invalid status={detail_status}: {self._payload_message(detail_payload)}"}
         if detail_status >= 400:
             return {"ok": False, "error": f"detail status={detail_status}"}
         detail = detail_payload.get("Data") if isinstance(detail_payload, dict) else None
@@ -618,6 +664,8 @@ class AkDataWorker:
             )
             if buyers_status == 403:
                 return {"ok": False, "forbidden": True, "error": f"buyers status={buyers_status}"}
+            if self._is_auth_invalid_response(buyers_status, buyers_payload):
+                return {"ok": False, "auth_invalid": True, "error": f"buyers auth invalid status={buyers_status}: {self._payload_message(buyers_payload)}"}
             if buyers_status < 400:
                 buyers = self._normalize_buyers(buyers_payload)
         trade_time = self._parse_datetime(detail.get("CreateTime"))
@@ -659,6 +707,100 @@ class AkDataWorker:
         else:
             self._state.failed += 1
             self._state.last_error = str(result.get("error") or "")[:500]
+
+    async def _refresh_account_auth(self, client: AkUpstreamClient, account: dict[str, str]) -> dict[str, str] | None:
+        username = str(account.get("username") or "").strip().lower()
+        password = str(account.get("password") or "")
+        if not username or not password:
+            self._state.last_error = f"账号 {username or '-'} 缺少保存密码，无法刷新登录态"
+            return None
+        status, payload, cookies = await client.login(username, password)
+        is_success = (
+            status == 200
+            and isinstance(payload, dict)
+            and (payload.get("Error") is False or (not payload.get("Error") and isinstance(payload.get("UserData"), dict)))
+        )
+        if not is_success:
+            self._state.last_error = f"账号 {username} 刷新登录态失败 status={status}: {self._payload_message(payload)}"
+            return None
+        userkey = self._extract_login_userkey(payload)
+        user_id = self._extract_login_user_id(payload)
+        if not userkey or not user_id:
+            self._state.last_error = f"账号 {username} 登录成功但缺少 key/UserID"
+            return None
+        await self.repository.save_account_auth(username, userkey, payload, cookies=cookies, ttl_seconds=3600)
+        return {
+            "username": username,
+            "password": password,
+            "key": userkey,
+            "user_id": user_id,
+        }
+
+    @staticmethod
+    def _needs_account_switch(result: dict[str, Any]) -> bool:
+        return bool(result.get("forbidden") or result.get("auth_invalid"))
+
+    @staticmethod
+    def _is_auth_invalid_response(status: int, payload: Any) -> bool:
+        if int(status or 0) in {301, 302, 303, 307, 308}:
+            return True
+        if not isinstance(payload, dict):
+            return False
+        code = str(payload.get("Code") or payload.get("code") or "").strip().lower()
+        if code in {"upstream_redirect", "upstream_html"}:
+            return True
+        text = " ".join(str(payload.get(key) or "") for key in ("Msg", "message", "Message", "Error", "Code"))
+        lowered = text.lower()
+        return any(marker in lowered for marker in (
+            "object moved",
+            "document moved",
+            "<head",
+            "<html",
+            "login",
+            "islogin",
+            "key",
+            "invalid",
+            "expired",
+            "登录",
+            "登錄",
+            "未登",
+            "失效",
+            "过期",
+            "過期",
+        ))
+
+    @staticmethod
+    def _extract_login_userkey(login_result: dict[str, Any]) -> str:
+        if not isinstance(login_result, dict):
+            return ""
+        value = login_result.get("Key")
+        if value not in (None, ""):
+            return str(value)
+        user_data = login_result.get("UserData")
+        if isinstance(user_data, dict):
+            for key in ("Key", "key", "UserKey", "userkey", "ukey"):
+                value = user_data.get(key)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
+
+    @staticmethod
+    def _extract_login_user_id(login_result: dict[str, Any]) -> str:
+        if not isinstance(login_result, dict):
+            return ""
+        containers = []
+        user_data = login_result.get("UserData")
+        if isinstance(user_data, dict):
+            containers.append(user_data)
+        containers.append(login_result)
+        for item in containers:
+            if not isinstance(item, dict):
+                continue
+            for key in ("Id", "ID", "UserID", "userid"):
+                value = item.get(key)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
 
     def _finish(self, status: str, message: str, error: str = "") -> None:
         self._state.status = status
