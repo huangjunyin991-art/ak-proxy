@@ -196,10 +196,7 @@
         });
         dealChart.setOption({
             color: ['#0ea8a5', '#c0903f'],
-            grid: [
-                { left: 70, right: 22, top: 58, height: 82, containLabel: false },
-                { left: 70, right: 22, top: 174, height: 62, containLabel: false }
-            ],
+            grid: { left: 70, right: 54, top: 58, bottom: 40, containLabel: false },
             tooltip: {
                 trigger: 'axis',
                 backgroundColor: 'rgba(6,20,28,0.96)',
@@ -226,30 +223,17 @@
                 textStyle: { color: 'rgba(211,236,235,0.82)', fontSize: 12, fontWeight: 800 },
                 data: ['成交价值', '成交价格']
             },
-            xAxis: [
-                {
-                    type: 'category',
-                    data: labels,
-                    gridIndex: 0,
-                    axisTick: { show: false },
-                    boundaryGap: false,
-                    axisLine: { lineStyle: { color: 'rgba(175,215,216,0.18)' } },
-                    axisLabel: { show: false }
-                },
-                {
-                    type: 'category',
-                    data: labels,
-                    gridIndex: 1,
-                    axisTick: { show: false },
-                    boundaryGap: false,
-                    axisLine: { lineStyle: { color: 'rgba(175,215,216,0.22)' } },
-                    axisLabel: { color: 'rgba(216,236,236,0.76)', fontSize: 12, margin: 12, fontWeight: 700 }
-                }
-            ],
+            xAxis: {
+                type: 'category',
+                data: labels,
+                axisTick: { show: false },
+                boundaryGap: false,
+                axisLine: { lineStyle: { color: 'rgba(175,215,216,0.22)' } },
+                axisLabel: { color: 'rgba(216,236,236,0.76)', fontSize: 12, margin: 12, fontWeight: 700 }
+            },
             yAxis: [
                 {
                     type: 'value',
-                    gridIndex: 0,
                     splitLine: { lineStyle: { color: 'rgba(175,215,216,0.10)' } },
                     axisLabel: {
                         color: 'rgba(178,211,214,0.70)',
@@ -259,10 +243,10 @@
                 },
                 {
                     type: 'value',
-                    gridIndex: 1,
+                    position: 'right',
                     min: function(value) { return Math.max(0, Number(value.min || 0) - 0.002); },
                     max: function(value) { return Number(value.max || 0) + 0.002; },
-                    splitLine: { lineStyle: { color: 'rgba(175,215,216,0.08)' } },
+                    splitLine: { show: false },
                     axisLabel: { color: 'rgba(218,177,100,0.88)', fontSize: 11, formatter: function(value) { return formatPrice(value); } }
                 }
             ],
@@ -271,7 +255,6 @@
                     name: '成交价值',
                     type: 'line',
                     data: values,
-                    xAxisIndex: 0,
                     yAxisIndex: 0,
                     smooth: true,
                     symbol: 'circle',
@@ -296,7 +279,6 @@
                     name: '成交价格',
                     type: 'line',
                     data: prices,
-                    xAxisIndex: 1,
                     yAxisIndex: 1,
                     smooth: true,
                     symbol: 'circle',
