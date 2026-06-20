@@ -578,6 +578,11 @@ def _detect_subscription_response_kind(text: str) -> str:
     stripped = text.strip()
     if not stripped:
         return "empty"
+    lowered = stripped[:2000].lower()
+    if "<title>just a moment" in lowered or "challenges.cloudflare.com" in lowered:
+        return "cloudflare_challenge"
+    if stripped.startswith("<!DOCTYPE html") or stripped.startswith("<html") or "<html" in lowered:
+        return "html"
     if stripped.startswith("{") or stripped.startswith("["):
         return "json"
     if any(stripped.startswith(prefix) for prefix in ("mixed-port:", "port:", "proxies:", "proxy-groups:", "rules:")):
@@ -588,6 +593,16 @@ def _detect_subscription_response_kind(text: str) -> str:
     if decoded and any(token in decoded for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
         return "base64_proxy_links"
     return "other"
+
+
+def _empty_subscription_error(response_kind: str) -> str:
+    if response_kind == "cloudflare_challenge":
+        return "订阅源返回 Cloudflare 验证页面，服务器无法直接获取订阅内容。请让订阅站放行服务器 IP，或复制订阅内容后手动粘贴导入。"
+    if response_kind == "html":
+        return "订阅源返回网页内容，不是可解析的订阅数据。请检查订阅链接是否需要登录、验证或更换可直连的订阅地址。"
+    if response_kind == "empty":
+        return "订阅源返回空内容，请检查订阅链接是否有效。"
+    return "订阅内容无法识别，请检查链接返回内容是否为 Clash YAML、Base64 或代理节点链接。"
 
 
 def _fetch_subscription_text(url: str, timeout: int) -> str:
@@ -625,6 +640,9 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
                 f"response_kind={response_kind} parse_format={result.get('format')} "
                 f"total_nodes={result.get('total_nodes')}"
             )
+            result["error"] = _empty_subscription_error(response_kind)
+            result["response_kind"] = response_kind
+            result["raw_length"] = len(raw)
         return result
 
     except Exception as e:

@@ -343,37 +343,50 @@ class AkDataRepository:
                 WITH ordered_trades AS (
                     SELECT s.trade_id,
                            s.single_price,
+                           s.readonly_stock_count,
+                           s.mycancel,
                            s.success,
                            s.success_value,
                            s.create_time,
                            s.date_key,
-                           LAG(s.single_price) OVER (ORDER BY s.create_time ASC, s.trade_id ASC) AS previous_price,
-                           CASE
-                               WHEN s.date_key BETWEEN $1 AND $2
-                               THEN ROW_NUMBER() OVER (
-                                   PARTITION BY CASE WHEN s.date_key BETWEEN $1 AND $2 THEN 1 ELSE 0 END
-                                   ORDER BY s.create_time ASC, s.trade_id ASC
-                               )
-                               ELSE NULL
-                           END AS range_order
+                           LAG(s.single_price) OVER (ORDER BY s.create_time ASC, s.trade_id ASC) AS previous_price
                     FROM ak_trade_summary s
-                    WHERE s.date_key <= $2
+                    WHERE s.date_key <= $2 + 1
                 ),
-                price_changes AS (
-                    SELECT *
+                segmented_trades AS (
+                    SELECT *,
+                           SUM(
+                               CASE
+                                   WHEN previous_price IS NULL OR single_price <> previous_price THEN 1
+                                   ELSE 0
+                               END
+                           ) OVER (ORDER BY create_time ASC, trade_id ASC) AS price_segment
                     FROM ordered_trades
-                    WHERE date_key BETWEEN $1 AND $2
-                      AND (range_order = 1 OR previous_price IS NULL OR single_price <> previous_price)
                 ),
-                price_bucket AS (
-                    SELECT single_price,
+                segment_stats AS (
+                    SELECT price_segment,
+                           single_price AS segment_price,
                            COUNT(*)::integer AS price_order_count,
                            COALESCE(SUM(success), 0)::bigint AS price_total_success,
-                           (COALESCE(SUM(success), 0) * single_price)::numeric(14,2) AS price_total_trade_value,
+                           COALESCE(SUM(success_value), 0)::numeric(14,2) AS price_total_trade_value,
+                           COALESCE(SUM(mycancel), 0)::bigint AS price_total_mycancel,
+                           COALESCE(SUM(GREATEST(readonly_stock_count - mycancel - success, 0)), 0)::bigint AS price_total_fee_stock,
                            MIN(create_time) AS first_trade_time,
                            MAX(create_time) AS last_trade_time
-                    FROM ak_trade_summary
-                    GROUP BY single_price
+                    FROM segmented_trades
+                    GROUP BY price_segment, single_price
+                ),
+                segment_change AS (
+                    SELECT st.price_segment,
+                           MIN(st.trade_id) AS price_trade_id,
+                           MIN(st.create_time) AS price_change_time,
+                           MIN(st.date_key) AS date_key,
+                           MIN(st.single_price) AS next_price,
+                           MIN(st.previous_price) AS previous_price
+                    FROM segmented_trades st
+                    WHERE st.previous_price IS NOT NULL
+                      AND st.single_price <> st.previous_price
+                    GROUP BY st.price_segment
                 ),
                 daily_stats AS (
                     SELECT date_key,
@@ -384,27 +397,32 @@ class AkDataRepository:
                     GROUP BY date_key
                 ),
                 visible_market AS (
-                    SELECT pc.date_key,
-                           pc.trade_id AS price_trade_id,
-                           pc.create_time AS price_change_time,
-                           pc.previous_price,
+                    SELECT sc.date_key,
+                           sc.price_trade_id,
+                           sc.price_change_time,
+                           sc.previous_price,
                            COALESCE(ds.order_count, 0)::integer AS order_count,
                            COALESCE(ds.total_success, 0)::bigint AS total_success,
-                           COALESCE(p.price_total_trade_value, 0)::numeric(14,2) AS total_trade_value,
-                           pc.single_price::numeric(4,3) AS avg_price,
-                           (COALESCE(p.price_total_trade_value, 0) / 0.005)::numeric(18,2) AS market_value,
+                           ss.price_total_trade_value::numeric(14,2) AS total_trade_value,
+                           sc.next_price::numeric(4,3) AS avg_price,
                            CASE
-                               WHEN pc.single_price > 0
-                               THEN ((COALESCE(p.price_total_trade_value, 0) / 0.005) / pc.single_price)::numeric(18,2)
+                               WHEN sc.previous_price > 0
+                               THEN GREATEST(
+                                   ((ss.price_total_trade_value / 0.005) / sc.previous_price)
+                                       - ss.price_total_mycancel
+                                       - ss.price_total_fee_stock,
+                                   0
+                               )::numeric(18,2)
                                ELSE 0::numeric(18,2)
                            END AS stock_count,
-                           COALESCE(p.price_order_count, 0)::integer AS price_order_count,
-                           COALESCE(p.price_total_success, 0)::bigint AS price_total_success,
-                           p.first_trade_time,
-                           p.last_trade_time
-                    FROM price_changes pc
-                    LEFT JOIN price_bucket p ON p.single_price = pc.single_price
-                    LEFT JOIN daily_stats ds ON ds.date_key = pc.date_key
+                           ss.price_order_count,
+                           ss.price_total_success,
+                           ss.first_trade_time,
+                           ss.last_trade_time
+                    FROM segment_change sc
+                    JOIN segment_stats ss ON ss.price_segment = sc.price_segment - 1
+                    LEFT JOIN daily_stats ds ON ds.date_key = sc.date_key
+                    WHERE sc.date_key BETWEEN $1 AND $2
                 )
                 SELECT date_key,
                        price_trade_id,
@@ -414,14 +432,14 @@ class AkDataRepository:
                        total_success,
                        total_trade_value,
                        avg_price,
-                       market_value,
+                       (stock_count * avg_price)::numeric(18,2) AS market_value,
                        stock_count,
                        price_order_count,
                        price_total_success,
                        CASE
-                           WHEN LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id) > 0
-                           THEN (((market_value - LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id))
-                               / LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
+                           WHEN LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id) > 0
+                           THEN ((((stock_count * avg_price) - LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id))
+                               / LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
                            ELSE NULL
                        END AS market_inflation_rate,
                        first_trade_time,
