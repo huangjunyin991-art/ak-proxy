@@ -121,7 +121,7 @@ class AkDataRepository:
             row = await conn.fetchrow(
                 """
                 SELECT scan_name, running, direction, current_trade_id, target_trade_id, last_saved_trade_id,
-                       last_seen_create_time, last_trigger_trade_id, current_account_username, account_switch_count,
+                       last_seen_create_time, last_trigger_trade_id, current_account_username,
                        next_check_at, last_check_skipped_at, last_check_skip_reason, status, last_error,
                        started_at, finished_at, updated_at
                 FROM ak_scan_runtime
@@ -229,7 +229,7 @@ class AkDataRepository:
                 row = await conn.fetchrow(
                     """
                     SELECT scan_name, running, current_trade_id, target_trade_id, last_saved_trade_id,
-                           current_account_username, account_switch_count, next_check_at, status,
+                           current_account_username, next_check_at, status,
                            last_error, started_at, finished_at, updated_at
                     FROM ak_scan_runtime
                     WHERE scan_name = 'main'

@@ -69,16 +69,6 @@
         return size + ' B';
     }
 
-    function dayText(value) {
-        return String(value || '').slice(5) || '-';
-    }
-
-    function sum(rows, key) {
-        return (rows || []).reduce(function(total, row) {
-            return total + Number(row && row[key] || 0);
-        }, 0);
-    }
-
     function latestStatus(state) {
         var s = state.status || {};
         var runtime = s.runtime || {};
@@ -114,7 +104,6 @@
             '<div class="akd-config-grid">',
             '<label><span>启用采集</span><button class="akd-switch ' + (cfg.enabled ? 'is-on' : '') + '" data-action="toggle-config" data-key="enabled" type="button"><i></i><em>' + (cfg.enabled ? '启用' : '关闭') + '</em></button></label>',
             '<label><span>请求间隔（毫秒）</span><input id="akDataConfigRequestInterval" type="number" min="300" max="10000" value="' + html(cfg.request_interval_ms || 1000) + '"></label>',
-            '<label><span>最大切号次数</span><input id="akDataConfigMaxSwitch" type="number" min="0" max="50" value="' + html(cfg.max_account_switches || 5) + '"></label>',
             '<label><span>兜底账号</span><input id="akDataConfigFallback" type="text" value="' + html(cfg.fallback_username || '') + '" placeholder="留空表示自动选择"></label>',
             '<label><span>挂卖数据保留天数</span><input id="akDataConfigSummaryRetention" type="number" min="1" max="3650" value="' + html(cfg.summary_retention_days || 365) + '"></label>',
             '<label><span>买家数据保留天数</span><input id="akDataConfigBuyerRetention" type="number" min="1" max="3650" value="' + html(cfg.buyer_retention_days || 30) + '"></label>',
@@ -166,44 +155,10 @@
                 '<span>当日缓存：' + number(bf.day_buffer_count || 0) + '</span>' +
                 '<span>已提交天数：' + number(bf.committed_days || 0) + '</span>' +
                 (bf.current_account ? '<span>当前账号：' + html(bf.current_account) + '</span>' : '') +
-                '<span>切号次数：' + number(bf.account_switch_count || 0) + '</span>' +
                 (bf.last_error ? '<span title="' + html(bf.last_error) + '">最近错误：' + html(String(bf.last_error).slice(0, 36)) + '</span>' : '') +
                 (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until, bf.cooldown_remaining_seconds)) + '</span>' : '') +
             '</div>',
             '</div>'
-        ].join('');
-    }
-
-    function renderDashboardBars(state) {
-        var rows = state.dashboard || [];
-        if (!rows.length) return '<div class="akd-chart-empty">暂无统计数据</div>';
-        var maxVolume = Math.max(1, Math.max.apply(null, rows.map(function(row) {
-            return Number(row.total_success || 0) + Number(row.total_mycancel || 0) + Number(row.platform_gap || 0);
-        })));
-        return '<div class="akd-bars">' + rows.map(function(row) {
-            var success = Number(row.total_success || 0);
-            var burn = Number(row.total_mycancel || 0);
-            var fee = Number(row.platform_gap || 0);
-            var total = Math.max(1, success + burn + fee);
-            var height = Math.max(10, Math.round(total / maxVolume * 138));
-            return '<button class="akd-bar" type="button" title="挂卖量 ' + number(row.total_stock) + '，成交量 ' + number(success) + '，交易销毁 ' + number(burn) + '，手续费扣除 ' + number(fee) + '">' +
-                '<span class="akd-bar-stack" style="height:' + height + 'px">' +
-                '<i class="success" style="height:' + Math.max(3, success / total * 100) + '%"></i>' +
-                '<i class="burn" style="height:' + Math.max(3, burn / total * 100) + '%"></i>' +
-                '<i class="fee" style="height:' + Math.max(3, fee / total * 100) + '%"></i>' +
-                '</span><em>' + html(dayText(row.date_key)) + '</em></button>';
-        }).join('') + '</div>';
-    }
-
-    function renderDealStats(state) {
-        var rows = state.dashboard || [];
-        var value = sum(rows, 'total_success_value');
-        var success = sum(rows, 'total_success');
-        var avg = success > 0 ? value / success : 0;
-        return [
-            '<div class="akd-deal-stat"><span>成交价值</span><b>' + money(value) + '</b></div>',
-            '<div class="akd-deal-stat"><span>成交价格</span><b>' + price(avg) + '</b></div>',
-            '<div class="akd-deal-stat"><span>成交量</span><b>' + number(success) + '</b></div>'
         ].join('');
     }
 
@@ -270,13 +225,13 @@
             '<section class="akd-layout">',
             '<aside class="akd-side">',
             '<section class="akd-panel"><div class="akd-panel-head"><h3>表占用</h3><span>' + bytes((state.storage || []).reduce(function(total, row) { return total + Number(row.total_bytes || 0); }, 0)) + '</span></div><div class="akd-storage">' + renderStorage(state) + '</div></section>',
-            '<section class="akd-panel"><div class="akd-panel-head"><div><h3>采集配置</h3><p>请求间隔、切号上限、兜底账号、保留期都在这里调整。</p></div></div>' + renderConfig(state) + '</section>',
+            '<section class="akd-panel"><div class="akd-panel-head"><div><h3>采集配置</h3><p>请求间隔、兜底账号、保留期都在这里调整。</p></div></div>' + renderConfig(state) + '</section>',
             '<section class="akd-panel"><div class="akd-panel-head"><div><h3>一次性回填</h3><p>可向前补到指定日期并保存到数据库。</p></div></div>' + renderBackfill(state) + '</section>',
             '<section class="akd-panel"><div class="akd-panel-head"><h3>日统计范围</h3></div><div class="akd-segment"><button class="' + (state.dashboardDays === 7 ? 'active' : '') + '" data-action="range" data-days="7">近 7 天</button><button class="' + (state.dashboardDays === 14 ? 'active' : '') + '" data-action="range" data-days="14">近 14 天</button><button class="' + (state.dashboardDays === 30 ? 'active' : '') + '" data-action="range" data-days="30">近 30 天</button></div></section>',
             '</aside>',
             '<main class="akd-main">',
             '<section class="akd-panel akd-query-panel"><div class="akd-panel-head"><div><h3>AK交易数据</h3><p>输入卖家或者买家 ID 可以查询对应的交易订单。</p></div></div><div class="akd-search"><select id="akDataQueryType"><option value="seller"' + (state.queryType === 'seller' ? ' selected' : '') + '>卖家 ID</option><option value="buyer"' + (state.queryType === 'buyer' ? ' selected' : '') + '>买家 ID</option></select><input id="akDataAccountId" type="number" value="' + html(state.accountId) + '" placeholder="输入卖家或买家 ID"><button class="akd-btn primary" data-action="search">查询交易</button><button class="akd-btn ghost" data-action="reset">最近订单</button></div>' + queryStatus(state) + renderTable(state) + '</section>',
-            '<section class="akd-panel"><div class="akd-panel-head"><div><h3>日统计看板</h3><p>交易量使用分层柱显示，完整四项统计放在悬浮提示中。</p></div></div><div class="akd-chart-grid"><div class="akd-chart-card"><strong>AK交易统计</strong>' + renderDashboardBars(state) + '<div class="akd-legend"><span class="success">成交量</span><span class="burn">交易销毁</span><span class="fee">手续费扣除</span></div></div><div class="akd-chart-card"><strong>AK成交统计</strong><div class="akd-deal-grid">' + renderDealStats(state) + '</div></div></div></section>',
+            '<section class="akd-panel"><div class="akd-panel-head"><div><h3>日统计看板</h3><p>交易量使用分层柱显示，完整四项统计放在悬浮提示中。</p></div></div><div class="akd-chart-grid"><div class="akd-chart-card"><strong>AK交易统计</strong><div id="akDataTradeChart" class="akd-echart"></div><div class="akd-chart-empty" id="akDataTradeChartEmpty">暂无统计数据</div></div><div class="akd-chart-card"><strong>AK成交统计</strong><div id="akDataDealChart" class="akd-echart"></div><div class="akd-chart-empty" id="akDataDealChartEmpty">暂无统计数据</div></div></div></section>',
             '</main>',
             '</section>',
             '</div>'

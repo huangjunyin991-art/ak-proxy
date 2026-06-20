@@ -41,7 +41,6 @@ class AkBackfillState:
     day_buffer_count: int = 0
     committed_days: int = 0
     pipeline_concurrency: int = 2
-    account_switch_count: int = 0
     stop_requested: bool = False
 
     def snapshot(self) -> dict[str, Any]:
@@ -104,7 +103,6 @@ class AkDataWorker:
                 status="running",
                 last_error="",
                 current_account_username="",
-                account_switch_count=0,
                 started_at=datetime.now(),
                 finished_at=None,
             )
@@ -197,12 +195,9 @@ class AkDataWorker:
             if not config.enabled:
                 self._finish("error", "AK 数据采集未启用", "disabled")
                 return
-            accounts = await self._resolve_account_candidates(config)
-            account_index = 0
-            account = accounts[account_index]
+            account = await self._resolve_account(config)
             await self.repository.update_runtime(
                 current_account_username=account.get("username") or "",
-                account_switch_count=0,
                 status="running",
             )
             client = self._client(config)
@@ -213,6 +208,7 @@ class AkDataWorker:
                 return
             buffer = AkTradeDayBuffer()
             rounds = max(1, int(config.retry_rounds))
+            refreshed_trade_ids: set[int] = set()
             while current > 0:
                 if self._state.stop_requested:
                     self._finish("paused", "历史回填已暂停，未跨日的当日缓存未提交")
@@ -224,9 +220,13 @@ class AkDataWorker:
                 if result.get("paused"):
                     self._finish("paused", "历史回填已暂停，未跨日的当日缓存未提交")
                     return
-                if self._needs_account_switch(result):
+                if self._needs_auth_or_cooldown(result):
                     self._apply_fetch_result(result)
                     if result.get("auth_invalid"):
+                        if current in refreshed_trade_ids:
+                            self._finish("error", "兜底账号登录态刷新后仍然失效", str(result.get("error") or "auth invalid"))
+                            return
+                        refreshed_trade_ids.add(current)
                         refreshed = await self._refresh_account_auth(client, account)
                         if refreshed:
                             account = refreshed
@@ -235,34 +235,13 @@ class AkDataWorker:
                             await self.repository.update_runtime(
                                 current_trade_id=current,
                                 current_account_username=self._state.current_account,
-                                account_switch_count=self._state.account_switch_count,
                                 status="running",
                                 last_error="",
                             )
                             await self._sleep_interval(self._state.request_interval_ms)
                             continue
-                    if account_index + 1 < len(accounts):
-                        failed_account = account.get("username") or "-"
-                        account_index += 1
-                        account = accounts[account_index]
-                        self._state.account_switch_count += 1
-                        self._state.current_account = account.get("username") or ""
-                        reason_text = "登录态失效" if result.get("auth_invalid") else "返回 403"
-                        self._state.message = (
-                            f"账号 {failed_account} {reason_text}，已切换到 {self._state.current_account or '-'} "
-                            f"重试订单 {current}"
-                        )
-                        await self.repository.update_runtime(
-                            current_trade_id=current,
-                            current_account_username=self._state.current_account,
-                            account_switch_count=self._state.account_switch_count,
-                            status="running",
-                            last_error=str(result.get("error") or "")[:500],
-                        )
-                        await self._sleep_interval(self._state.request_interval_ms)
-                        continue
                     if result.get("auth_invalid"):
-                        self._finish("error", "所有候选账号登录态失效，且账号密码刷新失败", str(result.get("error") or "auth invalid"))
+                        self._finish("error", "兜底账号登录态失效，且账号密码刷新失败", str(result.get("error") or "auth invalid"))
                         return
                     await self._cooldown(config, current, result)
                     return
@@ -304,7 +283,7 @@ class AkDataWorker:
             self._state.retry_round = attempt
             self._state.message = f"正在获取订单 {trade_id}，第 {attempt}/{rounds} 轮"
             result = await self._fetch_full_trade(client, account, config, trade_id)
-            if result.get("ok") or self._needs_account_switch(result):
+            if result.get("ok") or self._needs_auth_or_cooldown(result):
                 return result
             last_result = result
             self._state.last_error = str(result.get("error") or "")[:500]
@@ -409,7 +388,7 @@ class AkDataWorker:
                     }
                 trade_id = int(result.get("trade_id") or meta.get("trade_id") or 0)
                 self._state.current_trade_id = trade_id
-                if self._needs_account_switch(result):
+                if self._needs_auth_or_cooldown(result):
                     if meta.get("stage") == "detail":
                         self._apply_fetch_result(result)
                     else:
@@ -575,48 +554,20 @@ class AkDataWorker:
         self._finish("cooldown", f"遇到 403，进入冷却 {cooldown} 秒")
 
     async def _resolve_account(self, config: AkDataConfig, key: str = "", user_id: str = "") -> dict[str, str]:
-        accounts = await self._resolve_account_candidates(config, key=key, user_id=user_id)
-        return accounts[0]
-
-    async def _resolve_account_candidates(self, config: AkDataConfig, key: str = "", user_id: str = "") -> list[dict[str, str]]:
         if key and user_id:
             account = {"username": "manual", "key": key, "user_id": user_id}
             self._state.current_account = account["username"]
-            return [account]
-        accounts = await self.repository.list_accounts(limit=200)
+            return account
         fallback = config.fallback_username
-        normal: list[dict[str, Any]] = []
-        fallback_item = None
-        seen: set[str] = set()
-        for item in accounts:
-            username = str(item.get("username") or "").strip().lower()
-            if not username or username in seen:
-                continue
-            if not item.get("userkey") or not item.get("user_id"):
-                continue
-            seen.add(username)
-            if fallback and username == fallback:
-                fallback_item = item
-            else:
-                normal.append(item)
-
-        if fallback and fallback_item is None:
-            fallback_item = await self.repository.get_account_credentials(fallback)
-        max_attempts = max(1, int(config.max_account_switches or 0) + 1)
-        selected_items = []
-        if fallback_item:
-            selected_items.append(fallback_item)
-        for item in normal:
-            if len(selected_items) >= max_attempts:
-                break
-            if fallback and str(item.get("username") or "").strip().lower() == fallback:
-                continue
-            selected_items.append(item)
-        if not selected_items:
-            raise RuntimeError("没有可用 AK 登录态，请先让账号登录一次或配置兜底账号")
-        candidates = [self._account_from_row(item) for item in selected_items]
-        self._state.current_account = candidates[0].get("username") or ""
-        return candidates
+        item = await self.repository.get_account_credentials(fallback) if fallback else None
+        if not item:
+            accounts = await self.repository.list_accounts(limit=1)
+            item = accounts[0] if accounts else None
+        if not item or not item.get("userkey") or not item.get("user_id"):
+            raise RuntimeError("没有可用 AK 登录态，请先让兜底账号登录一次或配置兜底账号")
+        account = self._account_from_row(item)
+        self._state.current_account = account.get("username") or ""
+        return account
 
     @staticmethod
     def _account_from_row(row: dict[str, Any]) -> dict[str, str]:
@@ -740,7 +691,7 @@ class AkDataWorker:
         }
 
     @staticmethod
-    def _needs_account_switch(result: dict[str, Any]) -> bool:
+    def _needs_auth_or_cooldown(result: dict[str, Any]) -> bool:
         return bool(result.get("forbidden") or result.get("auth_invalid"))
 
     @staticmethod

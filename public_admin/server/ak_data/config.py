@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 CONFIG_DEFAULTS = {
     "enabled": True,
     "request_interval_ms": 1000,
-    "max_account_switches": 5,
     "fallback_username": "",
     "summary_retention_days": 365,
     "buyer_retention_days": 30,
@@ -35,7 +34,6 @@ CONFIG_DEFAULTS = {
 class AkDataConfig:
     enabled: bool = True
     request_interval_ms: int = 1000
-    max_account_switches: int = 5
     fallback_username: str = ""
     summary_retention_days: int = 365
     buyer_retention_days: int = 30
@@ -126,7 +124,6 @@ def normalize_config(data: dict[str, Any] | None = None) -> AkDataConfig:
     return AkDataConfig(
         enabled=parse_bool(raw.get("enabled"), bool(CONFIG_DEFAULTS["enabled"])),
         request_interval_ms=parse_int(raw.get("request_interval_ms"), 1000, 300, 10000),
-        max_account_switches=parse_int(raw.get("max_account_switches"), 5, 0, 50),
         fallback_username=str(raw.get("fallback_username") or "").strip().lower()[:64],
         summary_retention_days=parse_int(raw.get("summary_retention_days"), 365, 1, 3650),
         buyer_retention_days=parse_int(raw.get("buyer_retention_days"), 30, 1, 3650),

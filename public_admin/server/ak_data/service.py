@@ -75,7 +75,6 @@ class AkDataService:
         runtime = status.get("runtime") or {}
         if runtime:
             item["current_account"] = str(runtime.get("current_account_username") or item.get("current_account") or "")
-            item["account_switch_count"] = int(runtime.get("account_switch_count") or item.get("account_switch_count") or 0)
         return {"success": True, "item": item}
 
     async def start_backfill(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -8,6 +8,9 @@
     var mounted = false;
     var querySeq = 0;
     var backfillPollingRegistered = false;
+    var echartsPromise = null;
+    var tradeChart = null;
+    var dealChart = null;
     var BACKFILL_POLL_OWNER = 'panel:akData';
     var BACKFILL_POLL_ID = 'akData:backfillStatus';
 
@@ -29,7 +32,210 @@
     function render() {
         var mount = mountNode();
         if (!mount || !store || !renderer) return;
+        disposeCharts();
         mount.innerHTML = renderer.render(store.state);
+        renderCharts();
+    }
+
+    function disposeCharts() {
+        try {
+            if (tradeChart) tradeChart.dispose();
+            if (dealChart) dealChart.dispose();
+        } catch (e) {}
+        tradeChart = null;
+        dealChart = null;
+    }
+
+    function ensureEcharts() {
+        if (window.echarts) return Promise.resolve(window.echarts);
+        if (echartsPromise) return echartsPromise;
+        echartsPromise = new Promise(function(resolve, reject) {
+            var script = document.createElement('script');
+            script.src = '/admin/api/shared/lib/echarts.min.js?v=20260618';
+            script.async = true;
+            script.onload = function() {
+                if (window.echarts) resolve(window.echarts);
+                else reject(new Error('ECharts 加载失败'));
+            };
+            script.onerror = function() {
+                reject(new Error('ECharts 加载失败'));
+            };
+            document.head.appendChild(script);
+        });
+        return echartsPromise;
+    }
+
+    function formatNumber(value, digits) {
+        var num = Number(value || 0);
+        return num.toLocaleString('zh-CN', {
+            minimumFractionDigits: digits || 0,
+            maximumFractionDigits: digits || 0
+        });
+    }
+
+    function formatPrice(value) {
+        return Number(value || 0).toFixed(3);
+    }
+
+    function chartDayText(value) {
+        var text = String(value || '');
+        var match = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+        return match ? match[2] + '-' + match[3] : text.slice(0, 10);
+    }
+
+    function chartRows() {
+        var rows = (store && store.state && Array.isArray(store.state.dashboard)) ? store.state.dashboard.slice() : [];
+        return rows.reverse();
+    }
+
+    function toggleChartEmpty(containerId, emptyId, hasData) {
+        var container = document.getElementById(containerId);
+        var empty = document.getElementById(emptyId);
+        if (container) container.style.display = hasData ? 'block' : 'none';
+        if (empty) empty.style.display = hasData ? 'none' : 'block';
+    }
+
+    function renderCharts() {
+        var tradeEl = document.getElementById('akDataTradeChart');
+        var dealEl = document.getElementById('akDataDealChart');
+        if (!tradeEl || !dealEl || !store) return;
+        var rows = chartRows();
+        var hasData = rows.length > 0;
+        toggleChartEmpty('akDataTradeChart', 'akDataTradeChartEmpty', hasData);
+        toggleChartEmpty('akDataDealChart', 'akDataDealChartEmpty', hasData);
+        if (!hasData) return;
+        ensureEcharts().then(function(echarts) {
+            if (!document.getElementById('akDataTradeChart') || !document.getElementById('akDataDealChart')) return;
+            if (!tradeChart) tradeChart = echarts.init(document.getElementById('akDataTradeChart'), null, { renderer: 'canvas' });
+            if (!dealChart) dealChart = echarts.init(document.getElementById('akDataDealChart'), null, { renderer: 'canvas' });
+            setTradeChartOption(rows);
+            setDealChartOption(rows);
+            setTimeout(function() {
+                if (tradeChart) tradeChart.resize();
+                if (dealChart) dealChart.resize();
+            }, 0);
+        }).catch(function(error) {
+            notify(error.message || '图表加载失败', 'error');
+        });
+    }
+
+    function setTradeChartOption(rows) {
+        if (!tradeChart) return;
+        var labels = rows.map(function(row) { return chartDayText(row.date_key); });
+        var stock = rows.map(function(row) { return Number(row.total_stock || 0); });
+        var success = rows.map(function(row) { return Number(row.total_success || 0); });
+        var burn = rows.map(function(row) { return Number(row.total_mycancel || 0); });
+        var fee = rows.map(function(row) { return Number(row.platform_gap || 0); });
+        tradeChart.setOption({
+            color: ['#00ff88', '#ffb84d', '#ff6b7a'],
+            grid: { left: 42, right: 14, top: 20, bottom: 32 },
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                backgroundColor: 'rgba(5,14,24,0.96)',
+                borderColor: 'rgba(79,195,247,0.28)',
+                textStyle: { color: '#d7fff0', fontSize: 12 },
+                formatter: function(items) {
+                    var idx = items && items[0] ? items[0].dataIndex : 0;
+                    return [
+                        '<b>' + labels[idx] + '</b>',
+                        '挂卖量：' + formatNumber(stock[idx]),
+                        '成交量：' + formatNumber(success[idx]),
+                        '交易销毁：' + formatNumber(burn[idx]),
+                        '手续费扣除：' + formatNumber(fee[idx])
+                    ].join('<br>');
+                }
+            },
+            legend: {
+                bottom: 0,
+                itemWidth: 9,
+                itemHeight: 9,
+                textStyle: { color: 'rgba(167,226,255,0.76)', fontSize: 11 },
+                data: ['成交量', '交易销毁', '手续费扣除']
+            },
+            xAxis: {
+                type: 'category',
+                data: labels,
+                axisTick: { show: false },
+                axisLine: { lineStyle: { color: 'rgba(79,195,247,0.18)' } },
+                axisLabel: { color: 'rgba(215,255,240,0.82)', fontSize: 11 }
+            },
+            yAxis: {
+                type: 'value',
+                splitLine: { lineStyle: { color: 'rgba(79,195,247,0.10)' } },
+                axisLabel: { color: 'rgba(167,226,255,0.62)', fontSize: 10 }
+            },
+            series: [
+                { name: '成交量', type: 'bar', stack: 'trade', data: success, barMaxWidth: 26, emphasis: { focus: 'series' } },
+                { name: '交易销毁', type: 'bar', stack: 'trade', data: burn, barMaxWidth: 26, emphasis: { focus: 'series' } },
+                { name: '手续费扣除', type: 'bar', stack: 'trade', data: fee, barMaxWidth: 26, emphasis: { focus: 'series' } }
+            ]
+        }, true);
+    }
+
+    function setDealChartOption(rows) {
+        if (!dealChart) return;
+        var labels = rows.map(function(row) { return chartDayText(row.date_key); });
+        var values = rows.map(function(row) { return Number(row.total_success_value || 0); });
+        var prices = rows.map(function(row) {
+            var success = Number(row.total_success || 0);
+            var value = Number(row.total_success_value || 0);
+            return success > 0 ? Number((value / success).toFixed(3)) : 0;
+        });
+        dealChart.setOption({
+            color: ['#00d4ff', '#00ff88'],
+            grid: { left: 54, right: 42, top: 22, bottom: 32 },
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: 'rgba(5,14,24,0.96)',
+                borderColor: 'rgba(79,195,247,0.28)',
+                textStyle: { color: '#d7fff0', fontSize: 12 },
+                formatter: function(items) {
+                    var idx = items && items[0] ? items[0].dataIndex : 0;
+                    return [
+                        '<b>' + labels[idx] + '</b>',
+                        '成交价值：' + formatNumber(values[idx], 2),
+                        '成交价格：' + formatPrice(prices[idx])
+                    ].join('<br>');
+                }
+            },
+            legend: {
+                bottom: 0,
+                itemWidth: 9,
+                itemHeight: 9,
+                textStyle: { color: 'rgba(167,226,255,0.76)', fontSize: 11 },
+                data: ['成交价值', '成交价格']
+            },
+            xAxis: {
+                type: 'category',
+                data: labels,
+                axisTick: { show: false },
+                axisLine: { lineStyle: { color: 'rgba(79,195,247,0.18)' } },
+                axisLabel: { color: 'rgba(215,255,240,0.82)', fontSize: 11 }
+            },
+            yAxis: [
+                {
+                    type: 'value',
+                    name: '价值',
+                    nameTextStyle: { color: 'rgba(167,226,255,0.62)', fontSize: 10 },
+                    splitLine: { lineStyle: { color: 'rgba(79,195,247,0.10)' } },
+                    axisLabel: { color: 'rgba(167,226,255,0.62)', fontSize: 10 }
+                },
+                {
+                    type: 'value',
+                    name: '价格',
+                    min: function(value) { return Math.max(0, Number(value.min || 0) - 0.002); },
+                    max: function(value) { return Number(value.max || 0) + 0.002; },
+                    nameTextStyle: { color: 'rgba(167,226,255,0.62)', fontSize: 10 },
+                    splitLine: { show: false },
+                    axisLabel: { color: 'rgba(167,226,255,0.62)', fontSize: 10, formatter: function(value) { return formatPrice(value); } }
+                }
+            ],
+            series: [
+                { name: '成交价值', type: 'bar', data: values, barMaxWidth: 26, yAxisIndex: 0 },
+                { name: '成交价格', type: 'line', data: prices, yAxisIndex: 1, smooth: true, symbolSize: 6, lineStyle: { width: 3 } }
+            ]
+        }, true);
     }
 
     function bootstrap() {
@@ -101,7 +307,6 @@
         return {
             enabled: !!cfg.enabled,
             request_interval_ms: readNumber('akDataConfigRequestInterval', cfg.request_interval_ms || 1000),
-            max_account_switches: readNumber('akDataConfigMaxSwitch', cfg.max_account_switches || 5),
             fallback_username: readText('akDataConfigFallback', cfg.fallback_username || ''),
             summary_retention_days: readNumber('akDataConfigSummaryRetention', cfg.summary_retention_days || 365),
             buyer_retention_days: readNumber('akDataConfigBuyerRetention', cfg.buyer_retention_days || 30),
@@ -311,6 +516,10 @@
                 event.preventDefault();
                 runQuery();
             }
+        });
+        window.addEventListener('resize', function() {
+            if (tradeChart) tradeChart.resize();
+            if (dealChart) dealChart.resize();
         });
     }
 
