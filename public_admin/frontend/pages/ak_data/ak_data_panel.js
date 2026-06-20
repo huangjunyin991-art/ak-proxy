@@ -350,7 +350,7 @@
                     var inflation = inflationRates[idx] == null ? '-' : (inflationRates[idx] >= 0 ? '+' : '') + inflationRates[idx].toFixed(2) + '%';
                     return [
                         '<b>' + labels[idx] + '</b>',
-                        '平均成交价：' + formatPrice(avgPrices[idx]),
+                        '成交价格：' + formatPrice(avgPrices[idx]),
                         '成交总量：' + formatNumber(priceSuccessCounts[idx]),
                         '成交总价值：' + formatNumber(tradeValues[idx], 2),
                         '总市值：' + formatNumber(marketValues[idx], 2),

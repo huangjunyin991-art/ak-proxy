@@ -382,6 +382,16 @@ class AkDataRepository:
                            d.last_trade_time
                     FROM daily_price d
                     LEFT JOIN price_bucket p ON p.single_price = d.avg_price
+                ),
+                changed_market AS (
+                    SELECT *,
+                           LAG(avg_price) OVER (ORDER BY date_key) AS previous_price
+                    FROM daily_market
+                ),
+                visible_market AS (
+                    SELECT *
+                    FROM changed_market
+                    WHERE previous_price IS NULL OR avg_price <> previous_price
                 )
                 SELECT date_key,
                        order_count,
@@ -400,7 +410,7 @@ class AkDataRepository:
                        END AS market_inflation_rate,
                        first_trade_time,
                        last_trade_time
-                FROM daily_market
+                FROM visible_market
                 ORDER BY date_key ASC
                 """,
                 start_day,
