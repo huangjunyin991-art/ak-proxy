@@ -340,60 +340,76 @@ class AkDataRepository:
                 return {"success": True, "start_date": start_day.isoformat(), "end_date": end_day.isoformat(), "rows": []}
             rows = await conn.fetch(
                 """
-                WITH price_bucket AS (
+                WITH ordered_trades AS (
+                    SELECT s.trade_id,
+                           s.single_price,
+                           s.success,
+                           s.success_value,
+                           s.create_time,
+                           s.date_key,
+                           LAG(s.single_price) OVER (ORDER BY s.create_time ASC, s.trade_id ASC) AS previous_price,
+                           CASE
+                               WHEN s.date_key BETWEEN $1 AND $2
+                               THEN ROW_NUMBER() OVER (
+                                   PARTITION BY CASE WHEN s.date_key BETWEEN $1 AND $2 THEN 1 ELSE 0 END
+                                   ORDER BY s.create_time ASC, s.trade_id ASC
+                               )
+                               ELSE NULL
+                           END AS range_order
+                    FROM ak_trade_summary s
+                    WHERE s.date_key <= $2
+                ),
+                price_changes AS (
+                    SELECT *
+                    FROM ordered_trades
+                    WHERE date_key BETWEEN $1 AND $2
+                      AND (range_order = 1 OR previous_price IS NULL OR single_price <> previous_price)
+                ),
+                price_bucket AS (
                     SELECT single_price,
                            COUNT(*)::integer AS price_order_count,
                            COALESCE(SUM(success), 0)::bigint AS price_total_success,
-                           (COALESCE(SUM(success), 0) * single_price)::numeric(14,2) AS price_total_trade_value
+                           (COALESCE(SUM(success), 0) * single_price)::numeric(14,2) AS price_total_trade_value,
+                           MIN(create_time) AS first_trade_time,
+                           MAX(create_time) AS last_trade_time
                     FROM ak_trade_summary
                     GROUP BY single_price
                 ),
-                daily_price AS (
+                daily_stats AS (
                     SELECT date_key,
                            COUNT(*)::integer AS order_count,
-                           COALESCE(SUM(success), 0)::bigint AS total_success,
-                           COALESCE(SUM(success_value), 0)::numeric(14,2) AS total_trade_value,
-                           CASE
-                               WHEN SUM(success) > 0
-                               THEN (SUM(success_value) / SUM(success))::numeric(4,3)
-                               ELSE 0::numeric(4,3)
-                           END AS avg_price,
-                           MIN(create_time) AS first_trade_time,
-                           MAX(create_time) AS last_trade_time
+                           COALESCE(SUM(success), 0)::bigint AS total_success
                     FROM ak_trade_summary
                     WHERE date_key BETWEEN $1 AND $2
                     GROUP BY date_key
                 ),
-                daily_market AS (
-                    SELECT d.date_key,
-                           d.order_count,
-                           d.total_success,
+                visible_market AS (
+                    SELECT pc.date_key,
+                           pc.trade_id AS price_trade_id,
+                           pc.create_time AS price_change_time,
+                           pc.previous_price,
+                           COALESCE(ds.order_count, 0)::integer AS order_count,
+                           COALESCE(ds.total_success, 0)::bigint AS total_success,
                            COALESCE(p.price_total_trade_value, 0)::numeric(14,2) AS total_trade_value,
-                           d.avg_price,
+                           pc.single_price::numeric(4,3) AS avg_price,
                            (COALESCE(p.price_total_trade_value, 0) / 0.005)::numeric(18,2) AS market_value,
                            CASE
-                               WHEN d.avg_price > 0
-                               THEN ((COALESCE(p.price_total_trade_value, 0) / 0.005) / d.avg_price)::numeric(18,2)
+                               WHEN pc.single_price > 0
+                               THEN ((COALESCE(p.price_total_trade_value, 0) / 0.005) / pc.single_price)::numeric(18,2)
                                ELSE 0::numeric(18,2)
                            END AS stock_count,
                            COALESCE(p.price_order_count, 0)::integer AS price_order_count,
                            COALESCE(p.price_total_success, 0)::bigint AS price_total_success,
-                           d.first_trade_time,
-                           d.last_trade_time
-                    FROM daily_price d
-                    LEFT JOIN price_bucket p ON p.single_price = d.avg_price
-                ),
-                changed_market AS (
-                    SELECT *,
-                           LAG(avg_price) OVER (ORDER BY date_key) AS previous_price
-                    FROM daily_market
-                ),
-                visible_market AS (
-                    SELECT *
-                    FROM changed_market
-                    WHERE previous_price IS NULL OR avg_price <> previous_price
+                           p.first_trade_time,
+                           p.last_trade_time
+                    FROM price_changes pc
+                    LEFT JOIN price_bucket p ON p.single_price = pc.single_price
+                    LEFT JOIN daily_stats ds ON ds.date_key = pc.date_key
                 )
                 SELECT date_key,
+                       price_trade_id,
+                       price_change_time,
+                       previous_price,
                        order_count,
                        total_success,
                        total_trade_value,
@@ -403,15 +419,15 @@ class AkDataRepository:
                        price_order_count,
                        price_total_success,
                        CASE
-                           WHEN LAG(market_value) OVER (ORDER BY date_key) > 0
-                           THEN (((market_value - LAG(market_value) OVER (ORDER BY date_key))
-                               / LAG(market_value) OVER (ORDER BY date_key)) * 100)::numeric(10,2)
+                           WHEN LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id) > 0
+                           THEN (((market_value - LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id))
+                               / LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
                            ELSE NULL
                        END AS market_inflation_rate,
                        first_trade_time,
                        last_trade_time
                 FROM visible_market
-                ORDER BY date_key ASC
+                ORDER BY price_change_time ASC, price_trade_id ASC
                 """,
                 start_day,
                 end_day,

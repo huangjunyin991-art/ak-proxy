@@ -102,6 +102,12 @@
         return match ? match[2] + '-' + match[3] : text.slice(0, 10);
     }
 
+    function chartTimeText(value) {
+        var text = String(value || '');
+        var match = text.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+        return match ? match[2] + '-' + match[3] + ' ' + match[4] + ':' + match[5] : chartDayText(text);
+    }
+
     function chartRows() {
         var rows = (store && store.state && Array.isArray(store.state.dashboard)) ? store.state.dashboard.slice() : [];
         return rows.sort(function(a, b) {
@@ -321,16 +327,21 @@
     function setMarketChartOption(rows) {
         if (!marketChart) return;
         var sortedRows = (rows || []).slice().sort(function(a, b) {
-            return String(a.date_key || '').localeCompare(String(b.date_key || ''));
+            var left = String(a.price_change_time || a.date_key || '');
+            var right = String(b.price_change_time || b.date_key || '');
+            if (left === right) return Number(a.price_trade_id || 0) - Number(b.price_trade_id || 0);
+            return left.localeCompare(right);
         });
-        var labels = sortedRows.map(function(row) { return chartDayText(row.date_key); });
+        var labels = sortedRows.map(function(row) { return chartTimeText(row.price_change_time || row.date_key); });
         var tradeValues = sortedRows.map(function(row) { return Number(row.total_trade_value || 0); });
         var avgPrices = sortedRows.map(function(row) { return Number(row.avg_price || 0); });
+        var previousPrices = sortedRows.map(function(row) { return row.previous_price == null ? null : Number(row.previous_price || 0); });
         var marketValues = sortedRows.map(function(row) { return Number(row.market_value || 0); });
         var stockCounts = sortedRows.map(function(row) { return Number(row.stock_count || 0); });
         var orderCounts = sortedRows.map(function(row) { return Number(row.order_count || 0); });
         var priceOrderCounts = sortedRows.map(function(row) { return Number(row.price_order_count || 0); });
         var priceSuccessCounts = sortedRows.map(function(row) { return Number(row.price_total_success || 0); });
+        var priceTradeIds = sortedRows.map(function(row) { return Number(row.price_trade_id || 0); });
         var inflationRates = sortedRows.map(function(row) {
             return row.market_inflation_rate == null ? null : Number(row.market_inflation_rate || 0);
         });
@@ -348,9 +359,17 @@
                 formatter: function(items) {
                     var idx = items && items[0] ? items[0].dataIndex : 0;
                     var inflation = inflationRates[idx] == null ? '-' : (inflationRates[idx] >= 0 ? '+' : '') + inflationRates[idx].toFixed(2) + '%';
+                    var priceLine = previousPrices[idx] == null || previousPrices[idx] === avgPrices[idx]
+                        ? '成交价格：' + formatPrice(avgPrices[idx])
+                        : '成交价格：' + formatPrice(previousPrices[idx]) + ' → ' + formatPrice(avgPrices[idx]);
+                    var timeLabel = previousPrices[idx] == null || previousPrices[idx] === avgPrices[idx]
+                        ? '统计时间：'
+                        : (avgPrices[idx] > previousPrices[idx] ? '涨价时间：' : '调价时间：');
                     return [
                         '<b>' + labels[idx] + '</b>',
-                        '成交价格：' + formatPrice(avgPrices[idx]),
+                        timeLabel + labels[idx],
+                        priceTradeIds[idx] ? '跳变订单ID：' + priceTradeIds[idx] : '',
+                        priceLine,
                         '成交总量：' + formatNumber(priceSuccessCounts[idx]),
                         '成交总价值：' + formatNumber(tradeValues[idx], 2),
                         '总市值：' + formatNumber(marketValues[idx], 2),
@@ -358,7 +377,7 @@
                         '股票总数：' + formatNumber(stockCounts[idx], 2),
                         '当日订单数：' + formatNumber(orderCounts[idx]),
                         '订单数：' + formatNumber(priceOrderCounts[idx])
-                    ].join('<br>');
+                    ].filter(Boolean).join('<br>');
                 }
             },
             legend: {
