@@ -50,6 +50,7 @@
         saveConfig: function(payload) { return post('/config', payload || {}); },
         storage: function() { return get('/storage'); },
         dashboard: function(days) { return get('/dashboard', { days: days || 7 }); },
+        marketValue: function(days) { return get('/market-value', { days: days || 7 }); },
         recentTrades: function(limit) { return get('/trades/recent', { limit: limit || 50 }); },
         backfillStatus: function() { return get('/backfill/status'); },
         startBackfill: function(payload) { return post('/backfill/start', payload || {}); },

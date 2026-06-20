@@ -11,6 +11,7 @@
             storage: [],
             dashboardDays: 7,
             dashboard: [],
+            marketRows: [],
             recentTrades: [],
             visibleTrades: [],
             tableMode: 'orders',
@@ -36,6 +37,7 @@
             state.backfill = payload.backfill || state.backfill || {};
             state.storage = Array.isArray(payload.storage) ? payload.storage : [];
             state.dashboard = Array.isArray(payload.dashboard) ? payload.dashboard : [];
+            state.marketRows = Array.isArray(payload.marketRows) ? payload.marketRows : [];
             state.recentTrades = Array.isArray(payload.recentTrades) ? payload.recentTrades : [];
             if (!state.visibleTrades.length) state.visibleTrades = state.recentTrades.slice();
             state.lastMessage = 'AK 数据已就绪';
@@ -45,6 +47,10 @@
         function setDashboard(days, rows) {
             state.dashboardDays = Number(days || 7);
             state.dashboard = Array.isArray(rows) ? rows : [];
+        }
+
+        function setMarketValue(rows) {
+            state.marketRows = Array.isArray(rows) ? rows : [];
         }
 
         function setConfig(payload) {
@@ -99,6 +105,7 @@
             setConfig: setConfig,
             setBackfill: setBackfill,
             setDashboard: setDashboard,
+            setMarketValue: setMarketValue,
             setQueryResult: setQueryResult,
             resetToRecent: resetToRecent,
             setBuyerRows: setBuyerRows

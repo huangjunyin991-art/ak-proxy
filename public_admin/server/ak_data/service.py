@@ -50,6 +50,11 @@ class AkDataService:
         payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]
         return payload
 
+    async def get_market_value(self, days: int = 7) -> dict[str, Any]:
+        payload = await self.repository.get_market_value(days)
+        payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]
+        return payload
+
     async def get_recent_trades(self, limit: int = 50) -> dict[str, Any]:
         payload = await self.repository.get_recent_trades(limit)
         payload["rows"] = [self._json_row(row) for row in payload.get("rows") or []]

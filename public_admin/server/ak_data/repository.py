@@ -330,6 +330,43 @@ class AkDataRepository:
             "rows": [dict(row) for row in rows],
         }
 
+    async def get_market_value(self, days: int = 7) -> dict[str, Any]:
+        days = max(1, min(int(days or 7), 90))
+        end_day = date.today()
+        start_day = end_day - timedelta(days=days - 1)
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if not await self._table_exists(conn, "ak_trade_summary"):
+                return {"success": True, "start_date": start_day.isoformat(), "end_date": end_day.isoformat(), "rows": []}
+            rows = await conn.fetch(
+                """
+                SELECT single_price,
+                       COUNT(*)::integer AS order_count,
+                       COALESCE(SUM(success), 0)::bigint AS total_success,
+                       COALESCE(SUM(success_value), 0)::numeric(14,2) AS total_trade_value,
+                       (COALESCE(SUM(success_value), 0) / 0.005)::numeric(18,2) AS market_value,
+                       CASE
+                           WHEN single_price > 0
+                           THEN ((COALESCE(SUM(success_value), 0) / 0.005) / single_price)::numeric(18,2)
+                           ELSE 0::numeric(18,2)
+                       END AS stock_count,
+                       MIN(create_time) AS first_trade_time,
+                       MAX(create_time) AS last_trade_time
+                FROM ak_trade_summary
+                WHERE date_key BETWEEN $1 AND $2
+                GROUP BY single_price
+                ORDER BY single_price ASC
+                """,
+                start_day,
+                end_day,
+            )
+        return {
+            "success": True,
+            "start_date": start_day.isoformat(),
+            "end_date": end_day.isoformat(),
+            "rows": [dict(row) for row in rows],
+        }
+
     async def get_recent_trades(self, limit: int = 50) -> dict[str, Any]:
         limit = max(1, min(int(limit or 50), 200))
         pool = self._pool()

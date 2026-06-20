@@ -84,6 +84,16 @@ def create_ak_data_router(
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
 
+    @router.get("/market-value")
+    async def ak_data_market_value(request: Request, days: int = 7):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return await service.get_market_value(days)
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:500]})
+
     @router.get("/trades/recent")
     async def ak_data_recent_trades(request: Request, limit: int = 50):
         error_response = await require_admin(request)
