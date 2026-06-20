@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
+from urllib.parse import urlparse
 
 
 CONFIG_DEFAULTS = {
@@ -21,6 +22,9 @@ CONFIG_DEFAULTS = {
     "buyer_max_pages": 20,
     "default_target_date": "2026-05-29",
     "base_stat_date": "2026-06-01",
+    "upstream_base_url": "http://127.0.0.1:8080",
+    "upstream_public_origin": "https://ak2025.vip",
+    "upstream_host_header": "ak2025.vip",
     "upstream_timeout_seconds": 12,
     "upstream_retry_attempts": 1,
     "upstream_retry_backoff_ms": 1200,
@@ -44,6 +48,9 @@ class AkDataConfig:
     buyer_max_pages: int = 20
     default_target_date: str = "2026-05-29"
     base_stat_date: str = "2026-06-01"
+    upstream_base_url: str = "http://127.0.0.1:8080"
+    upstream_public_origin: str = "https://ak2025.vip"
+    upstream_host_header: str = "ak2025.vip"
     upstream_timeout_seconds: int = 12
     upstream_retry_attempts: int = 1
     upstream_retry_backoff_ms: int = 1200
@@ -79,6 +86,39 @@ def parse_date_text(value: Any, default: str) -> str:
         return default
 
 
+def parse_url_text(value: Any, default: str, max_length: int = 200) -> str:
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return default
+    lowered = text.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        return default
+    return text[:max_length]
+
+
+def parse_upstream_base_url(value: Any, default: str) -> str:
+    text = parse_url_text(value, default)
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        return default
+    host = (parsed.hostname or "").lower()
+    allowed_hosts = {"127.0.0.1", "localhost", "ak2025.vip", "k937.com", "www.k937.com"}
+    if host not in allowed_hosts:
+        return default
+    return text
+
+
+def parse_host_text(value: Any, default: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789.-:")
+    if any(ch not in allowed for ch in text):
+        return default
+    return text[:120]
+
+
 def normalize_config(data: dict[str, Any] | None = None) -> AkDataConfig:
     raw = dict(CONFIG_DEFAULTS)
     if isinstance(data, dict):
@@ -99,6 +139,9 @@ def normalize_config(data: dict[str, Any] | None = None) -> AkDataConfig:
         buyer_max_pages=parse_int(raw.get("buyer_max_pages"), 20, 1, 200),
         default_target_date=parse_date_text(raw.get("default_target_date"), str(CONFIG_DEFAULTS["default_target_date"])),
         base_stat_date=parse_date_text(raw.get("base_stat_date"), str(CONFIG_DEFAULTS["base_stat_date"])),
+        upstream_base_url=parse_upstream_base_url(raw.get("upstream_base_url"), str(CONFIG_DEFAULTS["upstream_base_url"])),
+        upstream_public_origin=parse_url_text(raw.get("upstream_public_origin"), str(CONFIG_DEFAULTS["upstream_public_origin"])),
+        upstream_host_header=parse_host_text(raw.get("upstream_host_header"), str(CONFIG_DEFAULTS["upstream_host_header"])),
         upstream_timeout_seconds=parse_int(raw.get("upstream_timeout_seconds"), 12, 3, 60),
         upstream_retry_attempts=parse_int(raw.get("upstream_retry_attempts"), 1, 1, 10),
         upstream_retry_backoff_ms=parse_int(raw.get("upstream_retry_backoff_ms"), 1200, 100, 10000),

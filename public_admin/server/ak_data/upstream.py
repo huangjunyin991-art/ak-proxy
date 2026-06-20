@@ -7,13 +7,17 @@ import httpx
 from ..security.upstream_http import resolve_upstream_tls_verify
 
 
-AK_UPSTREAM_BASE = "https://k937.com"
+AK_UPSTREAM_BASE = "http://127.0.0.1:8080"
+AK_PUBLIC_ORIGIN = "https://ak2025.vip"
 
 
 class AkUpstreamClient:
     def __init__(self, base_url: str = AK_UPSTREAM_BASE, timeout_seconds: int = 12,
-                 retry_attempts: int = 1, retry_backoff_ms: int = 1200):
+                 retry_attempts: int = 1, retry_backoff_ms: int = 1200,
+                 public_origin: str = AK_PUBLIC_ORIGIN, host_header: str = ""):
         self.base_url = str(base_url or AK_UPSTREAM_BASE).rstrip("/")
+        self.public_origin = str(public_origin or self.base_url).rstrip("/")
+        self.host_header = str(host_header or "").strip()
         self.timeout_seconds = max(3, min(int(timeout_seconds or 12), 60))
         self.retry_attempts = max(1, min(int(retry_attempts or 1), 10))
         self.retry_backoff_ms = max(100, min(int(retry_backoff_ms or 1200), 10000))
@@ -23,13 +27,15 @@ class AkUpstreamClient:
         url = f"{self.base_url}/RPC/{endpoint}"
         headers = {
             "accept": "application/json, text/plain, */*",
-            "origin": self.base_url,
-            "referer": f"{self.base_url}/pages/home.html?first=true",
+            "origin": self.public_origin,
+            "referer": f"{self.public_origin}/pages/home.html?first=true",
             "user-agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
             ),
         }
+        if self.host_header:
+            headers["host"] = self.host_header
         last_error = ""
         response = None
         for _attempt in range(1, self.retry_attempts + 1):
@@ -77,13 +83,15 @@ class AkUpstreamClient:
         url = f"{self.base_url}/RPC/Login"
         headers = {
             "accept": "application/json, text/plain, */*",
-            "origin": self.base_url,
-            "referer": f"{self.base_url}/pages/account/login.html",
+            "origin": self.public_origin,
+            "referer": f"{self.public_origin}/pages/account/login.html",
             "user-agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
             ),
         }
+        if self.host_header:
+            headers["host"] = self.host_header
         params = {
             "account": str(account or "").strip(),
             "password": str(password or ""),

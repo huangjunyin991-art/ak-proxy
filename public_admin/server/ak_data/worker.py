@@ -630,6 +630,9 @@ class AkDataWorker:
     @staticmethod
     def _client(config: AkDataConfig) -> AkUpstreamClient:
         return AkUpstreamClient(
+            base_url=config.upstream_base_url,
+            public_origin=config.upstream_public_origin,
+            host_header=config.upstream_host_header,
             timeout_seconds=config.upstream_timeout_seconds,
             retry_attempts=config.upstream_retry_attempts,
             retry_backoff_ms=config.upstream_retry_backoff_ms,
@@ -742,20 +745,18 @@ class AkDataWorker:
 
     @staticmethod
     def _is_auth_invalid_response(status: int, payload: Any) -> bool:
-        if int(status or 0) in {301, 302, 303, 307, 308}:
-            return True
         if not isinstance(payload, dict):
             return False
         code = str(payload.get("Code") or payload.get("code") or "").strip().lower()
-        if code in {"upstream_redirect", "upstream_html"}:
-            return True
         text = " ".join(str(payload.get(key) or "") for key in ("Msg", "message", "Message", "Error", "Code"))
         lowered = text.lower()
+        if int(status or 0) in {301, 302, 303, 307, 308} or code == "upstream_redirect":
+            if "404" in lowered or "/404" in lowered:
+                return False
+            return any(marker in lowered for marker in ("login", "account/login", "islogin", "expired", "invalid", "key"))
+        if code == "upstream_html" and ("404" in lowered or "/404" in lowered):
+            return False
         return any(marker in lowered for marker in (
-            "object moved",
-            "document moved",
-            "<head",
-            "<html",
             "login",
             "islogin",
             "key",

@@ -114,6 +114,9 @@
             buyer_max_pages: readNumber('akDataConfigBuyerMaxPages', cfg.buyer_max_pages || 20),
             default_target_date: readText('akDataConfigTargetDate', cfg.default_target_date || '2026-05-29'),
             base_stat_date: readText('akDataConfigBaseDate', cfg.base_stat_date || '2026-06-01'),
+            upstream_base_url: readText('akDataConfigUpstreamBase', cfg.upstream_base_url || 'http://127.0.0.1:8080'),
+            upstream_public_origin: cfg.upstream_public_origin || 'https://ak2025.vip',
+            upstream_host_header: readText('akDataConfigUpstreamHost', cfg.upstream_host_header || 'ak2025.vip'),
             upstream_timeout_seconds: readNumber('akDataConfigTimeout', cfg.upstream_timeout_seconds || 12),
             upstream_retry_attempts: 1,
             upstream_retry_backoff_ms: readNumber('akDataConfigRetryBackoff', cfg.upstream_retry_backoff_ms || 1200)

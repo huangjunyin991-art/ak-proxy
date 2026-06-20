@@ -127,6 +127,8 @@
             '<label><span>买家最大页数</span><input id="akDataConfigBuyerMaxPages" type="number" min="1" max="200" value="' + html(cfg.buyer_max_pages || 20) + '"></label>',
             '<label><span>默认目标日期</span><input id="akDataConfigTargetDate" type="date" value="' + html(cfg.default_target_date || '2026-05-29') + '"></label>',
             '<label><span>基础统计起始日</span><input id="akDataConfigBaseDate" type="date" value="' + html(cfg.base_stat_date || '2026-06-01') + '"></label>',
+            '<label><span>采集入口</span><input id="akDataConfigUpstreamBase" type="text" value="' + html(cfg.upstream_base_url || 'http://127.0.0.1:8080') + '" placeholder="http://127.0.0.1:8080"></label>',
+            '<label><span>请求 Host</span><input id="akDataConfigUpstreamHost" type="text" value="' + html(cfg.upstream_host_header || 'ak2025.vip') + '" placeholder="ak2025.vip"></label>',
             '<label><span>上游超时（秒）</span><input id="akDataConfigTimeout" type="number" min="3" max="60" value="' + html(cfg.upstream_timeout_seconds || 12) + '"></label>',
             '</div>',
             '<div class="akd-config-actions"><button class="akd-btn primary" data-action="save-config">保存配置</button><button class="akd-btn ghost" data-action="cleanup">清理过期数据</button></div>'
