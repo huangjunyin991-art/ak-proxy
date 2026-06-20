@@ -124,6 +124,26 @@
         ].join('');
     }
 
+    function renderBackfillStatus(state) {
+        var bf = state.backfill || {};
+        return [
+            '<span>状态：' + html(bf.status || 'idle') + '</span>',
+            '<span>当前 ID：' + number(bf.current_trade_id || 0) + '</span>',
+            '<span>数据库最早 ID：' + number(bf.local_min_trade_id || (state.status && state.status.local_min_trade_id) || 0) + '</span>',
+            '<span>已保存：' + number(bf.saved || 0) + '</span>',
+            '<span>买家明细：' + number(bf.buyer_rows || 0) + '</span>',
+            '<span>403 次数：' + number(bf.forbidden || 0) + '</span>',
+            '<span>重试轮次：' + number(bf.retry_round || 0) + '/' + number(bf.retry_rounds || 0) + '</span>',
+            '<span>待补订单：' + number(bf.pending_count || 0) + '</span>',
+            '<span>当前采集日：' + html(bf.current_day || '-') + '</span>',
+            '<span>当日缓存：' + number(bf.day_buffer_count || 0) + '</span>',
+            '<span>已提交天数：' + number(bf.committed_days || 0) + '</span>',
+            (bf.current_account ? '<span>当前账号：' + html(bf.current_account) + '</span>' : ''),
+            (bf.last_error ? '<span title="' + html(bf.last_error) + '">最近错误：' + html(String(bf.last_error).slice(0, 36)) + '</span>' : ''),
+            (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until, bf.cooldown_remaining_seconds)) + '</span>' : '')
+        ].join('');
+    }
+
     function renderBackfill(state) {
         var bf = state.backfill || {};
         var runtime = state.status && state.status.runtime || {};
@@ -142,22 +162,7 @@
                 '<button class="akd-btn ghost" data-action="pause-backfill"' + (!running ? ' disabled' : '') + '>暂停</button>' +
                 '<button class="akd-btn ghost" data-action="start-probe"' + (running ? ' disabled' : '') + '>限流探测</button>' +
             '</div>',
-            '<div class="akd-backfill-status">' +
-                '<span>状态：' + html(bf.status || 'idle') + '</span>' +
-                '<span>当前 ID：' + number(bf.current_trade_id || 0) + '</span>' +
-                '<span>数据库最早 ID：' + number(bf.local_min_trade_id || (state.status && state.status.local_min_trade_id) || 0) + '</span>' +
-                '<span>已保存：' + number(bf.saved || 0) + '</span>' +
-                '<span>买家明细：' + number(bf.buyer_rows || 0) + '</span>' +
-                '<span>403 次数：' + number(bf.forbidden || 0) + '</span>' +
-                '<span>重试轮次：' + number(bf.retry_round || 0) + '/' + number(bf.retry_rounds || 0) + '</span>' +
-                '<span>待补订单：' + number(bf.pending_count || 0) + '</span>' +
-                '<span>当前采集日：' + html(bf.current_day || '-') + '</span>' +
-                '<span>当日缓存：' + number(bf.day_buffer_count || 0) + '</span>' +
-                '<span>已提交天数：' + number(bf.committed_days || 0) + '</span>' +
-                (bf.current_account ? '<span>当前账号：' + html(bf.current_account) + '</span>' : '') +
-                (bf.last_error ? '<span title="' + html(bf.last_error) + '">最近错误：' + html(String(bf.last_error).slice(0, 36)) + '</span>' : '') +
-                (bf.cooldown_until ? '<span>' + html(cooldownText(bf.cooldown_until, bf.cooldown_remaining_seconds)) + '</span>' : '') +
-            '</div>',
+            '<div class="akd-backfill-status">' + renderBackfillStatus(state) + '</div>',
             '</div>'
         ].join('');
     }
@@ -238,6 +243,8 @@
     }
 
     window.AKDataRenderer = {
-        render: render
+        render: render,
+        renderMetrics: renderMetrics,
+        renderBackfillStatus: renderBackfillStatus
     };
 })();

@@ -37,6 +37,22 @@
         renderCharts();
     }
 
+    function refreshStatusBlocks() {
+        if (!store || !renderer) return;
+        var metrics = document.querySelector('.akd-metrics');
+        var backfillStatus = document.querySelector('.akd-backfill-status');
+        var backfillMessage = document.querySelector('.akd-backfill-head span');
+        if (metrics && typeof renderer.renderMetrics === 'function') {
+            metrics.innerHTML = renderer.renderMetrics(store.state);
+        }
+        if (backfillStatus && typeof renderer.renderBackfillStatus === 'function') {
+            backfillStatus.innerHTML = renderer.renderBackfillStatus(store.state);
+        }
+        if (backfillMessage) {
+            backfillMessage.textContent = (store.state.backfill && store.state.backfill.message) || '未启动';
+        }
+    }
+
     function disposeCharts() {
         try {
             if (tradeChart) tradeChart.dispose();
@@ -446,11 +462,11 @@
         if (!api || !store) return Promise.resolve();
         return api.backfillStatus().then(function(payload) {
             store.setBackfill(payload);
-            render();
+            refreshStatusBlocks();
             return payload;
         }).catch(function(error) {
             store.setError(error.message || '回填状态读取失败');
-            render();
+            refreshStatusBlocks();
         });
     }
 
