@@ -492,14 +492,14 @@ class AkDataRepository:
                        total_success,
                        total_trade_value,
                        avg_price,
-                       market_value,
+                       (stock_count * avg_price)::numeric(18,2) AS market_value,
                        stock_count,
                        price_order_count,
                        price_total_success,
                        CASE
-                           WHEN LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id) > 0
-                           THEN (((market_value - LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id))
-                               / LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
+                           WHEN LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id) > 0
+                           THEN ((((stock_count * avg_price) - LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id))
+                               / LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
                        ELSE NULL
                        END AS market_inflation_rate,
                        first_trade_time,
