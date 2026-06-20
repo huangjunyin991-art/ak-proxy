@@ -423,7 +423,8 @@ class AkDataRepository:
                                WHEN sc.previous_price > 0
                                THEN ((ss.price_total_trade_value / 0.005) / sc.previous_price)::numeric(18,2)
                                ELSE 0::numeric(18,2)
-                           END AS stock_count,
+                           END AS raw_stock_count,
+                           (ss.price_total_mycancel + ss.price_total_fee_stock)::numeric(18,2) AS exit_stock_count,
                            ss.price_order_count,
                            ss.price_total_success,
                            ss.first_trade_time,
@@ -432,6 +433,56 @@ class AkDataRepository:
                     JOIN segment_stats ss ON ss.price_segment = sc.price_segment - 1
                     LEFT JOIN daily_stats ds ON ds.date_key = sc.date_key
                     WHERE sc.change_rank > 1
+                ),
+                ranked_market AS (
+                    SELECT *,
+                           ROW_NUMBER() OVER (ORDER BY price_change_time ASC, price_trade_id ASC) AS market_row,
+                           COUNT(*) OVER (
+                               ORDER BY price_change_time ASC, price_trade_id ASC
+                               ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING
+                           ) AS stable_count,
+                           MIN(raw_stock_count) OVER (
+                               ORDER BY price_change_time ASC, price_trade_id ASC
+                               ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING
+                           ) AS stable_min_stock,
+                           MAX(raw_stock_count) OVER (
+                               ORDER BY price_change_time ASC, price_trade_id ASC
+                               ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING
+                           ) AS stable_max_stock,
+                           AVG(raw_stock_count) OVER (
+                               ORDER BY price_change_time ASC, price_trade_id ASC
+                               ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING
+                           ) AS stable_avg_stock
+                    FROM visible_market
+                ),
+                stable_anchor AS (
+                    SELECT COALESCE(
+                        MIN(market_row) FILTER (
+                            WHERE stable_count >= 3
+                              AND stable_avg_stock > 0
+                              AND ((stable_max_stock - stable_min_stock) / stable_avg_stock) <= 0.12
+                        ),
+                        MIN(market_row)
+                    ) AS anchor_row
+                    FROM ranked_market
+                ),
+                anchored_market AS (
+                    SELECT rm.*
+                    FROM ranked_market rm
+                    CROSS JOIN stable_anchor sa
+                    WHERE rm.market_row >= sa.anchor_row
+                ),
+                computed_market AS (
+                    SELECT *,
+                           GREATEST(
+                               FIRST_VALUE(raw_stock_count) OVER (ORDER BY market_row)
+                                   - (
+                                       SUM(exit_stock_count) OVER (ORDER BY market_row)
+                                       - FIRST_VALUE(exit_stock_count) OVER (ORDER BY market_row)
+                                   ),
+                               0
+                           )::numeric(18,2) AS stock_count
+                    FROM anchored_market
                 )
                 SELECT date_key,
                        price_trade_id,
@@ -453,7 +504,7 @@ class AkDataRepository:
                        END AS market_inflation_rate,
                        first_trade_time,
                        last_trade_time
-                FROM visible_market
+                FROM computed_market
                 WHERE date_key BETWEEN $1 AND $2
                 ORDER BY price_change_time ASC, price_trade_id ASC
                 """,
