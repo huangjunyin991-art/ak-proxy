@@ -509,6 +509,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_date ON ak_trade_summary(date_key)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_date_price ON ak_trade_summary(date_key, single_price)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_time ON ak_trade_summary(create_time DESC, trade_id DESC)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ak_trade_summary_seller_time ON ak_trade_summary(seller_flow_number, create_time DESC, trade_id DESC)')
         await conn.execute('''

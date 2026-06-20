@@ -584,6 +584,10 @@
     letter-spacing: 0;
 }
 
+.akd-chart-card--wide {
+    grid-column: 1 / -1;
+}
+
 .akd-echart {
     width: 100%;
     height: 266px;
