@@ -11,7 +11,6 @@
     var echartsPromise = null;
     var tradeChart = null;
     var dealChart = null;
-    var marketChart = null;
     var BACKFILL_POLL_OWNER = 'panel:akData';
     var BACKFILL_POLL_ID = 'akData:backfillStatus';
 
@@ -58,11 +57,9 @@
         try {
             if (tradeChart) tradeChart.dispose();
             if (dealChart) dealChart.dispose();
-            if (marketChart) marketChart.dispose();
         } catch (e) {}
         tradeChart = null;
         dealChart = null;
-        marketChart = null;
     }
 
     function ensureEcharts() {
@@ -119,30 +116,21 @@
     function renderCharts() {
         var tradeEl = document.getElementById('akDataTradeChart');
         var dealEl = document.getElementById('akDataDealChart');
-        var marketEl = document.getElementById('akDataMarketChart');
-        if (!tradeEl || !dealEl || !marketEl || !store) return;
+        if (!tradeEl || !dealEl || !store) return;
         var rows = chartRows();
         var hasData = rows.length > 0;
-        var marketRows = (store.state && Array.isArray(store.state.marketRows)) ? store.state.marketRows.slice() : [];
-        var hasMarketData = marketRows.length > 0;
         toggleChartEmpty('akDataTradeChart', 'akDataTradeChartEmpty', hasData);
         toggleChartEmpty('akDataDealChart', 'akDataDealChartEmpty', hasData);
-        toggleChartEmpty('akDataMarketChart', 'akDataMarketChartEmpty', hasMarketData);
-        if (!hasData && !hasMarketData) return;
+        if (!hasData) return;
         ensureEcharts().then(function(echarts) {
-            if (!document.getElementById('akDataTradeChart') || !document.getElementById('akDataDealChart') || !document.getElementById('akDataMarketChart')) return;
-            if (hasData && !tradeChart) tradeChart = echarts.init(document.getElementById('akDataTradeChart'), null, { renderer: 'canvas' });
-            if (hasData && !dealChart) dealChart = echarts.init(document.getElementById('akDataDealChart'), null, { renderer: 'canvas' });
-            if (hasMarketData && !marketChart) marketChart = echarts.init(document.getElementById('akDataMarketChart'), null, { renderer: 'canvas' });
-            if (hasData) {
-                setTradeChartOption(rows);
-                setDealChartOption(rows);
-            }
-            if (hasMarketData) setMarketChartOption(marketRows);
+            if (!document.getElementById('akDataTradeChart') || !document.getElementById('akDataDealChart')) return;
+            if (!tradeChart) tradeChart = echarts.init(document.getElementById('akDataTradeChart'), null, { renderer: 'canvas' });
+            if (!dealChart) dealChart = echarts.init(document.getElementById('akDataDealChart'), null, { renderer: 'canvas' });
+            setTradeChartOption(rows);
+            setDealChartOption(rows);
             setTimeout(function() {
                 if (tradeChart) tradeChart.resize();
                 if (dealChart) dealChart.resize();
-                if (marketChart) marketChart.resize();
             }, 0);
         }).catch(function(error) {
             notify(error.message || '图表加载失败', 'error');
@@ -318,116 +306,6 @@
         }, true);
     }
 
-    function setMarketChartOption(rows) {
-        if (!marketChart) return;
-        var sortedRows = (rows || []).slice().sort(function(a, b) {
-            return Number(a.single_price || 0) - Number(b.single_price || 0);
-        });
-        var labels = sortedRows.map(function(row) { return formatPrice(row.single_price); });
-        var tradeValues = sortedRows.map(function(row) { return Number(row.total_trade_value || 0); });
-        var marketValues = sortedRows.map(function(row) { return Number(row.market_value || 0); });
-        var stockCounts = sortedRows.map(function(row) { return Number(row.stock_count || 0); });
-        var orderCounts = sortedRows.map(function(row) { return Number(row.order_count || 0); });
-        marketChart.setOption({
-            color: ['#21b8b2', '#c0903f'],
-            grid: { left: 82, right: 74, top: 58, bottom: 42, containLabel: false },
-            tooltip: {
-                trigger: 'axis',
-                backgroundColor: 'rgba(6,20,28,0.96)',
-                borderColor: 'rgba(79,199,194,0.30)',
-                borderWidth: 1,
-                padding: [10, 12],
-                extraCssText: 'box-shadow:0 14px 30px rgba(0,0,0,.34);border-radius:8px;',
-                textStyle: { color: '#dff8f2', fontSize: 12, fontWeight: 700, lineHeight: 20 },
-                formatter: function(items) {
-                    var idx = items && items[0] ? items[0].dataIndex : 0;
-                    return [
-                        '<b>成交价格：' + labels[idx] + '</b>',
-                        '成交总价值：' + formatNumber(tradeValues[idx], 2),
-                        '总市值：' + formatNumber(marketValues[idx], 2),
-                        '股票总数：' + formatNumber(stockCounts[idx], 2),
-                        '订单数：' + formatNumber(orderCounts[idx])
-                    ].join('<br>');
-                }
-            },
-            legend: {
-                top: 8,
-                left: 'center',
-                itemWidth: 13,
-                itemHeight: 10,
-                itemGap: 22,
-                textStyle: { color: 'rgba(211,236,235,0.82)', fontSize: 12, fontWeight: 800 },
-                data: ['总市值', '股票总数']
-            },
-            xAxis: {
-                type: 'category',
-                data: labels,
-                axisTick: { show: false },
-                boundaryGap: false,
-                axisLine: { lineStyle: { color: 'rgba(175,215,216,0.22)' } },
-                axisLabel: { color: 'rgba(216,236,236,0.76)', fontSize: 12, margin: 12, fontWeight: 700 }
-            },
-            yAxis: [
-                {
-                    type: 'value',
-                    splitLine: { lineStyle: { color: 'rgba(175,215,216,0.10)' } },
-                    axisLabel: {
-                        color: 'rgba(178,211,214,0.70)',
-                        fontSize: 11,
-                        formatter: function(value) { return formatNumber(value); }
-                    }
-                },
-                {
-                    type: 'value',
-                    position: 'right',
-                    splitLine: { show: false },
-                    axisLabel: {
-                        color: 'rgba(218,177,100,0.88)',
-                        fontSize: 11,
-                        formatter: function(value) { return formatNumber(value); }
-                    }
-                }
-            ],
-            series: [
-                {
-                    name: '总市值',
-                    type: 'line',
-                    data: marketValues,
-                    yAxisIndex: 0,
-                    smooth: true,
-                    symbol: 'circle',
-                    symbolSize: 6,
-                    lineStyle: { width: 3.4, color: '#21b8b2' },
-                    itemStyle: { color: '#21b8b2', borderColor: '#b8f1ed', borderWidth: 1 },
-                    areaStyle: {
-                        color: {
-                            type: 'linear',
-                            x: 0,
-                            y: 0,
-                            x2: 0,
-                            y2: 1,
-                            colorStops: [
-                                { offset: 0, color: 'rgba(33,184,178,0.22)' },
-                                { offset: 1, color: 'rgba(33,184,178,0.03)' }
-                            ]
-                        }
-                    }
-                },
-                {
-                    name: '股票总数',
-                    type: 'line',
-                    data: stockCounts,
-                    yAxisIndex: 1,
-                    smooth: true,
-                    symbol: 'circle',
-                    symbolSize: 6,
-                    lineStyle: { width: 3.2, color: '#c0903f' },
-                    itemStyle: { color: '#c0903f', borderColor: '#f2d394', borderWidth: 1 }
-                }
-            ]
-        }, true);
-    }
-
     function bootstrap() {
         if (!api || !store) return Promise.resolve();
         store.state.loading = true;
@@ -438,7 +316,6 @@
             api.config(),
             api.storage(),
             api.dashboard(store.state.dashboardDays),
-            api.marketValue(store.state.dashboardDays),
             api.recentTrades(50)
         ]).then(function(results) {
             store.setBootstrap({
@@ -447,8 +324,7 @@
                 config: results[1] && results[1].item,
                 storage: results[2] && results[2].rows,
                 dashboard: results[3] && results[3].rows,
-                marketRows: results[4] && results[4].rows,
-                recentTrades: results[5] && results[5].rows
+                recentTrades: results[4] && results[4].rows
             });
             ensureBackfillPolling();
         }).catch(function(error) {
@@ -638,12 +514,8 @@
         var targetDays = Number(days || 7);
         store.state.dashboardDays = targetDays;
         render();
-        Promise.all([
-            api.dashboard(targetDays),
-            api.marketValue(targetDays)
-        ]).then(function(results) {
-            store.setDashboard(targetDays, results[0] && results[0].rows);
-            store.setMarketValue(results[1] && results[1].rows);
+        api.dashboard(targetDays).then(function(payload) {
+            store.setDashboard(targetDays, payload && payload.rows);
         }).catch(function(error) {
             store.setError(error.message || '日统计加载失败');
             notify(store.state.error, 'error');
@@ -716,7 +588,6 @@
         window.addEventListener('resize', function() {
             if (tradeChart) tradeChart.resize();
             if (dealChart) dealChart.resize();
-            if (marketChart) marketChart.resize();
         });
     }
 
