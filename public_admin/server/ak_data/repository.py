@@ -396,6 +396,11 @@ class AkDataRepository:
                       AND st.single_price <> st.previous_price
                     GROUP BY st.price_segment
                 ),
+                ranked_change AS (
+                    SELECT *,
+                           ROW_NUMBER() OVER (ORDER BY price_change_time ASC, price_trade_id ASC) AS change_rank
+                    FROM segment_change
+                ),
                 daily_stats AS (
                     SELECT date_key,
                            COUNT(*)::integer AS order_count,
@@ -413,33 +418,20 @@ class AkDataRepository:
                            COALESCE(ds.total_success, 0)::bigint AS total_success,
                            ss.price_total_trade_value::numeric(14,2) AS total_trade_value,
                            sc.next_price::numeric(4,3) AS avg_price,
+                           (ss.price_total_trade_value / 0.005)::numeric(18,2) AS market_value,
                            CASE
                                WHEN sc.previous_price > 0
-                               THEN (((ss.price_total_trade_value / 0.005) / sc.previous_price)
-                                   - ss.price_total_mycancel
-                                   - ss.price_total_fee_stock)::numeric(18,2)
+                               THEN ((ss.price_total_trade_value / 0.005) / sc.previous_price)::numeric(18,2)
                                ELSE 0::numeric(18,2)
-                           END AS inferred_stock_count,
-                           (ss.price_total_mycancel + ss.price_total_fee_stock)::numeric(18,2) AS exit_stock_count,
+                           END AS stock_count,
                            ss.price_order_count,
                            ss.price_total_success,
                            ss.first_trade_time,
                            ss.last_trade_time
-                    FROM segment_change sc
+                    FROM ranked_change sc
                     JOIN segment_stats ss ON ss.price_segment = sc.price_segment - 1
                     LEFT JOIN daily_stats ds ON ds.date_key = sc.date_key
-                ),
-                computed_market AS (
-                    SELECT *,
-                           GREATEST(
-                               FIRST_VALUE(inferred_stock_count) OVER (ORDER BY price_change_time, price_trade_id)
-                                   - (
-                                       SUM(exit_stock_count) OVER (ORDER BY price_change_time, price_trade_id)
-                                       - FIRST_VALUE(exit_stock_count) OVER (ORDER BY price_change_time, price_trade_id)
-                                   ),
-                               0
-                           )::numeric(18,2) AS stock_count
-                    FROM visible_market
+                    WHERE sc.change_rank > 1
                 )
                 SELECT date_key,
                        price_trade_id,
@@ -449,19 +441,19 @@ class AkDataRepository:
                        total_success,
                        total_trade_value,
                        avg_price,
-                       (stock_count * avg_price)::numeric(18,2) AS market_value,
+                       market_value,
                        stock_count,
                        price_order_count,
                        price_total_success,
                        CASE
-                           WHEN LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id) > 0
-                           THEN ((((stock_count * avg_price) - LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id))
-                               / LAG(stock_count * avg_price) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
+                           WHEN LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id) > 0
+                           THEN (((market_value - LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id))
+                               / LAG(market_value) OVER (ORDER BY price_change_time, price_trade_id)) * 100)::numeric(10,2)
                        ELSE NULL
                        END AS market_inflation_rate,
                        first_trade_time,
                        last_trade_time
-                FROM computed_market
+                FROM visible_market
                 WHERE date_key BETWEEN $1 AND $2
                 ORDER BY price_change_time ASC, price_trade_id ASC
                 """,
