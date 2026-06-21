@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
@@ -23,6 +24,13 @@ class AkDataRepository:
 
     def _pool(self):
         return self._pool_supplier()
+
+    def _parse_success_value(self, value: Any) -> Decimal:
+        try:
+            parsed = Decimal(str(value or "0"))
+        except Exception:
+            parsed = Decimal("0")
+        return parsed.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
     async def _table_exists(self, conn, table_name: str) -> bool:
         return bool(await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", f"public.{table_name}"))
@@ -376,7 +384,7 @@ class AkDataRepository:
                            single_price AS segment_price,
                            COUNT(*)::integer AS price_order_count,
                            COALESCE(SUM(success), 0)::bigint AS price_total_success,
-                           COALESCE(SUM(success_value), 0)::numeric(14,2) AS price_total_trade_value,
+                           COALESCE(SUM(success_value), 0)::numeric(14,3) AS price_total_trade_value,
                            COALESCE(SUM(mycancel), 0)::bigint AS price_total_mycancel,
                            COALESCE(SUM(GREATEST(readonly_stock_count - mycancel - success, 0)), 0)::bigint AS price_total_fee_stock,
                            MIN(create_time) AS first_trade_time,
@@ -416,7 +424,7 @@ class AkDataRepository:
                            sc.previous_price,
                            COALESCE(ds.order_count, 0)::integer AS order_count,
                            COALESCE(ds.total_success, 0)::bigint AS total_success,
-                           ss.price_total_trade_value::numeric(14,2) AS total_trade_value,
+                           ss.price_total_trade_value::numeric(14,3) AS total_trade_value,
                            sc.next_price::numeric(4,3) AS avg_price,
                            (ss.price_total_trade_value / 0.005)::numeric(18,2) AS market_value,
                            CASE
@@ -720,7 +728,7 @@ class AkDataRepository:
         readonly_stock_count = int(trade.get("ReadonlyStockCount") or 0)
         mycancel = int(trade.get("mycancel") or 0)
         success = int(trade.get("success") or 0)
-        success_value = round(float(trade.get("successvalue") or 0), 2)
+        success_value = self._parse_success_value(trade.get("successvalue"))
         create_time = self._parse_datetime(trade.get("CreateTime"))
         date_key = create_time.date() if create_time else date.today()
         async with pool.acquire() as conn:
@@ -859,7 +867,7 @@ class AkDataRepository:
                     int(trade.get("ReadonlyStockCount") or 0),
                     int(trade.get("mycancel") or 0),
                     int(trade.get("success") or 0),
-                    round(float(trade.get("successvalue") or 0), 2),
+                    self._parse_success_value(trade.get("successvalue")),
                     create_time,
                     date_key,
                     str(item.get("seller_flow") or "").strip(),
@@ -1072,7 +1080,7 @@ class AkDataRepository:
                    COALESCE(SUM(s.readonly_stock_count), 0)::bigint,
                    COALESCE(SUM(s.mycancel), 0)::bigint,
                    COALESCE(SUM(s.success), 0)::bigint,
-                   COALESCE(SUM(s.success_value), 0)::numeric(14,2),
+                   COALESCE(SUM(s.success_value), 0)::numeric(14,3),
                    COALESCE(SUM(GREATEST(s.readonly_stock_count - s.mycancel - s.success, 0)), 0)::bigint,
                    COUNT(DISTINCT NULLIF(s.seller_flow_number, ''))::integer,
                    COALESCE((SELECT unique_buyer_count FROM buyer_daily WHERE buyer_daily.date_key = s.date_key), 0)::integer,
