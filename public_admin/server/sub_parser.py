@@ -81,7 +81,7 @@ def _iter_proxy_lines(text: str):
         if '://' not in line:
             continue
         start = min(
-            (pos for pos in (line.find('anytls://'), line.find('vless://'), line.find('hysteria2://'), line.find('hy2://'), line.find('ss://'), line.find('vmess://')) if pos >= 0),
+            (pos for pos in (line.find('anytls://'), line.find('vless://'), line.find('trojan://'), line.find('hysteria2://'), line.find('hy2://'), line.find('ss://'), line.find('vmess://')) if pos >= 0),
             default=-1,
         )
         if start >= 0:
@@ -181,8 +181,12 @@ def _parse_clash_yaml(text: str) -> list[dict]:
             'region_label': region_label,
             'raw': {k: v for k, v in p.items() if k in (
                 'type', 'server', 'port', 'cipher', 'password', 'uuid',
-                'alterId', 'network', 'tls', 'sni', 'udp',
+                'alterId', 'network', 'tls', 'sni', 'servername',
+                'server_name', 'skip-cert-verify', 'skip_cert_verify',
+                'udp', 'flow', 'client-fingerprint', 'client_fingerprint',
                 'plugin', 'plugin-opts', 'ws-opts', 'grpc-opts',
+                'xhttp-opts', 'xhttp_opts', 'reality-opts', 'reality_opts',
+                'alpn', 'host', 'path',
             )},
         })
 
@@ -323,6 +327,10 @@ def _parse_vless_links(text: str) -> list[dict]:
                         'host': params.get('host', ''),
                         'path': params.get('path', ''),
                         'insecure': params.get('insecure', ''),
+                        'mode': params.get('mode', ''),
+                        'extra': params.get('extra', ''),
+                        'alpn': params.get('alpn', ''),
+                        'skip-cert-verify': params.get('allowInsecure', params.get('skip-cert-verify', '')),
                     },
                 })
             except Exception as e:
@@ -367,6 +375,45 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                 logger.debug(f"[SubParser] Hysteria2解析失败: {e}")
                 continue
     
+    return nodes
+
+
+def _parse_trojan_links(text: str) -> list[dict]:
+    nodes = []
+    for line in _iter_proxy_lines(text):
+        if line.startswith('trojan://'):
+            try:
+                parsed = urllib.parse.urlsplit(line)
+                password = urllib.parse.unquote(parsed.username or '')
+                server = parsed.hostname or ''
+                port = parsed.port
+                if not password or not server or not port:
+                    continue
+                name = urllib.parse.unquote(parsed.fragment or '')
+                params = dict(urllib.parse.parse_qsl(parsed.query))
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'Trojan-{server}',
+                    'type': 'trojan',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'type': 'trojan',
+                        'password': password,
+                        'sni': params.get('sni', params.get('peer', server)),
+                        'network': params.get('type', params.get('network', 'tcp')),
+                        'host': params.get('host', ''),
+                        'path': params.get('path', ''),
+                        'skip-cert-verify': params.get('allowInsecure', params.get('skip-cert-verify', '')),
+                    },
+                })
+            except Exception as e:
+                logger.debug(f"[SubParser] Trojan瑙ｆ瀽澶辫触: {e}")
+                continue
     return nodes
 
 
@@ -439,6 +486,7 @@ def _parse_json_nodes(text: str) -> list[dict]:
         return (
             _parse_anytls_links(raw_text)
             + _parse_vless_links(raw_text)
+            + _parse_trojan_links(raw_text)
             + _parse_hysteria2_links(raw_text)
             + _parse_ss_links(raw_text)
         )
@@ -474,6 +522,11 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'host': item.get('host', ''),
                     'path': item.get('path', ''),
                     'insecure': item.get('insecure', ''),
+                    'mode': item.get('mode', ''),
+                    'alpn': item.get('alpn', ''),
+                    'skip-cert-verify': item.get('skip-cert-verify', item.get('skip_cert_verify', '')),
+                    'servername': item.get('servername', item.get('server_name', item.get('sni', server))),
+                    'xhttp-opts': item.get('xhttp-opts', item.get('xhttp_opts', {})),
                 }
             elif proto in ('hysteria2', 'hy2', 'anytls'):
                 raw = {
@@ -536,9 +589,10 @@ def parse_subscription_text(text: str) -> dict:
     if not nodes:
         anytls_nodes = _parse_anytls_links(text)
         vless_nodes = _parse_vless_links(text)
+        trojan_nodes = _parse_trojan_links(text)
         hy2_nodes = _parse_hysteria2_links(text)
-        if anytls_nodes or vless_nodes or hy2_nodes:
-            nodes = anytls_nodes + vless_nodes + hy2_nodes
+        if anytls_nodes or vless_nodes or trojan_nodes or hy2_nodes:
+            nodes = anytls_nodes + vless_nodes + trojan_nodes + hy2_nodes
             fmt = "proxy_links"
 
     # 尝试SS/VMess链接

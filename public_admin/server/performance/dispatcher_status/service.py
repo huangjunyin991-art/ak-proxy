@@ -13,6 +13,7 @@ class DispatcherStatusService:
         saved_nodes_loader: Callable[[], list[dict[str, Any]]],
         active_group_filter: Callable[[list[dict[str, Any]], set[str]], list[dict[str, Any]]],
         enabled_nodes_filter: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        runtime_nodes_builder: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
         meta_ttl_seconds: float = 30.0,
     ):
         self._dispatcher = dispatcher
@@ -21,6 +22,7 @@ class DispatcherStatusService:
         self._saved_nodes_loader = saved_nodes_loader
         self._active_group_filter = active_group_filter
         self._enabled_nodes_filter = enabled_nodes_filter
+        self._runtime_nodes_builder = runtime_nodes_builder
         self._meta_cache = AsyncTTLCache(self._load_meta_status, meta_ttl_seconds, meta_ttl_seconds * 4)
 
     def get_light_status(self) -> dict[str, Any]:
@@ -84,7 +86,10 @@ class DispatcherStatusService:
         active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
         saved_nodes = self._saved_nodes_loader()
         node_items = [item for item in saved_nodes if isinstance(item, dict)] if isinstance(saved_nodes, list) else []
-        enabled_nodes = self._enabled_nodes_filter(self._active_group_filter(node_items, active_group_ids))
+        active_nodes = self._active_group_filter(node_items, active_group_ids)
+        if self._runtime_nodes_builder is not None:
+            active_nodes = self._runtime_nodes_builder(active_nodes)
+        enabled_nodes = self._enabled_nodes_filter(active_nodes)
         node_meta = []
         for idx, node in enumerate(enabled_nodes, start=1):
             item = {
@@ -93,6 +98,10 @@ class DispatcherStatusService:
                 "group_name": node.get("group_name", ""),
                 "node_type": node.get("type", ""),
                 "node_server": node.get("server", ""),
+                "core_type": node.get("core_type", ""),
+                "local_port": node.get("local_port", 0),
+                "core_supported": node.get("core_supported", True),
+                "core_unsupported_reason": node.get("core_unsupported_reason", ""),
                 "enabled": node.get("enabled", True),
             }
             node_meta.append(pick_fields(item, NODE_META_FIELDS | {"index"}))

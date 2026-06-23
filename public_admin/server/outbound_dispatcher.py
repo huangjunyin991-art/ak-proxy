@@ -52,7 +52,7 @@ ALERT_STATUS_CODES = {
 
 class OutboundExit:
     """单个出口通道"""
-    __slots__ = ('name', 'proxy_url', 'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
+    __slots__ = ('name', 'proxy_url', 'core_type', 'local_port', 'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures', '_ip_detect_failures',
@@ -61,8 +61,11 @@ class OutboundExit:
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
                  '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason')
 
-    def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None):
+    def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
+                 core_type: str = "", local_port: int = 0):
         self.name = name
+        self.core_type = core_type or ("direct" if proxy_url is None else "singbox")
+        self.local_port = int(local_port or 0)
         self.proxy_url = proxy_url  # None=直连, "socks5://127.0.0.1:port"=隧道
         self.healthy = True   # 默认乐观在线，首次健康检查后修正
         self._ever_healthy = False  # 至少成功过一次健康检查；False 时失败不发 WARNING
@@ -418,10 +421,10 @@ class OutboundDispatcher:
 
     # ===== 配置 =====
 
-    def add_socks5(self, name: str, port: int) -> int:
+    def add_socks5(self, name: str, port: int, core_type: str = "singbox") -> int:
         """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
-        self.exits.append(OutboundExit(name, proxy_url, self.client_policy))
+        self.exits.append(OutboundExit(name, proxy_url, self.client_policy, core_type=core_type, local_port=port))
         idx = len(self.exits) - 1
         logger.info(f"[Dispatcher] 添加出口 #{idx}: {name} -> :{port}")
         self._ensure_health_check_started()
@@ -444,7 +447,7 @@ class OutboundDispatcher:
     def configure_from_list(self, socks_list: list[dict]):
         """批量配置: [{"name": "香港_01", "port": 10001}, ...]"""
         for item in socks_list:
-            self.add_socks5(item["name"], item["port"])
+            self.add_socks5(item["name"], item["port"], item.get("core_type") or "singbox")
         logger.info(f"[Dispatcher] 共 {len(self.exits)} 个出口 (1直连 + {len(self.exits)-1}隧道)")
 
     def _ensure_health_check_started(self):
@@ -1236,6 +1239,8 @@ class OutboundDispatcher:
                     "index": i,
                     "name": ex.name,
                     "type": "direct" if ex.is_direct else "socks5",
+                    "core_type": ex.core_type,
+                    "local_port": ex.local_port,
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
                     "exit_ip": ex.exit_ip,

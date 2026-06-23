@@ -13,6 +13,7 @@ sing-box 配置管理器
 import json
 import logging
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -24,12 +25,26 @@ logger = logging.getLogger("TransparentProxy")
 SINGBOX_DIR = Path.home() / "sing-box"
 SINGBOX_CONFIG = SINGBOX_DIR / "config.json"
 NODES_FILE = SINGBOX_DIR / "nodes.json"  # 持久化节点列表
-SINGBOX_BIN = "sing-box"  # sing-box 二进制 (需在 PATH 中)
+SINGBOX_BIN = os.environ.get("AK_SINGBOX_BIN", "sing-box")  # sing-box 二进制 (需在 PATH 中)
 SINGBOX_SERVICE = "sing-box"  # systemd 服务名
 
 
 def ensure_dir():
     SINGBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_singbox_bin() -> str:
+    explicit = os.environ.get("AK_SINGBOX_BIN")
+    if explicit and Path(explicit).exists():
+        return explicit
+    try:
+        from .proxy_cores.runtime import managed_binary_path
+        managed = managed_binary_path("singbox")
+        if managed.exists():
+            return str(managed)
+    except Exception:
+        pass
+    return shutil.which(SINGBOX_BIN) or SINGBOX_BIN
 
 
 def _truthy(value) -> bool:
@@ -313,7 +328,7 @@ def reload_service() -> dict:
     try:
         # 先检查配置是否合法
         check = subprocess.run(
-            [SINGBOX_BIN, "check", "-c", str(SINGBOX_CONFIG)],
+            [_resolve_singbox_bin(), "check", "-c", str(SINGBOX_CONFIG)],
             capture_output=True, text=True, timeout=10
         )
         if check.returncode != 0:

@@ -5,6 +5,8 @@ LIGHT_EXIT_FIELDS = {
     "index",
     "name",
     "type",
+    "core_type",
+    "local_port",
     "proxy",
     "healthy",
     "exit_ip",
@@ -38,6 +40,10 @@ NODE_META_FIELDS = {
     "group_name",
     "node_type",
     "node_server",
+    "core_type",
+    "local_port",
+    "core_supported",
+    "core_unsupported_reason",
     "enabled",
 }
 

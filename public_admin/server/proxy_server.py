@@ -243,6 +243,11 @@ async def _load_singbox_service_status() -> dict:
     return await run_blocking(sbm.get_service_status)
 
 
+async def _load_proxy_cores_status() -> dict:
+    from .proxy_cores import get_cores_status
+    return await run_blocking(get_cores_status)
+
+
 def _fallback_singbox_service_status() -> dict:
     return {"installed": False, "active": False, "message": "sing-box 状态暂不可用"}
 
@@ -269,7 +274,13 @@ def _get_node_group_id(node: dict[str, Any]) -> str:
 
 
 def _get_enabled_subscription_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [item for item in nodes if isinstance(item, dict) and _get_node_group_id(item) and item.get("enabled", True) is not False]
+    from .proxy_cores import prepare_nodes
+    prepared = prepare_nodes([item for item in nodes if isinstance(item, dict) and _get_node_group_id(item)])
+    return [
+        item for item in prepared
+        if item.get("enabled", True) is not False
+        and item.get("core_supported") is True
+    ]
 
 
 def _filter_nodes_by_active_groups(nodes: list[dict[str, Any]], active_group_ids: set[str]) -> list[dict[str, Any]]:
@@ -285,6 +296,11 @@ def _load_saved_subscription_nodes_for_status() -> list[dict[str, Any]]:
     return nodes if isinstance(nodes, list) else []
 
 
+def _build_subscription_runtime_nodes_for_status(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from .proxy_cores.manager import build_runtime_nodes
+    return build_runtime_nodes(nodes, singbox_base_port=_get_dispatcher_saved_base_port())
+
+
 _DISPATCHER_STATUS_SERVICE = DispatcherStatusService(
     dispatcher=dispatcher,
     singbox_status_loader=_get_singbox_service_status_cached,
@@ -292,6 +308,7 @@ _DISPATCHER_STATUS_SERVICE = DispatcherStatusService(
     saved_nodes_loader=_load_saved_subscription_nodes_for_status,
     active_group_filter=_filter_nodes_by_active_groups,
     enabled_nodes_filter=_get_enabled_subscription_nodes,
+    runtime_nodes_builder=_build_subscription_runtime_nodes_for_status,
 )
 
 
@@ -319,17 +336,22 @@ def _save_dispatcher_exits_snapshot(nodes: list[dict[str, Any]], base_port: int)
 
 
 def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, Any]]:
+    from .proxy_cores.manager import build_runtime_nodes
+
     while len(dispatcher.exits) > 1:
         dispatcher.exits.pop()
     added_exits = []
-    for i, node in enumerate(_get_enabled_subscription_nodes(nodes)):
-        port = base_port + i
+    runtime_nodes = build_runtime_nodes(nodes, singbox_base_port=base_port)
+    for i, node in enumerate(_get_enabled_subscription_nodes(runtime_nodes)):
+        port = int(node.get("local_port") or (base_port + i))
         name = node.get("display_name") or node.get("name") or f"node_{i}"
-        idx = dispatcher.add_socks5(str(name), port)
+        core_type = str(node.get("core_type") or "singbox")
+        idx = dispatcher.add_socks5(str(name), port, core_type=core_type)
         added_exits.append({
             "index": idx,
             "name": name,
             "port": port,
+            "core_type": core_type,
             "group_id": node.get("group_id", ""),
             "group_name": node.get("group_name", ""),
         })
@@ -338,6 +360,7 @@ def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port:
 
 async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = False, reload_singbox: bool = True) -> dict[str, Any]:
     from . import singbox_manager as sbm
+    from .proxy_cores import apply_nodes as apply_proxy_core_nodes, prepare_nodes
 
     groups = await db.get_subscription_groups()
     active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
@@ -351,16 +374,19 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
     current_exits = max(0, len(dispatcher.exits) - 1)
     if changed or force_rebuild or current_exits != expected_exits:
         base_port = _get_dispatcher_saved_base_port()
-        sbm.save_nodes(filtered)
-        sbm.write_config(_get_enabled_subscription_nodes(filtered), base_port)
-        reload_result = await run_blocking(sbm.reload_service) if reload_singbox else {"success": True, "message": "已跳过sing-box重载"}
-        _save_dispatcher_exits_snapshot(filtered, base_port)
-        added_exits = _rebuild_dispatcher_exits_from_nodes(filtered, base_port)
+        prepared = prepare_nodes(filtered)
+        sbm.save_nodes(prepared)
+        if reload_singbox:
+            reload_result = await apply_proxy_core_nodes(prepared, singbox_base_port=base_port)
+        else:
+            reload_result = {"success": True, "message": "skip proxy core reload"}
+        _save_dispatcher_exits_snapshot(prepared, base_port)
+        added_exits = _rebuild_dispatcher_exits_from_nodes(prepared, base_port)
         if reload_singbox:
             _SINGBOX_STATUS_CACHE.invalidate()
         return {
             "changed": changed,
-            "nodes_count": len(filtered),
+            "nodes_count": len(prepared),
             "removed_count": len(node_items) - len(filtered),
             "exits_count": len(added_exits),
             "reload_result": reload_result,
@@ -3703,13 +3729,12 @@ async def api_dispatcher_start_singbox(request: Request):
     if error_response is not None:
         return error_response
 
-    from . import singbox_manager as sbm
     try:
-        result = await run_blocking(sbm.reload_service)
+        result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=True)
         _SINGBOX_STATUS_CACHE.invalidate()
         if isinstance(result, dict) and not result.get("success"):
             return result
-        return {"success": True, "message": "sing-box 已启动/重载"}
+        return {"success": True, "message": "proxy cores reloaded", "result": result}
     except Exception as e:
         return {"success": False, "message": f"启动失败: {str(e)}"}
 
@@ -3868,6 +3893,7 @@ async def api_dispatcher_apply_sub(request: Request):
         return error_response
 
     from . import singbox_manager as sbm
+    from .proxy_cores import apply_nodes as apply_proxy_core_nodes, prepare_nodes
 
     from .sub_parser import fetch_subscription, parse_subscription_text
 
@@ -4018,20 +4044,23 @@ async def api_dispatcher_apply_sub(request: Request):
         saved_nodes = []
     existing_groups = await db.get_subscription_groups()
     active_group_ids = {str(group.get("id") or "").strip() for group in existing_groups if isinstance(group, dict)}
-    all_nodes = _filter_nodes_by_active_groups(saved_nodes, active_group_ids) + nodes_to_add
+    all_nodes = prepare_nodes(_filter_nodes_by_active_groups(saved_nodes, active_group_ids) + nodes_to_add)
     enabled_nodes = _get_enabled_subscription_nodes(all_nodes)
 
     nodes_saved = False
     try:
         sbm.save_nodes(all_nodes)
         nodes_saved = True
-        config_path = sbm.write_config(enabled_nodes, base_port)
-        reload_result = await run_blocking(sbm.reload_service)
+        reload_result = await apply_proxy_core_nodes(all_nodes, singbox_base_port=base_port)
         apply_result = {
             "success": reload_result["success"],
             "message": reload_result["message"],
-            "config_path": config_path,
-            "nodes_count": len(enabled_nodes),
+            "config_path": "",
+            "nodes_count": reload_result.get("nodes_count", len(enabled_nodes)),
+            "core_counts": reload_result.get("core_counts", {}),
+            "cores": reload_result.get("cores", {}),
+            "unsupported_count": len(reload_result.get("unsupported_nodes", [])),
+            "pending_download": bool(reload_result.get("pending_download")),
         }
     except Exception as e:
         logger.error(f"[SingBox] 订阅分组应用失败: {e}")
@@ -4082,6 +4111,14 @@ async def api_dispatcher_apply_sub(request: Request):
 
         "group_name": group_name,
 
+        "core_counts": apply_result.get("core_counts", {}),
+
+        "cores": apply_result.get("cores", {}),
+
+        "unsupported_count": apply_result.get("unsupported_count", 0),
+
+        "pending_download": apply_result.get("pending_download", False),
+
     }
 
 
@@ -4098,9 +4135,7 @@ async def api_dispatcher_reload_singbox(request: Request):
     if error_response is not None:
         return error_response
 
-    from . import singbox_manager as sbm
-
-    result = await run_blocking(sbm.reload_service)
+    result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=True)
     _SINGBOX_STATUS_CACHE.invalidate()
     return result
 
@@ -4118,7 +4153,8 @@ async def api_dispatcher_singbox_status(request: Request):
     if error_response is not None:
         return error_response
 
-    return await _get_singbox_service_status_cached(force_refresh=True)
+    status = await _get_singbox_service_status_cached(force_refresh=True)
+    return {**status, "proxy_cores": await _load_proxy_cores_status()}
 
 
 @app.get("/api/dispatcher/full")
@@ -4136,9 +4172,11 @@ async def api_dispatcher_full(request: Request):
     status = dispatcher.get_status()
     try:
         from . import singbox_manager as sbm
+        from .proxy_cores.manager import build_runtime_nodes
         groups = await db.get_subscription_groups()
         active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
-        enabled_nodes = _get_enabled_subscription_nodes(_filter_nodes_by_active_groups(sbm.load_saved_nodes(), active_group_ids))
+        runtime_nodes = build_runtime_nodes(_filter_nodes_by_active_groups(sbm.load_saved_nodes(), active_group_ids), singbox_base_port=_get_dispatcher_saved_base_port())
+        enabled_nodes = _get_enabled_subscription_nodes(runtime_nodes)
         for idx, node in enumerate(enabled_nodes, start=1):
             exits = status.get("exits") if isinstance(status, dict) else None
             if isinstance(exits, list) and idx < len(exits):
@@ -4146,10 +4184,15 @@ async def api_dispatcher_full(request: Request):
                 exits[idx]["group_name"] = node.get("group_name", "")
                 exits[idx]["node_type"] = node.get("type", "")
                 exits[idx]["node_server"] = node.get("server", "")
+                exits[idx]["core_type"] = node.get("core_type", "")
+                exits[idx]["local_port"] = node.get("local_port", 0)
+                exits[idx]["core_supported"] = node.get("core_supported", True)
+                exits[idx]["core_unsupported_reason"] = node.get("core_unsupported_reason", "")
                 exits[idx]["enabled"] = node.get("enabled", True)
     except Exception as e:
         logger.debug(f"[Dispatcher] 合并订阅节点状态失败: {e}")
-    return {**status, "singbox": singbox_status}
+    proxy_cores = await _load_proxy_cores_status()
+    return {**status, "singbox": singbox_status, "proxy_cores": proxy_cores}
 
 
 @app.get("/api/dispatcher/light")
@@ -10662,13 +10705,10 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
         unique_servers = set(n.get('server') for n in group_nodes if n.get('server'))
         enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True) and n.get('server'))
         await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
-        base_port = _get_dispatcher_saved_base_port()
-        sbm.write_config(_get_enabled_subscription_nodes(nodes), base_port)
-        await run_blocking(sbm.reload_service)
-        _save_dispatcher_exits_snapshot(nodes, base_port)
-        _rebuild_dispatcher_exits_from_nodes(nodes, base_port)
-        _SINGBOX_STATUS_CACHE.invalidate()
-        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{server}的{len(matching)}个节点"}
+        await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+        action = "enabled" if enabled else "disabled"
+        return {"success": True, "message": f"{action} {server} nodes: {len(matching)}"}
+        # Legacy sing-box-only path removed after dual-core sync.
     except Exception as e:
         logger.error(f"[SubGroup] 按IP切换服务器状态失败: {e}")
         return {"success": False, "message": f"操作失败: {str(e)}"}
@@ -10695,13 +10735,9 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
         unique_servers = set(n.get('server') for n in group_node_list if n.get('server'))
         active_count = len(unique_servers) if enabled else 0
         await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
-        base_port = _get_dispatcher_saved_base_port()
-        sbm.write_config(_get_enabled_subscription_nodes(nodes), base_port)
-        await run_blocking(sbm.reload_service)
-        _save_dispatcher_exits_snapshot(nodes, base_port)
-        _rebuild_dispatcher_exits_from_nodes(nodes, base_port)
-        _SINGBOX_STATUS_CACHE.invalidate()
-        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(unique_servers)}个独立IP"}
+        await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+        action = "enabled" if enabled else "disabled"
+        return {"success": True, "message": f"{action} servers: {len(unique_servers)}"}
     except Exception as e:
         logger.error(f"[SubGroup] 批量切换服务器状态失败: {e}")
         return {"success": False, "message": f"操作失败: {str(e)}"}
@@ -10726,13 +10762,9 @@ async def admin_toggle_server(group_id: str, request: Request):
             sbm.save_nodes(nodes)
             active_count = sum(1 for i in group_indices if nodes[i].get('enabled', True))
             await db.update_subscription_group_servers(group_id, len(group_indices), active_count)
-            base_port = _get_dispatcher_saved_base_port()
-            sbm.write_config(_get_enabled_subscription_nodes(nodes), base_port)
-            await run_blocking(sbm.reload_service)
-            _save_dispatcher_exits_snapshot(nodes, base_port)
-            _rebuild_dispatcher_exits_from_nodes(nodes, base_port)
-            _SINGBOX_STATUS_CACHE.invalidate()
-            return {"success": True, "message": f"服务器已{'启用' if enabled else '禁用'}"}
+            await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+            action = "enabled" if enabled else "disabled"
+            return {"success": True, "message": f"server {action}"}
         return {"success": False, "message": "服务器索引无效"}
     except Exception as e:
         logger.error(f"[SubGroup] 切换服务器状态失败: {e}")
