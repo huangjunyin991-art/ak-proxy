@@ -1,5 +1,6 @@
 from public_admin.server.proxy_cores.classifier import classify_node, prepare_nodes
 from public_admin.server.proxy_cores.manager import build_runtime_nodes
+from public_admin.server.proxy_cores import singbox_core
 
 
 def test_classifies_mixed_subscription_nodes_by_capability():
@@ -112,3 +113,14 @@ def test_vless_xhttp_opts_without_network_uses_mihomo():
     })
     assert result["core_type"] == "mihomo"
     assert result["supported"] is True
+
+
+def test_singbox_systemd_config_match_requires_generated_config():
+    original = singbox_core._systemd_exec_start
+    try:
+        singbox_core._systemd_exec_start = lambda: "/usr/bin/sing-box run -c /etc/sing-box/config.json"
+        assert singbox_core._systemd_uses_config("/root/sing-box/config.json") is False
+        singbox_core._systemd_exec_start = lambda: "/root/.ak_proxy/proxy_cores/singbox/bin/sing-box run -c /root/sing-box/config.json"
+        assert singbox_core._systemd_uses_config("/root/sing-box/config.json") is True
+    finally:
+        singbox_core._systemd_exec_start = original

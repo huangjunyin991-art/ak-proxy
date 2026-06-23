@@ -77,6 +77,50 @@ def _systemd_service_exists() -> bool:
         return False
 
 
+def _systemd_exec_start() -> str:
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", SINGBOX_SERVICE, "--property=ExecStart", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _systemd_uses_config(config_path: str) -> bool:
+    exec_start = _systemd_exec_start()
+    if not exec_start:
+        return False
+    try:
+        target = str(Path(config_path).resolve())
+    except Exception:
+        target = str(config_path)
+    return str(config_path) in exec_start or target in exec_start
+
+
+def _stop_systemd_service() -> bool:
+    try:
+        result = subprocess.run(
+            ["sudo", "systemctl", "stop", SINGBOX_SERVICE],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            err = result.stderr.strip() or result.stdout.strip()
+            logger.warning("[SingBox] systemd stop failed before managed start: %s", err)
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("[SingBox] systemd stop failed before managed start: %s", exc)
+        return False
+
+
 def _start_managed(binary: str, config_path: str) -> dict[str, Any]:
     stop_managed_process()
     log_file = (log_dir(CORE_TYPE) / "sing-box.log").open("ab")
@@ -87,6 +131,9 @@ def _start_managed(binary: str, config_path: str) -> dict[str, Any]:
         start_new_session=True,
     )
     pid_path().write_text(str(proc.pid), encoding="utf-8")
+    time.sleep(0.5)
+    if proc.poll() is not None:
+        return {"success": False, "message": "sing-box managed process exited immediately", "pid": proc.pid}
     logger.info("[SingBox] started managed process pid=%s", proc.pid)
     return {"success": True, "message": "sing-box managed process started", "pid": proc.pid}
 
@@ -106,7 +153,8 @@ def reload_service(config_path: str) -> dict[str, Any]:
         err = check.stderr.strip() or check.stdout.strip()
         return {"success": False, "message": f"sing-box config check failed: {err}"}
 
-    if _systemd_service_exists():
+    systemd_exists = _systemd_service_exists()
+    if systemd_exists and _systemd_uses_config(config_path):
         stop_managed_process()
         restart = subprocess.run(
             ["sudo", "systemctl", "restart", SINGBOX_SERVICE],
@@ -118,6 +166,12 @@ def reload_service(config_path: str) -> dict[str, Any]:
             return {"success": True, "message": "sing-box systemd restarted"}
         err = restart.stderr.strip() or restart.stdout.strip()
         logger.warning("[SingBox] systemd restart failed, fallback to managed process: %s", err)
+    elif systemd_exists:
+        logger.warning(
+            "[SingBox] systemd service does not use generated config %s, switching to managed process",
+            config_path,
+        )
+        _stop_systemd_service()
 
     return _start_managed(binary, config_path)
 
@@ -151,10 +205,19 @@ def get_status() -> dict[str, Any]:
     if not isinstance(status, dict):
         status = {}
     managed_pid = _read_pid()
+    managed_active = bool(managed_pid and _pid_is_running(managed_pid))
+    systemd_active = bool(status.get("active"))
+    if managed_active:
+        status["active"] = True
+        status["state"] = "active"
+        status["sub_state"] = "managed"
+        status["pid"] = str(managed_pid)
     return {
         "core_type": CORE_TYPE,
         **status,
-        "managed_active": bool(managed_pid and _pid_is_running(managed_pid)),
+        "systemd_active": systemd_active,
+        "managed_active": managed_active,
         "managed_pid": str(managed_pid or 0),
+        "run_mode": "managed" if managed_active else ("systemd" if systemd_active else "stopped"),
         **binary_status(CORE_TYPE, SINGBOX_BIN_NAME),
     }
