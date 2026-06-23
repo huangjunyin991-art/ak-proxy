@@ -69,6 +69,33 @@ def managed_binary_path(core_type: str) -> Path:
     return bin_dir(core_type) / executable_name(name)
 
 
+def _read_prefix(path: Path, size: int = 4) -> bytes:
+    try:
+        with path.open("rb") as f:
+            return f.read(size)
+    except Exception:
+        return b""
+
+
+def _is_gzip_file(path: Path) -> bool:
+    return _read_prefix(path, 2) == b"\x1f\x8b"
+
+
+def _is_zip_file(path: Path) -> bool:
+    return _read_prefix(path, 4) == b"PK\x03\x04"
+
+
+def _is_valid_managed_binary(path: Path) -> bool:
+    prefix = _read_prefix(path, 4)
+    if not prefix:
+        return False
+    if prefix.startswith((b"\x1f\x8b", b"PK\x03\x04")):
+        return False
+    if os.name == "nt":
+        return prefix.startswith(b"MZ")
+    return prefix.startswith(b"\x7fELF") or prefix.startswith(b"#!")
+
+
 def resolve_binary(core_type: str, system_name: str) -> str | None:
     explicit_env = "AK_SINGBOX_BIN" if core_type == "singbox" else "AK_MIHOMO_BIN"
     explicit = os.environ.get(explicit_env)
@@ -77,7 +104,7 @@ def resolve_binary(core_type: str, system_name: str) -> str | None:
         if path.exists():
             return str(path)
     managed = managed_binary_path(core_type)
-    if managed.exists():
+    if managed.exists() and _is_valid_managed_binary(managed):
         return str(managed)
     found = shutil.which(system_name)
     if found:
@@ -207,6 +234,14 @@ def _copy_executable_from_tree(root: Path, target: Path, names: set[str]) -> Non
         target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def _copy_file_as_executable(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    if os.name != "nt":
+        mode = target.stat().st_mode
+        target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def _download_file(url: str, destination: Path, core_type: str = "") -> None:
     req = Request(url, headers={"User-Agent": "ak-proxy-core-downloader/1.0"})
     with urlopen(req, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
@@ -253,7 +288,9 @@ def _install_downloaded(core_type: str, archive_path: Path, target: Path) -> Non
     with tempfile.TemporaryDirectory(prefix=f"ak-{core_type}-extract-") as temp_name:
         temp_root = Path(temp_name)
         archive_name = archive_path.name.lower()
-        if archive_name.endswith(".zip"):
+        if archive_name.endswith(".download"):
+            archive_name = archive_name[:-len(".download")]
+        if archive_name.endswith(".zip") or _is_zip_file(archive_path):
             with zipfile.ZipFile(archive_path) as zf:
                 zf.extractall(temp_root)
             _copy_executable_from_tree(temp_root, target, names)
@@ -263,20 +300,26 @@ def _install_downloaded(core_type: str, archive_path: Path, target: Path) -> Non
                 tf.extractall(temp_root)
             _copy_executable_from_tree(temp_root, target, names)
             return
-        if archive_name.endswith(".gz"):
+        if archive_name.endswith(".gz") or _is_gzip_file(archive_path):
             extracted = temp_root / target.name
             with gzip.open(archive_path, "rb") as src, extracted.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
             _copy_executable_from_tree(temp_root, target, names)
             return
-        _copy_executable_from_tree(archive_path.parent, target, names)
+        _copy_file_as_executable(archive_path, target)
 
 
 def _download_binary_sync(core_type: str) -> dict[str, Any]:
     ensure_core_dirs(core_type)
     target = managed_binary_path(core_type)
     if target.exists():
-        return {"success": True, "message": "binary already exists", "path": str(target)}
+        if _is_valid_managed_binary(target):
+            return {"success": True, "message": "binary already exists", "path": str(target)}
+        logger.warning("[ProxyCore] %s managed binary is invalid, redownloading: %s", core_type, target)
+        try:
+            target.unlink()
+        except Exception:
+            pass
     url = download_url(core_type)
     suffix = ".zip" if url.lower().endswith(".zip") else ".tar.gz" if url.lower().endswith((".tar.gz", ".tgz")) else ".gz"
     temp_file = target.with_suffix(target.suffix + suffix + ".download")
@@ -288,6 +331,12 @@ def _download_binary_sync(core_type: str) -> dict[str, Any]:
     logger.info("[ProxyCore] downloading %s from %s", core_type, url)
     _download_file(url, temp_file, core_type=core_type)
     _install_downloaded(core_type, temp_file, target)
+    if not _is_valid_managed_binary(target):
+        try:
+            target.unlink()
+        except Exception:
+            pass
+        raise RuntimeError(f"downloaded {core_type} binary is not executable")
     try:
         temp_file.unlink()
     except Exception:

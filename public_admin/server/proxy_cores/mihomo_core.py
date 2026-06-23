@@ -187,12 +187,16 @@ def reload_service() -> dict[str, Any]:
     if not path.exists():
         return {"success": False, "message": "mihomo config missing"}
 
-    check = subprocess.run(
-        [binary, "-t", "-f", str(path)],
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+    try:
+        check = subprocess.run(
+            [binary, "-t", "-f", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except OSError as exc:
+        logger.warning("[Mihomo] binary check failed: %s", exc)
+        return {"success": False, "message": f"mihomo binary check failed: {exc}"}
     if check.returncode != 0:
         err = check.stderr.strip() or check.stdout.strip()
         logger.warning("[Mihomo] config check failed: %s", err)
@@ -201,12 +205,16 @@ def reload_service() -> dict[str, Any]:
     stop_managed_process()
     log_path = log_dir(CORE_TYPE) / "mihomo.log"
     log_file = log_path.open("ab")
-    proc = subprocess.Popen(
-        [binary, "-f", str(path), "-d", str(config_dir(CORE_TYPE))],
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            [binary, "-f", str(path), "-d", str(config_dir(CORE_TYPE))],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        logger.warning("[Mihomo] start failed: %s", exc)
+        return {"success": False, "message": f"mihomo start failed: {exc}"}
     pid_path().write_text(str(proc.pid), encoding="utf-8")
     logger.info("[Mihomo] started managed process pid=%s", proc.pid)
     return {"success": True, "message": "mihomo started", "pid": proc.pid, "config_path": str(path)}
