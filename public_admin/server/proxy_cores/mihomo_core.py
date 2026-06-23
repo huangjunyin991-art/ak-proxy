@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -64,6 +65,37 @@ def _normalize_network(value: Any) -> str:
     return network
 
 
+def _normalize_vless_encryption(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.lower() == "none":
+        return ""
+    return text
+
+
+def _xhttp_extra_options(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        data = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except Exception:
+            return {}
+    if not isinstance(data, dict):
+        return {}
+
+    options: dict[str, Any] = {}
+    download_settings = data.get("download-settings") or data.get("downloadSettings")
+    if isinstance(download_settings, dict):
+        options["download-settings"] = download_settings
+    extra = data.get("extra")
+    if isinstance(extra, dict):
+        options.update(extra)
+    return options
+
+
 def _node_name(node: dict[str, Any], index: int) -> str:
     return str(node.get("display_name") or node.get("name") or f"mihomo-node-{index + 1}")
 
@@ -78,7 +110,7 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
         "uuid": str(raw.get("uuid") or ""),
         "udp": True,
         "network": _normalize_network(raw.get("network")),
-        "encryption": str(raw.get("encryption") if raw.get("encryption") is not None else ""),
+        "encryption": _normalize_vless_encryption(raw.get("encryption")),
     }
     if raw.get("flow"):
         proxy["flow"] = str(raw.get("flow"))
@@ -114,6 +146,8 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     if skip_cert_verify:
         proxy["skip-cert-verify"] = True
     alpn = _normalize_alpn(raw.get("alpn"))
+    if proxy["network"] == "xhttp" and tls_enabled and not alpn:
+        alpn = ["h2"]
     if alpn:
         proxy["alpn"] = alpn
     fingerprint = _first_text(raw.get("client-fingerprint"), raw.get("client_fingerprint"), raw.get("fp"))
@@ -144,9 +178,16 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
         if host:
             xhttp_opts["host"] = host
             xhttp_opts["headers"] = {"Host": host}
+        download_settings = (
+            xhttp_raw_opts.get("download-settings")
+            or xhttp_raw_opts.get("downloadSettings")
+        )
+        if isinstance(download_settings, dict):
+            xhttp_opts["download-settings"] = download_settings
         extra = xhttp_raw_opts.get("extra") if isinstance(xhttp_raw_opts.get("extra"), dict) else None
         if extra:
             xhttp_opts.update(extra)
+        xhttp_opts.update(_xhttp_extra_options(raw.get("extra")))
         proxy["xhttp-opts"] = xhttp_opts
     return proxy
 

@@ -105,6 +105,45 @@ def _split_host_port(value: str) -> tuple[str, int]:
     return server.strip('[]'), int(port)
 
 
+def _parse_xhttp_extra(value) -> dict:
+    if isinstance(value, dict):
+        data = value
+    else:
+        text = str(value or '').strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except Exception:
+            return {}
+    if not isinstance(data, dict):
+        return {}
+
+    opts = {}
+    download_settings = data.get('download-settings') or data.get('downloadSettings')
+    if isinstance(download_settings, dict):
+        opts['download-settings'] = download_settings
+    extra = data.get('extra')
+    if isinstance(extra, dict):
+        opts.update(extra)
+    return opts
+
+
+def _build_xhttp_opts_from_params(params: dict) -> dict:
+    opts = {}
+    path = str(params.get('path') or '').strip()
+    if path:
+        opts['path'] = path
+    mode = str(params.get('mode') or '').strip()
+    if mode:
+        opts['mode'] = mode
+    host = str(params.get('host') or '').strip()
+    if host:
+        opts['host'] = host
+    opts.update(_parse_xhttp_extra(params.get('extra')))
+    return opts
+
+
 def _parse_simple_clash_proxies(text: str) -> list[dict]:
     proxies = []
     current = None
@@ -172,6 +211,24 @@ def _parse_clash_yaml(text: str) -> list[dict]:
             continue
 
         region_code, region_label = detect_region(name)
+        raw = {k: v for k, v in p.items() if k in (
+            'type', 'server', 'port', 'cipher', 'password', 'uuid',
+            'alterId', 'network', 'tls', 'sni', 'servername',
+            'server_name', 'skip-cert-verify', 'skip_cert_verify',
+            'udp', 'flow', 'client-fingerprint', 'client_fingerprint',
+            'plugin', 'plugin-opts', 'ws-opts', 'grpc-opts',
+            'xhttp-opts', 'xhttp_opts', 'reality-opts', 'reality_opts',
+            'alpn', 'host', 'path', 'mode', 'extra', 'encryption',
+        )}
+        xhttp_opts = raw.get('xhttp-opts') or raw.get('xhttp_opts') or {}
+        if isinstance(xhttp_opts, dict):
+            xhttp_opts = dict(xhttp_opts)
+        else:
+            xhttp_opts = {}
+        xhttp_opts.update(_parse_xhttp_extra(raw.get('extra')))
+        if xhttp_opts:
+            raw['xhttp-opts'] = xhttp_opts
+
         nodes.append({
             'name': name,
             'type': proto,
@@ -179,15 +236,7 @@ def _parse_clash_yaml(text: str) -> list[dict]:
             'port': int(port),
             'region_code': region_code,
             'region_label': region_label,
-            'raw': {k: v for k, v in p.items() if k in (
-                'type', 'server', 'port', 'cipher', 'password', 'uuid',
-                'alterId', 'network', 'tls', 'sni', 'servername',
-                'server_name', 'skip-cert-verify', 'skip_cert_verify',
-                'udp', 'flow', 'client-fingerprint', 'client_fingerprint',
-                'plugin', 'plugin-opts', 'ws-opts', 'grpc-opts',
-                'xhttp-opts', 'xhttp_opts', 'reality-opts', 'reality_opts',
-                'alpn', 'host', 'path',
-            )},
+            'raw': raw,
         })
 
     return nodes
@@ -330,6 +379,8 @@ def _parse_vless_links(text: str) -> list[dict]:
                         'mode': params.get('mode', ''),
                         'extra': params.get('extra', ''),
                         'alpn': params.get('alpn', ''),
+                        'encryption': params.get('encryption', ''),
+                        'xhttp-opts': _build_xhttp_opts_from_params(params),
                         'skip-cert-verify': params.get('allowInsecure', params.get('skip-cert-verify', '')),
                     },
                 })
@@ -524,9 +575,10 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'insecure': item.get('insecure', ''),
                     'mode': item.get('mode', ''),
                     'alpn': item.get('alpn', ''),
+                    'encryption': item.get('encryption', ''),
                     'skip-cert-verify': item.get('skip-cert-verify', item.get('skip_cert_verify', '')),
                     'servername': item.get('servername', item.get('server_name', item.get('sni', server))),
-                    'xhttp-opts': item.get('xhttp-opts', item.get('xhttp_opts', {})),
+                    'xhttp-opts': item.get('xhttp-opts', item.get('xhttp_opts', {})) or _parse_xhttp_extra(item.get('extra')),
                 }
             elif proto in ('hysteria2', 'hy2', 'anytls'):
                 raw = {

@@ -16,6 +16,8 @@ def test_mihomo_xhttp_node_uses_dedicated_socks_listener():
                 "tls": True,
                 "servername": "update.microsoft.com",
                 "path": "/x",
+                "mode": "stream-up",
+                "extra": '{"downloadSettings":{"path":"/x","server":"download.example.com","port":443,"servername":"update.microsoft.com"}}',
                 "skip-cert-verify": True,
             },
         }
@@ -29,9 +31,17 @@ def test_mihomo_xhttp_node_uses_dedicated_socks_listener():
     assert config["proxies"][0]["network"] == "xhttp"
     assert config["proxies"][0]["encryption"] == ""
     assert config["proxies"][0]["servername"] == "update.microsoft.com"
+    assert config["proxies"][0]["alpn"] == ["h2"]
     assert config["proxies"][0]["client-fingerprint"] == "chrome"
     assert config["proxies"][0]["xhttp-opts"]["path"] == "/x"
+    assert config["proxies"][0]["xhttp-opts"]["mode"] == "stream-up"
     assert config["proxies"][0]["xhttp-opts"]["host"] == "update.microsoft.com"
+    assert config["proxies"][0]["xhttp-opts"]["download-settings"] == {
+        "path": "/x",
+        "server": "download.example.com",
+        "port": 443,
+        "servername": "update.microsoft.com",
+    }
     assert config["proxies"][0]["skip-cert-verify"] is True
 
 
