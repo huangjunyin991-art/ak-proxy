@@ -107,3 +107,42 @@ def test_wide_spread_rpc_ignores_dedicated_fast_pool_size():
     picked = [dispatcher.pick_api_exit("My_Subaccount").name for _ in range(6)]
 
     assert set(picked) == {"tunnel-0", "tunnel-1", "tunnel-2"}
+
+
+def test_fallback_sequence_tries_three_tunnels_then_direct_across_groups():
+    dispatcher = OutboundDispatcher()
+    dispatcher.add_socks5("failed", 10001, group_id="g1")
+    dispatcher.add_socks5("same-group", 10002, group_id="g1")
+    dispatcher.add_socks5("group-2", 10003, group_id="g2")
+    dispatcher.add_socks5("group-3", 10004, group_id="g3")
+    dispatcher.add_socks5("group-4", 10005, group_id="g4")
+
+    attempts = dispatcher._fallback_sequence(dispatcher.exits[1], "Public_ACE")
+
+    assert [item.name for item in attempts] == ["group-2", "group-3", "group-4", "direct"]
+
+
+def test_fallback_sequence_keeps_availability_before_group_spread():
+    dispatcher = OutboundDispatcher()
+    dispatcher.add_socks5("failed", 10001, group_id="g1")
+    dispatcher.add_socks5("frozen-other-group", 10002, group_id="g2")
+    dispatcher.add_socks5("unhealthy-other-group", 10003, group_id="g3")
+    dispatcher.add_socks5("healthy-same-group", 10004, group_id="g1")
+    dispatcher.exits[2].freeze(60, "test")
+    dispatcher.exits[3].healthy = False
+
+    attempts = dispatcher._fallback_sequence(dispatcher.exits[1], "My_Subaccount")
+
+    assert [item.name for item in attempts] == ["healthy-same-group", "direct"]
+
+
+def test_wide_spread_fallback_ignores_dedicated_fast_pool_size():
+    dispatcher = OutboundDispatcher()
+    dispatcher.DEDICATED_FAST_EXIT_COUNT = 1
+    dispatcher.add_socks5("failed", 10001, group_id="g1")
+    for idx, group_id in enumerate(["g2", "g3", "g4"], start=2):
+        dispatcher.add_socks5(f"group-{idx}", 10000 + idx, group_id=group_id)
+
+    attempts = dispatcher._fallback_sequence(dispatcher.exits[1], "My_Subaccount")
+
+    assert [item.name for item in attempts] == ["group-2", "group-3", "group-4", "direct"]

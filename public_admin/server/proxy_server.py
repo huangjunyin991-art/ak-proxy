@@ -357,7 +357,14 @@ def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port:
         port = int(node.get("local_port") or (base_port + i))
         name = node.get("display_name") or node.get("name") or f"node_{i}"
         core_type = str(node.get("core_type") or "singbox")
-        idx = dispatcher.add_socks5(str(name), port, core_type=core_type)
+        idx = dispatcher.add_socks5(
+            str(name),
+            port,
+            core_type=core_type,
+            group_id=node.get("group_id", ""),
+            group_name=node.get("group_name", ""),
+            source_url=node.get("source_url", ""),
+        )
         added_exits.append({
             "index": idx,
             "name": name,
