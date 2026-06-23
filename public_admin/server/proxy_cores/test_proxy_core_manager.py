@@ -90,6 +90,18 @@ def test_vless_xhttp_top_level_network_uses_mihomo():
     assert result["supported"] is True
 
 
+def test_vless_httpx_alias_uses_mihomo():
+    result = classify_node({
+        "name": "httpx typo alias",
+        "type": "vless",
+        "server": "hk.example.com",
+        "port": 443,
+        "raw": {"type": "vless", "uuid": "u", "network": "httpx"},
+    })
+    assert result["core_type"] == "mihomo"
+    assert result["supported"] is True
+
+
 def test_vless_xhttp_opts_without_network_uses_mihomo():
     result = classify_node({
         "name": "xhttp opts only",

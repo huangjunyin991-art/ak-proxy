@@ -40,6 +40,30 @@ def _raw(node: dict[str, Any]) -> dict[str, Any]:
     return node.get("raw") if isinstance(node.get("raw"), dict) else {}
 
 
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _normalize_alpn(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item or "").strip()]
+    text = str(value or "").strip()
+    if not text:
+        return []
+    return [item.strip() for item in text.split(",") if item.strip()]
+
+
+def _normalize_network(value: Any) -> str:
+    network = str(value or "tcp").strip().lower()
+    if network == "httpx":
+        return "xhttp"
+    return network
+
+
 def _node_name(node: dict[str, Any], index: int) -> str:
     return str(node.get("display_name") or node.get("name") or f"mihomo-node-{index + 1}")
 
@@ -53,7 +77,8 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
         "port": int(node.get("port") or 0),
         "uuid": str(raw.get("uuid") or ""),
         "udp": True,
-        "network": str(raw.get("network") or "tcp").lower(),
+        "network": _normalize_network(raw.get("network")),
+        "encryption": str(raw.get("encryption") if raw.get("encryption") is not None else ""),
     }
     if raw.get("flow"):
         proxy["flow"] = str(raw.get("flow"))
@@ -61,21 +86,36 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     tls_enabled = _truthy(raw.get("tls")) or str(raw.get("security") or "").lower() in {"tls", "reality"}
     if tls_enabled:
         proxy["tls"] = True
-    server_name = str(
+    server_name = _first_text(
         raw.get("servername")
         or raw.get("server_name")
         or raw.get("sni")
         or raw.get("host")
         or node.get("server")
-        or ""
-    ).strip()
+    )
     if server_name:
         proxy["servername"] = server_name
     if _truthy(raw.get("skip-cert-verify") or raw.get("skip_cert_verify") or node.get("skip_cert_verify")):
         proxy["skip-cert-verify"] = True
-    fingerprint = str(raw.get("client-fingerprint") or raw.get("client_fingerprint") or raw.get("fp") or "").strip()
+    alpn = _normalize_alpn(raw.get("alpn"))
+    if alpn:
+        proxy["alpn"] = alpn
+    fingerprint = _first_text(raw.get("client-fingerprint"), raw.get("client_fingerprint"), raw.get("fp"))
+    if proxy["network"] == "xhttp" and tls_enabled and not fingerprint:
+        fingerprint = "chrome"
     if fingerprint:
         proxy["client-fingerprint"] = fingerprint
+    reality_opts = raw.get("reality-opts") or raw.get("reality_opts") or {}
+    if not isinstance(reality_opts, dict):
+        reality_opts = {}
+    public_key = _first_text(reality_opts.get("public-key"), reality_opts.get("public_key"), raw.get("pbk"), raw.get("public-key"))
+    short_id = _first_text(reality_opts.get("short-id"), reality_opts.get("short_id"), raw.get("sid"), raw.get("short-id"))
+    if public_key or short_id:
+        proxy["reality-opts"] = {}
+        if public_key:
+            proxy["reality-opts"]["public-key"] = public_key
+        if short_id:
+            proxy["reality-opts"]["short-id"] = short_id
 
     if proxy["network"] == "xhttp":
         opts = raw.get("xhttp-opts") or raw.get("xhttp_opts") or {}
@@ -87,8 +127,9 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
         mode = str(raw.get("mode") or opts.get("mode") or "").strip()
         if mode:
             xhttp_opts["mode"] = mode
-        host = str(raw.get("host") or opts.get("host") or "").strip()
+        host = _first_text(raw.get("host"), opts.get("host"), server_name, node.get("server"))
         if host:
+            xhttp_opts["host"] = host
             xhttp_opts["headers"] = {"Host": host}
         extra = opts.get("extra") if isinstance(opts.get("extra"), dict) else None
         if extra:

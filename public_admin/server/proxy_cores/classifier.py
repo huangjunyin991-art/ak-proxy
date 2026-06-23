@@ -13,6 +13,7 @@ UNSUPPORTED_CORE = "unsupported"
 
 SINGBOX_SUPPORTED_NETWORKS = {"", "tcp", "ws", "grpc"}
 MIHOMO_ONLY_VLESS_NETWORKS = {"xhttp"}
+NETWORK_ALIASES = {"httpx": "xhttp"}
 
 PLACEHOLDER_SERVERS = {"0.0.0.0", "127.0.0.1", "::", "::1"}
 
@@ -33,11 +34,13 @@ def node_network(node: dict[str, Any], proto: str = "") -> str:
     for key in ("network", "net", "transport"):
         value = raw.get(key)
         if value:
-            return str(value).strip().lower()
+            network = str(value).strip().lower()
+            return NETWORK_ALIASES.get(network, network)
     for key in ("network", "net", "transport"):
         value = node.get(key)
         if value:
-            return str(value).strip().lower()
+            network = str(value).strip().lower()
+            return NETWORK_ALIASES.get(network, network)
 
     # Some JSON imports only expose xhttp options; treat non-empty options as
     # xhttp, but do not let an empty default dict make every VLESS node mihomo.
@@ -47,6 +50,7 @@ def node_network(node: dict[str, Any], proto: str = "") -> str:
             return "xhttp"
 
     raw_type = str(raw.get("type") or "").strip().lower()
+    raw_type = NETWORK_ALIASES.get(raw_type, raw_type)
     if raw_type in {"tcp", "ws", "grpc", "xhttp"} and raw_type != proto:
         return raw_type
     return ""
