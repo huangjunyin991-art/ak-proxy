@@ -28,9 +28,28 @@ def node_protocol(node: dict[str, Any]) -> str:
     return str(raw.get("type") or node.get("type") or "").strip().lower()
 
 
-def node_network(node: dict[str, Any]) -> str:
+def node_network(node: dict[str, Any], proto: str = "") -> str:
     raw = node.get("raw") if isinstance(node.get("raw"), dict) else {}
-    return str(raw.get("network") or raw.get("type") or "").strip().lower()
+    for key in ("network", "net", "transport"):
+        value = raw.get(key)
+        if value:
+            return str(value).strip().lower()
+    for key in ("network", "net", "transport"):
+        value = node.get(key)
+        if value:
+            return str(value).strip().lower()
+
+    # Some JSON imports only expose xhttp options; treat non-empty options as
+    # xhttp, but do not let an empty default dict make every VLESS node mihomo.
+    for key in ("xhttp-opts", "xhttp_opts"):
+        value = raw.get(key) or node.get(key)
+        if isinstance(value, dict) and value:
+            return "xhttp"
+
+    raw_type = str(raw.get("type") or "").strip().lower()
+    if raw_type in {"tcp", "ws", "grpc", "xhttp"} and raw_type != proto:
+        return raw_type
+    return ""
 
 
 def classify_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -38,7 +57,7 @@ def classify_node(node: dict[str, Any]) -> dict[str, Any]:
     server = str(node.get("server") or "").strip()
     port = node.get("port")
     proto = node_protocol(node)
-    network = node_network(node)
+    network = node_network(node, proto)
     raw = node.get("raw") if isinstance(node.get("raw"), dict) else {}
 
     if not server or server in PLACEHOLDER_SERVERS:
@@ -118,4 +137,3 @@ def enabled_supported_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]
         and item.get("core_supported") is True
         and item.get("core_type") in {SINGBOX_CORE, MIHOMO_CORE}
     ]
-

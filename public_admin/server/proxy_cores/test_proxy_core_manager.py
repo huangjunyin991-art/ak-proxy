@@ -76,3 +76,27 @@ def test_placeholder_node_is_not_runnable():
     assert result["supported"] is False
     assert result["reason"] == "placeholder_server"
 
+
+def test_vless_xhttp_top_level_network_uses_mihomo():
+    result = classify_node({
+        "name": "top level xhttp",
+        "type": "vless",
+        "server": "hk.example.com",
+        "port": 443,
+        "network": "xhttp",
+        "raw": {"type": "vless", "uuid": "u"},
+    })
+    assert result["core_type"] == "mihomo"
+    assert result["supported"] is True
+
+
+def test_vless_xhttp_opts_without_network_uses_mihomo():
+    result = classify_node({
+        "name": "xhttp opts only",
+        "type": "vless",
+        "server": "hk.example.com",
+        "port": 443,
+        "raw": {"type": "vless", "uuid": "u", "xhttp-opts": {"path": "/x"}},
+    })
+    assert result["core_type"] == "mihomo"
+    assert result["supported"] is True

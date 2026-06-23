@@ -400,6 +400,27 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
     }
 
 
+async def _warmup_proxy_cores_after_startup(delay_seconds: float = 1.0) -> None:
+    try:
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+        result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=True)
+        _SINGBOX_STATUS_CACHE.invalidate()
+        reload_result = result.get("reload_result") if isinstance(result, dict) else {}
+        cores = reload_result.get("cores") if isinstance(reload_result, dict) else {}
+        pending_download = bool(reload_result.get("pending_download")) if isinstance(reload_result, dict) else False
+        logger.info(
+            "[ProxyCore] startup warmup finished nodes=%s exits=%s pending_download=%s cores=%s message=%s",
+            result.get("nodes_count") if isinstance(result, dict) else "-",
+            result.get("exits_count") if isinstance(result, dict) else "-",
+            pending_download,
+            list(cores.keys()) if isinstance(cores, dict) else [],
+            reload_result.get("message") if isinstance(reload_result, dict) else "",
+        )
+    except Exception as e:
+        logger.warning("[ProxyCore] startup warmup failed, dispatcher keeps existing exits: %s", e)
+
+
 def _restore_dispatcher_exits_from_disk() -> int:
 
     from . import singbox_manager as sbm
@@ -6522,6 +6543,8 @@ async def admin_startup():
 
     try:
         sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=False)
+        asyncio.create_task(_warmup_proxy_cores_after_startup())
+        logger.info("[ProxyCore] startup warmup scheduled")
         if sync_result.get("removed_count"):
             logger.info(f"[SubGroup] 启动清理孤儿订阅节点: removed={sync_result.get('removed_count')} exits={sync_result.get('exits_count')}")
     except Exception as e:
