@@ -193,7 +193,7 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
 
-from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
+from .outbound_dispatcher import dispatcher, OutboundExit
 from .runtime_performance import (
     BlockingPoolConfigService,
     TimedServiceStatusCache,
@@ -2325,7 +2325,7 @@ def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_n
 
     preferred = (preferred_exit_name or "").strip()
 
-    if preferred and api_path != "ACE_Sell":
+    if preferred and not dispatcher.is_wide_spread_rpc(api_path):
 
         for ex in getattr(dispatcher, "exits", []):
 
@@ -2346,10 +2346,6 @@ def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_n
     if is_login:
 
         return dispatcher.pick_login_exit()
-
-    if api_path == "ACE_Sell":
-
-        return ace_sell_dispatcher.acquire()
 
     return dispatcher.pick_api_exit(api_path)
 

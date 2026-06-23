@@ -369,6 +369,7 @@ class OutboundDispatcher:
     DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE = 240
     DEDICATED_FAST_EXIT_COUNT = 5
     DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1", "public_indexdata"}
+    WIDE_SPREAD_RPC_PATHS = {"ace_sell", "my_subaccount"}
     CRITICAL_DIRECT_FALLBACK_RPC_PATHS = {
         "logout",
         "question_get",
@@ -397,6 +398,7 @@ class OutboundDispatcher:
         self._latency_probe_task: Optional[asyncio.Task] = None
         self._started = False
         self._rr_counter: int = 0
+        self._wide_spread_rr_counter: int = 0
         self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
         self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
@@ -696,6 +698,8 @@ class OutboundDispatcher:
         return candidates[self._rr_counter % len(candidates)]
 
     def _pick_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
+        if self.is_wide_spread_rpc(api_path):
+            return self._pick_wide_spread_tunnel_index()
         primary = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), api_path)
         best = self._pick_from_pool(primary)
         if best is not None:
@@ -708,12 +712,35 @@ class OutboundDispatcher:
         return None
 
     def _pick_relaxed_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
+        if self.is_wide_spread_rpc(api_path):
+            best = self._pick_relaxed_wide_spread_tunnel_index()
+            if best is not None:
+                logger.warning(f"[Dispatcher] API direct fallback exhausted, wide spread overflow to tunnel: {self.exits[best].name}")
+            return best
         primary = set(self._route_dedicated_fast_pool(self._get_healthy_tunnels_relaxed(), api_path))
         pool = [i for i in self._get_healthy_tunnels_relaxed() if i not in primary] or list(primary)
         best = self._pick_relaxed_from_pool(pool)
         if best is not None:
             logger.warning(f"[Dispatcher] API direct fallback exhausted, relaxed overflow to tunnel: {self.exits[best].name}")
         return best
+
+    def _pick_wide_spread_tunnel_index(self) -> Optional[int]:
+        pool = self._get_healthy_tunnels()
+        return self._pick_wide_spread_from_pool(pool)
+
+    def _pick_relaxed_wide_spread_tunnel_index(self) -> Optional[int]:
+        pool = self._get_healthy_tunnels_relaxed()
+        return self._pick_wide_spread_from_pool(pool)
+
+    def _pick_wide_spread_from_pool(self, pool: list[int]) -> Optional[int]:
+        if not pool:
+            return None
+        min_requests = min(self.exits[i].count_recent_requests(60.0) for i in pool)
+        candidates = [i for i in pool if self.exits[i].count_recent_requests(60.0) == min_requests]
+        min_active = min(self.exits[i].active for i in candidates)
+        candidates = [i for i in candidates if self.exits[i].active == min_active]
+        self._wide_spread_rr_counter += 1
+        return candidates[self._wide_spread_rr_counter % len(candidates)]
 
     def _pick_relaxed_login_tunnel_index(self) -> Optional[int]:
         pool = self._filter_latency_failed_pool(self._get_healthy_tunnels_relaxed())
@@ -745,6 +772,9 @@ class OutboundDispatcher:
 
     def _is_dedicated_fast_rpc(self, api_path: str) -> bool:
         return self._normalize_api_path(api_path) in self.DEDICATED_FAST_RPC_PATHS
+
+    def is_wide_spread_rpc(self, api_path: str) -> bool:
+        return self._normalize_api_path(api_path) in self.WIDE_SPREAD_RPC_PATHS
 
     def _is_critical_direct_fallback_rpc(self, api_path: str) -> bool:
         return self._normalize_api_path(api_path) in self.CRITICAL_DIRECT_FALLBACK_RPC_PATHS
@@ -1410,4 +1440,3 @@ class AceSellDispatcher:
 
 # 全局单例
 dispatcher = OutboundDispatcher()
-ace_sell_dispatcher = AceSellDispatcher(dispatcher)
