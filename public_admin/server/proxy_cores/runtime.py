@@ -35,6 +35,9 @@ MIHOMO_FALLBACK_VERSION = "1.19.15"
 _download_tasks: dict[str, asyncio.Task] = {}
 _download_status: dict[str, dict[str, Any]] = {}
 
+DOWNLOAD_PROGRESS_LOG_STEP_PERCENT = float(os.environ.get("AK_PROXY_CORE_DOWNLOAD_LOG_STEP_PERCENT", "10"))
+DOWNLOAD_PROGRESS_LOG_STEP_BYTES = int(os.environ.get("AK_PROXY_CORE_DOWNLOAD_LOG_STEP_BYTES", str(8 * 1024 * 1024)))
+
 
 def core_dir(core_type: str) -> Path:
     return RUNTIME_ROOT / core_type
@@ -204,11 +207,40 @@ def _copy_executable_from_tree(root: Path, target: Path, names: set[str]) -> Non
         target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def _download_file(url: str, destination: Path) -> None:
+def _download_file(url: str, destination: Path, core_type: str = "") -> None:
     req = Request(url, headers={"User-Agent": "ak-proxy-core-downloader/1.0"})
     with urlopen(req, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+        total = int(response.headers.get("Content-Length") or 0)
+        downloaded = 0
+        last_logged_percent = -DOWNLOAD_PROGRESS_LOG_STEP_PERCENT
+        last_logged_bytes = 0
         with destination.open("wb") as f:
-            shutil.copyfileobj(response, f)
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total > 0:
+                    percent = downloaded * 100 / total
+                    if percent >= last_logged_percent + DOWNLOAD_PROGRESS_LOG_STEP_PERCENT or downloaded == total:
+                        last_logged_percent = percent
+                        _download_status[core_type].update({
+                            "downloaded_bytes": downloaded,
+                            "total_bytes": total,
+                            "percent": round(percent, 1),
+                        })
+                        logger.info(
+                            "[ProxyCore] %s download %.1f%% %.1fMB/%.1fMB",
+                            core_type,
+                            percent,
+                            downloaded / 1024 / 1024,
+                            total / 1024 / 1024,
+                        )
+                elif downloaded >= last_logged_bytes + DOWNLOAD_PROGRESS_LOG_STEP_BYTES:
+                    last_logged_bytes = downloaded
+                    _download_status[core_type].update({"downloaded_bytes": downloaded})
+                    logger.info("[ProxyCore] %s download %.1fMB", core_type, downloaded / 1024 / 1024)
 
 
 def _install_downloaded(core_type: str, archive_path: Path, target: Path) -> None:
@@ -254,7 +286,7 @@ def _download_binary_sync(core_type: str) -> dict[str, Any]:
         except Exception:
             pass
     logger.info("[ProxyCore] downloading %s from %s", core_type, url)
-    _download_file(url, temp_file)
+    _download_file(url, temp_file, core_type=core_type)
     _install_downloaded(core_type, temp_file, target)
     try:
         temp_file.unlink()

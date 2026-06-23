@@ -1804,6 +1804,119 @@
             filter: none;
         }
 
+        .lb-core-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .lb-core-card {
+            background: linear-gradient(135deg, rgba(5, 16, 32, 0.96), rgba(9, 28, 48, 0.92));
+            border: 1px solid rgba(0, 212, 255, 0.22);
+            border-radius: 10px;
+            padding: 12px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+
+        .lb-core-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .lb-core-name {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .lb-core-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        .lb-core-state::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 12px currentColor;
+        }
+
+        .lb-core-state.ok {
+            color: var(--accent-green);
+            background: rgba(0,255,136,0.1);
+        }
+
+        .lb-core-state.warn {
+            color: var(--accent-yellow);
+            background: rgba(255,165,2,0.12);
+        }
+
+        .lb-core-state.bad {
+            color: var(--accent-red);
+            background: rgba(255,71,87,0.12);
+        }
+
+        .lb-core-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .lb-core-metric {
+            min-width: 0;
+            background: rgba(0, 0, 0, 0.18);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            padding: 7px 8px;
+        }
+
+        .lb-core-metric span {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 10px;
+            margin-bottom: 3px;
+        }
+
+        .lb-core-metric strong {
+            display: block;
+            color: var(--accent);
+            font-size: 13px;
+            line-height: 1.2;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .lb-core-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .lb-core-btn {
+            min-height: 28px;
+            padding: 5px 12px !important;
+            border-radius: 999px !important;
+            font-size: 12px !important;
+        }
+
         #wlGlobalToggleBtn,
         #loginSessionPolicyToggle {
             appearance: none !important;
@@ -5517,12 +5630,13 @@
                             <span id="lbConnectFailureFreeze" style="color: var(--accent-yellow); font-weight: bold;">-</span>
                         </div>
 
-                        <!-- sing-box 服务状态 -->
-                        <div id="lbSingboxBar" style="background: var(--bg-primary); border-radius: 6px; padding: 8px 12px; border: 1px solid var(--border); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px;">
-                            <span style="font-weight: bold; color: var(--text-secondary);">sing-box:</span>
-                            <span id="lbSbState" style="color: var(--text-secondary);">检测中...</span>
-                            <span id="lbSbNodes" style="color: var(--text-secondary);"></span>
-                            <span id="lbSbConfig" style="color: var(--text-secondary); font-size: 10px;"></span>
+                        <div id="lbCoreCards" class="lb-core-grid">
+                            <div class="lb-core-card">
+                                <div class="lb-core-head">
+                                    <span class="lb-core-name">代理核心</span>
+                                    <span class="lb-core-state warn">检测中</span>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- 订阅组管理 -->
@@ -9893,6 +10007,7 @@
         function lbBatchAddFromSub() { return callSettingsPanelModule('lbBatchAddFromSub', arguments); }
         function lbReloadSingbox() { return callSettingsPanelModule('lbReloadSingbox', arguments); }
         function lbStartSingbox() { return callSettingsPanelModule('lbStartSingbox', arguments); }
+        function lbRestartProxyCore() { return callSettingsPanelModule('lbRestartProxyCore', arguments); }
         function lbShowLoginLimitModal() { return callSettingsPanelModule('lbShowLoginLimitModal', arguments); }
         function lbSetLoginLimit() { return callSettingsPanelModule('lbSetLoginLimit', arguments); }
         function lbShowPolicyModal() { return callSettingsPanelModule('lbShowPolicyModal', arguments); }

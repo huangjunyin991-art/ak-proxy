@@ -296,6 +296,17 @@ def _load_saved_subscription_nodes_for_status() -> list[dict[str, Any]]:
     return nodes if isinstance(nodes, list) else []
 
 
+async def _load_active_subscription_nodes() -> list[dict[str, Any]]:
+    from . import singbox_manager as sbm
+
+    nodes = sbm.load_saved_nodes()
+    if not isinstance(nodes, list):
+        nodes = []
+    groups = await db.get_subscription_groups()
+    active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
+    return _filter_nodes_by_active_groups([item for item in nodes if isinstance(item, dict)], active_group_ids)
+
+
 def _build_subscription_runtime_nodes_for_status(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     from .proxy_cores.manager import build_runtime_nodes
     return build_runtime_nodes(nodes, singbox_base_port=_get_dispatcher_saved_base_port())
@@ -404,6 +415,15 @@ async def _warmup_proxy_cores_after_startup(delay_seconds: float = 1.0) -> None:
     try:
         if delay_seconds > 0:
             await asyncio.sleep(delay_seconds)
+        from .proxy_cores.manager import ensure_required_binaries
+
+        binary_result = await ensure_required_binaries()
+        logger.info(
+            "[ProxyCore] startup binary check scheduled pending_download=%s cores=%s",
+            bool(binary_result.get("pending_download")),
+            list((binary_result.get("cores") or {}).keys()),
+        )
+        await _wait_proxy_core_downloads()
         result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=True)
         _SINGBOX_STATUS_CACHE.invalidate()
         reload_result = result.get("reload_result") if isinstance(result, dict) else {}
@@ -419,6 +439,19 @@ async def _warmup_proxy_cores_after_startup(delay_seconds: float = 1.0) -> None:
         )
     except Exception as e:
         logger.warning("[ProxyCore] startup warmup failed, dispatcher keeps existing exits: %s", e)
+
+
+async def _wait_proxy_core_downloads(timeout_seconds: float = 180.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        status = await _load_proxy_cores_status()
+        downloading = [
+            key for key, value in status.items()
+            if isinstance(value, dict) and value.get("downloading")
+        ]
+        if not downloading or time.monotonic() >= deadline:
+            return
+        await asyncio.sleep(2.0)
 
 
 def _restore_dispatcher_exits_from_disk() -> int:
@@ -4164,6 +4197,35 @@ async def api_dispatcher_reload_singbox(request: Request):
 
 
 
+@app.post("/api/dispatcher/proxy_core/restart")
+async def api_dispatcher_proxy_core_restart(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    core_type = str(data.get("core_type") or "all").strip().lower()
+    if core_type == "sing-box":
+        core_type = "singbox"
+    if core_type not in {"singbox", "mihomo", "all", "both"}:
+        return {"success": False, "message": "unknown proxy core", "core_type": core_type}
+
+    try:
+        from .proxy_cores.manager import ensure_required_binaries, restart_core
+
+        await ensure_required_binaries()
+        await _wait_proxy_core_downloads(timeout_seconds=180.0)
+        nodes = await _load_active_subscription_nodes()
+        result = await restart_core(core_type, nodes, singbox_base_port=_get_dispatcher_saved_base_port())
+        _SINGBOX_STATUS_CACHE.invalidate()
+        return {"success": bool(result.get("success")), "message": result.get("message", ""), "result": result}
+    except Exception as e:
+        return {"success": False, "message": f"proxy core restart failed: {e}", "core_type": core_type}
+
+
 @app.get("/api/dispatcher/singbox_status")
 
 async def api_dispatcher_singbox_status(request: Request):
@@ -4231,7 +4293,8 @@ async def api_dispatcher_meta(request: Request, force_refresh: bool = False):
     if error_response is not None:
         return error_response
 
-    return await _DISPATCHER_STATUS_SERVICE.get_meta_status(force_refresh=force_refresh)
+    status = await _DISPATCHER_STATUS_SERVICE.get_meta_status(force_refresh=force_refresh)
+    return {**status, "proxy_cores": await _load_proxy_cores_status()}
 
 
 
@@ -6541,10 +6604,11 @@ async def admin_startup():
 
     _reset_dispatcher_temp_event_file()
 
+    asyncio.create_task(_warmup_proxy_cores_after_startup())
+    logger.info("[ProxyCore] startup warmup scheduled")
+
     try:
         sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=False)
-        asyncio.create_task(_warmup_proxy_cores_after_startup())
-        logger.info("[ProxyCore] startup warmup scheduled")
         if sync_result.get("removed_count"):
             logger.info(f"[SubGroup] 启动清理孤儿订阅节点: removed={sync_result.get('removed_count')} exits={sync_result.get('exits_count')}")
     except Exception as e:

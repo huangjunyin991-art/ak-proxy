@@ -288,6 +288,7 @@
             });
             return Object.assign({}, metaData || {}, lightData || {}, {
                 singbox: (metaData && metaData.singbox) || (lbData && lbData.singbox) || null,
+                proxy_cores: (metaData && metaData.proxy_cores) || (lbData && lbData.proxy_cores) || null,
                 exits
             });
         }
@@ -300,7 +301,7 @@
                     const data = await res.json();
                     lbData = data;
                     renderLbStatus(data);
-                    renderSingboxStatus(data.singbox);
+                    renderProxyCoreStatus(data);
                     return;
                 }
                 const forceMeta = options.forceMeta !== false || !lbMetaData;
@@ -313,7 +314,7 @@
                 const data = mergeLbStatusData(light, lbMetaData);
                 lbData = data;
                 renderLbStatus(data);
-                renderSingboxStatus(data.singbox);
+                renderProxyCoreStatus(data);
             } catch (e) {
                 try {
                     lbLightApiAvailable = false;
@@ -321,7 +322,7 @@
                     const data = await res.json();
                     lbData = data;
                     renderLbStatus(data);
-                    renderSingboxStatus(data.singbox);
+                    renderProxyCoreStatus(data);
                 } catch (fallbackError) {
                     console.error('加载负载均衡状态失败', fallbackError);
                 }
@@ -345,20 +346,65 @@
             }
         }
 
-        function renderSingboxStatus(sb) {
-            const stateEl = document.getElementById('lbSbState');
-            const nodesEl = document.getElementById('lbSbNodes');
-            const configEl = document.getElementById('lbSbConfig');
-            if (!sb) return;
-            if (sb.active) {
-                stateEl.innerHTML = `<span style="color:#00ff88;">● 运行中</span> <span style="color:var(--text-secondary);">(PID: ${sb.pid})</span> <button onclick="lbReloadSingbox()" style="margin-left:8px;background:rgba(102,126,234,0.2);color:#667eea;border:1px solid rgba(102,126,234,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:bold;">重启</button>`;
-            } else if (sb.installed) {
-                stateEl.innerHTML = `<span style="color:#ff4757;">● 已停止</span> <button onclick="lbStartSingbox()" style="margin-left:8px;background:#00ff88;color:#000;border:none;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:bold;">启动</button>`;
-            } else {
-                stateEl.innerHTML = `<span style="color:#ffa502;">● 未安装</span>`;
-            }
-            nodesEl.textContent = sb.nodes_count ? `节点: ${sb.nodes_count}` : '';
-            configEl.textContent = sb.config_exists ? sb.config_path : '配置文件不存在';
+        function getProxyCoreInfo(data, coreType) {
+            const cores = (data && data.proxy_cores) || {};
+            const core = cores[coreType] || {};
+            const exits = Array.isArray(data && data.exits) ? data.exits : [];
+            const nodes = exits.filter(ex => ex && ex.core_type === coreType);
+            const ports = nodes.map(ex => Number(ex.local_port || 0)).filter(Boolean).sort((a, b) => a - b);
+            return { core, nodes, ports };
+        }
+
+        function formatCorePorts(ports) {
+            if (!ports.length) return '-';
+            if (ports.length === 1) return String(ports[0]);
+            return `${ports[0]}-${ports[ports.length - 1]}`;
+        }
+
+        function getCoreState(core) {
+            if (!core || Object.keys(core).length === 0) return { text: '未知', cls: 'warn' };
+            if (core.downloading) return { text: '下载中', cls: 'warn' };
+            if (!core.installed && !core.available) return { text: '未安装', cls: 'bad' };
+            if (core.active || core.managed_active) return { text: '运行中', cls: 'ok' };
+            if (core.download && core.download.state === 'failed') return { text: '下载失败', cls: 'bad' };
+            return { text: '未运行', cls: 'warn' };
+        }
+
+        function renderProxyCoreCard(data, coreType, title) {
+            const info = getProxyCoreInfo(data, coreType);
+            const core = info.core || {};
+            const state = getCoreState(core);
+            const pid = Number(core.pid || core.managed_pid || 0) || '-';
+            const installed = !!(core.installed || core.available);
+            const disabled = core.downloading ? 'disabled' : '';
+            const actionText = core.downloading ? '准备中' : (installed ? '重启' : '下载并启动');
+            const message = core.download && core.download.state === 'failed'
+                ? `失败：${escapeHtml(core.download.error || '')}`
+                : (installed ? '核心已就绪' : '缺失时会自动下载');
+            return `
+                <div class="lb-core-card">
+                    <div class="lb-core-head">
+                        <span class="lb-core-name">${escapeHtml(title)}</span>
+                        <span class="lb-core-state ${state.cls}">${state.text}</span>
+                    </div>
+                    <div class="lb-core-metrics">
+                        <div class="lb-core-metric"><span>PID</span><strong>${escapeHtml(pid)}</strong></div>
+                        <div class="lb-core-metric"><span>节点数</span><strong>${info.nodes.length}</strong></div>
+                        <div class="lb-core-metric"><span>端口</span><strong>${escapeHtml(formatCorePorts(info.ports))}</strong></div>
+                    </div>
+                    <div class="lb-core-foot">
+                        <span>${message}</span>
+                        <button class="lb-core-btn" onclick="lbRestartProxyCore(${jsArg(coreType)})" ${disabled}>${actionText}</button>
+                    </div>
+                </div>`;
+        }
+
+        function renderProxyCoreStatus(data) {
+            const container = document.getElementById('lbCoreCards');
+            if (!container) return;
+            container.innerHTML =
+                renderProxyCoreCard(data || {}, 'singbox', 'sing-box') +
+                renderProxyCoreCard(data || {}, 'mihomo', 'mihomo');
         }
 
         function startLbRefresh() {
@@ -1054,26 +1100,27 @@
         }
 
         async function lbReloadSingbox() {
-            try {
-                showToast('正在热重载 sing-box...', 'info');
-                const res = await fetch(`${API_BASE}/api/dispatcher/reload_singbox`, {method: 'POST'});
-                const data = await res.json();
-                showToast(data.message, data.success ? 'success' : 'error');
-                loadLbStatus();
-            } catch (e) {
-                showToast('热重载失败: ' + e.message, 'error');
-            }
+            return lbRestartProxyCore('all');
         }
 
         async function lbStartSingbox() {
+            return lbRestartProxyCore('all');
+        }
+
+        async function lbRestartProxyCore(coreType) {
+            const label = coreType === 'mihomo' ? 'mihomo' : coreType === 'singbox' ? 'sing-box' : '代理核心';
             try {
-                showToast('正在启动 sing-box...', 'info');
-                const res = await fetch(`${API_BASE}/api/dispatcher/start_singbox`, {method: 'POST'});
+                showToast(`正在重启 ${label}...`, 'info');
+                const res = await fetch(`${API_BASE}/api/dispatcher/proxy_core/restart`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({core_type: coreType || 'all'})
+                });
                 const data = await res.json();
-                showToast(data.message, data.success ? 'success' : 'error');
-                loadLbStatus();
+                showToast(data.message || (data.success ? '重启完成' : '重启失败'), data.success ? 'success' : 'error');
+                await loadLbStatus();
             } catch (e) {
-                showToast('启动失败: ' + e.message, 'error');
+                showToast('重启失败: ' + e.message, 'error');
             }
         }
 
@@ -1561,6 +1608,7 @@
             lbBatchAddFromSub,
             lbReloadSingbox,
             lbStartSingbox,
+            lbRestartProxyCore,
             lbShowLoginLimitModal,
             lbSetLoginLimit,
             lbShowPolicyModal,
