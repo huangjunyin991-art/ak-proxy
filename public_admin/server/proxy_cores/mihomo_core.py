@@ -86,16 +86,32 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     tls_enabled = _truthy(raw.get("tls")) or str(raw.get("security") or "").lower() in {"tls", "reality"}
     if tls_enabled:
         proxy["tls"] = True
-    server_name = _first_text(
+    xhttp_raw_opts = raw.get("xhttp-opts") or raw.get("xhttp_opts") or {}
+    if not isinstance(xhttp_raw_opts, dict):
+        xhttp_raw_opts = {}
+    explicit_server_name = _first_text(
         raw.get("servername")
         or raw.get("server_name")
         or raw.get("sni")
         or raw.get("host")
-        or node.get("server")
+        or xhttp_raw_opts.get("host")
+    )
+    server_name = _first_text(
+        explicit_server_name,
+        node.get("server")
     )
     if server_name:
         proxy["servername"] = server_name
-    if _truthy(raw.get("skip-cert-verify") or raw.get("skip_cert_verify") or node.get("skip_cert_verify")):
+    skip_cert_verify = _truthy(
+        raw.get("skip-cert-verify")
+        or raw.get("skip_cert_verify")
+        or raw.get("allowInsecure")
+        or raw.get("insecure")
+        or node.get("skip_cert_verify")
+    )
+    if proxy["network"] == "xhttp" and tls_enabled and not explicit_server_name:
+        skip_cert_verify = True
+    if skip_cert_verify:
         proxy["skip-cert-verify"] = True
     alpn = _normalize_alpn(raw.get("alpn"))
     if alpn:
@@ -118,20 +134,17 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
             proxy["reality-opts"]["short-id"] = short_id
 
     if proxy["network"] == "xhttp":
-        opts = raw.get("xhttp-opts") or raw.get("xhttp_opts") or {}
-        if not isinstance(opts, dict):
-            opts = {}
         xhttp_opts: dict[str, Any] = {}
-        path = str(raw.get("path") or opts.get("path") or "/").strip() or "/"
+        path = str(raw.get("path") or xhttp_raw_opts.get("path") or "/").strip() or "/"
         xhttp_opts["path"] = path
-        mode = str(raw.get("mode") or opts.get("mode") or "").strip()
+        mode = str(raw.get("mode") or xhttp_raw_opts.get("mode") or "").strip()
         if mode:
             xhttp_opts["mode"] = mode
-        host = _first_text(raw.get("host"), opts.get("host"), server_name, node.get("server"))
+        host = _first_text(raw.get("host"), xhttp_raw_opts.get("host"), server_name, node.get("server"))
         if host:
             xhttp_opts["host"] = host
             xhttp_opts["headers"] = {"Host": host}
-        extra = opts.get("extra") if isinstance(opts.get("extra"), dict) else None
+        extra = xhttp_raw_opts.get("extra") if isinstance(xhttp_raw_opts.get("extra"), dict) else None
         if extra:
             xhttp_opts.update(extra)
         proxy["xhttp-opts"] = xhttp_opts

@@ -82,3 +82,25 @@ def test_mihomo_normalizes_httpx_alias_to_xhttp():
 
     assert config["proxies"][0]["network"] == "xhttp"
     assert config["proxies"][0]["xhttp-opts"]["host"] == "hk.example.com"
+    assert config["proxies"][0]["skip-cert-verify"] is True
+
+
+def test_mihomo_xhttp_keeps_cert_verify_when_explicit_server_name_exists():
+    config = generate_config([
+        {
+            "name": "Explicit SNI",
+            "type": "vless",
+            "server": "hk.example.com",
+            "port": 443,
+            "raw": {
+                "type": "vless",
+                "uuid": "00000000-0000-0000-0000-000000000000",
+                "network": "xhttp",
+                "tls": True,
+                "sni": "download.example.com",
+            },
+        }
+    ])
+
+    assert config["proxies"][0]["servername"] == "download.example.com"
+    assert "skip-cert-verify" not in config["proxies"][0]
