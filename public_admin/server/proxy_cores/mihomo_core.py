@@ -148,17 +148,20 @@ def _make_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
 def generate_config(nodes: list[dict[str, Any]], base_port: int = MIHOMO_BASE_PORT) -> dict[str, Any]:
     proxies = []
     listeners = []
+    rules = []
     for index, node in enumerate(nodes):
         proxy = _make_proxy(node, index)
         proxies.append(proxy)
         port = int(node.get("local_port") or (base_port + index))
+        listener_name = f"socks-in-{index}"
         listeners.append({
-            "name": f"socks-in-{index}",
+            "name": listener_name,
             "type": "socks",
             "listen": "127.0.0.1",
             "port": port,
-            "proxy": proxy["name"],
         })
+        rules.append(f"IN-NAME,{listener_name},{proxy['name']}")
+    rules.append("MATCH,DIRECT")
 
     return {
         "mixed-port": 0,
@@ -169,7 +172,7 @@ def generate_config(nodes: list[dict[str, Any]], base_port: int = MIHOMO_BASE_PO
         "find-process-mode": "off",
         "proxies": proxies,
         "listeners": listeners,
-        "rules": ["MATCH,DIRECT"],
+        "rules": rules,
     }
 
 

@@ -23,7 +23,8 @@ def test_mihomo_xhttp_node_uses_dedicated_socks_listener():
 
     assert config["listeners"][0]["type"] == "socks"
     assert config["listeners"][0]["port"] == 11001
-    assert config["listeners"][0]["proxy"] == "proxy-out-0"
+    assert config["rules"][0] == "IN-NAME,socks-in-0,proxy-out-0"
+    assert config["rules"][-1] == "MATCH,DIRECT"
     assert config["proxies"][0]["type"] == "vless"
     assert config["proxies"][0]["network"] == "xhttp"
     assert config["proxies"][0]["encryption"] == ""
