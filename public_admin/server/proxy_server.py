@@ -153,6 +153,14 @@ except NameError:
 
     USER_RPC_TRACE_ENABLED = False
 
+try:
+
+    BAN_CACHE_REFRESH_SECONDS
+
+except NameError:
+
+    BAN_CACHE_REFRESH_SECONDS = int(os.environ.get("BAN_CACHE_REFRESH_SECONDS", "60"))
+
 
 
 # 数据库模块

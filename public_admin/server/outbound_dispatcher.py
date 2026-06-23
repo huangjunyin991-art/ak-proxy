@@ -362,14 +362,34 @@ class OutboundDispatcher:
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
     DIRECT_FALLBACK_RATE_PER_MINUTE = 30
+    DIRECT_CRITICAL_FALLBACK_RATE_PER_SECOND = 8
+    DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE = 240
     DEDICATED_FAST_EXIT_COUNT = 5
     DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1", "public_indexdata"}
+    CRITICAL_DIRECT_FALLBACK_RPC_PATHS = {
+        "logout",
+        "question_get",
+        "question_get1",
+        "question_get01",
+        "question_get2",
+        "question_get02",
+        "mnemonic_get",
+        "mnemonic_get1",
+        "mnemonic_get01",
+        "mnemonic_get2",
+        "mnemonic_get02",
+        "check_answer",
+        "check_transactionpassword",
+        "notice_list",
+        "public_nations",
+    }
 
     def __init__(self):
         self.client_policy = RuntimeHygienePolicy()
         self.exits: list[OutboundExit] = [
             OutboundExit("direct", None, self.client_policy),
         ]
+        self._direct_critical_timestamps = deque()
         self._health_task: Optional[asyncio.Task] = None
         self._latency_probe_task: Optional[asyncio.Task] = None
         self._started = False
@@ -556,7 +576,9 @@ class OutboundDispatcher:
             and not ex.is_frozen
             and self._exit_has_dispatch_capacity(ex)
         ]
-        candidate_indices = self._route_dedicated_fast_pool(candidate_indices, api_path)
+        primary_indices = self._route_dedicated_fast_pool(candidate_indices, api_path)
+        overflow_indices = [i for i in candidate_indices if i not in set(primary_indices)]
+        candidate_indices = primary_indices + sorted(overflow_indices, key=self._latency_sort_key)
         candidate_indices = self._filter_latency_failed_pool(candidate_indices)
         candidates = [self.exits[i] for i in candidate_indices]
         candidates.sort(key=lambda e: e.active)
@@ -565,7 +587,7 @@ class OutboundDispatcher:
         except (TypeError, ValueError):
             max_tunnels = 1
         candidates = candidates[:max_tunnels]
-        if direct is not failed_exit and not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
+        if direct is not failed_exit and not direct.is_frozen and self._exit_has_dispatch_capacity(direct, api_path):
             candidates.append(direct)
         return candidates
 
@@ -582,17 +604,47 @@ class OutboundDispatcher:
             and self._exit_has_dispatch_capacity(ex)
         ]
 
-    def _exit_has_dispatch_capacity(self, ex: OutboundExit) -> bool:
+    def _exit_has_dispatch_capacity(self, ex: OutboundExit, api_path: str = "") -> bool:
         if ex.is_direct:
-            return self._direct_has_fallback_capacity(ex)
+            return self._direct_has_fallback_capacity(ex, api_path)
         return ex.has_minute_rate_capacity() and self._exit_below_per_second_limit(ex)
 
-    def _direct_has_fallback_capacity(self, ex: OutboundExit) -> bool:
+    def _direct_has_fallback_capacity(self, ex: OutboundExit, api_path: str = "") -> bool:
+        if self._is_critical_direct_fallback_rpc(api_path):
+            return self._direct_has_critical_fallback_capacity()
         return (
             not ex.is_frozen
             and ex.count_recent_requests(1.0) < self.DIRECT_FALLBACK_RATE_PER_SECOND
             and ex.count_recent_requests(60.0) < self.DIRECT_FALLBACK_RATE_PER_MINUTE
         )
+
+    def _direct_has_critical_fallback_capacity(self) -> bool:
+        direct = self._safe_direct()
+        if direct.is_frozen:
+            return False
+        return (
+            self._count_direct_critical_requests(1.0) < self.DIRECT_CRITICAL_FALLBACK_RATE_PER_SECOND
+            and self._count_direct_critical_requests(60.0) < self.DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE
+        )
+
+    def _trim_direct_critical_timestamps(self) -> None:
+        cutoff = time.time() - 60.0
+        while self._direct_critical_timestamps and self._direct_critical_timestamps[0] <= cutoff:
+            self._direct_critical_timestamps.popleft()
+
+    def _count_direct_critical_requests(self, window: float = 1.0) -> int:
+        now = time.time()
+        self._trim_direct_critical_timestamps()
+        if window >= 60.0:
+            return len(self._direct_critical_timestamps)
+        cutoff = now - window
+        return sum(1 for t in self._direct_critical_timestamps if t > cutoff)
+
+    def _record_dispatch_request(self, ex: OutboundExit, api_path: str = "") -> None:
+        ex.record_request()
+        if ex.is_direct and self._is_critical_direct_fallback_rpc(api_path):
+            self._trim_direct_critical_timestamps()
+            self._direct_critical_timestamps.append(time.time())
 
     def _exit_below_per_second_limit(self, ex: OutboundExit) -> bool:
         if self.policy_config is None:
@@ -622,6 +674,57 @@ class OutboundDispatcher:
         candidates = [i for i in pool if self.exits[i].active == min_active]
         return candidates[self._rr_counter % len(candidates)]
 
+    def _get_healthy_tunnels_relaxed(self) -> list[int]:
+        return [
+            i for i, ex in enumerate(self.exits)
+            if not ex.is_direct
+            and ex.healthy
+            and not ex.is_frozen
+        ]
+
+    def _pick_relaxed_from_pool(self, pool: list[int]) -> Optional[int]:
+        pool = self._filter_latency_failed_pool(pool)
+        if not pool:
+            return None
+        pool = sorted(pool, key=self._latency_sort_key)
+        min_active = min(self.exits[i].active for i in pool)
+        candidates = [i for i in pool if self.exits[i].active == min_active]
+        self._rr_counter += 1
+        return candidates[self._rr_counter % len(candidates)]
+
+    def _pick_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
+        primary = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), api_path)
+        best = self._pick_from_pool(primary)
+        if best is not None:
+            return best
+        overflow = [i for i in self._get_healthy_tunnels() if i not in set(primary)]
+        best = self._pick_from_pool(overflow)
+        if best is not None:
+            logger.warning(f"[Dispatcher] API primary pool empty/limited, overflow to tunnel: {self.exits[best].name}")
+            return best
+        return None
+
+    def _pick_relaxed_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
+        primary = set(self._route_dedicated_fast_pool(self._get_healthy_tunnels_relaxed(), api_path))
+        pool = [i for i in self._get_healthy_tunnels_relaxed() if i not in primary] or list(primary)
+        best = self._pick_relaxed_from_pool(pool)
+        if best is not None:
+            logger.warning(f"[Dispatcher] API direct fallback exhausted, relaxed overflow to tunnel: {self.exits[best].name}")
+        return best
+
+    def _pick_relaxed_login_tunnel_index(self) -> Optional[int]:
+        pool = self._filter_latency_failed_pool(self._get_healthy_tunnels_relaxed())
+        if not pool:
+            return None
+        pool.sort(key=lambda i: (self.exits[i].count_recent_logins(), self._latency_sort_key(i)))
+        min_logins = self.exits[pool[0]].count_recent_logins()
+        candidates = [i for i in pool if self.exits[i].count_recent_logins() == min_logins]
+        self._rr_counter += 1
+        best = candidates[self._rr_counter % len(candidates)]
+        if best is not None:
+            logger.warning(f"[Dispatcher] Login direct fallback exhausted, relaxed overflow to tunnel: {self.exits[best].name}")
+        return best
+
     def _filter_below_per_second_limit(self, pool: list[int]) -> list[int]:
         if self.policy_config is None:
             return pool
@@ -632,10 +735,16 @@ class OutboundDispatcher:
         return available
 
     def _normalize_api_path(self, api_path: str) -> str:
-        return str(api_path or "").strip("/").lower()
+        path = str(api_path or "").strip("/").lower()
+        if path.startswith("rpc/"):
+            return path[4:]
+        return path
 
     def _is_dedicated_fast_rpc(self, api_path: str) -> bool:
         return self._normalize_api_path(api_path) in self.DEDICATED_FAST_RPC_PATHS
+
+    def _is_critical_direct_fallback_rpc(self, api_path: str) -> bool:
+        return self._normalize_api_path(api_path) in self.CRITICAL_DIRECT_FALLBACK_RPC_PATHS
 
     def _latency_sort_key(self, idx: int):
         value = getattr(self.exits[idx], "latency_ms", None)
@@ -688,6 +797,12 @@ class OutboundDispatcher:
                     direct.reserve_login()
                     direct.record_request()
                     return direct
+                relaxed = self._pick_relaxed_login_tunnel_index()
+                if relaxed is not None:
+                    ex = self.exits[relaxed]
+                    ex.reserve_login()
+                    ex.record_request()
+                    return ex
                 raise RuntimeError("all login exits are unavailable or rate limited")
 
             # 找未满的出口
@@ -709,6 +824,12 @@ class OutboundDispatcher:
                         direct.reserve_login()
                         direct.record_request()
                         return direct
+                    relaxed = self._pick_relaxed_login_tunnel_index()
+                    if relaxed is not None:
+                        ex = self.exits[relaxed]
+                        ex.reserve_login()
+                        ex.record_request()
+                        return ex
                     raise RuntimeError("all login exits are rate limited")
                 ex = self.exits[best]
                 ex.reserve_login()
@@ -724,6 +845,12 @@ class OutboundDispatcher:
                     direct.reserve_login()
                     direct.record_request()
                     return direct
+                relaxed = self._pick_relaxed_login_tunnel_index()
+                if relaxed is not None:
+                    ex = self.exits[relaxed]
+                    ex.reserve_login()
+                    ex.record_request()
+                    return ex
                 raise RuntimeError("all login exits are unavailable or rate limited")
             ex = self.exits[best]
             ex.reserve_login()
@@ -744,28 +871,23 @@ class OutboundDispatcher:
         任何异常降级直连
         """
         try:
-            healthy = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), api_path)
-            if not healthy:
-                direct = self._safe_direct()
-                if self._direct_has_fallback_capacity(direct):
-                    logger.warning("[Dispatcher] 所有隧道出口不可用，降级直连")
-                    direct.record_request()
-                    return direct
-                raise RuntimeError("all api exits are unavailable or rate limited")
-
-            # 优先选不限速的出口，再按活跃连接数排序
-            unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
-            pool = unrestricted if unrestricted else healthy
-            best = self._pick_from_pool(pool)
+            best = self._pick_api_tunnel_index(api_path)
             if best is None:
                 direct = self._safe_direct()
-                if self._direct_has_fallback_capacity(direct):
-                    logger.warning("[Dispatcher] API出口均已达限流，降级直连")
-                    direct.record_request()
+                if self._direct_has_fallback_capacity(direct, api_path):
+                    logger.warning("[Dispatcher] 所有隧道出口不可用，降级直连")
+                    self._record_dispatch_request(direct, api_path)
                     return direct
-                raise RuntimeError("all api exits are rate limited")
+                relaxed = self._pick_relaxed_api_tunnel_index(api_path)
+                if relaxed is not None:
+                    ex = self.exits[relaxed]
+                    self._record_dispatch_request(ex, api_path)
+                    return ex
+                raise RuntimeError("all api exits are unavailable or rate limited")
+
+            # best 已在主路由池或溢出池中选出；直连只作为后备。
             ex = self.exits[best]
-            ex.record_request()
+            self._record_dispatch_request(ex, api_path)
             return ex
         except RuntimeError as e:
             logger.warning(f"[Dispatcher] API无可用出口: {e}")
@@ -793,12 +915,12 @@ class OutboundDispatcher:
         last_error = None
         for attempt_index, current_exit in enumerate(attempts):
             if attempt_index > 0:
-                if not self._exit_has_dispatch_capacity(current_exit):
+                if not self._exit_has_dispatch_capacity(current_exit, api_path):
                     last_error = RuntimeError(f"{current_exit.name} rate limited")
                     if attempt_index + 1 < len(attempts):
                         continue
                     break
-                current_exit.record_request()
+                self._record_dispatch_request(current_exit, api_path)
             per_second_wait = await self._wait_for_per_second_rate(current_exit)
             if per_second_wait > 0.5:
                 logger.debug(f"[RateLimit] {current_exit.name} 每秒限速等待 {per_second_wait:.1f}s")
@@ -1149,6 +1271,12 @@ class OutboundDispatcher:
             disabled_count = max(0, total_exits - available_count)
             available_ratio = round((available_count / total_exits) * 100, 1) if total_exits else 0
             total_active = sum(ex.active for ex in self.exits)
+            direct_critical_fallback = {
+                "rpm": self._count_direct_critical_requests(60.0),
+                "rps": self._count_direct_critical_requests(1.0),
+                "per_second_limit": self.DIRECT_CRITICAL_FALLBACK_RATE_PER_SECOND,
+                "per_minute_limit": self.DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE,
+            }
             return {
                 "total_exits": total_exits,
                 "healthy_exits": healthy_count,
@@ -1157,6 +1285,7 @@ class OutboundDispatcher:
                 "available_ratio": available_ratio,
                 "total_active": total_active,
                 "max_login_per_min": self.MAX_LOGIN_PER_MIN,
+                "direct_critical_fallback": direct_critical_fallback,
                 "policy": self.policy_config.to_dict() if self.policy_config is not None else {},
                 "client_policy": self.client_policy.to_dict(),
                 "exits": exits_info,
