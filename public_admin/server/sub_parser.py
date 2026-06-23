@@ -19,7 +19,23 @@ except Exception:
 
 logger = logging.getLogger("TransparentProxy")
 
-SUBSCRIPTION_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+SUBSCRIPTION_FETCH_USER_AGENTS = (
+    'clash-verge/v2.0',
+    'ClashforWindows/0.20.39',
+    'v2rayN/6.0',
+    'Shadowrocket/2.2.46',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+)
+
+PROXY_LINK_SCHEMES = (
+    'anytls://',
+    'vless://',
+    'hysteria2://',
+    'hy2://',
+    'trojan://',
+    'ss://',
+    'vmess://',
+)
 
 # 地区识别规则
 REGION_RULES = [
@@ -80,10 +96,7 @@ def _iter_proxy_lines(text: str):
             continue
         if '://' not in line:
             continue
-        start = min(
-            (pos for pos in (line.find('anytls://'), line.find('vless://'), line.find('hysteria2://'), line.find('hy2://'), line.find('ss://'), line.find('vmess://')) if pos >= 0),
-            default=-1,
-        )
+        start = min((pos for pos in (line.find(scheme) for scheme in PROXY_LINK_SCHEMES) if pos >= 0), default=-1)
         if start >= 0:
             yield line[start:]
 
@@ -370,6 +383,51 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
     return nodes
 
 
+def _parse_trojan_links(text: str) -> list[dict]:
+    nodes = []
+    for line in _iter_proxy_lines(text):
+        if line.startswith('trojan://'):
+            try:
+                parsed = urllib.parse.urlsplit(line)
+                password = urllib.parse.unquote(parsed.username or '')
+                server = parsed.hostname or ''
+                port = parsed.port
+                if not password or not server or not port:
+                    continue
+                name = urllib.parse.unquote(parsed.fragment or '')
+                params = dict(urllib.parse.parse_qsl(parsed.query))
+                network = params.get('type') or params.get('network') or 'tcp'
+                host = params.get('host') or params.get('peer') or ''
+                path = urllib.parse.unquote(params.get('path') or '')
+                insecure = str(params.get('allowInsecure') or params.get('insecure') or '').lower() in ('1', 'true', 'yes', 'on')
+
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'Trojan-{server}',
+                    'type': 'trojan',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'type': 'trojan',
+                        'password': password,
+                        'sni': params.get('sni') or params.get('peer') or server,
+                        'network': network,
+                        'host': host,
+                        'path': path,
+                        'insecure': insecure,
+                    },
+                })
+            except Exception as e:
+                logger.debug(f"[SubParser] Trojan瑙ｆ瀽澶辫触: {e}")
+                continue
+
+    return nodes
+
+
 def _parse_anytls_links(text: str) -> list[dict]:
     nodes = []
     for line in _iter_proxy_lines(text):
@@ -440,6 +498,7 @@ def _parse_json_nodes(text: str) -> list[dict]:
             _parse_anytls_links(raw_text)
             + _parse_vless_links(raw_text)
             + _parse_hysteria2_links(raw_text)
+            + _parse_trojan_links(raw_text)
             + _parse_ss_links(raw_text)
         )
 
@@ -480,6 +539,16 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'type': proto,
                     'password': item.get('username') or item.get('password') or '',
                     'sni': item.get('sni', server),
+                    'insecure': str(item.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
+                }
+            elif proto == 'trojan':
+                raw = {
+                    'type': proto,
+                    'password': item.get('username') or item.get('password') or '',
+                    'sni': item.get('sni', server),
+                    'network': item.get('network') or item.get('type') or 'tcp',
+                    'host': item.get('host', ''),
+                    'path': item.get('path', ''),
                     'insecure': str(item.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
                 }
             elif proto in ('ss', 'shadowsocks'):
@@ -537,8 +606,9 @@ def parse_subscription_text(text: str) -> dict:
         anytls_nodes = _parse_anytls_links(text)
         vless_nodes = _parse_vless_links(text)
         hy2_nodes = _parse_hysteria2_links(text)
-        if anytls_nodes or vless_nodes or hy2_nodes:
-            nodes = anytls_nodes + vless_nodes + hy2_nodes
+        trojan_nodes = _parse_trojan_links(text)
+        if anytls_nodes or vless_nodes or hy2_nodes or trojan_nodes:
+            nodes = anytls_nodes + vless_nodes + hy2_nodes + trojan_nodes
             fmt = "proxy_links"
 
     # 尝试SS/VMess链接
@@ -587,10 +657,10 @@ def _detect_subscription_response_kind(text: str) -> str:
         return "json"
     if any(stripped.startswith(prefix) for prefix in ("mixed-port:", "port:", "proxies:", "proxy-groups:", "rules:")):
         return "clash_yaml"
-    if any(token in stripped for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+    if any(token in stripped for token in PROXY_LINK_SCHEMES):
         return "proxy_links"
     decoded = _try_base64_decode(stripped)
-    if decoded and any(token in decoded for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+    if decoded and any(token in decoded for token in PROXY_LINK_SCHEMES):
         return "base64_proxy_links"
     return "other"
 
@@ -605,7 +675,7 @@ def _empty_subscription_error(response_kind: str) -> str:
     return "订阅内容无法识别，请检查链接返回内容是否为 Clash YAML、Base64 或代理节点链接。"
 
 
-def _fetch_subscription_text(url: str, timeout: int) -> str:
+def _fetch_subscription_text(url: str, timeout: int, user_agent: str | None = None) -> str:
     gateway = UrlFetchGateway(UrlFetchPolicy(
         timeout_seconds=max(1, int(timeout or 15)),
         max_response_bytes=4 * 1024 * 1024,
@@ -613,7 +683,7 @@ def _fetch_subscription_text(url: str, timeout: int) -> str:
     response = gateway.request_sync(
         url,
         headers={
-            'User-Agent': SUBSCRIPTION_FETCH_USER_AGENT,
+            'User-Agent': user_agent or SUBSCRIPTION_FETCH_USER_AGENTS[0],
             'Accept': '*/*',
         },
     )
@@ -622,29 +692,39 @@ def _fetch_subscription_text(url: str, timeout: int) -> str:
 
 def fetch_subscription(url: str, timeout: int = 15) -> dict:
     """
-    从URL获取并解析订阅
+    Fetch a subscription with client-compatible user agents and parse it.
 
-    Returns:
-        parse_subscription_text的结果 + "url" 字段
-        出错时返回 {"error": "..."}
+    Some vendors return Clash YAML only for Clash-like clients, while browser
+    user agents may receive base64 proxy links.
     """
-    try:
-        raw = _fetch_subscription_text(url, timeout)
-        response_kind = _detect_subscription_response_kind(raw)
+    last_result = None
+    last_error = None
 
-        result = parse_subscription_text(raw)
-        result["url"] = url
-        if result.get("total_nodes", 0) == 0:
+    for user_agent in SUBSCRIPTION_FETCH_USER_AGENTS:
+        try:
+            raw = _fetch_subscription_text(url, timeout, user_agent=user_agent)
+            response_kind = _detect_subscription_response_kind(raw)
+            result = parse_subscription_text(raw)
+            result["url"] = url
+            result["fetch_user_agent"] = user_agent
+
+            if result.get("total_nodes", 0) > 0:
+                return result
+
             logger.warning(
                 f"[SubParser] 订阅解析结果为空: url={url} raw_length={len(raw)} "
                 f"response_kind={response_kind} parse_format={result.get('format')} "
-                f"total_nodes={result.get('total_nodes')}"
+                f"total_nodes={result.get('total_nodes')} user_agent={user_agent}"
             )
             result["error"] = _empty_subscription_error(response_kind)
             result["response_kind"] = response_kind
             result["raw_length"] = len(raw)
-        return result
+            last_result = result
 
-    except Exception as e:
-        logger.warning(f"[SubParser] 订阅获取失败: {url} -> {e}")
-        return {"error": f"订阅获取失败: {str(e)}", "url": url}
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"[SubParser] 订阅获取失败: {url} user_agent={user_agent} -> {e}")
+
+    if last_result is not None:
+        return last_result
+    return {"error": f"订阅获取失败: {last_error or 'unknown error'}", "url": url}

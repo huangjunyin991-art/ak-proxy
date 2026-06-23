@@ -68,11 +68,13 @@ def _build_tls(raw: dict, server: str) -> Optional[dict]:
 def _build_transport(raw: dict) -> Optional[dict]:
     network = _normalize_network(raw)
     if network == "ws":
+        ws_opts = raw.get("ws-opts") if isinstance(raw.get("ws-opts"), dict) else {}
+        ws_headers = ws_opts.get("headers") if isinstance(ws_opts.get("headers"), dict) else {}
         transport = {
             "type": "ws",
-            "path": str(raw.get("path") or "/"),
+            "path": str(raw.get("path") or ws_opts.get("path") or "/"),
         }
-        host = str(raw.get("host") or "").strip()
+        host = str(raw.get("host") or ws_headers.get("Host") or ws_headers.get("host") or "").strip()
         if host:
             transport["headers"] = {"Host": host}
         return transport
@@ -203,6 +205,11 @@ def _make_outbound(node: dict, tag: str) -> dict:
             ob["tls"] = {"enabled": True, "server_name": raw["sni"]}
         else:
             ob["tls"] = {"enabled": True}
+        if _truthy(raw.get("insecure")):
+            ob["tls"]["insecure"] = True
+        transport = _build_transport(raw)
+        if transport:
+            ob["transport"] = transport
         return ob
 
     elif proto in ("hysteria2", "hy2"):
