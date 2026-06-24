@@ -49,6 +49,7 @@ from .performance.dashboard_stats import build_traffic_dashboard, build_user_gro
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 from .db.sql_policy import classify_admin_sql
+from .login_account_hint import find_best_account_match, normalize_login_account
 from .security.credentials import has_credential, is_credential_key, mask_credential
 
 logger = logging.getLogger("TransparentProxy.DB")
@@ -1190,6 +1191,73 @@ async def get_user_password(username: str) -> Optional[str]:
         if row and row['password']:
             return row['password']
         return None
+
+
+async def find_login_account_hint(username: str, threshold: float = 0.90) -> Optional[Dict]:
+    """Find one high-confidence account suggestion for a possible login typo."""
+    normalized = normalize_login_account(username)
+    if len(normalized) < 4 or len(normalized) > 64:
+        return None
+
+    digits = ''.join(ch for ch in normalized if ch.isdigit())
+    digit_suffix = digits[-4:] if len(digits) >= 4 else ''
+    suffix = normalized[-4:] if len(normalized) >= 4 else normalized
+    prefix = normalized[:4] if len(normalized) >= 4 else normalized
+    min_len = max(1, len(normalized) - 2)
+    max_len = len(normalized) + 2
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        exact_exists = await conn.fetchval(
+            '''
+            SELECT EXISTS (
+                SELECT 1
+                FROM user_stats us
+                WHERE us.username = $1
+            )
+            ''',
+            normalized,
+        )
+        if exact_exists:
+            return None
+        rows = await conn.fetch(
+            '''
+            WITH account_pool AS (
+                SELECT us.username
+                FROM user_stats us
+                WHERE COALESCE(us.username, '') <> ''
+                  AND us.username <> $1
+                  AND COALESCE(length(us.username), 0) BETWEEN $2 AND $3
+            )
+            SELECT username
+            FROM account_pool
+            WHERE username ILIKE $4
+               OR username ILIKE $5
+               OR ($6 <> '' AND username ILIKE $7)
+            ORDER BY
+                CASE
+                    WHEN username ILIKE $4 THEN 0
+                    WHEN username ILIKE $5 THEN 1
+                    ELSE 2
+                END,
+                abs(length(username) - length($1)),
+                username
+            LIMIT 200
+            ''',
+            normalized,
+            min_len,
+            max_len,
+            f'%{suffix}',
+            f'{prefix}%',
+            digit_suffix,
+            f'%{digit_suffix}' if digit_suffix else '',
+        )
+    match = find_best_account_match(normalized, [row['username'] for row in rows], threshold=threshold)
+    if match is None:
+        return None
+    return {
+        'account': match.account,
+        'score': round(float(match.score), 4),
+    }
 
 
 async def _count_recent_login_password_failures_from_logs(username: str, ip_address: str, hours: int = 24) -> int:

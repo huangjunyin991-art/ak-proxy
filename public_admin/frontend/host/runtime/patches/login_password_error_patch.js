@@ -33,14 +33,100 @@
         return '';
     }
 
+    function getCurrentLoginAccount() {
+        try {
+            if (window._vue && window._vue.form) {
+                return String(window._vue.form.account || '').trim();
+            }
+        } catch(e) {}
+        try {
+            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
+            return input ? String(input.value || '').trim() : '';
+        } catch(e) {}
+        return '';
+    }
+
+    function setCurrentLoginAccount(account) {
+        var value = String(account || '').trim();
+        if (!value) return;
+        try {
+            if (window._vue && window._vue.form) {
+                window._vue.form.account = value;
+                if (typeof window._vue.checkInput === 'function') window._vue.checkInput();
+            }
+        } catch(e) {}
+        try {
+            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
+            if (input) {
+                input.value = value;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } catch(e) {}
+    }
+
     function escapeHtml(value) {
         var div = document.createElement('div');
         div.textContent = String(value == null ? '' : value);
         return div.innerHTML;
     }
 
+    function buildDiffHtml(source, target) {
+        var left = String(source || '');
+        var right = String(target || '');
+        var maxLen = Math.max(left.length, right.length);
+        var html = '';
+        for (var i = 0; i < maxLen; i++) {
+            var ch = left.charAt(i);
+            if (!ch) continue;
+            if (ch !== right.charAt(i)) {
+                html += '<span style="color:#d93025;font-weight:800;">' + escapeHtml(ch) + '</span>';
+            } else {
+                html += escapeHtml(ch);
+            }
+        }
+        return html || '-';
+    }
+
+    function renderAccountHint(typedAccount, suggestedAccount) {
+        if (!typedAccount || !suggestedAccount || typedAccount === suggestedAccount) return '';
+        return '' +
+            '<div style="margin:2px 20px 12px;padding:10px 12px;background:#fff7f7;border:1px solid rgba(217,48,37,.18);border-radius:4px;text-align:left;">' +
+                '<div style="font-size:12px;line-height:1.6;color:#333;">您是否想输入的账号是 <span style="color:#d93025;font-weight:800;">' + escapeHtml(suggestedAccount) + '</span>？</div>' +
+                '<div style="margin-top:6px;font-size:11px;line-height:1.7;color:#777;word-break:break-all;">输入账号：' + buildDiffHtml(typedAccount, suggestedAccount) + '</div>' +
+                '<div style="font-size:11px;line-height:1.7;color:#777;word-break:break-all;">匹配账号：' + buildDiffHtml(suggestedAccount, typedAccount) + '</div>' +
+                '<button type="button" id="ak-login-use-account-hint" data-account="' + escapeHtml(suggestedAccount) + '" style="margin-top:8px;width:100%;height:30px;border:0;border-radius:4px;background:#d93025;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">使用该账号</button>' +
+            '</div>';
+    }
+
     function closeDialog(overlay) {
         if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    function fetchAccountHint(account) {
+        account = String(account || '').trim();
+        if (account.length < 4 || account.length > 64 || typeof fetch !== 'function') {
+            return Promise.resolve(null);
+        }
+        return fetch('/api/login/account_hint?account=' + encodeURIComponent(account), {
+            credentials: 'same-origin',
+            cache: 'no-store'
+        }).then(function(response) {
+            if (!response || !response.ok) return null;
+            return response.json();
+        }).catch(function() {
+            return null;
+        });
+    }
+
+    function installUseAccountHintHandler() {
+        var button = document.getElementById('ak-login-use-account-hint');
+        if (!button || button.__akAccountHintBound) return;
+        button.__akAccountHintBound = true;
+        button.onclick = function() {
+            setCurrentLoginAccount(button.getAttribute('data-account') || '');
+            closeDialog(document.getElementById('ak-login-password-error-overlay'));
+        };
     }
 
     function installLoginSubmitSilentThrottlePatch() {
@@ -73,6 +159,7 @@
         var oldOverlay = document.getElementById('ak-login-password-error-overlay');
         if (oldOverlay) closeDialog(oldOverlay);
         var password = getCurrentLoginPassword();
+        var typedAccount = getCurrentLoginAccount();
         var overlay = document.createElement('div');
         overlay.id = 'ak-login-password-error-overlay';
         overlay.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
@@ -84,6 +171,20 @@
                 '<button type="button" id="ak-login-password-error-ok" disabled style="width:100%;height:48px;border:0;background:#fff;color:#9aa0a6;font-size:13px;cursor:not-allowed;border-top:1px solid rgba(0,0,0,.06);">確認(' + PASSWORD_ERROR_COUNTDOWN_SECONDS + 's)</button>' +
             '</div>';
         document.body.appendChild(overlay);
+        var hintSlot = document.createElement('div');
+        hintSlot.id = 'ak-login-account-hint-slot';
+        var hintAnchorButton = document.getElementById('ak-login-password-error-ok');
+        if (hintAnchorButton && hintAnchorButton.parentNode) {
+            hintAnchorButton.parentNode.insertBefore(hintSlot, hintAnchorButton);
+        }
+        fetchAccountHint(typedAccount).then(function(hint) {
+            try {
+                var slot = document.getElementById('ak-login-account-hint-slot');
+                if (!slot || !hint || !hint.suggested_account) return;
+                slot.innerHTML = renderAccountHint(typedAccount, String(hint.suggested_account || ''));
+                installUseAccountHintHandler();
+            } catch(e) {}
+        });
         var button = document.getElementById('ak-login-password-error-ok');
         var remaining = PASSWORD_ERROR_COUNTDOWN_SECONDS;
         var timer = setInterval(function() {

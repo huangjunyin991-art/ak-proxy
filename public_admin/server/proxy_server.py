@@ -993,6 +993,28 @@ def _public_ip_ban_message(remaining_seconds: int = 0, permanent: bool = False) 
     )
 
 
+@app.get("/api/login/account_hint")
+async def public_login_account_hint(request: Request):
+    account = str(request.query_params.get("account") or "").strip().lower()
+    payload = {
+        "success": True,
+        "typed_account": account,
+        "suggested_account": "",
+        "similarity": 0,
+    }
+    if len(account) < 4 or len(account) > 64:
+        return JSONResponse(payload)
+    try:
+        hint = await db.find_login_account_hint(account, threshold=0.90)
+    except Exception as exc:
+        logger.warning(f"[LoginAccountHint] query_failed account={account}: {exc}")
+        return JSONResponse(payload)
+    if hint:
+        payload["suggested_account"] = str(hint.get("account") or "")
+        payload["similarity"] = hint.get("score") or 0
+    return JSONResponse(payload)
+
+
 async def _get_public_ip_ban_state(client_ip: str, fallback_seconds: int = 0) -> dict:
     normalized_ip = str(client_ip or "").strip()
     state = {
