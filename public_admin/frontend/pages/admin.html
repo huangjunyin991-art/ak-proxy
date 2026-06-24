@@ -932,8 +932,43 @@
             color: var(--text-primary);
             font-weight: 800;
             line-height: 1.45;
+            overflow: hidden;
+        }
+
+        .ip-address-toggle {
+            display: inline-block;
+            max-width: min(100%, 260px);
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-weight: 800;
+            line-height: 1.45;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
+            cursor: pointer;
+        }
+
+        .ip-address-toggle.is-expanded {
+            max-width: 100%;
+            white-space: normal;
             overflow-wrap: anywhere;
             word-break: break-word;
+        }
+
+        .ip-address-plain {
+            display: inline-block;
+            max-width: min(100%, 260px);
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
         }
 
         .ip-card-meta {
@@ -7338,6 +7373,32 @@
                 .replace(/>/g, '&gt;');
         }
 
+        function isLongIpAddress(value) {
+            const text = String(value || '').trim();
+            return text.includes(':') && text.length > 24;
+        }
+
+        function shortIpAddress(value) {
+            const text = String(value || '').trim();
+            if (!isLongIpAddress(text)) return text;
+            return `${text.slice(0, 18)}...${text.slice(-10)}`;
+        }
+
+        function renderIpAddress(value) {
+            const address = String(value || '').trim();
+            if (!address) return '<span class="ip-address-plain">-</span>';
+            if (!isLongIpAddress(address)) {
+                return `<span class="ip-address-plain">${escapeHtml(address)}</span>`;
+            }
+            return `<button type="button" class="ip-address-toggle" data-full-ip="${escapeHtml(address)}" data-short-ip="${escapeHtml(shortIpAddress(address))}" title="点击显示完整IP" onclick="toggleFullIpAddress(this)">${escapeHtml(shortIpAddress(address))}</button>`;
+        }
+
+        function toggleFullIpAddress(button) {
+            const expanded = button.classList.toggle('is-expanded');
+            button.textContent = expanded ? (button.dataset.fullIp || '') : (button.dataset.shortIp || '');
+            button.title = expanded ? '点击收起IP' : '点击显示完整IP';
+        }
+
         function renderRealNameCell(username, realName, nameScope = 'user') {
             const safeUsername = encodeURIComponent(username || '');
             const rawValue = realName || '';
@@ -8202,7 +8263,7 @@
             cardList.innerHTML = items.map(ip => `
                 <div class="ip-card">
                     <div class="ip-card-main">
-                        <div class="ip-card-address">${escapeHtml(ip.ip_address || '')}</div>
+                        <div class="ip-card-address">${renderIpAddress(ip.ip_address || '')}</div>
                         <div class="ip-card-status">${renderIpStatus(ip)}</div>
                     </div>
                     <div class="ip-card-meta">
@@ -8247,7 +8308,7 @@
                 
                 tbody.innerHTML = sortedData.map(ip => `
                     <tr>
-                        <td><strong>${escapeHtml(ip.ip_address || '')}</strong></td>
+                        <td><strong>${renderIpAddress(ip.ip_address || '')}</strong></td>
                         <td>${ip.request_count}</td>
                         <td>${fmtTime(ip.first_seen)}</td>
                         <td>${fmtTime(ip.last_seen)}</td>
