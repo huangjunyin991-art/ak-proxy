@@ -154,7 +154,7 @@
                 '<div style="font-size:12px;line-height:1.6;color:#333;">您是否想输入的账号是 <span style="color:#d93025;font-weight:800;">' + escapeHtml(suggestedAccount) + '</span>？</div>' +
                 '<div style="margin-top:6px;font-size:11px;line-height:1.7;color:#777;word-break:break-all;">输入账号：' + buildDiffHtml(typedAccount, suggestedAccount) + '</div>' +
                 '<div style="font-size:11px;line-height:1.7;color:#777;word-break:break-all;">匹配账号：' + buildDiffHtml(suggestedAccount, typedAccount) + '</div>' +
-                '<button type="button" id="ak-login-use-account-hint" data-account="' + escapeHtml(suggestedAccount) + '" style="margin-top:8px;width:100%;height:30px;border:0;border-radius:4px;background:#d93025;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">使用该账号</button>' +
+                '<button type="button" id="ak-login-use-account-hint" data-account="' + escapeHtml(suggestedAccount) + '" disabled style="margin-top:8px;width:100%;height:30px;border:0;border-radius:4px;background:#f1b3ad;color:#fff;font-size:12px;font-weight:700;cursor:not-allowed;">使用该账号(' + PASSWORD_ERROR_COUNTDOWN_SECONDS + 's)</button>' +
             '</div>';
     }
 
@@ -178,14 +178,30 @@
         });
     }
 
+    function updateUseAccountHintCountdown(remaining) {
+        var button = document.getElementById('ak-login-use-account-hint');
+        if (!button) return;
+        if (remaining > 0) {
+            button.disabled = true;
+            button.textContent = '使用该账号(' + remaining + 's)';
+            button.style.background = '#f1b3ad';
+            button.style.cursor = 'not-allowed';
+            return;
+        }
+        button.disabled = false;
+        button.textContent = '使用该账号';
+        button.style.background = '#d93025';
+        button.style.cursor = 'pointer';
+    }
+
     function installUseAccountHintHandler() {
         var button = document.getElementById('ak-login-use-account-hint');
         if (!button || button.__akAccountHintBound) return;
         button.__akAccountHintBound = true;
         button.onclick = function() {
+            if (button.disabled) return;
             setCurrentLoginAccount(button.getAttribute('data-account') || '');
             setCurrentLoginPassword(lastPasswordErrorPassword);
-            resetLoginSubmitThrottle();
             resetLoginLoadingState();
             closeDialog(document.getElementById('ak-login-password-error-overlay'));
         };
@@ -239,6 +255,7 @@
         var hintSlot = document.createElement('div');
         hintSlot.id = 'ak-login-account-hint-slot';
         var hintAnchorButton = document.getElementById('ak-login-password-error-ok');
+        var remaining = PASSWORD_ERROR_COUNTDOWN_SECONDS;
         if (hintAnchorButton && hintAnchorButton.parentNode) {
             hintAnchorButton.parentNode.insertBefore(hintSlot, hintAnchorButton);
         }
@@ -247,17 +264,18 @@
                 var slot = document.getElementById('ak-login-account-hint-slot');
                 if (!slot || !hint || !hint.suggested_account) return;
                 slot.innerHTML = renderAccountHint(typedAccount, String(hint.suggested_account || ''));
+                updateUseAccountHintCountdown(remaining);
                 installUseAccountHintHandler();
             } catch(e) {}
         });
         var button = document.getElementById('ak-login-password-error-ok');
-        var remaining = PASSWORD_ERROR_COUNTDOWN_SECONDS;
         var timer = setInterval(function() {
             remaining -= 1;
             if (!button || !button.parentNode) {
                 clearInterval(timer);
                 return;
             }
+            updateUseAccountHintCountdown(remaining);
             if (remaining > 0) {
                 button.textContent = '確認(' + remaining + 's)';
                 return;
