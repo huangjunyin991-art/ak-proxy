@@ -109,6 +109,36 @@ def test_wide_spread_rpc_ignores_dedicated_fast_pool_size():
     assert set(picked) == {"tunnel-0", "tunnel-1", "tunnel-2"}
 
 
+def test_wide_spread_rpc_prefers_lower_recent_rate_over_latency():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    dispatcher.add_socks5("hot-fast", 10001, group_id="g1")
+    dispatcher.add_socks5("idle-slow", 10002, group_id="g2")
+    dispatcher.exits[1].latency_ms = 1
+    dispatcher.exits[2].latency_ms = 300
+    for _ in range(5):
+        dispatcher.exits[1].record_request()
+
+    picked = dispatcher.pick_api_exit("ACE_Sell")
+
+    assert picked.name == "idle-slow"
+
+
+def test_regular_rpc_keeps_latency_strategy_even_when_other_exit_is_idle():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    dispatcher.add_socks5("hot-fast", 10001, group_id="g1")
+    dispatcher.add_socks5("idle-slow", 10002, group_id="g2")
+    dispatcher.exits[1].latency_ms = 1
+    dispatcher.exits[2].latency_ms = 300
+    for _ in range(5):
+        dispatcher.exits[1].record_request()
+
+    picked = dispatcher.pick_api_exit("Public_ACE")
+
+    assert picked.name == "hot-fast"
+
+
 def test_fallback_sequence_tries_three_tunnels_then_direct_across_groups():
     dispatcher = OutboundDispatcher()
     dispatcher.add_socks5("failed", 10001, group_id="g1")

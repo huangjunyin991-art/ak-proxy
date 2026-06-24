@@ -404,6 +404,7 @@ class OutboundDispatcher:
         self._started = False
         self._rr_counter: int = 0
         self._wide_spread_rr_counter: int = 0
+        self._wide_spread_group_rr_counter: int = 0
         self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
         self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
@@ -618,13 +619,13 @@ class OutboundDispatcher:
         if not candidate_indices:
             return []
         if self.is_wide_spread_rpc(api_path):
-            ordered = list(candidate_indices)
+            ordered = self._order_wide_spread_pool(self._filter_latency_failed_pool(candidate_indices))
         else:
             primary_indices = self._route_dedicated_fast_pool(candidate_indices, api_path)
             overflow_indices = [i for i in candidate_indices if i not in set(primary_indices)]
             ordered = primary_indices + sorted(overflow_indices, key=self._latency_sort_key)
-        ordered = self._filter_latency_failed_pool(ordered)
-        ordered.sort(key=lambda i: (self.exits[i].active, self.exits[i].count_recent_requests(60.0), i))
+            ordered = self._filter_latency_failed_pool(ordered)
+            ordered.sort(key=lambda i: (self.exits[i].active, self.exits[i].count_recent_requests(60.0), i))
         return self._prefer_distinct_subscription_groups(ordered, failed_exit)
 
     def _fallback_group_key(self, ex: OutboundExit) -> str:
@@ -784,12 +785,57 @@ class OutboundDispatcher:
     def _pick_wide_spread_from_pool(self, pool: list[int]) -> Optional[int]:
         if not pool:
             return None
-        min_requests = min(self.exits[i].count_recent_requests(60.0) for i in pool)
-        candidates = [i for i in pool if self.exits[i].count_recent_requests(60.0) == min_requests]
-        min_active = min(self.exits[i].active for i in candidates)
-        candidates = [i for i in candidates if self.exits[i].active == min_active]
-        self._wide_spread_rr_counter += 1
-        return candidates[self._wide_spread_rr_counter % len(candidates)]
+        pool = self._filter_latency_failed_pool(pool)
+        ordered = self._order_wide_spread_pool(pool)
+        if not ordered:
+            return None
+        return ordered[0]
+
+    def _wide_spread_group_key(self, idx: int) -> str:
+        ex = self.exits[idx]
+        return str(ex.group_id or ex.group_name or ex.source_url or ex.name or idx).strip()
+
+    def _order_wide_spread_pool(self, pool: list[int]) -> list[int]:
+        if not pool:
+            return []
+        groups: dict[str, list[int]] = {}
+        for idx in pool:
+            groups.setdefault(self._wide_spread_group_key(idx), []).append(idx)
+        if not groups:
+            return []
+
+        group_items = []
+        sorted_keys = sorted(groups.keys())
+        group_rr_counter = self._wide_spread_group_rr_counter
+        self._wide_spread_group_rr_counter += 1
+        for key in sorted_keys:
+            indices = groups[key]
+            size = max(1, len(indices))
+            rpm_sum = sum(self.exits[i].count_recent_requests(60.0) for i in indices)
+            rps_sum = sum(self.exits[i].count_recent_requests(1.0) for i in indices)
+            active_sum = sum(self.exits[i].active for i in indices)
+            rr_offset = (sorted_keys.index(key) - group_rr_counter) % len(sorted_keys)
+            group_items.append((
+                rpm_sum / size,
+                rps_sum / size,
+                active_sum / size,
+                rr_offset,
+                key,
+            ))
+        group_items.sort()
+
+        ordered: list[int] = []
+        for _, _, _, _, key in group_items:
+            indices = list(groups[key])
+            self._wide_spread_rr_counter += 1
+            indices.sort(key=lambda i: (
+                self.exits[i].count_recent_requests(60.0),
+                self.exits[i].count_recent_requests(1.0),
+                self.exits[i].active,
+                (i - self._wide_spread_rr_counter) % max(1, len(self.exits)),
+            ))
+            ordered.extend(indices)
+        return ordered
 
     def _pick_relaxed_login_tunnel_index(self) -> Optional[int]:
         pool = self._filter_latency_failed_pool(self._get_healthy_tunnels_relaxed())
