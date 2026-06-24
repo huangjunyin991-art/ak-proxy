@@ -74,15 +74,34 @@
     function buildDiffHtml(source, target) {
         var left = String(source || '');
         var right = String(target || '');
-        var maxLen = Math.max(left.length, right.length);
+        var rows = left.length + 1;
+        var cols = right.length + 1;
+        var dp = [];
+        for (var r = 0; r < rows; r++) {
+            dp[r] = [];
+            for (var c = 0; c < cols; c++) dp[r][c] = 0;
+        }
+        for (var i = left.length - 1; i >= 0; i--) {
+            for (var j = right.length - 1; j >= 0; j--) {
+                dp[i][j] = left.charAt(i) === right.charAt(j)
+                    ? dp[i + 1][j + 1] + 1
+                    : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
         var html = '';
-        for (var i = 0; i < maxLen; i++) {
-            var ch = left.charAt(i);
-            if (!ch) continue;
-            if (ch !== right.charAt(i)) {
-                html += '<span style="color:#d93025;font-weight:800;">' + escapeHtml(ch) + '</span>';
-            } else {
+        var li = 0;
+        var ri = 0;
+        while (li < left.length) {
+            var ch = left.charAt(li);
+            if (ri < right.length && ch === right.charAt(ri)) {
                 html += escapeHtml(ch);
+                li += 1;
+                ri += 1;
+            } else if (ri < right.length && dp[li][ri + 1] >= dp[li + 1][ri]) {
+                ri += 1;
+            } else {
+                html += '<span style="color:#d93025;font-weight:800;">' + escapeHtml(ch) + '</span>';
+                li += 1;
             }
         }
         return html || '-';
