@@ -1234,12 +1234,12 @@ async def find_login_account_hint(username: str, threshold: float = 0.90) -> Opt
                OR username ILIKE $5
                OR ($6 <> '' AND username ILIKE $7)
             ORDER BY
+                abs(length(username) - length($1)),
                 CASE
                     WHEN username ILIKE $4 THEN 0
                     WHEN username ILIKE $5 THEN 1
                     ELSE 2
                 END,
-                abs(length(username) - length($1)),
                 username
             LIMIT 200
             ''',

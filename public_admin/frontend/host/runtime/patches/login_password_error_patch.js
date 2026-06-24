@@ -74,36 +74,31 @@
     function buildDiffHtml(source, target) {
         var left = String(source || '');
         var right = String(target || '');
-        var rows = left.length + 1;
-        var cols = right.length + 1;
-        var dp = [];
-        for (var r = 0; r < rows; r++) {
-            dp[r] = [];
-            for (var c = 0; c < cols; c++) dp[r][c] = 0;
+        var prefixLen = 0;
+        while (
+            prefixLen < left.length &&
+            prefixLen < right.length &&
+            left.charAt(prefixLen) === right.charAt(prefixLen)
+        ) {
+            prefixLen += 1;
         }
-        for (var i = left.length - 1; i >= 0; i--) {
-            for (var j = right.length - 1; j >= 0; j--) {
-                dp[i][j] = left.charAt(i) === right.charAt(j)
-                    ? dp[i + 1][j + 1] + 1
-                    : Math.max(dp[i + 1][j], dp[i][j + 1]);
-            }
+        var suffixLen = 0;
+        while (
+            suffixLen < left.length - prefixLen &&
+            suffixLen < right.length - prefixLen &&
+            left.charAt(left.length - 1 - suffixLen) === right.charAt(right.length - 1 - suffixLen)
+        ) {
+            suffixLen += 1;
         }
-        var html = '';
-        var li = 0;
-        var ri = 0;
-        while (li < left.length) {
-            var ch = left.charAt(li);
-            if (ri < right.length && ch === right.charAt(ri)) {
-                html += escapeHtml(ch);
-                li += 1;
-                ri += 1;
-            } else if (ri < right.length && dp[li][ri + 1] >= dp[li + 1][ri]) {
-                ri += 1;
-            } else {
-                html += '<span style="color:#d93025;font-weight:800;">' + escapeHtml(ch) + '</span>';
-                li += 1;
-            }
+        var prefix = left.slice(0, prefixLen);
+        var middleEnd = suffixLen ? left.length - suffixLen : left.length;
+        var middle = left.slice(prefixLen, middleEnd);
+        var suffix = suffixLen ? left.slice(left.length - suffixLen) : '';
+        var html = escapeHtml(prefix);
+        if (middle) {
+            html += '<span style="color:#d93025;font-weight:800;">' + escapeHtml(middle) + '</span>';
         }
+        html += escapeHtml(suffix);
         return html || '-';
     }
 

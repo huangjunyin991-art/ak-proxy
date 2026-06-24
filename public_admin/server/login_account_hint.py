@@ -19,6 +19,15 @@ class AccountHintMatch:
     score: float
 
 
+def _account_match_rank(typed: str, candidate: str, score: float) -> tuple[int, int, float]:
+    length_gap = abs(len(candidate) - len(typed))
+    return (
+        0 if length_gap == 0 else 1,
+        length_gap,
+        -score,
+    )
+
+
 def normalize_login_account(value: object) -> str:
     return str(value or "").strip().lower()
 
@@ -94,6 +103,7 @@ def find_best_account_match(
         return None
 
     best: Optional[AccountHintMatch] = None
+    best_rank: Optional[tuple[int, int, float]] = None
     seen: set[str] = set()
     candidates: list[str] = []
     for candidate_value in candidate_accounts:
@@ -110,6 +120,8 @@ def find_best_account_match(
         score = account_similarity(typed, candidate)
         if score < threshold:
             continue
-        if best is None or score > best.score:
+        rank = _account_match_rank(typed, candidate, score)
+        if best is None or best_rank is None or rank < best_rank:
             best = AccountHintMatch(account=candidate, score=score)
+            best_rank = rank
     return best

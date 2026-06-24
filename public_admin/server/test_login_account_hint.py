@@ -37,6 +37,12 @@ def test_picks_best_match():
     assert match.account == "hjy574139"
 
 
+def test_prefers_same_length_candidate_over_shorter_match():
+    match = find_best_account_match("hjj574139", ["hj574139", "hjy574139"], threshold=0.90)
+    assert match is not None
+    assert match.account == "hjy574139"
+
+
 def test_similarity_handles_insertions_but_stays_bounded():
     score = account_similarity("ljy574139", "ljy5741399")
     assert 0.90 <= score <= 1.0
