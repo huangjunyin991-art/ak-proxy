@@ -84,14 +84,6 @@
         } catch(e) {}
     }
 
-    function clearCurrentLoginPassword() {
-        setCurrentLoginPassword('');
-    }
-
-    function resetLoginSubmitThrottle() {
-        lastLoginSubmitAt = 0;
-    }
-
     function resetLoginLoadingState() {
         try {
             var vm = window._vue;
@@ -240,7 +232,6 @@
         var password = getCurrentLoginPassword();
         var typedAccount = getCurrentLoginAccount();
         lastPasswordErrorPassword = password;
-        clearCurrentLoginPassword();
         var overlay = document.createElement('div');
         overlay.id = 'ak-login-password-error-overlay';
         overlay.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
