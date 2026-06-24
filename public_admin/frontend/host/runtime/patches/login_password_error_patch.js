@@ -4,6 +4,7 @@
     var PASSWORD_ERROR_COUNTDOWN_SECONDS = 5;
     var LOGIN_SUBMIT_BLOCK_MS = PASSWORD_ERROR_COUNTDOWN_SECONDS * 1000;
     var lastLoginSubmitAt = 0;
+    var lastPasswordErrorPassword = '';
 
     function isLoginPage() {
         try {
@@ -63,6 +64,28 @@
                 input.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } catch(e) {}
+    }
+
+    function setCurrentLoginPassword(password) {
+        var value = String(password || '');
+        try {
+            if (window._vue && window._vue.form) {
+                window._vue.form.password = value;
+                if (typeof window._vue.checkInput === 'function') window._vue.checkInput();
+            }
+        } catch(e) {}
+        try {
+            var input = document.querySelector('input[type="password"], input[name="password"]');
+            if (input) {
+                input.value = value;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } catch(e) {}
+    }
+
+    function clearCurrentLoginPassword() {
+        setCurrentLoginPassword('');
     }
 
     function resetLoginSubmitThrottle() {
@@ -161,6 +184,7 @@
         button.__akAccountHintBound = true;
         button.onclick = function() {
             setCurrentLoginAccount(button.getAttribute('data-account') || '');
+            setCurrentLoginPassword(lastPasswordErrorPassword);
             resetLoginSubmitThrottle();
             resetLoginLoadingState();
             closeDialog(document.getElementById('ak-login-password-error-overlay'));
@@ -199,6 +223,8 @@
         if (oldOverlay) closeDialog(oldOverlay);
         var password = getCurrentLoginPassword();
         var typedAccount = getCurrentLoginAccount();
+        lastPasswordErrorPassword = password;
+        clearCurrentLoginPassword();
         var overlay = document.createElement('div');
         overlay.id = 'ak-login-password-error-overlay';
         overlay.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
