@@ -21,12 +21,7 @@
         return hasPassword && hasFailure;
     }
 
-    function getCurrentLoginPassword() {
-        try {
-            if (window._vue && window._vue.form) {
-                return String(window._vue.form.password || '');
-            }
-        } catch(e) {}
+    function getLoginPasswordInputValue() {
         try {
             var input = document.querySelector('input[type="password"], input[name="password"]');
             return input ? String(input.value || '') : '';
@@ -34,15 +29,32 @@
         return '';
     }
 
+    function getCurrentLoginPassword() {
+        var inputValue = getLoginPasswordInputValue();
+        if (inputValue) return inputValue;
+        try {
+            if (window._vue && window._vue.form) {
+                return String(window._vue.form.password || '');
+            }
+        } catch(e) {}
+        return '';
+    }
+
+    function getLoginAccountInputValue() {
+        try {
+            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
+            return input ? String(input.value || '') : '';
+        } catch(e) {}
+        return '';
+    }
+
     function getCurrentLoginAccount() {
+        var inputValue = getLoginAccountInputValue().trim();
+        if (inputValue) return inputValue;
         try {
             if (window._vue && window._vue.form) {
                 return String(window._vue.form.account || '').trim();
             }
-        } catch(e) {}
-        try {
-            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
-            return input ? String(input.value || '').trim() : '';
         } catch(e) {}
         return '';
     }
@@ -64,6 +76,18 @@
                 input.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } catch(e) {}
+    }
+
+    function syncLoginInputsToVue() {
+        var account = getLoginAccountInputValue().trim();
+        var password = getLoginPasswordInputValue();
+        if (account) setCurrentLoginAccount(account);
+        if (password) setCurrentLoginPassword(password);
+    }
+
+    function restoreLoginPasswordForRetry() {
+        var password = getCurrentLoginPassword() || lastPasswordErrorPassword;
+        if (password) setCurrentLoginPassword(password);
     }
 
     function setCurrentLoginPassword(password) {
@@ -193,7 +217,7 @@
         button.onclick = function() {
             if (button.disabled) return;
             setCurrentLoginAccount(button.getAttribute('data-account') || '');
-            setCurrentLoginPassword(lastPasswordErrorPassword);
+            restoreLoginPasswordForRetry();
             resetLoginLoadingState();
             closeDialog(document.getElementById('ak-login-password-error-overlay'));
         };
@@ -220,6 +244,7 @@
                     resetLoginLoadingState();
                     return;
                 }
+                syncLoginInputsToVue();
                 lastLoginSubmitAt = now;
                 return originalDoLoginAjax.apply(this, arguments);
             };
@@ -277,6 +302,7 @@
             button.style.color = '#1677ff';
             button.style.cursor = 'pointer';
             button.onclick = function() {
+                restoreLoginPasswordForRetry();
                 closeDialog(overlay);
             };
         }, 1000);
