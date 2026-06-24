@@ -1,4 +1,5 @@
 import pytest
+import httpx
 
 from .outbound_dispatcher import OutboundDispatcher
 
@@ -176,3 +177,41 @@ def test_wide_spread_fallback_ignores_dedicated_fast_pool_size():
     attempts = dispatcher._fallback_sequence(dispatcher.exits[1], "My_Subaccount")
 
     assert [item.name for item in attempts] == ["group-2", "group-3", "group-4", "direct"]
+
+
+@pytest.mark.anyio
+async def test_login_non_json_response_retries_next_exit():
+    dispatcher = OutboundDispatcher()
+    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
+    dispatcher.add_socks5("bad-html", 10001)
+    dispatcher.add_socks5("good-json", 10002)
+    attempts = []
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "bad-html":
+            return httpx.Response(
+                200,
+                content=b"<html>bad gateway</html>",
+                headers={"content-type": "text/html"},
+            )
+        return httpx.Response(
+            200,
+            json={"Error": False, "UserData": {"Id": 1}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        dispatcher.exits[1],
+        "POST",
+        "https://example.test/RPC/Login",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Login",
+    )
+
+    assert attempts == ["bad-html", "good-json"]
+    assert response.json()["Error"] is False

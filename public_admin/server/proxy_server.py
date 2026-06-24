@@ -193,7 +193,7 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
 
-from .outbound_dispatcher import dispatcher, OutboundExit
+from .outbound_dispatcher import dispatcher, OutboundExit, LoginUpstreamNonJsonError
 from .runtime_performance import (
     BlockingPoolConfigService,
     TimedServiceStatusCache,
@@ -742,6 +742,20 @@ if LOG_TO_FILE:
 
 
 # ===== 统计数据 =====
+
+login_upstream_logger = logging.getLogger("TransparentProxy.LoginUpstream")
+login_upstream_logger.setLevel(logging.INFO)
+login_upstream_logger.propagate = False
+if not login_upstream_logger.handlers:
+    login_upstream_handler = RotatingFileHandler(
+        os.path.join(PUBLIC_ADMIN_DIR, "login_upstream_non_json.log"),
+        maxBytes=1 * 1024 * 1024,
+        backupCount=1,
+        encoding="utf-8",
+    )
+    login_upstream_handler.setFormatter(formatter)
+    login_upstream_logger.addHandler(login_upstream_handler)
+
 
 class ProxyStats:
 
@@ -2745,6 +2759,8 @@ async def proxy_login(request: Request):
             error=type(e).__name__,
         )
 
+        if isinstance(e, LoginUpstreamNonJsonError):
+            return JSONResponse({"Error": True, "Msg": "API连接失败: 上游返回非JSON响应，已记录诊断日志"})
         return JSONResponse({"Error": True, "Msg": f"API连接失败: {str(e)}"})
 
     
@@ -6620,6 +6636,7 @@ async def admin_startup():
     _restore_dispatcher_exits_from_disk()
 
     dispatcher.alert_callback = _record_dispatcher_alert_event
+    dispatcher.login_non_json_callback = _record_login_upstream_non_json_event
 
     await dispatcher.start()
 
@@ -14908,6 +14925,64 @@ def _record_request_metric(kind: str, method: str, path: str, status_code: int =
         })
     except Exception as exc:
         logger.debug(f"[RequestMetrics] record failed: {exc}")
+
+
+def _response_text_preview(response: httpx.Response | None, limit: int = 500) -> str:
+    if response is None:
+        return ""
+    try:
+        content = response.content or b""
+    except Exception:
+        content = b""
+    if not content:
+        return ""
+    return content[:limit].decode("utf-8", errors="replace").replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _log_login_upstream_non_json(response: httpx.Response | None, account: str, client_ip: str,
+                                 stage: str, attempt_no: int, error: Exception) -> None:
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    headers = getattr(response, "headers", {}) or {}
+    extensions = getattr(response, "extensions", {}) or {}
+    content = getattr(response, "content", b"") if response is not None else b""
+    try:
+        body_len = len(content or b"")
+    except Exception:
+        body_len = 0
+    location = ""
+    try:
+        location = str(headers.get("location") or "")
+    except Exception:
+        location = ""
+    login_upstream_logger.warning(
+        "stage=%s attempt=%s account=%s client_ip=%s exit=%s direct=%s status=%s "
+        "content_type=%s bytes=%s location=%s error=%s head=%s",
+        stage,
+        attempt_no,
+        str(account or "-"),
+        str(client_ip or "-"),
+        str(extensions.get("ak_exit_name") or "-"),
+        int(bool(extensions.get("ak_exit_is_direct"))),
+        status_code,
+        str(headers.get("content-type") or "-"),
+        body_len,
+        redact_log_text(location, limit=200) if location else "-",
+        type(error).__name__,
+        redact_log_text(_response_text_preview(response), limit=500) or "-",
+    )
+
+
+async def _record_login_upstream_non_json_event(exit_obj, response: httpx.Response, api_path: str,
+                                                client_ip: str, account: str,
+                                                attempt_no: int) -> None:
+    _log_login_upstream_non_json(
+        response,
+        account,
+        client_ip,
+        api_path or "Login",
+        attempt_no,
+        ValueError("non_json_login_response"),
+    )
 
 
 class AkWebClientPool:
