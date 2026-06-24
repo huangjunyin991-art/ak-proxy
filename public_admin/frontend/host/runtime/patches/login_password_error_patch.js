@@ -4,7 +4,6 @@
     var PASSWORD_ERROR_COUNTDOWN_SECONDS = 5;
     var LOGIN_SUBMIT_BLOCK_MS = PASSWORD_ERROR_COUNTDOWN_SECONDS * 1000;
     var lastLoginSubmitAt = 0;
-    var lastPasswordErrorPassword = '';
 
     function isLoginPage() {
         try {
@@ -57,55 +56,6 @@
             }
         } catch(e) {}
         return '';
-    }
-
-    function setCurrentLoginAccount(account) {
-        var value = String(account || '').trim();
-        if (!value) return;
-        try {
-            if (window._vue && window._vue.form) {
-                window._vue.form.account = value;
-                if (typeof window._vue.checkInput === 'function') window._vue.checkInput();
-            }
-        } catch(e) {}
-        try {
-            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
-            if (input) {
-                input.value = value;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } catch(e) {}
-    }
-
-    function syncLoginInputsToVue() {
-        var account = getLoginAccountInputValue().trim();
-        var password = getLoginPasswordInputValue();
-        if (account) setCurrentLoginAccount(account);
-        if (password) setCurrentLoginPassword(password);
-    }
-
-    function restoreLoginPasswordForRetry() {
-        var password = getCurrentLoginPassword() || lastPasswordErrorPassword;
-        if (password) setCurrentLoginPassword(password);
-    }
-
-    function setCurrentLoginPassword(password) {
-        var value = String(password || '');
-        try {
-            if (window._vue && window._vue.form) {
-                window._vue.form.password = value;
-                if (typeof window._vue.checkInput === 'function') window._vue.checkInput();
-            }
-        } catch(e) {}
-        try {
-            var input = document.querySelector('input[type="password"], input[name="password"]');
-            if (input) {
-                input.value = value;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } catch(e) {}
     }
 
     function resetLoginLoadingState() {
@@ -170,7 +120,6 @@
                 '<div style="font-size:12px;line-height:1.6;color:#333;">您是否想输入的账号是 <span style="color:#d93025;font-weight:800;">' + escapeHtml(suggestedAccount) + '</span>？</div>' +
                 '<div style="margin-top:6px;font-size:11px;line-height:1.7;color:#777;word-break:break-all;">输入账号：' + buildDiffHtml(typedAccount, suggestedAccount) + '</div>' +
                 '<div style="font-size:11px;line-height:1.7;color:#777;word-break:break-all;">匹配账号：' + buildDiffHtml(suggestedAccount, typedAccount) + '</div>' +
-                '<button type="button" id="ak-login-use-account-hint" data-account="' + escapeHtml(suggestedAccount) + '" disabled style="margin-top:8px;width:100%;height:30px;border:0;border-radius:4px;background:#f1b3ad;color:#fff;font-size:12px;font-weight:700;cursor:not-allowed;">使用该账号(' + PASSWORD_ERROR_COUNTDOWN_SECONDS + 's)</button>' +
             '</div>';
     }
 
@@ -194,35 +143,6 @@
         });
     }
 
-    function updateUseAccountHintCountdown(remaining) {
-        var button = document.getElementById('ak-login-use-account-hint');
-        if (!button) return;
-        if (remaining > 0) {
-            button.disabled = true;
-            button.textContent = '使用该账号(' + remaining + 's)';
-            button.style.background = '#f1b3ad';
-            button.style.cursor = 'not-allowed';
-            return;
-        }
-        button.disabled = false;
-        button.textContent = '使用该账号';
-        button.style.background = '#d93025';
-        button.style.cursor = 'pointer';
-    }
-
-    function installUseAccountHintHandler() {
-        var button = document.getElementById('ak-login-use-account-hint');
-        if (!button || button.__akAccountHintBound) return;
-        button.__akAccountHintBound = true;
-        button.onclick = function() {
-            if (button.disabled) return;
-            setCurrentLoginAccount(button.getAttribute('data-account') || '');
-            restoreLoginPasswordForRetry();
-            resetLoginLoadingState();
-            closeDialog(document.getElementById('ak-login-password-error-overlay'));
-        };
-    }
-
     function installLoginSubmitSilentThrottlePatch() {
         if (!isLoginPage() || window.__AKLoginSubmitSilentThrottlePatchInstalled) return;
         window.__AKLoginSubmitSilentThrottlePatchInstalled = true;
@@ -244,7 +164,6 @@
                     resetLoginLoadingState();
                     return;
                 }
-                syncLoginInputsToVue();
                 lastLoginSubmitAt = now;
                 return originalDoLoginAjax.apply(this, arguments);
             };
@@ -256,7 +175,6 @@
         if (oldOverlay) closeDialog(oldOverlay);
         var password = getCurrentLoginPassword();
         var typedAccount = getCurrentLoginAccount();
-        lastPasswordErrorPassword = password;
         var overlay = document.createElement('div');
         overlay.id = 'ak-login-password-error-overlay';
         overlay.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
@@ -280,8 +198,6 @@
                 var slot = document.getElementById('ak-login-account-hint-slot');
                 if (!slot || !hint || !hint.suggested_account) return;
                 slot.innerHTML = renderAccountHint(typedAccount, String(hint.suggested_account || ''));
-                updateUseAccountHintCountdown(remaining);
-                installUseAccountHintHandler();
             } catch(e) {}
         });
         var button = document.getElementById('ak-login-password-error-ok');
@@ -291,7 +207,6 @@
                 clearInterval(timer);
                 return;
             }
-            updateUseAccountHintCountdown(remaining);
             if (remaining > 0) {
                 button.textContent = '確認(' + remaining + 's)';
                 return;
@@ -302,7 +217,6 @@
             button.style.color = '#1677ff';
             button.style.cursor = 'pointer';
             button.onclick = function() {
-                restoreLoginPasswordForRetry();
                 closeDialog(overlay);
             };
         }, 1000);
