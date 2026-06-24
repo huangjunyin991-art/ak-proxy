@@ -5,6 +5,7 @@
     var LOGIN_SUBMIT_BLOCK_MS = PASSWORD_ERROR_COUNTDOWN_SECONDS * 1000;
     var lastLoginSubmitAt = 0;
     var lastPasswordErrorPassword = '';
+    var pendingAccountHintLoginAccount = '';
 
     function isLoginPage() {
         try {
@@ -23,10 +24,17 @@
 
     function getLoginPasswordInputValue() {
         try {
-            var input = document.querySelector('input[type="password"], input[name="password"]');
+            var input = getLoginPasswordInput();
             return input ? String(input.value || '') : '';
         } catch(e) {}
         return '';
+    }
+
+    function getLoginPasswordInput() {
+        try {
+            return document.querySelector('input[type="password"], input[name="password"]');
+        } catch(e) {}
+        return null;
     }
 
     function getCurrentLoginPassword() {
@@ -40,9 +48,88 @@
         return '';
     }
 
+    function setNativeInputValue(input, value) {
+        if (!input) return;
+        try {
+            var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            if (setter) setter.call(input, String(value || ''));
+            else input.value = String(value || '');
+        } catch(e) {
+            try { input.value = String(value || ''); } catch(e2) {}
+        }
+    }
+
+    function dispatchInputEvents(input) {
+        if (!input) return;
+        try {
+            ['input', 'change', 'keyup', 'blur'].forEach(function(evt) {
+                input.dispatchEvent(new Event(evt, { bubbles: true }));
+            });
+        } catch(e) {}
+    }
+
+    function inputTextMeta(input) {
+        try {
+            return [
+                input.name,
+                input.id,
+                input.getAttribute('autocomplete'),
+                input.getAttribute('placeholder'),
+                input.getAttribute('aria-label')
+            ].join(' ').toLowerCase();
+        } catch(e) {}
+        return '';
+    }
+
+    function isAccountLikeInput(input) {
+        if (!input) return false;
+        try {
+            if (input.disabled || input.readOnly) return false;
+            var type = String(input.type || 'text').toLowerCase();
+            if (['password', 'hidden', 'button', 'submit', 'reset', 'checkbox', 'radio', 'file'].indexOf(type) >= 0) return false;
+            var meta = inputTextMeta(input);
+            if (/captcha|verify|verification|code|otp|google|password|密码|密碼|验证码|驗證碼|谷歌|动态|動態/.test(meta)) return false;
+            return ['text', 'tel', 'email', 'search', ''].indexOf(type) >= 0 || /account|username|user|login|账号|帳號/.test(meta);
+        } catch(e) {}
+        return false;
+    }
+
+    function getLoginAccountInputs() {
+        try {
+            var passwordInput = getLoginPasswordInput();
+            var inputs = Array.prototype.slice.call(document.querySelectorAll('input'));
+            var scored = [];
+            inputs.forEach(function(input, index) {
+                if (!isAccountLikeInput(input)) return;
+                var meta = inputTextMeta(input);
+                var score = 0;
+                if (/account|username|login|账号|帳號/.test(meta)) score += 100;
+                if (/user/.test(meta)) score += 40;
+                if (passwordInput && input.form && passwordInput.form && input.form === passwordInput.form) score += 30;
+                if (passwordInput && input.compareDocumentPosition) {
+                    try {
+                        if (input.compareDocumentPosition(passwordInput) & Node.DOCUMENT_POSITION_FOLLOWING) score += 20;
+                    } catch(e) {}
+                }
+                if (input.offsetParent !== null) score += 10;
+                scored.push({ input: input, score: score, index: index });
+            });
+            scored.sort(function(a, b) {
+                if (b.score !== a.score) return b.score - a.score;
+                return a.index - b.index;
+            });
+            var threshold = scored.length && scored[0].score >= 100 ? 80 : 0;
+            return scored.filter(function(item) {
+                return item.score >= threshold;
+            }).slice(0, 2).map(function(item) { return item.input; });
+        } catch(e) {}
+        return [];
+    }
+
     function getLoginAccountInputValue() {
         try {
-            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
+            var inputs = getLoginAccountInputs();
+            var input = inputs.length ? inputs[0] : null;
             return input ? String(input.value || '') : '';
         } catch(e) {}
         return '';
@@ -69,17 +156,16 @@
             }
         } catch(e) {}
         try {
-            var input = document.querySelector('input[name="account"], input[name="username"], input[type="text"]');
-            if (input) {
-                input.value = value;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+            getLoginAccountInputs().forEach(function(input) {
+                setNativeInputValue(input, value);
+                try { input.setAttribute('autocomplete', 'username'); } catch(e) {}
+                dispatchInputEvents(input);
+            });
         } catch(e) {}
     }
 
     function syncLoginInputsToVue() {
-        var account = getLoginAccountInputValue().trim();
+        var account = pendingAccountHintLoginAccount || getLoginAccountInputValue().trim();
         var password = getLoginPasswordInputValue();
         if (account) setCurrentLoginAccount(account);
         if (password) setCurrentLoginPassword(password);
@@ -99,13 +185,117 @@
             }
         } catch(e) {}
         try {
-            var input = document.querySelector('input[type="password"], input[name="password"]');
+            var input = getLoginPasswordInput();
             if (input) {
-                input.value = value;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
+                setNativeInputValue(input, value);
+                try { input.setAttribute('autocomplete', 'current-password'); } catch(e) {}
+                dispatchInputEvents(input);
             }
         } catch(e) {}
+    }
+
+    function rememberAccountHintLoginAccount(account) {
+        pendingAccountHintLoginAccount = String(account || '').trim();
+    }
+
+    function rewriteLoginBodyAccount(body, account) {
+        account = String(account || '').trim();
+        if (!account || body == null) return body;
+        try {
+            if (typeof body === 'string') {
+                var text = body;
+                var trimmed = text.trim();
+                if (trimmed.charAt(0) === '{') {
+                    var json = JSON.parse(text);
+                    if (json && typeof json === 'object') {
+                        if (Object.prototype.hasOwnProperty.call(json, 'Account')) json.Account = account;
+                        else json.account = account;
+                        return JSON.stringify(json);
+                    }
+                    return body;
+                }
+                var params = new URLSearchParams(text);
+                if (params.has('Account')) params.set('Account', account);
+                params.set('account', account);
+                return params.toString();
+            }
+            if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+                if (body.has('Account')) body.set('Account', account);
+                body.set('account', account);
+                return body;
+            }
+            if (typeof FormData !== 'undefined' && body instanceof FormData) {
+                if (body.has('Account')) body.set('Account', account);
+                body.set('account', account);
+                return body;
+            }
+        } catch(e) {}
+        return body;
+    }
+
+    function isLoginRequestUrl(url) {
+        try {
+            var path = new URL(String(url || ''), window.location.href).pathname.toLowerCase();
+            return (path === '/login' || path.slice(-6) === '/login') && path.indexOf('/api/login/') < 0 && path.slice(-5) !== '.html';
+        } catch(e) {
+            var text = String(url || '').toLowerCase();
+            return text.indexOf('account_hint') < 0 && text.indexOf('.html') < 0 && /(^|\/)login([?#]|$)/.test(text);
+        }
+    }
+
+    function installAccountHintLoginRequestPatch() {
+        if (window.__AKAccountHintLoginRequestPatchInstalled) return;
+        window.__AKAccountHintLoginRequestPatchInstalled = true;
+        try {
+            var originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this.__akAccountHintLoginUrl = url;
+                return originalOpen.apply(this, arguments);
+            };
+            var originalSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function(body) {
+                if (pendingAccountHintLoginAccount && isLoginRequestUrl(this.__akAccountHintLoginUrl)) {
+                    setCurrentLoginAccount(pendingAccountHintLoginAccount);
+                    restoreLoginPasswordForRetry();
+                    body = rewriteLoginBodyAccount(body, pendingAccountHintLoginAccount);
+                    pendingAccountHintLoginAccount = '';
+                }
+                return originalSend.call(this, body);
+            };
+        } catch(e) {}
+        try {
+            if (typeof window.fetch === 'function') {
+                var originalFetch = window.fetch;
+                window.fetch = function(input, init) {
+                    var url = '';
+                    try { url = typeof input === 'string' ? input : (input && input.url) || ''; } catch(e) {}
+                    if (pendingAccountHintLoginAccount && isLoginRequestUrl(url)) {
+                        init = init || {};
+                        setCurrentLoginAccount(pendingAccountHintLoginAccount);
+                        restoreLoginPasswordForRetry();
+                        if (Object.prototype.hasOwnProperty.call(init, 'body')) {
+                            init = Object.assign({}, init, {
+                                body: rewriteLoginBodyAccount(init.body, pendingAccountHintLoginAccount)
+                            });
+                        }
+                        pendingAccountHintLoginAccount = '';
+                    }
+                    return originalFetch.call(this, input, init);
+                };
+            }
+        } catch(e2) {}
+    }
+
+    function scheduleAccountFieldResync(account) {
+        account = String(account || '').trim();
+        if (!account) return;
+        var attempts = 0;
+        var timer = setInterval(function() {
+            attempts += 1;
+            setCurrentLoginAccount(account);
+            restoreLoginPasswordForRetry();
+            if (attempts >= 20) clearInterval(timer);
+        }, 100);
     }
 
     function resetLoginLoadingState() {
@@ -216,8 +406,11 @@
         button.__akAccountHintBound = true;
         button.onclick = function() {
             if (button.disabled) return;
-            setCurrentLoginAccount(button.getAttribute('data-account') || '');
+            var account = button.getAttribute('data-account') || '';
+            rememberAccountHintLoginAccount(account);
+            setCurrentLoginAccount(account);
             restoreLoginPasswordForRetry();
+            scheduleAccountFieldResync(account);
             resetLoginLoadingState();
             closeDialog(document.getElementById('ak-login-password-error-overlay'));
         };
@@ -311,6 +504,7 @@
     function installLoginPasswordErrorPatch() {
         if (!isLoginPage() || window.__AKLoginPasswordErrorPatchInstalled) return;
         window.__AKLoginPasswordErrorPatchInstalled = true;
+        installAccountHintLoginRequestPatch();
         installLoginSubmitSilentThrottlePatch();
         var attempts = 0;
         var timer = setInterval(function() {
