@@ -65,6 +65,28 @@
         } catch(e) {}
     }
 
+    function resetLoginSubmitThrottle() {
+        lastLoginSubmitAt = 0;
+    }
+
+    function resetLoginLoadingState() {
+        try {
+            var vm = window._vue;
+            if (!vm || typeof vm !== 'object') return;
+            [
+                'isLogin',
+                'loading',
+                'loginLoading',
+                'submitLoading',
+                'btnLoading',
+                'disabled',
+                'submitDisabled'
+            ].forEach(function(key) {
+                if (Object.prototype.hasOwnProperty.call(vm, key)) vm[key] = false;
+            });
+        } catch(e) {}
+    }
+
     function escapeHtml(value) {
         var div = document.createElement('div');
         div.textContent = String(value == null ? '' : value);
@@ -139,6 +161,8 @@
         button.__akAccountHintBound = true;
         button.onclick = function() {
             setCurrentLoginAccount(button.getAttribute('data-account') || '');
+            resetLoginSubmitThrottle();
+            resetLoginLoadingState();
             closeDialog(document.getElementById('ak-login-password-error-overlay'));
         };
     }
@@ -161,6 +185,7 @@
             vm.doLoginAjax = function() {
                 var now = Date.now();
                 if (lastLoginSubmitAt && now - lastLoginSubmitAt < LOGIN_SUBMIT_BLOCK_MS) {
+                    resetLoginLoadingState();
                     return;
                 }
                 lastLoginSubmitAt = now;
