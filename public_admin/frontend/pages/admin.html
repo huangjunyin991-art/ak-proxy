@@ -480,6 +480,7 @@
             grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
             gap: 14px;
             padding: 14px;
+            align-items: stretch;
         }
 
         .subadmin-pane {
@@ -487,6 +488,12 @@
             border: 1px solid rgba(129, 212, 250, 0.12);
             border-radius: 8px;
             background: rgba(4, 12, 24, 0.62);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .subadmin-list-pane {
+            min-height: 0;
         }
 
         .subadmin-pane-head {
@@ -520,7 +527,9 @@
         }
 
         .subadmin-list {
-            max-height: 430px;
+            flex: 1 1 0;
+            min-height: 0;
+            max-height: none;
             overflow: auto;
             padding: 10px;
         }
@@ -4268,6 +4277,8 @@
             }
 
             .subadmin-list {
+                flex: 0 0 auto;
+                min-height: 0;
                 max-height: none;
                 overflow: visible;
                 padding: 8px;
