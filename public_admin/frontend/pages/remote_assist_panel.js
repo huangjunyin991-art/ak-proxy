@@ -193,7 +193,10 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: {
+                        ...getHeaders(),
+                        'Content-Type': 'application/json'
+                    },
                     body: JSON.stringify({username})
                 });
                 data = await res.json();

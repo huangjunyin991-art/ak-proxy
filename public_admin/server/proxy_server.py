@@ -17137,7 +17137,7 @@ def _create_browse_session(username: str, password: str, extra: Optional[dict] =
 @app.post("/admin/api/browse_login")
 async def admin_browse_login(request: Request):
     """为后台内嵌网页创建全新浏览 session，始终从登录页进入"""
-    _, error_response = await _require_admin_token(request, 'users')
+    _, error_response = await _require_admin_token_any(request, ('users', 'usage'))
     if error_response is not None:
         return error_response
 
