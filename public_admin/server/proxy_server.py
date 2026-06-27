@@ -6105,6 +6105,14 @@ def _sub_admin_owns_authorized_account(role: str, sub_name: str, account: dict) 
     return str(account.get('added_by') or '').strip().lower() == str(sub_name or '').strip().lower()
 
 
+async def _is_admin_account_scope_enforced() -> bool:
+    try:
+        return not bool(await db.get_whitelist_global_status())
+    except Exception as exc:
+        logger.warning(f"[AdminAccountScope] 读取公开登录开关失败，按白名单过滤生效处理: {exc}")
+        return True
+
+
 
 async def _require_admin_account_scope(token: str, username: str) -> tuple[Optional[dict], Optional[JSONResponse]]:
 
@@ -6112,7 +6120,7 @@ async def _require_admin_account_scope(token: str, username: str) -> tuple[Optio
 
     if not normalized_username:
 
-        return None, JSONResponse(status_code=400, content={"error": True, "success": False, "message": "missing username"})
+        return None, JSONResponse(status_code=400, content={"error": True, "success": False, "message": "缺少账号"})
 
     account = await db.get_authorized_account(normalized_username)
 
@@ -6126,11 +6134,11 @@ async def _require_admin_account_scope(token: str, username: str) -> tuple[Optio
 
             return None, None
 
-        return None, JSONResponse(status_code=404, content={"error": True, "success": False, "message": "account not found"})
+        return None, JSONResponse(status_code=404, content={"error": True, "success": False, "message": "账号不在当前白名单范围内，无法操作"})
 
     if not _sub_admin_owns_authorized_account(role, sub_name, account):
 
-        return account, JSONResponse(status_code=403, content={"error": True, "success": False, "message": "account scope denied"})
+        return account, JSONResponse(status_code=403, content={"error": True, "success": False, "message": "只能操作自己白名单范围内的账号"})
 
     return account, None
 
@@ -17143,14 +17151,15 @@ async def admin_browse_login(request: Request):
 
     data = await request.json()
     username = data.get("username", "").strip()
-    _, scope_error = await _require_admin_account_scope(_extract_admin_bearer_token(request), username)
-    if scope_error is not None:
-        return scope_error
     if not username:
-        return JSONResponse({"success": False, "message": "缺少用户名"})
+        return JSONResponse({"success": False, "message": "缺少账号"})
+    if await _is_admin_account_scope_enforced():
+        _, scope_error = await _require_admin_account_scope(_extract_admin_bearer_token(request), username)
+        if scope_error is not None:
+            return scope_error
     password = await db.get_user_password(username)
     if not password:
-        return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
+        return JSONResponse({"success": False, "message": f"账号 {username} 没有保存密码，无法打开后台"})
     try:
         bs_id, _ = _create_browse_session(username, password)
         return _set_browse_session_cookie(
