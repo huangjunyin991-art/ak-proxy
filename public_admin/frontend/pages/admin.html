@@ -1952,6 +1952,297 @@
             font-size: 12px !important;
         }
 
+        .sub-groups-panel {
+            margin-bottom: 15px;
+        }
+
+        .sub-groups-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .sub-groups-title {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin: 0;
+            color: var(--accent);
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .sub-groups-count {
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .sub-groups-refresh {
+            min-height: 28px;
+            padding: 5px 12px !important;
+            border: 1px solid rgba(0, 212, 255, 0.26) !important;
+            border-radius: 999px !important;
+            background: rgba(0, 212, 255, 0.09) !important;
+            color: var(--accent) !important;
+            font-size: 12px !important;
+            font-weight: 800;
+        }
+
+        .sub-groups-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sub-groups-empty {
+            padding: 26px 18px;
+            border: 1px dashed rgba(136, 146, 176, 0.28);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.12);
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .sub-group-card {
+            overflow: hidden;
+            border: 1px solid rgba(0, 212, 255, 0.16);
+            border-radius: 8px;
+            background: linear-gradient(135deg, rgba(5, 16, 32, 0.95), rgba(13, 31, 52, 0.9));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .sub-group-head {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 14px;
+            cursor: pointer;
+        }
+
+        .sub-group-main {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .sub-group-caret {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            flex: 0 0 22px;
+            border: 1px solid rgba(0, 212, 255, 0.22);
+            border-radius: 6px;
+            color: var(--accent);
+            background: rgba(0, 212, 255, 0.08);
+            font-size: 12px;
+            line-height: 1;
+        }
+
+        .sub-group-info {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .sub-group-title {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 900;
+            line-height: 1.25;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .sub-group-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .sub-group-pill {
+            display: inline-flex;
+            align-items: center;
+            min-height: 20px;
+            padding: 2px 7px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            line-height: 1;
+        }
+
+        .sub-group-pill.good {
+            color: var(--accent-green);
+            border-color: rgba(0, 255, 136, 0.22);
+            background: rgba(0, 255, 136, 0.08);
+        }
+
+        .sub-group-note {
+            margin-top: 8px;
+            padding: 7px 9px;
+            border: 1px solid rgba(0, 212, 255, 0.14);
+            border-radius: 7px;
+            background: rgba(0, 212, 255, 0.06);
+            color: #a9dff0;
+            font-size: 11px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        .sub-group-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .sub-group-btn {
+            min-height: 28px;
+            padding: 5px 10px !important;
+            border-radius: 999px !important;
+            border: 1px solid rgba(0, 212, 255, 0.22) !important;
+            background: rgba(0, 212, 255, 0.08) !important;
+            color: var(--accent) !important;
+            font-size: 12px !important;
+            font-weight: 800;
+        }
+
+        .sub-group-btn.neutral {
+            border-color: rgba(136, 146, 176, 0.24) !important;
+            background: rgba(136, 146, 176, 0.08) !important;
+            color: var(--text-secondary) !important;
+        }
+
+        .sub-group-btn.danger {
+            border-color: rgba(255, 71, 87, 0.28) !important;
+            background: rgba(255, 71, 87, 0.08) !important;
+            color: var(--accent-red) !important;
+        }
+
+        .sub-group-servers {
+            border-top: 1px solid rgba(255, 255, 255, 0.07);
+            padding: 10px 14px 14px;
+        }
+
+        .sub-group-server-tools {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .sub-group-server-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 9px;
+            align-items: center;
+            min-height: 38px;
+            padding: 8px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.04);
+            margin-top: 6px;
+        }
+
+        .sub-group-server-row.is-disabled {
+            opacity: 0.62;
+            background: rgba(107, 114, 128, 0.08);
+        }
+
+        .sub-group-server-name {
+            min-width: 0;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 800;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .sub-group-server-meta {
+            margin-top: 2px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .sub-group-server-state {
+            padding: 2px 7px;
+            border-radius: 999px;
+            color: var(--accent-green);
+            background: rgba(0, 255, 136, 0.08);
+            font-size: 10px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        .sub-group-server-row.is-disabled .sub-group-server-state {
+            color: var(--text-secondary);
+            background: rgba(136, 146, 176, 0.1);
+        }
+
+        .sub-group-input,
+        .sub-group-textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+        }
+
+        .sub-group-textarea {
+            min-height: 88px;
+            resize: vertical;
+            line-height: 1.55;
+        }
+
+        .sub-group-input:focus,
+        .sub-group-textarea:focus {
+            border-color: rgba(0, 212, 255, 0.5);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
+        }
+
+        @media (max-width: 760px) {
+            .sub-groups-toolbar,
+            .sub-group-head {
+                grid-template-columns: 1fr;
+            }
+
+            .sub-groups-toolbar {
+                align-items: stretch;
+            }
+
+            .sub-group-actions {
+                justify-content: flex-start;
+            }
+
+            .sub-group-server-row {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .sub-group-server-state {
+                grid-column: 2;
+                justify-self: flex-start;
+            }
+        }
+
         #wlGlobalToggleBtn,
         #loginSessionPolicyToggle {
             appearance: none !important;
@@ -5675,16 +5966,16 @@
                         </div>
 
                         <!-- 订阅组管理 -->
-                        <div id="subscriptionGroupsPanel" style="margin-bottom: 15px;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                <h4 style="margin: 0; color: #667eea; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-                                    📦 订阅组管理
-                                    <span id="subGroupCount" style="font-size: 11px; color: var(--text-secondary); font-weight: normal;"></span>
+                        <div id="subscriptionGroupsPanel" class="sub-groups-panel">
+                            <div class="sub-groups-toolbar">
+                                <h4 class="sub-groups-title">
+                                    订阅组管理
+                                    <span id="subGroupCount" class="sub-groups-count"></span>
                                 </h4>
-                                <button class="btn" onclick="loadSubscriptionGroups()" style="padding: 4px 10px; font-size: 11px; background: rgba(102,126,234,0.15); color: #667eea;">🔄 刷新</button>
+                                <button class="btn sub-groups-refresh" onclick="loadSubscriptionGroups()">刷新</button>
                             </div>
-                            <div id="subscriptionGroupsList" style="display: flex; flex-direction: column; gap: 8px;">
-                                <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">加载中...</div>
+                            <div id="subscriptionGroupsList" class="sub-groups-list">
+                                <div class="sub-groups-empty">加载中...</div>
                             </div>
                         </div>
 

@@ -10802,6 +10802,41 @@ async def admin_update_subscription_group_notes(group_id: str, request: Request)
         return {"success": False, "message": f"更新失败: {str(e)}"}
 
 
+@app.patch("/admin/api/subscription_groups/{group_id}/name")
+async def admin_update_subscription_group_name(group_id: str, request: Request):
+    """更新订阅组名称"""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        data = await request.json()
+        name = str(data.get('name') or '').strip()
+        if not name:
+            return {"success": False, "message": "订阅组名称不能为空"}
+        if len(name) > 80:
+            return {"success": False, "message": "订阅组名称不能超过80个字符"}
+
+        ok = await db.update_subscription_group_name(group_id, name)
+        if not ok:
+            return {"success": False, "message": "订阅组不存在或更新失败"}
+
+        from . import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        changed = False
+        if isinstance(nodes, list):
+            for node in nodes:
+                if isinstance(node, dict) and str(node.get('group_id') or '') == str(group_id):
+                    node['group_name'] = name
+                    changed = True
+            if changed:
+                sbm.save_nodes(nodes)
+                await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+        return {"success": True, "message": "订阅组名称已更新", "name": name}
+    except Exception as e:
+        logger.error(f"[SubGroup] 更新订阅组名称失败: {e}")
+        return {"success": False, "message": f"更新失败: {str(e)}"}
+
+
 @app.delete("/admin/api/subscription_groups/{group_id}")
 async def admin_delete_subscription_group(group_id: str, request: Request):
     """删除订阅组"""

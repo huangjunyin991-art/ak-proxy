@@ -816,7 +816,7 @@
                 const latencyErr = ex.latency_probe_error ? ` | ${ex.latency_probe_error}` : '';
                 const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}${latencyErr}` : '暂未开始延迟测速';
                 const exitNameArg = jsArg(ex.name || '');
-                const groupHtml = ex.group_name ? `<div style="display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:rgba(102,126,234,0.14);color:#8ea2ff;font-size:10px;">📦 ${escapeHtml(ex.group_name)}</div>` : '';
+                const groupHtml = ex.group_name ? `<div style="display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:rgba(102,126,234,0.14);color:#8ea2ff;font-size:10px;">订阅组 · ${escapeHtml(ex.group_name)}</div>` : '';
 
                 const cardHtml = `<div onclick="lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
@@ -1331,6 +1331,16 @@
         let subscriptionGroups = [];
         let expandedGroups = new Set();
 
+        function escapeSubGroupAttr(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[ch]));
+        }
+
         async function loadSubscriptionGroups() {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/subscription_groups`, {
@@ -1352,7 +1362,7 @@
             if (!container) return;
 
             if (!subscriptionGroups || subscriptionGroups.length === 0) {
-                container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 30px; font-size: 12px;">暂无订阅组，请在设置页面导入订阅</div>';
+                container.innerHTML = '<div class="sub-groups-empty">暂无订阅组，请在设置页面导入订阅</div>';
                 if (countEl) countEl.textContent = '0 个';
                 return;
             }
@@ -1361,46 +1371,44 @@
 
             const html = subscriptionGroups.map(group => {
                 const isExpanded = expandedGroups.has(group.id);
-                const icon = isExpanded ? '🔽' : '▶';
+                const caret = isExpanded ? '⌄' : '›';
                 const importTime = group.import_time ? new Date(group.import_time).toLocaleString('zh-CN', {
                     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                 }) : '未知';
                 const groupIdArg = jsArg(group.id || '');
                 const groupNotesArg = jsArg(group.notes || '');
+                const groupNameArg = jsArg(group.name || '');
+                const sourceLabel = group.source_type === 'url' ? '订阅链接' : group.source_type === 'json' ? 'JSON' : '文本';
+                const activeServers = Number(group.active_servers || 0);
+                const totalServers = Number(group.total_servers || 0);
 
                 const notesHtml = group.notes ? `
-                    <div style="margin-top: 4px; padding: 3px 8px; background: rgba(102,126,234,0.1); border-radius: 4px; font-size: 11px; color: var(--accent);">
-                        📝 ${escapeHtml(group.notes)}
-                    </div>
+                    <div class="sub-group-note">${escapeHtml(group.notes)}</div>
                 ` : '';
 
                 return `
-                    <div style="background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border); overflow: hidden;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer;" onclick="toggleSubscriptionGroup(${groupIdArg})">
-                            <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 14px;">${icon}</span>
-                                <div style="flex: 1;">
-                                    <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${escapeHtml(group.name || '')}</div>
-                                    <div style="font-size: 11px; color: var(--text-secondary);">
-                                        ${escapeHtml(importTime)} | 服务器启用 ${Number(group.active_servers || 0)}/${Number(group.total_servers || 0)}
-                                        ${group.source_type === 'url' ? ' | 🔗订阅链接' : group.source_type === 'json' ? ' | 📋JSON' : ' | 📝文本'}
+                    <div class="sub-group-card">
+                        <div class="sub-group-head" onclick="toggleSubscriptionGroup(${groupIdArg})">
+                            <div class="sub-group-main">
+                                <span class="sub-group-caret">${caret}</span>
+                                <div class="sub-group-info">
+                                    <div class="sub-group-title" title="${escapeSubGroupAttr(group.name || '')}">${escapeHtml(group.name || '')}</div>
+                                    <div class="sub-group-meta">
+                                        <span class="sub-group-pill">导入 ${escapeHtml(importTime)}</span>
+                                        <span class="sub-group-pill good">启用 ${activeServers}/${totalServers}</span>
+                                        <span class="sub-group-pill">${escapeHtml(sourceLabel)}</span>
                                     </div>
                                     ${notesHtml}
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
-                                <button class="btn" onclick="editSubscriptionGroupNotes(${groupIdArg}, ${groupNotesArg})"
-                                        style="padding: 4px 8px; font-size: 11px; background: rgba(102,126,234,0.1); color: var(--accent); border: 1px solid rgba(102,126,234,0.3);">
-                                    📝 备注
-                                </button>
-                                <button class="btn" onclick="deleteSubscriptionGroup(${groupIdArg})"
-                                        style="padding: 4px 8px; font-size: 11px; background: rgba(255,71,87,0.1); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3);">
-                                    🗑️ 删除
-                                </button>
+                            <div class="sub-group-actions" onclick="event.stopPropagation()">
+                                <button class="btn sub-group-btn" onclick="editSubscriptionGroupName(${groupIdArg}, ${groupNameArg})">重命名</button>
+                                <button class="btn sub-group-btn neutral" onclick="editSubscriptionGroupNotes(${groupIdArg}, ${groupNotesArg})">备注</button>
+                                <button class="btn sub-group-btn danger" onclick="deleteSubscriptionGroup(${groupIdArg})">删除</button>
                             </div>
                         </div>
-                        <div id="subGroupServers_${escapeHtml(group.id || '')}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 0 12px 12px; border-top: 1px solid var(--border);">
-                            <div style="color: var(--text-secondary); font-size: 11px; padding: 8px 0;">服务器列表加载中...</div>
+                        <div id="subGroupServers_${escapeSubGroupAttr(group.id || '')}" class="sub-group-servers" style="display: ${isExpanded ? 'block' : 'none'};">
+                            <div class="sub-groups-empty">服务器列表加载中...</div>
                         </div>
                     </div>
                 `;
@@ -1433,7 +1441,7 @@
                 const nodes = (data.nodes || []).filter(n => n && typeof n === 'object' && n.group_id === groupId);
 
                 if (nodes.length === 0) {
-                    container.innerHTML = '<div style="padding: 8px; color: var(--text-secondary); font-size: 11px;">该组暂无服务器</div>';
+                    container.innerHTML = '<div class="sub-groups-empty">该组暂无服务器</div>';
                     return;
                 }
 
@@ -1450,38 +1458,38 @@
                 const serversHtml = Array.from(uniqueServers.entries()).map(([server, { representative, allNodes }], idx) => {
                     const enabled = allNodes.every(n => n.enabled !== false);
                     const node = representative;
-                    const textColor = enabled ? 'var(--text-primary)' : '#6b7280';
-                    const bgColor = enabled ? 'var(--bg-secondary)' : 'rgba(107,114,128,0.1)';
-                    const opacity = enabled ? '1' : '0.6';
-                    const disabledTag = enabled ? '' : '<span style="color: #6b7280; font-size: 10px; margin-left: 6px;">❌已禁用</span>';
-                    const nodeCountTag = allNodes.length > 1 ? `<span style="color: #9ca3af; font-size: 10px; margin-left: 4px;">(同服务器${allNodes.length}条节点)</span>` : '';
+                    const nodeCountTag = allNodes.length > 1 ? ` · 同服务器 ${allNodes.length} 条节点` : '';
+                    const rowClass = enabled ? 'sub-group-server-row' : 'sub-group-server-row is-disabled';
+                    const stateText = enabled ? '启用' : '禁用';
                     const groupIdArg = jsArg(groupId);
                     const serverArg = jsArg(server);
 
                     return `
-                        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: ${bgColor}; border-radius: 6px; margin-top: 6px; opacity: ${opacity};">
+                        <div class="${rowClass}">
                             <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleServerByIP(${groupIdArg}, ${serverArg}, this.checked)" style="cursor: pointer; accent-color: var(--accent-green);">
-                            <div style="flex: 1; font-size: 12px; color: ${textColor};">
-                                <strong>${escapeHtml(node.name || node.display_name || `服务器${idx + 1}`)}</strong>
-                                ${nodeCountTag}${disabledTag}
-                                <span style="color: #6b7280; margin-left: 6px;">${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} | ${escapeHtml(node.server || '')}</span>
+                            <div style="min-width:0;">
+                                <div class="sub-group-server-name" title="${escapeSubGroupAttr(node.name || node.display_name || `服务器${idx + 1}`)}">${escapeHtml(node.name || node.display_name || `服务器${idx + 1}`)}</div>
+                                <div class="sub-group-server-meta" title="${escapeSubGroupAttr(node.server || '')}">
+                                    ${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} · ${escapeHtml(node.server || '')}${escapeHtml(nodeCountTag)}
+                                </div>
                             </div>
+                            <span class="sub-group-server-state">${stateText}</span>
                         </div>
                     `;
                 }).join('');
 
                 const groupIdArg = jsArg(groupId);
                 const actionsHtml = `
-                    <div style="display: flex; gap: 6px; padding: 8px 0; font-size: 11px;">
-                        <button class="btn" onclick="toggleAllServers(${groupIdArg}, true)" style="padding: 4px 10px; background: rgba(76,175,80,0.1); color: var(--accent-green);">全选</button>
-                        <button class="btn" onclick="toggleAllServers(${groupIdArg}, false)" style="padding: 4px 10px; background: var(--bg-secondary); color: var(--text-secondary);">全不选</button>
+                    <div class="sub-group-server-tools">
+                        <button class="btn sub-group-btn" onclick="toggleAllServers(${groupIdArg}, true)">全部启用</button>
+                        <button class="btn sub-group-btn neutral" onclick="toggleAllServers(${groupIdArg}, false)">全部禁用</button>
                     </div>
                 `;
 
                 container.innerHTML = actionsHtml + serversHtml;
             } catch (e) {
                 console.error('加载订阅组服务器失败', e);
-                container.innerHTML = '<div style="padding: 8px; color: var(--accent-red); font-size: 11px;">加载失败</div>';
+                container.innerHTML = '<div class="sub-groups-empty" style="color: var(--accent-red);">加载失败</div>';
             }
         }
 
@@ -1523,18 +1531,54 @@
             }
         }
 
+        async function editSubscriptionGroupName(groupId, currentName) {
+            const group = subscriptionGroups.find(g => g.id === groupId);
+            const groupName = currentName || (group ? group.name : groupId);
+
+            showModal('重命名订阅组', `
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 800;">当前名称</label>
+                    <div style="margin-bottom: 12px; color: var(--text-secondary); font-size: 13px; word-break: break-word;">${escapeHtml(groupName || '')}</div>
+                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 13px;">新名称</label>
+                    <input type="text" id="editSubGroupNameInput" class="sub-group-input" value="${escapeSubGroupAttr(groupName || '')}" maxlength="80" placeholder="请输入订阅组名称">
+                </div>
+            `, async () => {
+                const name = document.getElementById('editSubGroupNameInput').value.trim();
+                if (!name) {
+                    showToast('订阅组名称不能为空', 'error');
+                    return;
+                }
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/name`, {
+                        method: 'PATCH',
+                        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast('订阅组名称已更新', 'success');
+                        closeModal();
+                        await loadSubscriptionGroups();
+                        await loadLbStatus();
+                    } else {
+                        showToast(data.message || '更新失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('更新失败: ' + e.message, 'error');
+                }
+            }, '保存');
+        }
+
         async function editSubscriptionGroupNotes(groupId, currentNotes) {
             const group = subscriptionGroups.find(g => g.id === groupId);
             const groupName = group ? group.name : groupId;
 
             showModal('编辑订阅组备注', `
                 <div style="margin-bottom: 12px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: bold;">订阅组：${escapeHtml(groupName)}</label>
-                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">备注内容</label>
-                    <input type="text" id="editNotesInput" value="${escapeHtml(currentNotes)}"
-                           placeholder="如：XX机场-月付套餐 | 2026-04-12到期"
-                           style="width: 100%; padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 14px; box-sizing: border-box;">
-                    <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">💡 方便记录订阅来源、到期时间等信息</div>
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 800;">订阅组：${escapeHtml(groupName)}</label>
+                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 13px;">备注内容</label>
+                    <textarea id="editNotesInput" class="sub-group-textarea" maxlength="500" placeholder="例如：套餐、到期时间、用途说明">${escapeHtml(currentNotes)}</textarea>
+                    <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">用于记录订阅来源、到期时间或节点用途。</div>
                 </div>
             `, async () => {
                 const notes = document.getElementById('editNotesInput').value.trim();
@@ -1547,6 +1591,7 @@
                     const data = await res.json();
                     if (data.success) {
                         showToast('备注已更新', 'success');
+                        closeModal();
                         await loadSubscriptionGroups();
                     } else {
                         showToast(data.message || '更新失败', 'error');
@@ -1620,6 +1665,7 @@
             toggleSubscriptionGroup,
             toggleServerByIP,
             toggleAllServers,
+            editSubscriptionGroupName,
             editSubscriptionGroupNotes,
             deleteSubscriptionGroup,
         });
@@ -1661,6 +1707,7 @@
             toggleSubscriptionGroup,
             toggleServerByIP,
             toggleAllServers,
+            editSubscriptionGroupName,
             editSubscriptionGroupNotes,
             deleteSubscriptionGroup,
         };

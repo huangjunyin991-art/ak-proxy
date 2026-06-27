@@ -4188,6 +4188,22 @@ async def update_subscription_group_notes(group_id: str, notes: str) -> bool:
             return False
 
 
+async def update_subscription_group_name(group_id: str, name: str) -> bool:
+    """更新订阅组名称"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            result = await conn.execute('''
+                UPDATE subscription_groups
+                SET name = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            ''', group_id, name)
+            return result.endswith('1')
+        except Exception as e:
+            logger.error(f"[DB] 更新订阅组名称失败: {e}")
+            return False
+
+
 async def delete_subscription_group(group_id: str) -> bool:
     """删除订阅组"""
     pool = _get_pool()
