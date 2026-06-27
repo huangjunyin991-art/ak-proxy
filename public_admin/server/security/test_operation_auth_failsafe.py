@@ -28,6 +28,7 @@ def test_fallback_resolver_covers_sensitive_operation_auth_paths():
     assert resolver.resolve("GET", "/admin/api/operation_auth/secrets") == "totp_secret_ops"
     assert resolver.resolve("POST", "/admin/api/license/reset-password") == "account_ops"
     assert resolver.resolve("POST", "/admin/api/risk-isolation/isolate_umbrella") == "account_ops"
+    assert resolver.resolve("POST", "/admin/api/risk-isolation/release_umbrella") == "account_ops"
 
 
 def test_operation_auth_self_check_passes_for_fallback_resolver():

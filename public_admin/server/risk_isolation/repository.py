@@ -178,6 +178,25 @@ class RiskIsolationRepository:
             ''', *params)
         return [normalize_username(row['username']) for row in rows]
 
+    async def filter_known_usernames(self, usernames: list[str]) -> list[str]:
+        await self.ensure_ready()
+        normalized = []
+        for username in usernames or []:
+            value = normalize_username(username)
+            if value and value not in normalized:
+                normalized.append(value)
+        if not normalized:
+            return []
+        pool = self.db._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT username
+                FROM user_stats
+                WHERE username = ANY($1::text[])
+            ''', normalized)
+        existing = {normalize_username(row['username']) for row in rows}
+        return [username for username in normalized if username in existing]
+
     async def usernames_by_added_by(self, added_by: str | None = None) -> list[str]:
         await self.ensure_ready()
         pool = self.db._get_pool()

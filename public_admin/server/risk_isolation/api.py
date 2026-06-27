@@ -145,10 +145,34 @@ def create_risk_isolation_router(service: RiskIsolationService,
             return JSONResponse(status_code=400, content={'success': False, 'message': str(exc), 'error': str(exc)})
         refreshed_text = '，已自动获取组织架构' if result.get('cache_refreshed') else ''
         skipped = int(result.get('skipped_total') or 0)
-        skipped_text = f"，{skipped} 个不在当前范围已跳过" if skipped else ''
+        skipped_text = f"，{skipped} 个不在账号数据库中已跳过" if skipped else ''
         return {
             'success': True,
             'message': f"已隔离 {result.get('updated', 0)} 个伞下玩家{refreshed_text}{skipped_text}",
+            **result,
+        }
+
+    @router.post('/release_umbrella')
+    async def release_umbrella(request: Request):
+        _, role, sub_name, error_response = await resolve_context(request)
+        if error_response is not None:
+            return error_response
+        try:
+            data = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '请求无效'})
+        account = str(data.get('account') or data.get('username') or '').strip()
+        scope = service.resolve_scope(role, sub_name=sub_name, requested_sub_admin=str(data.get('sub_admin') or ''))
+        try:
+            result = await service.release_umbrella(scope, account=account)
+        except Exception as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc), 'error': str(exc)})
+        refreshed_text = '，已自动获取组织架构' if result.get('cache_refreshed') else ''
+        skipped = int(result.get('skipped_total') or 0)
+        skipped_text = f"，{skipped} 个不在账号数据库中已跳过" if skipped else ''
+        return {
+            'success': True,
+            'message': f"已恢复 {result.get('updated', 0)} 个伞下玩家{refreshed_text}{skipped_text}",
             **result,
         }
 

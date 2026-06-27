@@ -143,12 +143,9 @@ class RiskIsolationService:
 
         umbrella = await self.umbrella_resolver(target)
         umbrella_usernames = self._unique_usernames([target] + list(umbrella.get('usernames') or []))
-        allowed = await self.repository.filter_allowed_usernames(
-            umbrella_usernames,
-            added_by=scope.added_by or None,
-        )
+        known = await self.repository.filter_known_usernames(umbrella_usernames)
         result = await self.repository.isolate_usernames(
-            allowed,
+            known,
             operator=operator,
             operator_role=operator_role,
             reason=reason,
@@ -156,13 +153,46 @@ class RiskIsolationService:
         result.update({
             'target_account': target,
             'umbrella_total': len(umbrella_usernames),
-            'allowed_total': len(allowed),
-            'skipped_total': max(0, len(umbrella_usernames) - len(allowed)),
+            'matched_total': len(known),
+            'skipped_total': max(0, len(umbrella_usernames) - len(known)),
             'cache_refreshed': bool(umbrella.get('refreshed')),
             'source_cached': bool(umbrella.get('cached')),
             'node_count': int(umbrella.get('node_count') or len(umbrella_usernames)),
         })
         await self._notify_isolated(result)
+        return result
+
+    async def release_umbrella(self, scope: RiskIsolationScope, account: str) -> dict[str, Any]:
+        if scope.added_by == '__deny__':
+            return {'updated': 0, 'usernames': []}
+        if self.umbrella_resolver is None:
+            raise RuntimeError("组织架构适配器不可用")
+
+        target = normalize_username(account)
+        if not target:
+            raise ValueError("请输入要恢复伞下玩家的账号")
+
+        allowed_target = await self.repository.filter_allowed_usernames(
+            [target],
+            added_by=scope.added_by or None,
+        )
+        if not allowed_target:
+            raise PermissionError("该账号不在当前风险隔离范围内，无法恢复伞下玩家")
+
+        umbrella = await self.umbrella_resolver(target)
+        umbrella_usernames = self._unique_usernames([target] + list(umbrella.get('usernames') or []))
+        known = await self.repository.filter_known_usernames(umbrella_usernames)
+        result = await self.repository.release_usernames(known, added_by=None)
+        result.update({
+            'target_account': target,
+            'umbrella_total': len(umbrella_usernames),
+            'matched_total': len(known),
+            'skipped_total': max(0, len(umbrella_usernames) - len(known)),
+            'cache_refreshed': bool(umbrella.get('refreshed')),
+            'source_cached': bool(umbrella.get('cached')),
+            'node_count': int(umbrella.get('node_count') or len(umbrella_usernames)),
+        })
+        await self._notify_released(result)
         return result
 
     @staticmethod

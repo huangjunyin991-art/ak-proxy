@@ -50,6 +50,7 @@ def test_risk_isolation_umbrella_requires_account_scope():
     resolver = OperationScopeResolver()
 
     assert resolver.resolve("POST", "/admin/api/risk-isolation/isolate_umbrella") == "account_ops"
+    assert resolver.resolve("POST", "/admin/api/risk-isolation/release_umbrella") == "account_ops"
 
 
 def main():

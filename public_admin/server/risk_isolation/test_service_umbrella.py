@@ -8,9 +8,11 @@ from public_admin.server.risk_isolation.service import RiskIsolationService
 
 
 class FakeRiskIsolationRepository:
-    def __init__(self, allowed):
+    def __init__(self, allowed, known=None):
         self.allowed = {item.lower() for item in allowed}
+        self.known = {item.lower() for item in (known if known is not None else allowed)}
         self.isolated = []
+        self.released = []
 
     async def filter_allowed_usernames(self, usernames, added_by=None):
         result = []
@@ -20,9 +22,21 @@ class FakeRiskIsolationRepository:
                 result.append(value)
         return result
 
+    async def filter_known_usernames(self, usernames):
+        result = []
+        for username in usernames or []:
+            value = str(username or "").strip().lower()
+            if value and value in self.known and value not in result:
+                result.append(value)
+        return result
+
     async def isolate_usernames(self, usernames, operator, operator_role, reason=""):
         self.isolated = list(usernames or [])
         return {"updated": len(self.isolated), "usernames": self.isolated}
+
+    async def release_usernames(self, usernames, added_by=None):
+        self.released = list(usernames or [])
+        return {"updated": len(self.released), "usernames": self.released}
 
 
 def run(coro):
@@ -39,7 +53,7 @@ def make_service(repository, resolver):
     )
 
 
-def test_isolate_umbrella_filters_members_to_current_scope():
+def test_isolate_umbrella_matches_members_from_user_database():
     async def resolver(account):
         return {
             "usernames": [account, "child1", "child2", "outside"],
@@ -48,7 +62,10 @@ def test_isolate_umbrella_filters_members_to_current_scope():
             "node_count": 4,
         }
 
-    repository = FakeRiskIsolationRepository({"root", "child1", "child2"})
+    repository = FakeRiskIsolationRepository(
+        allowed={"root"},
+        known={"root", "child1", "child2"},
+    )
     service = make_service(repository, resolver)
     scope = service.resolve_scope("super_admin")
 
@@ -57,6 +74,32 @@ def test_isolate_umbrella_filters_members_to_current_scope():
     assert result["usernames"] == ["root", "child1", "child2"]
     assert result["updated"] == 3
     assert result["umbrella_total"] == 4
+    assert result["matched_total"] == 3
+    assert result["skipped_total"] == 1
+
+
+def test_release_umbrella_matches_members_from_user_database():
+    async def resolver(account):
+        return {
+            "usernames": [account, "child1", "child2", "outside"],
+            "cached": True,
+            "refreshed": False,
+            "node_count": 4,
+        }
+
+    repository = FakeRiskIsolationRepository(
+        allowed={"root"},
+        known={"root", "child1", "child2"},
+    )
+    service = make_service(repository, resolver)
+    scope = service.resolve_scope("super_admin")
+
+    result = run(service.release_umbrella(scope, "root"))
+
+    assert result["usernames"] == ["root", "child1", "child2"]
+    assert result["updated"] == 3
+    assert result["umbrella_total"] == 4
+    assert result["matched_total"] == 3
     assert result["skipped_total"] == 1
 
 
@@ -82,7 +125,8 @@ def test_isolate_umbrella_rejects_target_outside_scope_before_resolving_tree():
 
 
 def main():
-    test_isolate_umbrella_filters_members_to_current_scope()
+    test_isolate_umbrella_matches_members_from_user_database()
+    test_release_umbrella_matches_members_from_user_database()
     test_isolate_umbrella_rejects_target_outside_scope_before_resolving_tree()
 
 

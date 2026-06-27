@@ -58,6 +58,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/risk-isolation/isolate_umbrella'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/isolate_scope'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/release'): 'account_ops',
+            ('POST', '/admin/api/risk-isolation/release_umbrella'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/release_scope'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/page_404'): 'account_ops',
             ('POST', '/admin/api/sub_admin/set'): 'account_ops',

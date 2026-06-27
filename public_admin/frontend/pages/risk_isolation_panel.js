@@ -246,6 +246,7 @@
                 if (!username) return;
                 if (action === 'isolate') isolateUser(username);
                 if (action === 'isolateUmbrella') isolateUmbrella(username);
+                if (action === 'releaseUmbrella') releaseUmbrella(username);
                 if (action === 'release') releaseUser(username);
             });
             root.dataset.riskIsolationActionsBound = '1';
@@ -373,7 +374,9 @@
                 var action = row.isolated
                     ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除</button>'
                     : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离</button>';
-                var umbrellaAction = '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
+                var umbrellaAction = row.isolated
+                    ? '<button class="ri-btn success" data-ri-action="releaseUmbrella" data-ri-username="' + usernameAttr + '">伞下恢复</button>'
+                    : '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
                 return '<tr><td style="font-weight:800;">' + escapeHtml(row.username) + '</td><td>' + escapeHtml(row.nickname || '-') + '</td><td>' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</td><td>' + escapeHtml(fmtTime(row.expire_time)) + '</td><td>' + statusPill(row.isolated) + '</td><td>' + escapeHtml(row.isolated_by || '-') + '</td><td>' + escapeHtml(fmtTime(row.isolated_at)) + '</td><td><div class="ri-row-actions">' + action + umbrellaAction + '</div></td></tr>';
             }).join('');
         }
@@ -383,7 +386,9 @@
                 var action = row.isolated
                     ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除隔离</button>'
                     : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离玩家</button>';
-                var umbrellaAction = '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
+                var umbrellaAction = row.isolated
+                    ? '<button class="ri-btn success" data-ri-action="releaseUmbrella" data-ri-username="' + usernameAttr + '">伞下恢复</button>'
+                    : '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
                 return '<div class="ri-user-card"><div class="ri-user-head"><div class="ri-user-name">' + escapeHtml(row.username) + '</div>' + statusPill(row.isolated) + '</div><div class="ri-user-grid"><div><div class="ri-user-label">姓名</div><div class="ri-user-value">' + escapeHtml(row.nickname || '-') + '</div></div><div><div class="ri-user-label">添加人</div><div class="ri-user-value">' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</div></div><div><div class="ri-user-label">到期时间</div><div class="ri-user-value">' + escapeHtml(fmtTime(row.expire_time)) + '</div></div><div><div class="ri-user-label">隔离人</div><div class="ri-user-value">' + escapeHtml(row.isolated_by || '-') + '</div></div></div><div class="ri-row-actions">' + action + umbrellaAction + '</div></div>';
             }).join('');
         }
@@ -596,6 +601,25 @@
         });
     }
 
+    function releaseUmbrella(username) {
+        return showRiskIsolationModal({
+            title: '恢复伞下玩家',
+            desc: '确认恢复 [' + username + '] 组织架构下全部成员的风险隔离吗？包含该玩家本人；如果尚未缓存组织架构，系统会先自动获取。',
+            confirmText: '确认伞下恢复'
+        }).then(function(result) {
+            if (!result.confirmed) return;
+            setBusy(true);
+            return apiPost('/release_umbrella', Object.assign(scopePayload(), { account: username })).then(function(data) {
+                notify(data.message || '已恢复伞下玩家');
+                return loadStatus().then(loadAccounts);
+            }).catch(function(err) {
+                notify(err.message || '伞下恢复失败', 'error');
+            }).finally(function() {
+                setBusy(false);
+            });
+        });
+    }
+
     function releaseUser(username) {
         return showRiskIsolationModal({
             title: '解除风险隔离',
@@ -675,6 +699,7 @@
         start: start,
         isolateUser: isolateUser,
         isolateUmbrella: isolateUmbrella,
+        releaseUmbrella: releaseUmbrella,
         releaseUser: releaseUser,
         reload: function() { return loadStatus().then(loadAccounts); }
     };
