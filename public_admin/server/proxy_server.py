@@ -659,6 +659,13 @@ except Exception as e:
     _RECOMMEND_TREE_IMPORT_ERROR = e
 
 try:
+    from .risk_isolation.umbrella import RiskIsolationUmbrellaResolver
+    _RISK_ISOLATION_UMBRELLA_IMPORT_ERROR = None
+except Exception as e:
+    RiskIsolationUmbrellaResolver = None
+    _RISK_ISOLATION_UMBRELLA_IMPORT_ERROR = e
+
+try:
     from .ak_data import create_ak_data_router
     _AK_DATA_IMPORT_ERROR = None
 except Exception as e:
@@ -4790,10 +4797,19 @@ if not _operation_auth_available():
 risk_isolation_service = None
 risk_isolation_login_guard = None
 risk_isolation_userkey_filter = None
+risk_isolation_umbrella_resolver = None
 if RiskIsolationRepository is not None and RiskIsolationService is not None:
     risk_isolation_repository = RiskIsolationRepository(db)
     if RiskIsolationUserKeyFilter is not None:
         risk_isolation_userkey_filter = RiskIsolationUserKeyFilter(risk_isolation_repository, logger)
+    if RiskIsolationUmbrellaResolver is not None:
+        try:
+            risk_isolation_umbrella_resolver = RiskIsolationUmbrellaResolver(db._get_pool, logger=logger).resolve
+        except Exception as e:
+            risk_isolation_umbrella_resolver = None
+            logger.warning(f"[RiskIsolation] 伞下隔离组织架构适配器不可用，已跳过: {e}")
+    elif _RISK_ISOLATION_UMBRELLA_IMPORT_ERROR is not None:
+        logger.warning(f"[RiskIsolation] 伞下隔离组织架构适配器不可用，已跳过: {_RISK_ISOLATION_UMBRELLA_IMPORT_ERROR}")
     risk_isolation_service = RiskIsolationService(
         risk_isolation_repository,
         super_admin_role=ROLE_SUPER_ADMIN,
@@ -4801,6 +4817,7 @@ if RiskIsolationRepository is not None and RiskIsolationService is not None:
         sub_admin_exists=lambda name: str(name or '').strip() in SUB_ADMINS,
         on_isolated=risk_isolation_userkey_filter.on_accounts_isolated if risk_isolation_userkey_filter is not None else None,
         on_released=risk_isolation_userkey_filter.on_accounts_released if risk_isolation_userkey_filter is not None else None,
+        umbrella_resolver=risk_isolation_umbrella_resolver,
         load_404_page_enabled=db.get_risk_isolation_404_page_enabled,
         save_404_page_enabled=db.set_risk_isolation_404_page_enabled,
     )

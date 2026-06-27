@@ -46,12 +46,19 @@ def test_license_password_reset_requires_account_scope():
     assert resolver.resolve("POST", "/admin/api/license/reset-password") == "account_ops"
 
 
+def test_risk_isolation_umbrella_requires_account_scope():
+    resolver = OperationScopeResolver()
+
+    assert resolver.resolve("POST", "/admin/api/risk-isolation/isolate_umbrella") == "account_ops"
+
+
 def main():
     test_admin_raw_sql_always_uses_write_scope()
     test_admin_embedded_ak_proxy_unsafe_methods_require_dispatcher_scope()
     test_ak_proxy_safe_and_native_paths_do_not_require_admin_scope()
     test_cdn_cgi_unsafe_methods_require_dispatcher_scope()
     test_license_password_reset_requires_account_scope()
+    test_risk_isolation_umbrella_requires_account_scope()
 
 
 if __name__ == "__main__":

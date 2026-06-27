@@ -10,6 +10,7 @@ class RiskIsolationService:
                  sub_admin_exists: Callable[[str], bool],
                  on_isolated: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None,
                  on_released: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None,
+                 umbrella_resolver: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
                  load_404_page_enabled: Callable[[], Awaitable[bool]] | None = None,
                  save_404_page_enabled: Callable[[bool], Awaitable[bool]] | None = None):
         self.repository = repository
@@ -18,6 +19,7 @@ class RiskIsolationService:
         self.sub_admin_exists = sub_admin_exists
         self.on_isolated = on_isolated
         self.on_released = on_released
+        self.umbrella_resolver = umbrella_resolver
         self.load_404_page_enabled = load_404_page_enabled
         self.save_404_page_enabled = save_404_page_enabled
         self.initialized = False
@@ -119,6 +121,60 @@ class RiskIsolationService:
             reason=reason,
         )
         await self._notify_isolated(result)
+        return result
+
+    async def isolate_umbrella(self, scope: RiskIsolationScope, account: str,
+                               operator: str, operator_role: str, reason: str = '') -> dict[str, Any]:
+        if scope.added_by == '__deny__':
+            return {'updated': 0, 'usernames': []}
+        if self.umbrella_resolver is None:
+            raise RuntimeError("组织架构适配器不可用")
+
+        target = normalize_username(account)
+        if not target:
+            raise ValueError("请输入要隔离伞下玩家的账号")
+
+        allowed_target = await self.repository.filter_allowed_usernames(
+            [target],
+            added_by=scope.added_by or None,
+        )
+        if not allowed_target:
+            raise PermissionError("该账号不在当前风险隔离范围内，无法隔离伞下玩家")
+
+        umbrella = await self.umbrella_resolver(target)
+        umbrella_usernames = self._unique_usernames([target] + list(umbrella.get('usernames') or []))
+        allowed = await self.repository.filter_allowed_usernames(
+            umbrella_usernames,
+            added_by=scope.added_by or None,
+        )
+        result = await self.repository.isolate_usernames(
+            allowed,
+            operator=operator,
+            operator_role=operator_role,
+            reason=reason,
+        )
+        result.update({
+            'target_account': target,
+            'umbrella_total': len(umbrella_usernames),
+            'allowed_total': len(allowed),
+            'skipped_total': max(0, len(umbrella_usernames) - len(allowed)),
+            'cache_refreshed': bool(umbrella.get('refreshed')),
+            'source_cached': bool(umbrella.get('cached')),
+            'node_count': int(umbrella.get('node_count') or len(umbrella_usernames)),
+        })
+        await self._notify_isolated(result)
+        return result
+
+    @staticmethod
+    def _unique_usernames(usernames: list[str]) -> list[str]:
+        result = []
+        seen = set()
+        for username in usernames or []:
+            value = normalize_username(username)
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            result.append(value)
         return result
 
     async def _notify_isolated(self, result: dict[str, Any]) -> None:

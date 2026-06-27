@@ -55,6 +55,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/whitelist/delete'): 'account_ops',
             ('POST', '/admin/api/whitelist/set_global'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/isolate'): 'account_ops',
+            ('POST', '/admin/api/risk-isolation/isolate_umbrella'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/isolate_scope'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/release'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/release_scope'): 'account_ops',

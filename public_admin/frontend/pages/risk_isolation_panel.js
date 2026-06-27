@@ -133,6 +133,7 @@
             '.ri-scope-body{display:block;max-height:240px}.ri-scope-list{max-height:240px;overflow:auto;padding:4px;background:rgba(4,14,28,.72)}.ri-scope-option{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:38px;border:1px solid rgba(57,126,255,.18);border-radius:10px;background:rgba(6,18,34,.78);color:#f4f8ff;padding:0 10px 0 12px;margin:0 0 4px 0;font-size:14px;font-weight:800;cursor:pointer;text-align:left;opacity:1;visibility:visible}.ri-scope-option:hover,.ri-scope-option.active{border-color:rgba(45,108,223,.48);background:rgba(45,108,223,.24);color:#fff}.ri-scope-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-weight:850;opacity:1}.ri-scope-count{font-size:12px;font-weight:800;color:rgba(214,232,255,.82);opacity:1}.ri-scope-empty{padding:22px 16px;color:rgba(220,235,255,.68);font-weight:800;text-align:center}',
             '.ri-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(1,8,18,.74);backdrop-filter:blur(12px);z-index:9999}.ri-modal.open{display:flex}.ri-modal-card{width:min(520px,100%);border:1px solid rgba(39,216,255,.3);border-radius:20px;background:linear-gradient(145deg,rgba(8,20,38,.98),rgba(5,14,28,.98));box-shadow:0 26px 70px rgba(0,0,0,.58),0 0 0 1px rgba(255,255,255,.05);overflow:hidden}.ri-modal-head{padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.ri-modal-title{font-size:18px;font-weight:900;color:#fff}.ri-modal-desc{margin-top:6px;color:rgba(208,226,247,.72);font-size:13px;line-height:1.55}.ri-modal-close{width:34px;height:34px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.05);color:rgba(230,242,255,.86);font-size:20px;line-height:1;cursor:pointer}.ri-modal-body{padding:18px 20px 8px}.ri-modal-label{display:block;color:rgba(230,242,255,.86);font-size:13px;font-weight:900;margin-bottom:8px}.ri-modal-input{width:100%;min-height:92px;box-sizing:border-box;border:1px solid rgba(57,126,255,.4);border-radius:14px;background:linear-gradient(180deg,rgba(5,15,30,.98),rgba(8,20,38,.98));color:#fff;padding:12px 14px;font-size:14px;font-weight:800;line-height:1.55;resize:vertical;outline:none}.ri-modal-input::placeholder{color:rgba(170,200,235,.62)}.ri-modal-input:focus{border-color:#27d8ff;box-shadow:0 0 0 3px rgba(0,212,255,.13)}.ri-modal-foot{padding:16px 20px 20px;display:flex;justify-content:flex-end;gap:10px}.ri-modal-btn{border:1px solid transparent;border-radius:13px;min-width:92px;min-height:42px;padding:0 18px;color:#fff;font-size:14px;font-weight:900;cursor:pointer}.ri-modal-btn.cancel{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:rgba(230,242,255,.82)}.ri-modal-btn.confirm{background:linear-gradient(135deg,#00d4ff,#00b8d4);box-shadow:0 12px 24px rgba(0,212,255,.2)}.ri-modal-input-wrap.hidden{display:none}',
             '.ri-btn{border:1px solid transparent;border-radius:12px;min-height:42px;padding:0 14px;font-size:14px;font-weight:900;letter-spacing:.01em;white-space:nowrap;cursor:pointer;color:#fff}.ri-btn:disabled{opacity:.55;cursor:not-allowed}.ri-btn.secondary{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}.ri-btn.cyan{background:linear-gradient(135deg,#00d4ff,#00b8d4);box-shadow:0 10px 22px rgba(0,212,255,.18)}.ri-btn.danger{background:linear-gradient(135deg,#ff4757,#c44569);box-shadow:0 10px 22px rgba(255,71,87,.18)}.ri-btn.success{background:linear-gradient(135deg,#00b894,#00cec9);box-shadow:0 10px 22px rgba(0,184,148,.18)}',
+            '.ri-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}.ri-row-actions .ri-btn{flex:0 0 auto}',
             '.ri-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;overscroll-behavior-y:auto;border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.02);position:relative}.ri-table{width:max-content;min-width:980px;border-collapse:separate;border-spacing:0}.ri-table th,.ri-table td{border-bottom:1px solid rgba(255,255,255,.07);padding:8px 10px;text-align:left;white-space:nowrap}.ri-table th{position:sticky;top:0;z-index:20;color:var(--accent);background:var(--bg-secondary);font-size:11px}.ri-table td{font-size:12px;line-height:1.25;color:var(--text-primary);background:var(--bg-card)}.ri-table th:first-child,.ri-table td:first-child{position:sticky;left:0;width:120px;min-width:120px;max-width:120px;z-index:12;background:var(--bg-card)}.ri-table th:first-child{z-index:30;background:var(--bg-secondary)}.ri-table tr:last-child td{border-bottom:0}.ri-table .ri-btn{min-height:34px;border-radius:10px;padding:0 12px;font-size:12px}',
             '.ri-empty{text-align:center;color:var(--text-secondary);padding:28px!important}.ri-pill{display:inline-flex;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:800}.ri-pill.on{color:#ffb8bf;background:rgba(255,71,87,.14);border:1px solid rgba(255,71,87,.3)}.ri-pill.off{color:#55efc4;background:rgba(0,184,148,.13);border:1px solid rgba(0,184,148,.28)}.ri-cards{display:none!important;gap:10px}.ri-user-card{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.035);padding:12px}.ri-user-card.ri-muted{color:var(--text-secondary);text-align:center}.ri-user-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.ri-user-name{font-weight:900;color:#fff}.ri-user-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.ri-user-label{color:var(--text-secondary);font-size:11px}.ri-user-value{color:var(--text-primary);font-size:12px;word-break:break-all}',
             '@media(max-width:760px){.ri-card{padding:12px}.ri-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ri-stat{padding:10px 8px}.ri-stat-label{font-size:11px;white-space:nowrap}.ri-stat-value{font-size:18px}.ri-toolbar{align-items:flex-start}.ri-toolbar>.ri-scope-dropdown{flex:0 1 260px}.ri-toolbar>.ri-input{flex:1 1 220px;max-width:none}.ri-scope-dropdown{width:260px;min-width:0}.ri-scope-menu{width:min(320px,calc(100vw - 32px));max-width:none}.ri-table{min-width:980px}}',
@@ -239,10 +240,12 @@
             root.addEventListener('click', function(event) {
                 var button = event.target.closest('[data-ri-action]');
                 if (!button || !root.contains(button)) return;
+                if (state.loading) return;
                 var username = button.getAttribute('data-ri-username') || '';
                 var action = button.getAttribute('data-ri-action') || '';
                 if (!username) return;
                 if (action === 'isolate') isolateUser(username);
+                if (action === 'isolateUmbrella') isolateUmbrella(username);
                 if (action === 'release') releaseUser(username);
             });
             root.dataset.riskIsolationActionsBound = '1';
@@ -370,7 +373,8 @@
                 var action = row.isolated
                     ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除</button>'
                     : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离</button>';
-                return '<tr><td style="font-weight:800;">' + escapeHtml(row.username) + '</td><td>' + escapeHtml(row.nickname || '-') + '</td><td>' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</td><td>' + escapeHtml(fmtTime(row.expire_time)) + '</td><td>' + statusPill(row.isolated) + '</td><td>' + escapeHtml(row.isolated_by || '-') + '</td><td>' + escapeHtml(fmtTime(row.isolated_at)) + '</td><td>' + action + '</td></tr>';
+                var umbrellaAction = '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
+                return '<tr><td style="font-weight:800;">' + escapeHtml(row.username) + '</td><td>' + escapeHtml(row.nickname || '-') + '</td><td>' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</td><td>' + escapeHtml(fmtTime(row.expire_time)) + '</td><td>' + statusPill(row.isolated) + '</td><td>' + escapeHtml(row.isolated_by || '-') + '</td><td>' + escapeHtml(fmtTime(row.isolated_at)) + '</td><td><div class="ri-row-actions">' + action + umbrellaAction + '</div></td></tr>';
             }).join('');
         }
         if (cardList) {
@@ -379,7 +383,8 @@
                 var action = row.isolated
                     ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除隔离</button>'
                     : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离玩家</button>';
-                return '<div class="ri-user-card"><div class="ri-user-head"><div class="ri-user-name">' + escapeHtml(row.username) + '</div>' + statusPill(row.isolated) + '</div><div class="ri-user-grid"><div><div class="ri-user-label">姓名</div><div class="ri-user-value">' + escapeHtml(row.nickname || '-') + '</div></div><div><div class="ri-user-label">添加人</div><div class="ri-user-value">' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</div></div><div><div class="ri-user-label">到期时间</div><div class="ri-user-value">' + escapeHtml(fmtTime(row.expire_time)) + '</div></div><div><div class="ri-user-label">隔离人</div><div class="ri-user-value">' + escapeHtml(row.isolated_by || '-') + '</div></div></div>' + action + '</div>';
+                var umbrellaAction = '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
+                return '<div class="ri-user-card"><div class="ri-user-head"><div class="ri-user-name">' + escapeHtml(row.username) + '</div>' + statusPill(row.isolated) + '</div><div class="ri-user-grid"><div><div class="ri-user-label">姓名</div><div class="ri-user-value">' + escapeHtml(row.nickname || '-') + '</div></div><div><div class="ri-user-label">添加人</div><div class="ri-user-value">' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</div></div><div><div class="ri-user-label">到期时间</div><div class="ri-user-value">' + escapeHtml(fmtTime(row.expire_time)) + '</div></div><div><div class="ri-user-label">隔离人</div><div class="ri-user-value">' + escapeHtml(row.isolated_by || '-') + '</div></div></div><div class="ri-row-actions">' + action + umbrellaAction + '</div></div>';
             }).join('');
         }
         requestAnimationFrame(refreshStickyTable);
@@ -395,6 +400,9 @@
         ['riIsolateAllBtn', 'riReleaseScopeBtn', 'riSubAdminTrigger', 'riSearch', 'riPage404Switch'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.disabled = !!busy;
+        });
+        Array.prototype.slice.call(document.querySelectorAll('#riskIsolationPanelMount [data-ri-action]')).forEach(function(el) {
+            el.disabled = !!busy;
         });
         var page404Switch = document.getElementById('riPage404Switch');
         if (page404Switch && !isSuperAdmin()) page404Switch.disabled = true;
@@ -568,6 +576,26 @@
         });
     }
 
+    function isolateUmbrella(username) {
+        return showRiskIsolationModal({
+            title: '隔离伞下玩家',
+            desc: '确认隔离 [' + username + '] 组织架构下全部成员吗？包含该玩家本人；如果尚未缓存组织架构，系统会先自动获取，成员较多时请等待完成。',
+            confirmText: '确认伞下隔离',
+            reason: true
+        }).then(function(result) {
+            if (!result.confirmed) return;
+            setBusy(true);
+            return apiPost('/isolate_umbrella', Object.assign(scopePayload(), { account: username, reason: result.reason })).then(function(data) {
+                notify(data.message || '已隔离伞下玩家');
+                return loadStatus().then(loadAccounts);
+            }).catch(function(err) {
+                notify(err.message || '伞下隔离失败', 'error');
+            }).finally(function() {
+                setBusy(false);
+            });
+        });
+    }
+
     function releaseUser(username) {
         return showRiskIsolationModal({
             title: '解除风险隔离',
@@ -646,6 +674,7 @@
     window.AKRiskIsolationPanel = {
         start: start,
         isolateUser: isolateUser,
+        isolateUmbrella: isolateUmbrella,
         releaseUser: releaseUser,
         reload: function() { return loadStatus().then(loadAccounts); }
     };

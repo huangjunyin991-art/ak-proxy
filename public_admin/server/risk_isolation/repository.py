@@ -208,9 +208,13 @@ class RiskIsolationRepository:
             return {'updated': 0, 'usernames': []}
         pool = self.db._get_pool()
         async with pool.acquire() as conn:
-            await conn.executemany('''
+            await conn.execute('''
+                WITH input_usernames AS (
+                    SELECT DISTINCT UNNEST($1::text[]) AS username
+                )
                 INSERT INTO risk_isolations (username, isolated_by, isolated_by_role, reason, is_active, created_at, updated_at, released_at)
-                VALUES ($1, $2, $3, $4, TRUE, NOW(), NOW(), NULL)
+                SELECT username, $2, $3, $4, TRUE, NOW(), NOW(), NULL
+                FROM input_usernames
                 ON CONFLICT(username) DO UPDATE SET
                     isolated_by = $2,
                     isolated_by_role = $3,
@@ -219,7 +223,7 @@ class RiskIsolationRepository:
                     created_at = NOW(),
                     updated_at = NOW(),
                     released_at = NULL
-            ''', [(username, operator, operator_role, str(reason or '').strip()) for username in normalized])
+            ''', normalized, operator, operator_role, str(reason or '').strip())
         return {'updated': len(normalized), 'usernames': normalized}
 
     async def release_usernames(self, usernames: list[str], added_by: str | None = None) -> dict[str, Any]:
