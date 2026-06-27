@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from public_admin.server.risk_isolation.service import RiskIsolationService
+from public_admin.server.risk_isolation.repository import RiskIsolationRepository
 
 
 class FakeRiskIsolationRepository:
@@ -13,6 +14,8 @@ class FakeRiskIsolationRepository:
         self.known = {item.lower() for item in (known if known is not None else allowed)}
         self.isolated = []
         self.released = []
+        self.last_isolation_source = ""
+        self.last_umbrella_root = ""
 
     async def filter_allowed_usernames(self, usernames, added_by=None):
         result = []
@@ -30,8 +33,10 @@ class FakeRiskIsolationRepository:
                 result.append(value)
         return result
 
-    async def isolate_usernames(self, usernames, operator, operator_role, reason=""):
+    async def isolate_usernames(self, usernames, operator, operator_role, reason="", isolation_source="manual", umbrella_root=""):
         self.isolated = list(usernames or [])
+        self.last_isolation_source = isolation_source
+        self.last_umbrella_root = umbrella_root
         return {"updated": len(self.isolated), "usernames": self.isolated}
 
     async def release_usernames(self, usernames, added_by=None):
@@ -76,6 +81,8 @@ def test_isolate_umbrella_matches_members_from_user_database():
     assert result["umbrella_total"] == 4
     assert result["matched_total"] == 3
     assert result["skipped_total"] == 1
+    assert repository.last_isolation_source == "umbrella"
+    assert repository.last_umbrella_root == "root"
 
 
 def test_release_umbrella_matches_members_from_user_database():
@@ -124,10 +131,34 @@ def test_isolate_umbrella_rejects_target_outside_scope_before_resolving_tree():
     assert called is False
 
 
+def test_only_umbrella_root_row_can_restore_umbrella():
+    repository = RiskIsolationRepository(None)
+    root = repository._serialize_account_row({
+        "username": "root",
+        "is_active": True,
+        "umbrella_root": "root",
+    })
+    child = repository._serialize_account_row({
+        "username": "child1",
+        "is_active": True,
+        "umbrella_root": "root",
+    })
+    manual = repository._serialize_account_row({
+        "username": "manual",
+        "is_active": True,
+        "umbrella_root": "",
+    })
+
+    assert root["can_umbrella_restore"] is True
+    assert child["can_umbrella_restore"] is False
+    assert manual["can_umbrella_restore"] is False
+
+
 def main():
     test_isolate_umbrella_matches_members_from_user_database()
     test_release_umbrella_matches_members_from_user_database()
     test_isolate_umbrella_rejects_target_outside_scope_before_resolving_tree()
+    test_only_umbrella_root_row_can_restore_umbrella()
 
 
 if __name__ == "__main__":

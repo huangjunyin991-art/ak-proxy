@@ -149,6 +149,8 @@ class RiskIsolationService:
             operator=operator,
             operator_role=operator_role,
             reason=reason,
+            isolation_source='umbrella',
+            umbrella_root=target,
         )
         result.update({
             'target_account': target,

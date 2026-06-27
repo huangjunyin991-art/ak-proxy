@@ -374,9 +374,9 @@
                 var action = row.isolated
                     ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除</button>'
                     : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离</button>';
-                var umbrellaAction = row.isolated
+                var umbrellaAction = row.can_umbrella_restore
                     ? '<button class="ri-btn success" data-ri-action="releaseUmbrella" data-ri-username="' + usernameAttr + '">伞下恢复</button>'
-                    : '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
+                    : (!row.isolated ? '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>' : '');
                 return '<tr><td style="font-weight:800;">' + escapeHtml(row.username) + '</td><td>' + escapeHtml(row.nickname || '-') + '</td><td>' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</td><td>' + escapeHtml(fmtTime(row.expire_time)) + '</td><td>' + statusPill(row.isolated) + '</td><td>' + escapeHtml(row.isolated_by || '-') + '</td><td>' + escapeHtml(fmtTime(row.isolated_at)) + '</td><td><div class="ri-row-actions">' + action + umbrellaAction + '</div></td></tr>';
             }).join('');
         }
@@ -386,9 +386,9 @@
                 var action = row.isolated
                     ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除隔离</button>'
                     : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离玩家</button>';
-                var umbrellaAction = row.isolated
+                var umbrellaAction = row.can_umbrella_restore
                     ? '<button class="ri-btn success" data-ri-action="releaseUmbrella" data-ri-username="' + usernameAttr + '">伞下恢复</button>'
-                    : '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>';
+                    : (!row.isolated ? '<button class="ri-btn danger" data-ri-action="isolateUmbrella" data-ri-username="' + usernameAttr + '">伞下隔离</button>' : '');
                 return '<div class="ri-user-card"><div class="ri-user-head"><div class="ri-user-name">' + escapeHtml(row.username) + '</div>' + statusPill(row.isolated) + '</div><div class="ri-user-grid"><div><div class="ri-user-label">姓名</div><div class="ri-user-value">' + escapeHtml(row.nickname || '-') + '</div></div><div><div class="ri-user-label">添加人</div><div class="ri-user-value">' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</div></div><div><div class="ri-user-label">到期时间</div><div class="ri-user-value">' + escapeHtml(fmtTime(row.expire_time)) + '</div></div><div><div class="ri-user-label">隔离人</div><div class="ri-user-value">' + escapeHtml(row.isolated_by || '-') + '</div></div></div><div class="ri-row-actions">' + action + umbrellaAction + '</div></div>';
             }).join('');
         }
