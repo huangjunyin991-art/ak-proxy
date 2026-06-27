@@ -43,8 +43,55 @@ def _read_pid() -> int:
         return 0
 
 
-def stop_managed_process(timeout: float = 8.0) -> bool:
-    pid = _read_pid()
+def _normalize_path_text(value: str) -> str:
+    if not str(value or "").strip():
+        return ""
+    try:
+        return str(Path(value).resolve())
+    except Exception:
+        return str(value or "")
+
+
+def _process_uses_config(pid: int, config_path: str) -> bool:
+    if not str(config_path or "").strip():
+        return False
+    cmdline_path = Path("/proc") / str(pid) / "cmdline"
+    try:
+        raw = cmdline_path.read_bytes().replace(b"\x00", b" ").decode("utf-8", "ignore")
+    except Exception:
+        return False
+    if "sing-box" not in raw:
+        return False
+    target = _normalize_path_text(config_path)
+    return str(config_path) in raw or target in raw
+
+
+def _find_managed_processes(config_path: str) -> list[int]:
+    if not str(config_path or "").strip():
+        return []
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "sing-box"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return []
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        try:
+            pid = int(line.strip())
+        except Exception:
+            continue
+        if pid == os.getpid() or not _pid_is_running(pid):
+            continue
+        if _process_uses_config(pid, config_path):
+            pids.append(pid)
+    return pids
+
+
+def _terminate_pid(pid: int, timeout: float = 8.0) -> bool:
     if not pid or not _pid_is_running(pid):
         return False
     try:
@@ -62,6 +109,36 @@ def stop_managed_process(timeout: float = 8.0) -> bool:
         except Exception:
             pass
     return True
+
+
+def stop_managed_process(timeout: float = 8.0) -> bool:
+    pid = _read_pid()
+    return _terminate_pid(pid, timeout=timeout)
+
+
+def stop_generated_config_processes(config_path: str, timeout: float = 8.0) -> int:
+    stopped = 0
+    seen = set()
+    pid = _read_pid()
+    if pid:
+        seen.add(pid)
+        if _terminate_pid(pid, timeout=timeout):
+            stopped += 1
+    for proc_pid in _find_managed_processes(config_path):
+        if proc_pid in seen:
+            continue
+        if _terminate_pid(proc_pid, timeout=timeout):
+            stopped += 1
+    return stopped
+
+
+def _tail_log(max_chars: int = 4000) -> str:
+    path = log_dir(CORE_TYPE) / "sing-box.log"
+    try:
+        data = path.read_bytes()
+    except Exception:
+        return ""
+    return data[-max_chars:].decode("utf-8", "replace").strip()
 
 
 def _systemd_service_exists() -> bool:
@@ -96,10 +173,7 @@ def _systemd_uses_config(config_path: str) -> bool:
     exec_start = _systemd_exec_start()
     if not exec_start:
         return False
-    try:
-        target = str(Path(config_path).resolve())
-    except Exception:
-        target = str(config_path)
+    target = _normalize_path_text(config_path)
     return str(config_path) in exec_start or target in exec_start
 
 
@@ -122,7 +196,9 @@ def _stop_systemd_service() -> bool:
 
 
 def _start_managed(binary: str, config_path: str) -> dict[str, Any]:
-    stop_managed_process()
+    stopped = stop_generated_config_processes(config_path)
+    if stopped:
+        logger.info("[SingBox] stopped %s existing generated-config process(es)", stopped)
     log_file = (log_dir(CORE_TYPE) / "sing-box.log").open("ab")
     proc = subprocess.Popen(
         [binary, "run", "-c", config_path],
@@ -133,7 +209,11 @@ def _start_managed(binary: str, config_path: str) -> dict[str, Any]:
     pid_path().write_text(str(proc.pid), encoding="utf-8")
     time.sleep(0.5)
     if proc.poll() is not None:
-        return {"success": False, "message": "sing-box managed process exited immediately", "pid": proc.pid}
+        log_tail = _tail_log()
+        message = "sing-box 启动后立即退出"
+        if "address already in use" in log_tail:
+            message = "sing-box 启动失败：本地端口已被占用"
+        return {"success": False, "message": message, "pid": proc.pid, "log_tail": log_tail}
     logger.info("[SingBox] started managed process pid=%s", proc.pid)
     return {"success": True, "message": "sing-box managed process started", "pid": proc.pid}
 
@@ -207,6 +287,15 @@ def get_status() -> dict[str, Any]:
     managed_pid = _read_pid()
     managed_active = bool(managed_pid and _pid_is_running(managed_pid))
     systemd_active = bool(status.get("active"))
+    generated_config_pids = _find_managed_processes(str(status.get("config_path") or ""))
+    generated_pid = generated_config_pids[0] if generated_config_pids else 0
+    if not managed_active and generated_pid:
+        managed_pid = generated_pid
+        managed_active = True
+        try:
+            pid_path().write_text(str(generated_pid), encoding="utf-8")
+        except Exception:
+            pass
     if managed_active:
         status["active"] = True
         status["state"] = "active"
@@ -218,6 +307,8 @@ def get_status() -> dict[str, Any]:
         "systemd_active": systemd_active,
         "managed_active": managed_active,
         "managed_pid": str(managed_pid or 0),
+        "generated_config_pids": [str(pid) for pid in generated_config_pids],
         "run_mode": "managed" if managed_active else ("systemd" if systemd_active else "stopped"),
+        "last_log_tail": _tail_log(2000),
         **binary_status(CORE_TYPE, SINGBOX_BIN_NAME),
     }

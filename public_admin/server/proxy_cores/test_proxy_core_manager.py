@@ -124,3 +124,31 @@ def test_singbox_systemd_config_match_requires_generated_config():
         assert singbox_core._systemd_uses_config("/root/sing-box/config.json") is True
     finally:
         singbox_core._systemd_exec_start = original
+
+
+def test_singbox_status_recovers_generated_config_process(monkeypatch):
+    class DummyPidPath:
+        def write_text(self, *args, **kwargs):
+            return 4
+
+    monkeypatch.setattr(singbox_core, "_read_pid", lambda: 0)
+    monkeypatch.setattr(singbox_core, "_pid_is_running", lambda pid: pid == 1234)
+    monkeypatch.setattr(singbox_core, "_find_managed_processes", lambda config_path: [1234])
+    monkeypatch.setattr(singbox_core, "_tail_log", lambda max_chars=2000: "")
+    monkeypatch.setattr(singbox_core, "pid_path", lambda: DummyPidPath())
+
+    from public_admin.server import singbox_manager
+
+    monkeypatch.setattr(singbox_manager, "get_service_status", lambda: {
+        "installed": True,
+        "active": False,
+        "pid": "0",
+        "config_path": "/root/sing-box/config.json",
+    })
+
+    status = singbox_core.get_status()
+
+    assert status["active"] is True
+    assert status["managed_active"] is True
+    assert status["managed_pid"] == "1234"
+    assert status["run_mode"] == "managed"

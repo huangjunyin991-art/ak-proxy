@@ -370,6 +370,21 @@
             return { text: '未运行', cls: 'warn' };
         }
 
+        function getProxyCoreMessage(core, state, installed) {
+            if (core.download && core.download.state === 'failed') {
+                return `下载失败：${escapeHtml(core.download.error || '')}`;
+            }
+            if (!installed) return '缺失时会自动下载';
+            if (state.cls === 'ok') {
+                const mode = core.run_mode === 'systemd' ? 'systemd' : core.run_mode === 'managed' ? '托管进程' : '';
+                return mode ? `核心已就绪 · ${mode}` : '核心已就绪';
+            }
+            if (core.last_log_tail && String(core.last_log_tail).includes('address already in use')) {
+                return '未运行 · 端口被旧进程占用';
+            }
+            return '核心未运行';
+        }
+
         function renderProxyCoreCard(data, coreType, title) {
             const info = getProxyCoreInfo(data, coreType);
             const core = info.core || {};
@@ -378,9 +393,8 @@
             const installed = !!(core.installed || core.available);
             const disabled = core.downloading ? 'disabled' : '';
             const actionText = core.downloading ? '准备中' : (installed ? '重启' : '下载并启动');
-            const message = core.download && core.download.state === 'failed'
-                ? `失败：${escapeHtml(core.download.error || '')}`
-                : (installed ? '核心已就绪' : '缺失时会自动下载');
+            const message = getProxyCoreMessage(core, state, installed);
+            const portText = state.cls === 'ok' ? formatCorePorts(info.ports) : (info.nodes.length ? '待启动' : '-');
             return `
                 <div class="lb-core-card">
                     <div class="lb-core-head">
@@ -390,7 +404,7 @@
                     <div class="lb-core-metrics">
                         <div class="lb-core-metric"><span>PID</span><strong>${escapeHtml(pid)}</strong></div>
                         <div class="lb-core-metric"><span>节点数</span><strong>${info.nodes.length}</strong></div>
-                        <div class="lb-core-metric"><span>端口</span><strong>${escapeHtml(formatCorePorts(info.ports))}</strong></div>
+                        <div class="lb-core-metric"><span>端口</span><strong>${escapeHtml(portText)}</strong></div>
                     </div>
                     <div class="lb-core-foot">
                         <span>${message}</span>
@@ -1117,7 +1131,13 @@
                     body: JSON.stringify({core_type: coreType || 'all'})
                 });
                 const data = await res.json();
-                showToast(data.message || (data.success ? '重启完成' : '重启失败'), data.success ? 'success' : 'error');
+                if (data.success) {
+                    showToast(data.message || '重启完成', 'success');
+                } else {
+                    const result = data.result || {};
+                    const detail = result.log_tail ? `\n\n最近日志：\n${result.log_tail}` : '';
+                    showAlert((data.message || '重启失败') + detail, 'error');
+                }
                 await loadLbStatus();
             } catch (e) {
                 showToast('重启失败: ' + e.message, 'error');
