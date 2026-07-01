@@ -362,6 +362,13 @@
             return String(content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         },
 
+        getTextContentPayload(item) {
+            if (!item || typeof item !== 'object') return '';
+            if (item.content != null) return this.normalizeTextContent(item.content);
+            if (item.content_payload != null) return this.normalizeTextContent(item.content_payload);
+            return '';
+        },
+
         reportActiveConversationState(force) {
             const state = this.getState();
             const ws = state && state.ws ? state.ws : null;
@@ -827,9 +834,7 @@
             }
             if (!this.ctx || typeof this.ctx.escapeHtml !== 'function') return '';
             if (String(item && item.message_type || '').trim().toLowerCase() === 'text') {
-                const content = this.normalizeTextContent(item && item.content != null && String(item.content || '') !== ''
-                    ? item.content
-                    : item && item.content_preview);
+                const content = this.getTextContentPayload(item);
                 return '<span class="ak-im-text-content">' + this.ctx.escapeHtml(content) + '</span>';
             }
             return this.ctx.escapeHtml(item && (item.content || item.content_preview || '') || '');

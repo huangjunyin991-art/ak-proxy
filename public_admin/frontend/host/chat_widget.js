@@ -1023,6 +1023,9 @@
             border-radius: 12px;
             max-width: 85%;
             word-break: break-word;
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+            white-space: break-spaces;
             font-size: 14px;
             line-height: 1.5;
         }
@@ -1069,6 +1072,10 @@
             background: #0a3d3d;
             color: #e0f0e8;
             font-size: 14px;
+            line-height: 1.45;
+            min-height: 40px;
+            max-height: 120px;
+            resize: none;
             outline: none;
             transition: border-color 0.2s;
         }
@@ -1338,7 +1345,7 @@
             </div>
             <div class="chat-messages" id="ak-chat-messages"></div>
             <div class="chat-input-area">
-                <input type="text" class="chat-input" id="ak-chat-input" placeholder="输入回复..." onkeypress="if(event.keyCode===13)AKChat.send()">
+                <textarea class="chat-input" id="ak-chat-input" rows="1" placeholder="输入回复..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();AKChat.send()}"></textarea>
                 <button class="chat-send" onclick="AKChat.send()">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                 </button>
@@ -1393,6 +1400,10 @@
     if (!chatBox) {
         console.error('[AKChat] 聊天窗口元素未找到！');
         return;
+    }
+
+    function normalizeChatTextContent(content) {
+        return String(content == null ? '' : content).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     }
     
     // 播放提示音
@@ -1467,6 +1478,7 @@
     
     // 添加消息
     function addMessage(content, isAdmin, time) {
+        const messageContent = normalizeChatTextContent(content);
         const msgDiv = document.createElement('div');
         msgDiv.className = 'chat-message ' + (isAdmin ? 'admin' : 'user');
         
@@ -1474,7 +1486,7 @@
         
         msgDiv.innerHTML = `
             ${isAdmin ? '<div class="chat-label">管理员</div>' : ''}
-            <div class="chat-bubble">${escapeHtml(content)}</div>
+            <div class="chat-bubble">${escapeHtml(messageContent)}</div>
             <div class="chat-time">${timeStr}</div>
         `;
         
@@ -4421,8 +4433,8 @@
     
     // 发送消息
     function sendMessage() {
-        const content = inputEl.value.trim();
-        if (!content) return;
+        const content = normalizeChatTextContent(inputEl.value);
+        if (!content.trim()) return;
         
         // 检查WebSocket连接状态
         if (!ws || ws.readyState !== WebSocket.OPEN) {
