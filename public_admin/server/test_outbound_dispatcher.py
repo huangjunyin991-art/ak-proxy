@@ -140,6 +140,46 @@ def test_regular_rpc_keeps_latency_strategy_even_when_other_exit_is_idle():
     assert picked.name == "hot-fast"
 
 
+def test_login_spreads_across_subscription_groups_without_latency_bias():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    for group_idx, latency in enumerate([1, 200, 400], start=1):
+        for node_idx in range(2):
+            dispatcher.add_socks5(f"g{group_idx}-node-{node_idx}", 10000 + group_idx * 10 + node_idx, group_id=f"g{group_idx}")
+            dispatcher.exits[-1].latency_ms = latency
+
+    picked = [dispatcher.pick_login_exit() for _ in range(6)]
+    groups = [item.group_id for item in picked]
+
+    assert {group: groups.count(group) for group in set(groups)} == {"g1": 2, "g2": 2, "g3": 2}
+
+
+def test_login_spreads_within_same_subscription_group_before_reusing_exit():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    for idx in range(3):
+        dispatcher.add_socks5(f"same-group-{idx}", 10001 + idx, group_id="g1")
+
+    picked = [dispatcher.pick_login_exit().name for _ in range(3)]
+
+    assert set(picked) == {"same-group-0", "same-group-1", "same-group-2"}
+
+
+def test_login_prefers_less_used_subscription_group_over_fast_group():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    dispatcher.add_socks5("fast-used", 10001, group_id="g1")
+    dispatcher.add_socks5("slow-idle", 10002, group_id="g2")
+    dispatcher.exits[1].latency_ms = 1
+    dispatcher.exits[2].latency_ms = 500
+    for _ in range(3):
+        dispatcher.exits[1].reserve_login()
+
+    picked = dispatcher.pick_login_exit()
+
+    assert picked.name == "slow-idle"
+
+
 def test_fallback_sequence_tries_three_tunnels_then_direct_across_groups():
     dispatcher = OutboundDispatcher()
     dispatcher.add_socks5("failed", 10001, group_id="g1")
@@ -252,4 +292,44 @@ async def test_login_invalid_json_content_type_retries_next_exit():
     )
 
     assert attempts == ["bad-json", "good-json"]
+    assert response.json()["Error"] is False
+
+
+@pytest.mark.anyio
+async def test_login_403_response_retries_next_exit_and_freezes_current():
+    dispatcher = OutboundDispatcher()
+    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
+    dispatcher.add_socks5("bad-403", 10001, group_id="g1")
+    dispatcher.add_socks5("good-json", 10002, group_id="g2")
+    attempts = []
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "bad-403":
+            return httpx.Response(
+                403,
+                json={"Error": True, "Msg": "forbidden"},
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200,
+            json={"Error": False, "UserData": {"Id": 1}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        dispatcher.exits[1],
+        "POST",
+        "https://example.test/RPC/Login",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Login",
+    )
+
+    assert attempts == ["bad-403", "good-json"]
+    assert dispatcher.exits[1].warn_403 == 1
+    assert dispatcher.exits[1].is_frozen
     assert response.json()["Error"] is False

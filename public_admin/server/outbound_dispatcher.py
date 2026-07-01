@@ -55,6 +55,10 @@ class LoginUpstreamNonJsonError(RuntimeError):
     pass
 
 
+class LoginUpstreamStatusRetryError(RuntimeError):
+    pass
+
+
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'core_type', 'local_port', 'group_id', 'group_name', 'source_url',
@@ -371,6 +375,7 @@ class OutboundDispatcher:
     """出口IP调度器（异常安全，保证服务不中断）"""
 
     MAX_LOGIN_PER_MIN = 10
+    LOGIN_403_FREEZE_SECONDS = 60
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
@@ -410,6 +415,7 @@ class OutboundDispatcher:
         self._rr_counter: int = 0
         self._wide_spread_rr_counter: int = 0
         self._wide_spread_group_rr_counter: int = 0
+        self._login_group_rr_counter: int = 0
         self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
         self.login_non_json_callback = None
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
@@ -735,6 +741,63 @@ class OutboundDispatcher:
         candidates = [i for i in pool if self.exits[i].active == min_active]
         return candidates[self._rr_counter % len(candidates)]
 
+    def _login_group_key(self, idx: int) -> str:
+        ex = self.exits[idx]
+        return str(ex.group_id or ex.group_name or ex.source_url or ex.name or idx).strip()
+
+    def _login_group_indices(self, group_key: str) -> list[int]:
+        return [
+            i for i, ex in enumerate(self.exits)
+            if self._login_group_key(i) == group_key
+        ]
+
+    def _login_group_stats(self, group_key: str) -> tuple[int, int, int, int]:
+        indices = self._login_group_indices(group_key)
+        size = max(1, len(indices))
+        recent_logins = sum(self.exits[i].count_recent_logins() for i in indices)
+        recent_requests = sum(self.exits[i].count_recent_requests(60.0) for i in indices)
+        active = sum(self.exits[i].active for i in indices)
+        return recent_logins, recent_requests, active, size
+
+    def _pick_login_from_pool(self, pool: list[int], enforce_login_capacity: bool = True) -> Optional[int]:
+        if not pool:
+            return None
+        pool = self._filter_below_per_second_limit(pool)
+        pool = [i for i in pool if self.exits[i].has_minute_rate_capacity()]
+        if enforce_login_capacity:
+            pool = [i for i in pool if self.exits[i].count_recent_logins() < self.MAX_LOGIN_PER_MIN]
+        pool = self._filter_latency_failed_pool(pool)
+        if not pool:
+            return None
+
+        groups: dict[str, list[int]] = {}
+        for idx in pool:
+            groups.setdefault(self._login_group_key(idx), []).append(idx)
+        if not groups:
+            return None
+
+        sorted_keys = sorted(groups.keys())
+        self._login_group_rr_counter += 1
+        group_rr_counter = self._login_group_rr_counter
+        group_items = []
+        for key in sorted_keys:
+            recent_logins, recent_requests, active, _size = self._login_group_stats(key)
+            rr_offset = (sorted_keys.index(key) - group_rr_counter) % len(sorted_keys)
+            group_items.append((recent_logins, recent_requests, active, rr_offset, key))
+        group_items.sort()
+        selected_group = group_items[0][-1]
+
+        self._rr_counter += 1
+        candidates = list(groups[selected_group])
+        candidates.sort(key=lambda i: (
+            self.exits[i].count_recent_logins(),
+            self.exits[i].count_recent_requests(60.0),
+            self.exits[i].count_recent_requests(1.0),
+            self.exits[i].active,
+            (i - self._rr_counter) % max(1, len(self.exits)),
+        ))
+        return candidates[0]
+
     def _get_healthy_tunnels_relaxed(self) -> list[int]:
         return [
             i for i, ex in enumerate(self.exits)
@@ -955,7 +1018,7 @@ class OutboundDispatcher:
         4. 任何异常降级直连
         """
         try:
-            healthy = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), "")
+            healthy = self._get_healthy_tunnels()
             if not healthy:
                 direct = self._safe_direct()
                 if self._direct_has_fallback_capacity(direct):
@@ -979,10 +1042,8 @@ class OutboundDispatcher:
                     candidates.append(idx)
 
             if candidates:
-                # 优先选不限速的出口，再按活跃连接数排序
-                unrestricted = [i for i in candidates if self.exits[i].rate_limit == 0]
-                pool = unrestricted if unrestricted else candidates
-                best = self._pick_from_pool(pool)
+                # Login 独立走订阅组均衡，避免低延迟或不限速出口被连续打中
+                best = self._pick_login_from_pool(candidates)
                 if best is None:
                     direct = self._safe_direct()
                     if not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
@@ -1003,7 +1064,7 @@ class OutboundDispatcher:
                 return ex
 
             # 全满了，选登录最少的
-            best = self._pick_from_pool(healthy)
+            best = self._pick_login_from_pool(healthy, enforce_login_capacity=False)
             if best is None:
                 direct = self._safe_direct()
                 if not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
@@ -1115,12 +1176,20 @@ class OutboundDispatcher:
                     )
                 current_exit.reset_connect_failures()
                 self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
+                if (
+                    self._is_login_rpc(api_path)
+                    and resp.status_code == 403
+                    and attempt_index + 1 < len(attempts)
+                ):
+                    raise LoginUpstreamStatusRetryError(
+                        f"login upstream returned 403 from {current_exit.name}"
+                    )
                 return resp
             except Exception as e:
                 last_error = e
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
-                if not current_exit.is_direct and not isinstance(e, LoginUpstreamNonJsonError):
+                if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, LoginUpstreamStatusRetryError)):
                     base_freeze_seconds = 3600
                     if self.policy_config is not None:
                         base_freeze_seconds = int(getattr(self.policy_config, "connect_failure_freeze_seconds", 3600) or 3600)
@@ -1177,13 +1246,11 @@ class OutboundDispatcher:
             return
         if status_code in ALERT_STATUS_CODES:
             desc = ALERT_STATUS_CODES[status_code]
-            is_login_rpc = rpc_name.startswith("Login")
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
-                if not is_login_rpc:
-                    exit_obj.freeze_for_403(60.0)
-                    exit_obj.auto_throttle_on_403()
+                exit_obj.freeze_for_403(self.LOGIN_403_FREEZE_SECONDS)
+                exit_obj.auto_throttle_on_403()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
                 exit_obj.auto_throttle_on_403()  # 429也触发限速
