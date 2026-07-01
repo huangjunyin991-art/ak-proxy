@@ -85,6 +85,15 @@ func writeAIJSONDecodeError(w http.ResponseWriter, err error, tooLargeMessage st
 	writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": message})
 }
 
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *App) handleAIRoutes(w http.ResponseWriter, r *http.Request) {
 	username, err := a.requireAllowedUser(r)
 	if err != nil {
@@ -623,6 +632,11 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 	cfg, cfgErr := a.ai.Config(r.Context())
 	queueConcurrency, queueRunning, queueWaiting := a.ai.QueueStats()
 	providers, providersErr := a.aiProvider.ListAccounts(r.Context())
+	configuredProviderIDs := map[int64]struct{}{}
+	configuredProvidersErr := error(nil)
+	if a.aiProvider != nil {
+		configuredProviderIDs, configuredProvidersErr = a.aiProvider.ConfiguredAccountIDs(r.Context())
+	}
 	activeProviderID := int64(0)
 	activeProviderName := ""
 	activeProviderHasSecret := false
@@ -635,7 +649,7 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		providerEnabledCount++
-		hasSecret := strings.TrimSpace(item.SecretFingerprint) != ""
+		_, hasSecret := configuredProviderIDs[item.ID]
 		isCooling := item.RuntimeDisabledUntil != nil && item.RuntimeDisabledUntil.After(now)
 		if isCooling {
 			providerCoolingCount++
@@ -652,7 +666,7 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 		providerReady = true
 		activeProviderID = activeAccount.ID
 		activeProviderName = activeAccount.ProviderName
-		activeProviderHasSecret = strings.TrimSpace(activeAccount.SecretFingerprint) != ""
+		_, activeProviderHasSecret = configuredProviderIDs[activeAccount.ID]
 	}
 	billingOverview, billingErr := a.aiBilling.Overview(r.Context(), 5)
 	relayStatus, relayErr := a.aiRelayConsole.Status(r.Context())
@@ -668,7 +682,7 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"available":                  cfgErr == nil && providersErr == nil && providerReady && cfg.Enabled,
 			"enabled":                    cfg.Enabled,
 			"config_error":               errorString(cfgErr),
-			"provider_error":             errorString(providersErr),
+			"provider_error":             errorString(firstError(providersErr, configuredProvidersErr)),
 			"provider_ready":             providerReady,
 			"provider_message":           providerMessage,
 			"provider_count":             len(providers),

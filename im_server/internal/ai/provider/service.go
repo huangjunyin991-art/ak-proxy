@@ -369,7 +369,11 @@ func (s *Service) SetSecret(ctx context.Context, providerID int64, secret string
 
 func (s *Service) LoadActiveAccount(ctx context.Context) (Account, string, error) {
 	cfg := s.LoadBalanceConfig()
-	candidates, err := s.loadProviderCandidates(ctx, 1, cfg.Enabled)
+	limit := 1
+	if cfg.Enabled {
+		limit = cfg.MaxAttempts
+	}
+	candidates, err := s.loadProviderCandidates(ctx, limit, cfg.Enabled)
 	if err != nil {
 		return Account{}, "", err
 	}
@@ -377,6 +381,30 @@ func (s *Service) LoadActiveAccount(ctx context.Context) (Account, string, error
 		return Account{}, "", pgx.ErrNoRows
 	}
 	return candidates[0].account, candidates[0].secret, nil
+}
+
+func (s *Service) ConfiguredAccountIDs(ctx context.Context) (map[int64]struct{}, error) {
+	result := map[int64]struct{}{}
+	if s == nil || s.db == nil {
+		return result, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id
+		FROM im_ai_provider_account
+		WHERE enabled = TRUE
+		  AND secret_ciphertext_or_ref <> ''`)
+	if err != nil {
+		return result, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return result, err
+		}
+		result[id] = struct{}{}
+	}
+	return result, rows.Err()
 }
 
 func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
