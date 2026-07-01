@@ -2143,13 +2143,13 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 	}
 	switch messageType {
 	case "text":
-		contentPayload = strings.TrimSpace(req.Content)
-		if contentPayload == "" {
+		contentPayload = normalizeTextMessageContent(req.Content)
+		if strings.TrimSpace(contentPayload) == "" {
 			err = errEmptyMessageContent
 			return
 		}
 		contentPreview = formatTextMessagePreview(contentPayload)
-		contentSizeRaw = len(contentPayload)
+		contentSizeRaw = len(req.Content)
 		contentSizeStored = len(contentPayload)
 	case "emoji_custom":
 		if req.EmojiAssetID <= 0 {
@@ -2257,6 +2257,10 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 		contentPreview = string([]rune(contentPreview)[:120])
 	}
 	return
+}
+
+func normalizeTextMessageContent(content string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\r", "\n")
 }
 
 func formatTextMessagePreview(content string) string {

@@ -1,9 +1,12 @@
 package app
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestBuildMessageStoragePreservesTextParagraphs(t *testing.T) {
-	content := "first paragraph\n\n\nsecond paragraph\n  third paragraph"
+	content := "  first paragraph\n\n\nsecond paragraph\n  third paragraph  "
 
 	messageType, preview, payload, rawSize, storedSize, err := buildMessageStorage(sendMessageRequest{
 		MessageType: "text",
@@ -26,17 +29,28 @@ func TestBuildMessageStoragePreservesTextParagraphs(t *testing.T) {
 	}
 }
 
-func TestBuildMessageStorageTrimsOuterTextOnly(t *testing.T) {
-	content := "  first paragraph\n\nsecond paragraph  "
+func TestBuildMessageStorageRejectsWhitespaceOnlyText(t *testing.T) {
+	_, _, _, _, _, err := buildMessageStorage(sendMessageRequest{
+		MessageType: "text",
+		Content:     " \n\t\r\n ",
+	})
+	if err == nil {
+		t.Fatal("buildMessageStorage returned nil error for whitespace-only content")
+	}
+	if !errors.Is(err, errEmptyMessageContent) {
+		t.Fatalf("error = %v, want errEmptyMessageContent", err)
+	}
+}
 
+func TestBuildMessageStorageNormalizesTextLineEndings(t *testing.T) {
 	_, _, payload, _, _, err := buildMessageStorage(sendMessageRequest{
 		MessageType: "text",
-		Content:     content,
+		Content:     "first\r\n\rsecond",
 	})
 	if err != nil {
 		t.Fatalf("buildMessageStorage returned error: %v", err)
 	}
-	if payload != "first paragraph\n\nsecond paragraph" {
-		t.Fatalf("payload = %q, want only outer whitespace trimmed", payload)
+	if payload != "first\n\nsecond" {
+		t.Fatalf("payload = %q, want normalized line endings", payload)
 	}
 }

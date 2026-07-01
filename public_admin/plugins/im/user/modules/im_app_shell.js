@@ -335,6 +335,7 @@
                 #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4;display:flex;align-items:center;min-width:0}
                 #ak-im-root .ak-im-message-sender .ak-im-ai-verified-badge{margin-left:6px;height:16px;padding:0 6px;font-size:9px}
                 #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
+                #ak-im-root .ak-im-text-content{display:block;white-space:pre-wrap;white-space:break-spaces;word-break:break-word;overflow-wrap:anywhere}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-image{padding:4px;background:#ffffff;box-shadow:0 2px 8px rgba(15,23,42,.06);border-radius:16px;overflow:hidden;white-space:normal}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-image{background:#d9f7c7}

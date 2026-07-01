@@ -2898,7 +2898,23 @@
             const aiMarkdownMarkup = aiMarkdownModule.buildMessageBubbleMarkup(item);
             if (aiMarkdownMarkup) return aiMarkdownMarkup;
         }
+        if (isPlainTextMessage(item)) return buildPlainTextMessageMarkup(item);
         return escapeHtml(item && (item.content || item.content_preview || '') || '');
+    }
+
+    function isPlainTextMessage(item) {
+        return String(item && item.message_type || '').trim().toLowerCase() === 'text';
+    }
+
+    function buildPlainTextMessageMarkup(item) {
+        const content = normalizePlainTextMessageContent(item && item.content != null && String(item.content || '') !== ''
+            ? item.content
+            : item && item.content_preview);
+        return '<span class="ak-im-text-content">' + escapeHtml(content) + '</span>';
+    }
+
+    function normalizePlainTextMessageContent(content) {
+        return String(content == null ? '' : content).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     }
 
     function getMessageBubbleClassName(item) {
@@ -3935,8 +3951,9 @@
         const opts = options && typeof options === 'object' ? options : {};
         const label = String(opts.label || '内容').trim() || '内容';
         const emptyHint = String(opts.emptyHint || '').trim();
-        const content = String(text == null ? '' : text).trim();
-        if (!content || content === '开启后自动生成') {
+        const content = String(text == null ? '' : text);
+        const normalizedContent = content.trim();
+        if (!normalizedContent || normalizedContent === '开启后自动生成') {
             if (emptyHint) {
                 openDialog({ title: '提示', message: emptyHint, confirmText: '知道了', showCancel: false });
             }
@@ -7165,22 +7182,24 @@
     }
 
     function sendCurrentMessage() {
-        const content = inputEl ? String(inputEl.value || '').trim() : '';
+        const rawContent = inputEl ? String(inputEl.value || '') : '';
+        const content = rawContent.trim();
         const aiManageModule = getAIManageModule();
         if (content && aiManageModule && typeof aiManageModule.handleComposerSubmit === 'function') {
-            const handled = aiManageModule.handleComposerSubmit(content);
+            const handled = aiManageModule.handleComposerSubmit(rawContent);
             if (handled && typeof handled.then === 'function') {
                 return handled.then(function(ok) {
                     if (ok) return null;
-                    return sendCurrentMessageAfterAIEditCheck(content);
+                    return sendCurrentMessageAfterAIEditCheck(rawContent, content);
                 });
             }
             if (handled) return Promise.resolve(null);
         }
-        return sendCurrentMessageAfterAIEditCheck(content);
+        return sendCurrentMessageAfterAIEditCheck(rawContent, content);
     }
 
-    function sendCurrentMessageAfterAIEditCheck(content) {
+    function sendCurrentMessageAfterAIEditCheck(rawContent, commandText) {
+        const content = String(commandText || rawContent || '').trim();
         const groupAdminsModule = getGroupAdminsModule();
         if (content && groupAdminsModule && typeof groupAdminsModule.handleComposerCommand === 'function' && groupAdminsModule.handleComposerCommand(content)) {
             if (inputEl) inputEl.value = '';

@@ -289,7 +289,7 @@
 
         createTextTempMessage(payload, tempId) {
             const state = this.getState();
-            const content = String(payload && payload.content || '').trim();
+            const content = this.normalizeTextContent(payload && payload.content);
             const preview = this.buildTextPreview(content);
             return {
                 id: 0,
@@ -356,6 +356,10 @@
 
         buildTextPreview(content) {
             return String(content || '').trim().replace(/\s+/g, ' ');
+        },
+
+        normalizeTextContent(content) {
+            return String(content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         },
 
         reportActiveConversationState(force) {
@@ -587,8 +591,8 @@
         getMessageCopyText(item) {
             if (!item) return '';
             if (String(item.status || '').trim().toLowerCase() === 'recalled') return '';
-            const content = String(item.content || '').trim();
-            if (String(item.message_type || '').trim().toLowerCase() === 'text') return content;
+            const content = this.normalizeTextContent(item.content);
+            if (String(item.message_type || '').trim().toLowerCase() === 'text') return content.trim() ? content : '';
             return this.getMessagePreviewText(item);
         },
 
@@ -822,6 +826,12 @@
                 return this.ctx.buildMessageBubbleMarkup(item);
             }
             if (!this.ctx || typeof this.ctx.escapeHtml !== 'function') return '';
+            if (String(item && item.message_type || '').trim().toLowerCase() === 'text') {
+                const content = this.normalizeTextContent(item && item.content != null && String(item.content || '') !== ''
+                    ? item.content
+                    : item && item.content_preview);
+                return '<span class="ak-im-text-content">' + this.ctx.escapeHtml(content) + '</span>';
+            }
             return this.ctx.escapeHtml(item && (item.content || item.content_preview || '') || '');
         },
 
@@ -953,9 +963,9 @@
                     const systemRow = document.createElement('div');
                     systemRow.className = 'ak-im-system-row';
                     const systemText = isSelf ? '你撤回了一条消息' : '对方撤回了一条消息';
-                    const draftText = String(state.recalledDraftByMessageId[item.id] || '').trim();
+                    const draftText = self.normalizeTextContent(state.recalledDraftByMessageId[item.id] || '');
                     systemRow.textContent = systemText;
-                    if (isSelf && draftText) {
+                    if (isSelf && draftText.trim()) {
                         const link = document.createElement('a');
                         link.href = 'javascript:void(0)';
                         link.textContent = '重新编辑';
@@ -1272,8 +1282,8 @@
             const elements = this.getElements();
             const inputEl = elements.inputEl;
             if (!state || !state.allowed || !state.activeConversationId || !inputEl) return Promise.resolve(null);
-            const content = String(inputEl.value || '').trim();
-            if (!content) return Promise.resolve(null);
+            const content = this.normalizeTextContent(inputEl.value);
+            if (!content.trim()) return Promise.resolve(null);
             const mentionManage = this.getMentionManage();
             const payload = mentionManage && typeof mentionManage.buildTextPayload === 'function'
                 ? mentionManage.buildTextPayload(content)
@@ -1349,8 +1359,8 @@
             const mid = Number(messageId || 0);
             const cid = Number(conversationId || 0);
             if (!mid || !cid) return Promise.resolve(null);
-            const draft = String(draftText || '').trim();
-            if (draft) state.recalledDraftByMessageId[mid] = draft;
+            const draft = this.normalizeTextContent(draftText);
+            if (draft.trim()) state.recalledDraftByMessageId[mid] = draft;
             const self = this;
             return this.ctx.request(this.ctx.httpRoot + '/messages/recall', {
                 method: 'POST',
