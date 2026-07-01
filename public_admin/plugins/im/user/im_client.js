@@ -2907,15 +2907,10 @@
     }
 
     function buildPlainTextMessageMarkup(item) {
-        const content = getPlainTextMessageContent(item);
+        const content = normalizePlainTextMessageContent(item && item.content != null && String(item.content || '') !== ''
+            ? item.content
+            : item && item.content_preview);
         return '<span class="ak-im-text-content">' + escapeHtml(content) + '</span>';
-    }
-
-    function getPlainTextMessageContent(item) {
-        if (!item || typeof item !== 'object') return '';
-        if (item.content != null) return normalizePlainTextMessageContent(item.content);
-        if (item.content_payload != null) return normalizePlainTextMessageContent(item.content_payload);
-        return '';
     }
 
     function normalizePlainTextMessageContent(content) {

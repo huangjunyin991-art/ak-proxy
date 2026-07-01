@@ -618,7 +618,7 @@
                 </div>
                 <div class="chat-messages" id="ak-chat-messages"></div>
                 <div class="chat-input-area">
-                    <textarea class="chat-input" id="ak-chat-input" rows="1" placeholder="输入回复..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();AKChat.send()}"></textarea>
+                    <input type="text" class="chat-input" id="ak-chat-input" placeholder="输入回复..." onkeypress="if(event.keyCode===13)AKChat.send()">
                     <button class="chat-send" onclick="AKChat.send()">发送</button>
                 </div>
             </div>
@@ -751,11 +751,10 @@
     
     // 添加消息
     function addMessage(content, isAdmin, time) {
-        const messageContent = normalizeChatTextContent(content);
         try {
             const chatUi = getChatUiModule();
             if (chatUi && typeof chatUi.addMessage === 'function') {
-                chatUi.addMessage(messagesDiv, messageContent, isAdmin, time);
+                chatUi.addMessage(messagesDiv, content, isAdmin, time);
                 return;
             }
         } catch(e) {}
@@ -766,7 +765,7 @@
         
         msgDiv.innerHTML = `
             ${isAdmin ? '<div class="chat-label">管理员</div>' : ''}
-            <div class="chat-bubble">${escapeHtml(messageContent)}</div>
+            <div class="chat-bubble">${escapeHtml(content)}</div>
             <div class="chat-time">${timeStr}</div>
         `;
         
@@ -3826,15 +3825,11 @@
     function closeChat() {
         chatBox.classList.remove('visible');
     }
-
-    function normalizeChatTextContent(content) {
-        return String(content == null ? '' : content).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    }
     
     // 发送消息
     function sendMessage() {
-        const content = normalizeChatTextContent(inputEl.value);
-        if (!content.trim()) return;
+        const content = inputEl.value.trim();
+        if (!content) return;
         
         // 检查WebSocket连接状态
         if (!ws || ws.readyState !== WebSocket.OPEN) {
