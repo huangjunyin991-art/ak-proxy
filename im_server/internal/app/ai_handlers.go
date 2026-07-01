@@ -661,7 +661,11 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 	providerReady := false
 	providerMessage := ""
 	if activeAccount, _, err := a.aiProvider.LoadActiveAccount(r.Context()); err != nil {
-		providerMessage = err.Error()
+		if recentSuccess, recentErr := a.aiProvider.HasRecentSuccessfulUse(r.Context(), 30*time.Minute); recentErr == nil && recentSuccess {
+			providerReady = true
+		} else {
+			providerMessage = err.Error()
+		}
 	} else {
 		providerReady = true
 		activeProviderID = activeAccount.ID

@@ -488,7 +488,12 @@ func (s *Service) Bootstrap(ctx context.Context, username string) (Bootstrap, er
 	providerMessage := ""
 	if _, _, err := s.provider.LoadActiveAccount(ctx); err != nil {
 		providerReady = false
-		providerMessage = "AI 通道暂未配置，请联系管理员"
+		if recentSuccess, recentErr := s.provider.HasRecentSuccessfulUse(ctx, 30*time.Minute); recentErr == nil && recentSuccess {
+			providerReady = true
+		}
+		if !providerReady {
+			providerMessage = "AI 通道暂未配置，请联系管理员"
+		}
 	}
 	return Bootstrap{
 		Enabled:          cfg.Enabled,

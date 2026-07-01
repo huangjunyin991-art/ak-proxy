@@ -58,6 +58,7 @@
                     redeeming: false,
                     activeTask: null,
                     activeTaskClearingAt: 0,
+                    providerReadyByReplyUntil: 0,
                     message: ''
                 };
             }
@@ -269,6 +270,18 @@
         isAssistantMessage(item) {
             return String(item && item.sender_username || '').trim().toLowerCase() === BOT_USERNAME
                 || String(item && item.__akAIRole || '').trim().toLowerCase() === 'assistant';
+        },
+
+        hasRecentAssistantReplySignal() {
+            const state = this.ctx && this.ctx.state;
+            const aiState = state && state.aiAssistant ? state.aiAssistant : null;
+            if (aiState && Number(aiState.providerReadyByReplyUntil || 0) > Date.now()) return true;
+            if (!state || !this.isAIConversation() || !Array.isArray(state.activeMessages)) return false;
+            return state.activeMessages.some((item) => {
+                if (!item || item.__akAIPlaceholder) return false;
+                if (!this.isAssistantMessage(item)) return false;
+                return !!String(item.content || item.content_preview || '').trim();
+            });
         },
 
         shouldFollowConversationBottom() {
@@ -1434,6 +1447,7 @@
                 this.clearTaskPoll();
                 this.clearThinkingPlaceholder(state.aiAssistant.activeTask.task_id);
                 if (status === 'succeeded') {
+                    state.aiAssistant.providerReadyByReplyUntil = Date.now() + 30 * 60 * 1000;
                     this.applyTaskSuggestionsToLatestReply(state.aiAssistant.activeTask);
                 }
                 this.keepConversationPinnedToBottom(status === 'succeeded' ? 6000 : 2400);
@@ -1896,6 +1910,7 @@
             const monthlyLimit = quota ? Number(quota.monthly_limit || 0) : 0;
             const billingRemaining = billing ? Number(billing.monthly_remaining_units || 0) : 0;
             const billingLimit = billing ? Number(billing.monthly_limit_units || 0) : 0;
+            const providerReadyByReply = this.hasRecentAssistantReplySignal();
             let mainText = 'AI 助手';
             let quotaText = '';
             let isError = false;
@@ -1910,7 +1925,7 @@
             } else if (bootstrap && !bootstrap.enabled) {
                 mainText = 'AI 助手暂未开启';
                 isError = true;
-            } else if (bootstrap && !bootstrap.provider_ready) {
+            } else if (bootstrap && !bootstrap.provider_ready && !providerReadyByReply) {
                 mainText = this.formatProviderMessage(bootstrap.provider_message);
                 isError = true;
             } else if (quota) {

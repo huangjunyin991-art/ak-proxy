@@ -407,6 +407,29 @@ func (s *Service) ConfiguredAccountIDs(ctx context.Context) (map[int64]struct{},
 	return result, rows.Err()
 }
 
+func (s *Service) HasRecentSuccessfulUse(ctx context.Context, window time.Duration) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, nil
+	}
+	if window <= 0 {
+		window = 30 * time.Minute
+	}
+	seconds := int(window.Seconds())
+	if seconds <= 0 {
+		seconds = 1800
+	}
+	var exists bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM im_ai_provider_account
+			WHERE enabled = TRUE
+			  AND secret_ciphertext_or_ref <> ''
+			  AND last_used_at >= NOW() - ($1::int * INTERVAL '1 second')
+		)`, seconds).Scan(&exists)
+	return exists, err
+}
+
 func (s *Service) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 	return s.chatWithProviderPool(ctx, req, "chat")
 }
