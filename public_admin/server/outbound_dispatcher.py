@@ -17,6 +17,7 @@ import time
 import asyncio
 import logging
 import json
+import inspect
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional
@@ -51,7 +52,14 @@ ALERT_STATUS_CODES = {
 }
 
 
+UPSTREAM_NETWORK_ERROR_MESSAGE = "网络异常，请刷新重试！"
+
+
 class LoginUpstreamNonJsonError(RuntimeError):
+    pass
+
+
+class RpcUpstreamNonJsonError(RuntimeError):
     pass
 
 
@@ -418,6 +426,7 @@ class OutboundDispatcher:
         self._login_group_rr_counter: int = 0
         self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
         self.login_non_json_callback = None
+        self.rpc_non_json_callback = None
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
         self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
         self.rate_limiter = PerSecondRateLimiter() if PerSecondRateLimiter is not None else None
@@ -929,6 +938,9 @@ class OutboundDispatcher:
         return available
 
     def _login_response_is_json(self, resp: httpx.Response) -> bool:
+        return self._response_has_json_payload(resp)
+
+    def _response_has_json_payload(self, resp: httpx.Response) -> bool:
         try:
             content = resp.content or b""
         except Exception:
@@ -941,6 +953,27 @@ class OutboundDispatcher:
         except Exception:
             return False
 
+    def _record_rpc_non_json_response(self, exit_obj: OutboundExit, resp: httpx.Response,
+                                      api_path: str, client_ip: str, account: str,
+                                      attempt_index: int) -> None:
+        callback = self.rpc_non_json_callback
+        if callback is None:
+            return
+        try:
+            result = callback(exit_obj, resp, api_path, client_ip, account, attempt_index)
+            if inspect.isawaitable(result):
+                try:
+                    self._safe_create_task(result, f"rpc_non_json_{exit_obj.name}")
+                except RuntimeError:
+                    close = getattr(result, "close", None)
+                    if callable(close):
+                        close()
+                    raise
+        except RuntimeError:
+            pass
+        except Exception as e:
+            logger.warning(f"[RpcUpstreamNonJson] callback failed: {e}")
+
     def _record_login_non_json_response(self, exit_obj: OutboundExit, resp: httpx.Response,
                                         api_path: str, client_ip: str, account: str,
                                         attempt_index: int) -> None:
@@ -948,10 +981,15 @@ class OutboundDispatcher:
         if callback is None:
             return
         try:
-            self._safe_create_task(
-                callback(exit_obj, resp, api_path, client_ip, account, attempt_index),
-                f"login_non_json_{exit_obj.name}",
-            )
+            result = callback(exit_obj, resp, api_path, client_ip, account, attempt_index)
+            if inspect.isawaitable(result):
+                try:
+                    self._safe_create_task(result, f"login_non_json_{exit_obj.name}")
+                except RuntimeError:
+                    close = getattr(result, "close", None)
+                    if callable(close):
+                        close()
+                    raise
         except RuntimeError:
             pass
         except Exception as e:
@@ -1162,8 +1200,20 @@ class OutboundDispatcher:
                 resp.extensions["ak_exit_name"] = current_exit.name
                 resp.extensions["ak_exit_proxy"] = current_exit.proxy_url or "direct"
                 resp.extensions["ak_exit_is_direct"] = current_exit.is_direct
-                if self._is_login_rpc(api_path) and not self._login_response_is_json(resp):
-                    self._record_login_non_json_response(
+                if not self._response_has_json_payload(resp):
+                    if self._is_login_rpc(api_path):
+                        self._record_login_non_json_response(
+                            current_exit,
+                            resp,
+                            api_path,
+                            client_ip,
+                            account,
+                            attempt_index + 1,
+                        )
+                        raise LoginUpstreamNonJsonError(
+                            UPSTREAM_NETWORK_ERROR_MESSAGE
+                        )
+                    self._record_rpc_non_json_response(
                         current_exit,
                         resp,
                         api_path,
@@ -1171,9 +1221,7 @@ class OutboundDispatcher:
                         account,
                         attempt_index + 1,
                     )
-                    raise LoginUpstreamNonJsonError(
-                        f"login upstream returned non-json response from {current_exit.name}"
-                    )
+                    raise RpcUpstreamNonJsonError(UPSTREAM_NETWORK_ERROR_MESSAGE)
                 current_exit.reset_connect_failures()
                 self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
                 if (
@@ -1189,7 +1237,7 @@ class OutboundDispatcher:
                 last_error = e
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
-                if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, LoginUpstreamStatusRetryError)):
+                if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError)):
                     base_freeze_seconds = 3600
                     if self.policy_config is not None:
                         base_freeze_seconds = int(getattr(self.policy_config, "connect_failure_freeze_seconds", 3600) or 3600)

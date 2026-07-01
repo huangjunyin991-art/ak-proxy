@@ -1,7 +1,7 @@
 import pytest
 import httpx
 
-from .outbound_dispatcher import OutboundDispatcher
+from .outbound_dispatcher import OutboundDispatcher, RpcUpstreamNonJsonError
 
 
 def _saturate_regular_direct(dispatcher: OutboundDispatcher) -> None:
@@ -333,3 +333,86 @@ async def test_login_403_response_retries_next_exit_and_freezes_current():
     assert dispatcher.exits[1].warn_403 == 1
     assert dispatcher.exits[1].is_frozen
     assert response.json()["Error"] is False
+
+
+@pytest.mark.anyio
+async def test_rpc_non_json_response_retries_next_exit_and_records_diagnostic():
+    dispatcher = OutboundDispatcher()
+    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
+    dispatcher.add_socks5("bad-html", 10001, group_id="g1")
+    dispatcher.add_socks5("good-json", 10002, group_id="g2")
+    attempts = []
+    diagnostics = []
+
+    def record_non_json(exit_obj, resp, api_path, client_ip, account, attempt_index):
+        diagnostics.append((exit_obj.name, api_path, client_ip, account, attempt_index, resp.status_code))
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "bad-html":
+            return httpx.Response(
+                200,
+                content=b"<html>bad gateway</html>",
+                headers={"content-type": "text/html"},
+            )
+        return httpx.Response(
+            200,
+            json={"Error": False, "Data": {"ok": True}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher.rpc_non_json_callback = record_non_json
+    dispatcher._do_request = fake_request
+
+    response = await dispatcher.forward(
+        dispatcher.exits[1],
+        "POST",
+        "https://example.test/RPC/Public_ACE",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Public_ACE",
+        client_ip="1.2.3.4",
+        account="demo",
+    )
+
+    assert attempts == ["bad-html", "good-json"]
+    assert diagnostics == [("bad-html", "Public_ACE", "1.2.3.4", "demo", 1, 200)]
+    assert not dispatcher.exits[1].is_frozen
+    assert response.json()["Data"]["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_rpc_non_json_response_raises_after_all_fallbacks_fail():
+    dispatcher = OutboundDispatcher()
+    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
+    dispatcher.add_socks5("bad-json-1", 10001, group_id="g1")
+    dispatcher.add_socks5("bad-json-2", 10002, group_id="g2")
+    attempts = []
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+        attempts.append(exit_obj.name)
+        return httpx.Response(
+            200,
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+
+    with pytest.raises(RpcUpstreamNonJsonError, match="网络异常，请刷新重试！"):
+        await dispatcher.forward(
+            dispatcher.exits[1],
+            "POST",
+            "https://example.test/RPC/Public_ACE",
+            {},
+            content_type="application/x-www-form-urlencoded",
+            params={"account": "demo"},
+            raw_body=b"",
+            api_path="Public_ACE",
+        )
+
+    assert attempts == ["bad-json-1", "bad-json-2", "direct"]
+    assert not dispatcher.exits[1].is_frozen
+    assert not dispatcher.exits[2].is_frozen

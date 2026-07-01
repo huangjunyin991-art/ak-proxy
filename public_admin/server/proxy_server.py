@@ -193,7 +193,7 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
 
-from .outbound_dispatcher import dispatcher, OutboundExit, LoginUpstreamNonJsonError
+from .outbound_dispatcher import dispatcher, OutboundExit, LoginUpstreamNonJsonError, RpcUpstreamNonJsonError
 from .runtime_performance import (
     BlockingPoolConfigService,
     TimedServiceStatusCache,
@@ -762,6 +762,20 @@ if not login_upstream_logger.handlers:
     )
     login_upstream_handler.setFormatter(formatter)
     login_upstream_logger.addHandler(login_upstream_handler)
+
+
+rpc_json_error_logger = logging.getLogger("TransparentProxy.RpcJsonError")
+rpc_json_error_logger.setLevel(logging.INFO)
+rpc_json_error_logger.propagate = False
+if not rpc_json_error_logger.handlers:
+    rpc_json_error_handler = RotatingFileHandler(
+        os.path.join(PUBLIC_ADMIN_DIR, "rpc_upstream_json_error.log"),
+        maxBytes=1 * 1024 * 1024,
+        backupCount=1,
+        encoding="utf-8",
+    )
+    rpc_json_error_handler.setFormatter(formatter)
+    rpc_json_error_logger.addHandler(rpc_json_error_handler)
 
 
 class ProxyStats:
@@ -2727,7 +2741,13 @@ async def proxy_login(request: Request):
                 )
                 upstream_ms = _elapsed_ms(upstream_started_at)
 
-                result = response.json()
+                result = _parse_rpc_upstream_json(
+                    response,
+                    "Login",
+                    "rpc_login_password_probe",
+                    account=account,
+                    client_ip=client_ip,
+                )
             else:
                 result = {"Error": True, "Msg": "賬戶或密碼不正確"}
 
@@ -2770,7 +2790,13 @@ async def proxy_login(request: Request):
                 )
                 upstream_ms = _elapsed_ms(upstream_started_at)
 
-                result = response.json()
+                result = _parse_rpc_upstream_json(
+                    response,
+                    "Login",
+                    "rpc_login",
+                    account=account,
+                    client_ip=client_ip,
+                )
 
     except Exception as e:
 
@@ -2788,8 +2814,8 @@ async def proxy_login(request: Request):
             error=type(e).__name__,
         )
 
-        if isinstance(e, LoginUpstreamNonJsonError):
-            return JSONResponse({"Error": True, "Msg": "API连接失败: 上游返回非JSON响应，已记录诊断日志"})
+        if isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
+            return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE})
         return JSONResponse({"Error": True, "Msg": f"API连接失败: {str(e)}"})
 
     
@@ -3152,7 +3178,13 @@ async def proxy_index_data(request: Request):
         )
         upstream_ms = _elapsed_ms(upstream_started_at)
 
-        result = response.json()
+        result = _parse_rpc_upstream_json(
+            response,
+            "public_IndexData",
+            "index_data",
+            account=request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
+            client_ip=client_ip,
+        )
         _log_rpc_login_reject_response(
             "public_IndexData",
             response,
@@ -3194,7 +3226,14 @@ async def proxy_index_data(request: Request):
                 )
                 retry_upstream_ms = _elapsed_ms(retry_started_at)
                 try:
-                    retry_result = retry_response.json()
+                    retry_result = _parse_rpc_upstream_json(
+                        retry_response,
+                        "public_IndexData",
+                        "index_data_retry",
+                        account=request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
+                        client_ip=client_ip,
+                        extra=f"retry_source={retry_source}",
+                    )
                 except Exception:
                     retry_result = {}
                 if isinstance(retry_result, dict) and retry_response.status_code < 500 and not _rpc_result_is_login_reject(retry_result):
@@ -3228,6 +3267,8 @@ async def proxy_index_data(request: Request):
             error=type(e).__name__,
         )
 
+        if isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
+            return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
         return JSONResponse({"Error": True, "Msg": f"API连接失败: {str(e)}"})
 
     
@@ -3509,13 +3550,25 @@ async def proxy_rpc(path: str, request: Request):
             await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
         if _is_login_forget_rpc(path):
             try:
-                result = response.json()
+                result = _parse_rpc_upstream_json(
+                    response,
+                    path,
+                    "rpc_login_forget",
+                    account=_extract_forward_account(params),
+                    client_ip=client_ip,
+                )
                 await _sync_saved_password_after_login_forget_success(path, params, result, "rpc")
             except Exception as e:
                 logger.warning(f"[LoginForgetPasswordReset] 处理改密返回失败: account={_extract_forward_account(params)}, source=rpc, error={e}")
         if _security_state_patch_for_rpc(path):
             try:
-                result = response.json()
+                result = _parse_rpc_upstream_json(
+                    response,
+                    path,
+                    "rpc_security_state",
+                    account=_extract_forward_account(params),
+                    client_ip=client_ip,
+                )
                 await _sync_cached_security_state_after_rpc_success(
                     path,
                     params,
@@ -3530,12 +3583,34 @@ async def proxy_rpc(path: str, request: Request):
 
             try:
 
-                result = response.json()
+                result = _parse_rpc_upstream_json(
+                    response,
+                    path,
+                    "rpc_trace",
+                    account=_extract_forward_account(params),
+                    client_ip=client_ip,
+                )
 
                 _admin_ak_trace(lambda: f"[IframeRPCLeak] path={path} status={response.status_code} {summarize_log_payload(result)}")
 
             except Exception:
 
+                pass
+
+        if not (
+            _is_login_forget_rpc(path)
+            or _security_state_patch_for_rpc(path)
+            or (ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer))
+        ):
+            try:
+                _parse_rpc_upstream_json(
+                    response,
+                    path,
+                    "rpc_passthrough",
+                    account=_extract_forward_account(params),
+                    client_ip=client_ip,
+                )
+            except Exception:
                 pass
 
         total_ms = _elapsed_ms(request_started_at)
@@ -3599,6 +3674,8 @@ async def proxy_rpc(path: str, request: Request):
             error=type(e).__name__,
         )
 
+        if isinstance(e, (RpcUpstreamNonJsonError, RpcUpstreamJsonParseError, LoginUpstreamNonJsonError)):
+            return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
     finally:
         if stock_price_cache_key and stock_price_cache_lock is not None:
@@ -6684,6 +6761,7 @@ async def admin_startup():
 
     dispatcher.alert_callback = _record_dispatcher_alert_event
     dispatcher.login_non_json_callback = _record_login_upstream_non_json_event
+    dispatcher.rpc_non_json_callback = _record_rpc_upstream_json_error_event
 
     await dispatcher.start()
 
@@ -7131,8 +7209,16 @@ async def _fetch_point_history_page(username: str, point_type: str, page: int, p
         {},
     )
     try:
-        payload = response.json()
+        payload = _parse_rpc_upstream_json(
+            response,
+            endpoint,
+            "point_history_sync",
+            account=username,
+            extra=f"point_type={point_code} page={page}",
+        )
     except Exception as exc:
+        if isinstance(exc, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
+            raise RuntimeError(RPC_UPSTREAM_NETWORK_ERROR_MESSAGE) from exc
         logger.warning(
             f"[PointHistorySync] JSON 解析失败 username={username} point_type={point_code} page={page} "
             f"status={response.status_code} err={exc} {summarize_log_payload(response.text)}"
@@ -7274,8 +7360,15 @@ async def _ensure_point_stats_auth(username: str) -> dict:
     if response.status_code != 200:
         raise RuntimeError(f"自动登录失败 HTTP {response.status_code}")
     try:
-        result = response.json()
+        result = _parse_rpc_upstream_json(
+            response,
+            "Login",
+            "point_history_auto_login",
+            account=username,
+        )
     except Exception as exc:
+        if isinstance(exc, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
+            raise RuntimeError(RPC_UPSTREAM_NETWORK_ERROR_MESSAGE) from exc
         raise RuntimeError(f"自动登录响应解析失败: {exc}")
     if not isinstance(result, dict):
         raise RuntimeError("自动登录响应格式异常")
@@ -15021,6 +15114,70 @@ def _response_text_preview(response: httpx.Response | None, limit: int = 500) ->
     return content[:limit].decode("utf-8", errors="replace").replace("\r", "\\r").replace("\n", "\\n")
 
 
+def _response_body_len(response: httpx.Response | None) -> int:
+    if response is None:
+        return 0
+    try:
+        return len(response.content or b"")
+    except Exception:
+        return 0
+
+
+RPC_UPSTREAM_NETWORK_ERROR_MESSAGE = "网络异常，请刷新重试！"
+
+
+class RpcUpstreamJsonParseError(ValueError):
+    def __init__(self, path: str, source: str):
+        super().__init__(RPC_UPSTREAM_NETWORK_ERROR_MESSAGE)
+        self.path = path
+        self.source = source
+
+
+def _log_rpc_upstream_json_error(response: httpx.Response | None, path: str, source: str,
+                                 error: Exception, account: str = "", client_ip: str = "",
+                                 extra: str = "") -> None:
+    headers = getattr(response, "headers", {}) or {}
+    extensions = getattr(response, "extensions", {}) or {}
+    try:
+        location = str(headers.get("location") or "")
+    except Exception:
+        location = ""
+    rpc_json_error_logger.warning(
+        "source=%s path=%s account=%s client_ip=%s exit=%s direct=%s status=%s "
+        "content_type=%s bytes=%s location=%s error=%s extra=%s head=%s",
+        str(source or "-"),
+        str(path or "-"),
+        str(account or "-"),
+        str(client_ip or "-"),
+        str(extensions.get("ak_exit_name") or "-"),
+        int(bool(extensions.get("ak_exit_is_direct"))),
+        int(getattr(response, "status_code", 0) or 0),
+        str(headers.get("content-type") or "-"),
+        _response_body_len(response),
+        redact_log_text(location, limit=200) if location else "-",
+        type(error).__name__,
+        redact_log_text(str(extra or "-"), limit=200),
+        redact_log_text(_response_text_preview(response), limit=500) or "-",
+    )
+
+
+def _parse_rpc_upstream_json(response: httpx.Response, path: str, source: str,
+                             account: str = "", client_ip: str = "", extra: str = ""):
+    try:
+        return response.json()
+    except Exception as exc:
+        _log_rpc_upstream_json_error(
+            response,
+            path,
+            source,
+            exc,
+            account=account,
+            client_ip=client_ip,
+            extra=extra,
+        )
+        raise RpcUpstreamJsonParseError(path, source) from exc
+
+
 def _log_login_upstream_non_json(response: httpx.Response | None, account: str, client_ip: str,
                                  stage: str, attempt_no: int, error: Exception) -> None:
     status_code = int(getattr(response, "status_code", 0) or 0)
@@ -15064,6 +15221,20 @@ async def _record_login_upstream_non_json_event(exit_obj, response: httpx.Respon
         api_path or "Login",
         attempt_no,
         ValueError("non_json_login_response"),
+    )
+
+
+async def _record_rpc_upstream_json_error_event(exit_obj, response: httpx.Response, api_path: str,
+                                                client_ip: str, account: str,
+                                                attempt_no: int) -> None:
+    _log_rpc_upstream_json_error(
+        response,
+        api_path or "-",
+        "dispatcher_attempt",
+        ValueError("non_json_rpc_response"),
+        account=account,
+        client_ip=client_ip,
+        extra=f"attempt={attempt_no}",
     )
 
 
@@ -15600,7 +15771,13 @@ def _log_rpc_login_reject_response(path: str, response: httpx.Response, params: 
         content_type = str(response.headers.get("content-type") or "").lower()
         if "json" not in content_type:
             return
-        result = response.json()
+        result = _parse_rpc_upstream_json(
+            response,
+            path,
+            f"{source}_login_reject",
+            account=username,
+            extra=f"auth_patched={int(bool(auth_patched))}",
+        )
     except Exception:
         return
     if not isinstance(result, dict):
@@ -16672,10 +16849,20 @@ async def _silent_login_ak_account(username: str, request: Request) -> tuple[Opt
             client_ip=_extract_client_ip(request),
             is_login=True,
         )
-        result = response.json()
+        result = _parse_rpc_upstream_json(
+            response,
+            "Login",
+            "ak_auth_silent_login",
+            account=normalized_username,
+            client_ip=_extract_client_ip(request),
+        )
     except Exception as e:
         logger.warning(f"[AkAuthSilentLogin] upstream_login_failed username={normalized_username}: {e}")
-        return None, JSONResponse({"success": False, "message": f"静默登录失败: {str(e)}"}, status_code=502)
+        message = RPC_UPSTREAM_NETWORK_ERROR_MESSAGE if isinstance(
+            e,
+            (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError),
+        ) else f"静默登录失败: {str(e)}"
+        return None, JSONResponse({"success": False, "message": message}, status_code=502)
 
     if not isinstance(result, dict):
         return None, JSONResponse({"success": False, "message": "静默登录响应格式异常"}, status_code=502)
@@ -17027,7 +17214,13 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             ck, cv = kv.split("=", 1)
             session["cookies"][ck.strip()] = cv.strip()
     try:
-        result = response.json()
+        result = _parse_rpc_upstream_json(
+            response,
+            path,
+            "admin_ak_rpc",
+            account=str(session.get("username") or params.get("account") or params.get("username") or ""),
+            client_ip=_extract_client_ip(request),
+        )
         should_persist = bool(set_cookie_values)
         is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
         await _sync_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")
@@ -17095,9 +17288,11 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             total_ms=total_ms,
         )
         return _mirror_upstream_set_cookies(proxy_response, response.headers)
-    except Exception:
+    except Exception as e:
         if set_cookie_values:
             await _persist_browse_session_auth(session)
+        if isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
+            raise
         _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
         _log_rpc_login_reject_response(
             path,
@@ -17173,6 +17368,8 @@ async def admin_ak_rpc(path: str, request: Request):
         return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
     except Exception as e:
         logger.error(f"[AdminAkRpc/{path}] 转发失败: {e}")
+        if isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
+            return JSONResponse({"Error": True, "IsLogin": False, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
 
