@@ -654,7 +654,7 @@ func (a *App) handleAIAdminDiagnostics(w http.ResponseWriter, r *http.Request) {
 		if isCooling {
 			providerCoolingCount++
 		}
-		if hasSecret && !isCooling {
+		if hasSecret {
 			providerUsableCount++
 		}
 	}

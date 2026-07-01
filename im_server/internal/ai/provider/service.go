@@ -373,7 +373,7 @@ func (s *Service) LoadActiveAccount(ctx context.Context) (Account, string, error
 	if cfg.Enabled {
 		limit = cfg.MaxAttempts
 	}
-	candidates, err := s.loadProviderCandidates(ctx, limit, cfg.Enabled)
+	candidates, err := s.loadProviderCandidatesWithCooldownFallback(ctx, limit, cfg.Enabled)
 	if err != nil {
 		return Account{}, "", err
 	}
@@ -428,7 +428,7 @@ func (s *Service) chatWithProviderPool(ctx context.Context, req ChatRequest, pur
 		limit = cfg.MaxAttempts
 		onlyReady = true
 	}
-	candidates, err := s.loadProviderCandidates(ctx, limit, onlyReady)
+	candidates, err := s.loadProviderCandidatesWithCooldownFallback(ctx, limit, onlyReady)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ChatResponse{}, s.providerPoolUnavailableError(ctx, onlyReady)
@@ -470,6 +470,14 @@ func (s *Service) chatWithCandidate(ctx context.Context, candidate providerCandi
 		return s.chatWithResolvedModel(ctx, candidate.account, candidate.secret, req, model, "summary")
 	}
 	return s.chatWithAccount(ctx, candidate.account, candidate.secret, req)
+}
+
+func (s *Service) loadProviderCandidatesWithCooldownFallback(ctx context.Context, limit int, onlyReady bool) ([]providerCandidate, error) {
+	candidates, err := s.loadProviderCandidates(ctx, limit, onlyReady)
+	if err == nil || !onlyReady || !errors.Is(err, pgx.ErrNoRows) {
+		return candidates, err
+	}
+	return s.loadProviderCandidates(ctx, limit, false)
 }
 
 func (s *Service) loadProviderCandidates(ctx context.Context, limit int, onlyReady bool) ([]providerCandidate, error) {
