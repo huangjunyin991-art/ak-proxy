@@ -16,6 +16,7 @@ import socket
 import time
 import asyncio
 import logging
+import json
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional
@@ -871,11 +872,11 @@ class OutboundDispatcher:
             content = b""
         if not content.strip():
             return False
-        content_type = str(resp.headers.get("content-type") or "").lower()
-        if "json" in content_type:
+        try:
+            json.loads(content.decode("utf-8"))
             return True
-        head = content.lstrip()[:1]
-        return head in (b"{", b"[")
+        except Exception:
+            return False
 
     def _record_login_non_json_response(self, exit_obj: OutboundExit, resp: httpx.Response,
                                         api_path: str, client_ip: str, account: str,

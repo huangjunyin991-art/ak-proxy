@@ -215,3 +215,41 @@ async def test_login_non_json_response_retries_next_exit():
 
     assert attempts == ["bad-html", "good-json"]
     assert response.json()["Error"] is False
+
+
+@pytest.mark.anyio
+async def test_login_invalid_json_content_type_retries_next_exit():
+    dispatcher = OutboundDispatcher()
+    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
+    dispatcher.add_socks5("bad-json", 10001)
+    dispatcher.add_socks5("good-json", 10002)
+    attempts = []
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "bad-json":
+            return httpx.Response(
+                200,
+                content=b"not-json",
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200,
+            json={"Error": False, "UserData": {"Id": 1}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        dispatcher.exits[1],
+        "POST",
+        "https://example.test/RPC/Login",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Login",
+    )
+
+    assert attempts == ["bad-json", "good-json"]
+    assert response.json()["Error"] is False
