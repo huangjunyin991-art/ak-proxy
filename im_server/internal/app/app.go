@@ -2148,7 +2148,7 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 			err = errEmptyMessageContent
 			return
 		}
-		contentPreview = contentPayload
+		contentPreview = formatTextMessagePreview(contentPayload)
 		contentSizeRaw = len(contentPayload)
 		contentSizeStored = len(contentPayload)
 	case "emoji_custom":
@@ -2257,6 +2257,10 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 		contentPreview = string([]rune(contentPreview)[:120])
 	}
 	return
+}
+
+func formatTextMessagePreview(content string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
 }
 
 type insertedMessageResult struct {

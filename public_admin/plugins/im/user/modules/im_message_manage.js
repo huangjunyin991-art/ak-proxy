@@ -290,6 +290,7 @@
         createTextTempMessage(payload, tempId) {
             const state = this.getState();
             const content = String(payload && payload.content || '').trim();
+            const preview = this.buildTextPreview(content);
             return {
                 id: 0,
                 conversation_id: Number(state && state.activeConversationId || 0),
@@ -303,7 +304,7 @@
                 seq_no: 0,
                 message_type: 'text',
                 content: content,
-                content_preview: content,
+                content_preview: preview,
                 status: 'sending',
                 sent_at: this.ctx.createLocalSentAt(),
                 client_temp_id: tempId,
@@ -351,6 +352,10 @@
                 conversationId: visible ? conversationId : 0,
                 visible: visible
             };
+        },
+
+        buildTextPreview(content) {
+            return String(content || '').trim().replace(/\s+/g, ' ');
         },
 
         reportActiveConversationState(force) {
@@ -579,6 +584,14 @@
             return '[非文本消息]';
         },
 
+        getMessageCopyText(item) {
+            if (!item) return '';
+            if (String(item.status || '').trim().toLowerCase() === 'recalled') return '';
+            const content = String(item.content || '').trim();
+            if (String(item.message_type || '').trim().toLowerCase() === 'text') return content;
+            return this.getMessagePreviewText(item);
+        },
+
         getMessageDisplayName(item) {
             const state = this.getState();
             const sender = String(item && item.sender_username || '').trim();
@@ -682,7 +695,7 @@
         copyActionSheetMessage() {
             const item = this.findActionSheetMessage();
             if (typeof this.ctx.closeActionSheet === 'function') this.ctx.closeActionSheet();
-            const text = this.getMessagePreviewText(item);
+            const text = this.getMessageCopyText(item);
             if (this.ctx && typeof this.ctx.copyWithHint === 'function') {
                 this.ctx.copyWithHint(text, { label: '消息内容', emptyHint: '这条消息没有可复制的文本内容' });
             }
