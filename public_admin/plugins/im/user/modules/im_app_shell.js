@@ -1220,6 +1220,9 @@
                         ctx.onComposerInput(elements.inputEl.value || '');
                     }
                 });
+                elements.inputEl.addEventListener('paste', function(event) {
+                    appShellModule.handleComposerPaste(event, elements.inputEl);
+                });
                 elements.inputEl.addEventListener('keydown', function(event) {
                     if (event.key === 'Enter' && !event.shiftKey) {
                         event.preventDefault();
@@ -1312,6 +1315,180 @@
                     }
                 });
             }
+        },
+
+        normalizeClipboardText(text) {
+            return String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        },
+
+        getWhitespaceWeight(text) {
+            const value = this.normalizeClipboardText(text);
+            const newlineCount = (value.match(/\n/g) || []).length;
+            const spaceCount = (value.match(/[ \t]/g) || []).length;
+            const repeatedSpaceCount = (value.match(/[ \t]{2,}/g) || []).length;
+            return newlineCount * 6 + repeatedSpaceCount * 3 + spaceCount;
+        },
+
+        shouldUseHtmlClipboardText(plainText, htmlText) {
+            const plain = this.normalizeClipboardText(plainText);
+            const html = this.normalizeClipboardText(htmlText);
+            if (!html || html === plain) return false;
+            if (!plain) return true;
+            const compactPlain = plain.replace(/\s+/g, '');
+            const compactHtml = html.replace(/\s+/g, '');
+            if (!compactPlain || compactPlain !== compactHtml) return false;
+            return this.getWhitespaceWeight(html) > this.getWhitespaceWeight(plain);
+        },
+
+        htmlClipboardToText(html) {
+            const rawHtml = String(html || '');
+            if (!rawHtml || typeof document === 'undefined' || !document || typeof document.createElement !== 'function') return '';
+            const template = document.createElement('template');
+            template.innerHTML = rawHtml;
+            const skipTags = {
+                SCRIPT: true,
+                STYLE: true,
+                NOSCRIPT: true,
+                SVG: true,
+                CANVAS: true,
+                IFRAME: true,
+                OBJECT: true,
+                EMBED: true,
+                IMG: true,
+                VIDEO: true,
+                AUDIO: true
+            };
+            const paragraphTags = { P: true };
+            const blockTags = {
+                ADDRESS: true,
+                ARTICLE: true,
+                ASIDE: true,
+                BLOCKQUOTE: true,
+                DD: true,
+                DETAILS: true,
+                DIV: true,
+                DL: true,
+                DT: true,
+                FIELDSET: true,
+                FIGCAPTION: true,
+                FIGURE: true,
+                FOOTER: true,
+                FORM: true,
+                H1: true,
+                H2: true,
+                H3: true,
+                H4: true,
+                H5: true,
+                H6: true,
+                HEADER: true,
+                HR: true,
+                LI: true,
+                MAIN: true,
+                NAV: true,
+                OL: true,
+                PRE: true,
+                SECTION: true,
+                TABLE: true,
+                TBODY: true,
+                TFOOT: true,
+                THEAD: true,
+                TR: true,
+                UL: true
+            };
+            let output = '';
+            const appendNewlines = function(count) {
+                output = output.replace(/[ \t]+$/g, '');
+                const current = output.match(/\n*$/);
+                const existing = current ? current[0].length : 0;
+                for (let index = existing; index < count; index += 1) output += '\n';
+            };
+            const appendText = function(text, preserve) {
+                let value = String(text == null ? '' : text);
+                if (!preserve) {
+                    value = value.replace(/\u00a0/g, '\ue000').replace(/[ \t\r\n\f]+/g, ' ').replace(/\ue000/g, ' ');
+                } else {
+                    value = value.replace(/\u00a0/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+                }
+                if (!value) return;
+                if (!preserve) {
+                    if (!output || output.endsWith('\n')) value = value.replace(/^ +/g, '');
+                    if (output.endsWith(' ') && value.startsWith(' ')) value = value.slice(1);
+                }
+                output += value;
+            };
+            const walk = function(node, preserve) {
+                if (!node) return;
+                if (node.nodeType === 3) {
+                    appendText(node.nodeValue, preserve);
+                    return;
+                }
+                if (node.nodeType !== 1 && node.nodeType !== 11) return;
+                const tagName = node.nodeType === 1 ? String(node.tagName || '').toUpperCase() : '';
+                if (tagName && skipTags[tagName]) return;
+                if (tagName === 'BR') {
+                    appendNewlines(1);
+                    return;
+                }
+                if (tagName === 'HR') {
+                    appendNewlines(1);
+                    return;
+                }
+                const isPre = tagName === 'PRE';
+                const isParagraph = !!paragraphTags[tagName];
+                const isBlock = isParagraph || !!blockTags[tagName];
+                if (isBlock && output && !output.endsWith('\n')) appendNewlines(1);
+                if (tagName === 'LI') appendText('- ', true);
+                Array.prototype.forEach.call(node.childNodes || [], function(child) {
+                    walk(child, preserve || isPre);
+                });
+                if (tagName === 'TD' || tagName === 'TH') {
+                    appendText('\t', true);
+                } else if (isParagraph) {
+                    appendNewlines(2);
+                } else if (isBlock) {
+                    appendNewlines(1);
+                }
+            };
+            Array.prototype.forEach.call(template.content.childNodes || [], function(child) {
+                walk(child, false);
+            });
+            return this.normalizeClipboardText(output)
+                .replace(/[ \t]+\n/g, '\n')
+                .replace(/\n[ \t]+/g, '\n')
+                .replace(/\n{4,}/g, '\n\n\n')
+                .replace(/^\n+|\n+$/g, '');
+        },
+
+        insertComposerText(inputEl, text) {
+            if (!inputEl) return false;
+            const value = String(inputEl.value || '');
+            const start = typeof inputEl.selectionStart === 'number' ? inputEl.selectionStart : value.length;
+            const end = typeof inputEl.selectionEnd === 'number' ? inputEl.selectionEnd : start;
+            const insertText = this.normalizeClipboardText(text);
+            inputEl.value = value.slice(0, start) + insertText + value.slice(end);
+            const nextCaret = start + insertText.length;
+            try {
+                inputEl.setSelectionRange(nextCaret, nextCaret);
+            } catch (e) {}
+            try {
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            } catch (e2) {
+                const ctx = this.ctx || {};
+                if (typeof ctx.onComposerInput === 'function') ctx.onComposerInput(inputEl.value || '');
+            }
+            return true;
+        },
+
+        handleComposerPaste(event, inputEl) {
+            const clipboard = event && event.clipboardData ? event.clipboardData : null;
+            if (!clipboard || !inputEl) return false;
+            const plainText = clipboard.getData ? clipboard.getData('text/plain') : '';
+            const html = clipboard.getData ? clipboard.getData('text/html') : '';
+            if (!html) return false;
+            const htmlText = this.htmlClipboardToText(html);
+            if (!this.shouldUseHtmlClipboardText(plainText, htmlText)) return false;
+            event.preventDefault();
+            return this.insertComposerText(inputEl, htmlText);
         },
 
         renderShell(shellState) {
