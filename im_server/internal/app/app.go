@@ -2733,6 +2733,54 @@ func (a *App) canAccessMessageAsset(ctx context.Context, storageName string, use
 	return exists
 }
 
+func isAvatarImageStorageName(storageName string) bool {
+	normalizedStorageName := strings.TrimSpace(storageName)
+	if len(normalizedStorageName) != len("avatar_")+64+len(".webp") {
+		return false
+	}
+	if !strings.HasPrefix(normalizedStorageName, "avatar_") || !strings.HasSuffix(normalizedStorageName, ".webp") {
+		return false
+	}
+	for _, ch := range normalizedStorageName[len("avatar_") : len(normalizedStorageName)-len(".webp")] {
+		switch {
+		case ch >= '0' && ch <= '9':
+		case ch >= 'a' && ch <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (a *App) canAccessAvatarImageAsset(ctx context.Context, storageName string, username string) bool {
+	normalizedStorageName := strings.TrimSpace(storageName)
+	normalizedUsername := normalizeRequestUsername(username)
+	if a == nil || a.db == nil || normalizedUsername == "" || !isAvatarImageStorageName(normalizedStorageName) {
+		return false
+	}
+	avatarPath := buildImageAssetURL(normalizedStorageName)
+	var exists bool
+	err := a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM (
+				SELECT avatar_url
+				FROM im_user_profile
+				WHERE avatar_url <> ''
+				UNION ALL
+				SELECT avatar_url
+				FROM im_user_avatar_history
+				WHERE avatar_url <> ''
+			) avatar_refs
+			WHERE avatar_url = $1
+				OR RIGHT(avatar_url, LENGTH($1)) = $1
+			)`, avatarPath).Scan(&exists)
+	if err != nil {
+		return false
+	}
+	return exists
+}
+
 func (a *App) authorizeMessageAssetRequest(w http.ResponseWriter, r *http.Request, storageName string, fields ...string) bool {
 	username, err := a.requireAllowedUser(r)
 	if err != nil {
@@ -2740,6 +2788,20 @@ func (a *App) authorizeMessageAssetRequest(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	if !a.canAccessMessageAsset(r.Context(), storageName, username, fields...) {
+		w.WriteHeader(http.StatusNotFound)
+		return false
+	}
+	return true
+}
+
+func (a *App) authorizeImageAssetRequest(w http.ResponseWriter, r *http.Request, storageName string) bool {
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		return false
+	}
+	if !a.canAccessMessageAsset(r.Context(), storageName, username, "storage_name", "original_storage_name") &&
+		!a.canAccessAvatarImageAsset(r.Context(), storageName, username) {
 		w.WriteHeader(http.StatusNotFound)
 		return false
 	}

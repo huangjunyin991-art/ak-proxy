@@ -1274,7 +1274,7 @@ func (a *App) handleImageAssetFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if !a.authorizeMessageAssetRequest(w, r, storageName, "storage_name", "original_storage_name") {
+	if !a.authorizeImageAssetRequest(w, r, storageName) {
 		return
 	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
