@@ -211,6 +211,14 @@
             });
         },
 
+        formatProviderMessage(value) {
+            const text = String(value || '').trim();
+            if (!text || /provider\s+is\s+not\s+configured/i.test(text)) {
+                return 'AI 通道暂未配置，请联系管理员';
+            }
+            return text;
+        },
+
         aiTreeIcon(name) {
             switch (String(name || '').trim()) {
             case 'copy':
@@ -1903,7 +1911,7 @@
                 mainText = 'AI 助手暂未开启';
                 isError = true;
             } else if (bootstrap && !bootstrap.provider_ready) {
-                mainText = bootstrap.provider_message || 'AI 中转站暂未配置';
+                mainText = this.formatProviderMessage(bootstrap.provider_message);
                 isError = true;
             } else if (quota) {
                 mainText = '当前权益：' + tierName;
