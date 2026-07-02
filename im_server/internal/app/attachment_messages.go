@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	neturl "net/url"
@@ -1281,9 +1282,11 @@ func (a *App) handleImageAssetFile(w http.ResponseWriter, r *http.Request) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Printf("im image asset file missing: storage=%s path=%s", storageName, filePath)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		log.Printf("im image asset open failed: storage=%s path=%s err=%v", storageName, filePath, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

@@ -74,3 +74,21 @@ func TestIsAvatarImageStorageName(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeMessageAssetPayloadFields(t *testing.T) {
+	fields := normalizeMessageAssetPayloadFields("storage_name", "preview_storage_name", "storage_name", "unknown")
+	if len(fields) != 2 {
+		t.Fatalf("len(fields) = %d, want 2", len(fields))
+	}
+	if fields[0] != "storage_name" || fields[1] != "preview_storage_name" {
+		t.Fatalf("fields = %#v", fields)
+	}
+}
+
+func TestBuildMessageAssetExtractExpression(t *testing.T) {
+	got := buildMessageAssetExtractExpression(" Storage_Name ")
+	want := `substring(m.content_payload FROM '"storage_name"[[:space:]]*:[[:space:]]*"([^"]+)"')`
+	if got != want {
+		t.Fatalf("expression = %q, want %q", got, want)
+	}
+}

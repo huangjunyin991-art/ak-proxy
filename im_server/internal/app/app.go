@@ -2702,6 +2702,11 @@ func normalizeMessageAssetPayloadFields(fields ...string) []string {
 	return result
 }
 
+func buildMessageAssetExtractExpression(field string) string {
+	normalized := strings.ToLower(strings.TrimSpace(field))
+	return fmt.Sprintf(`substring(m.content_payload FROM '"%s"[[:space:]]*:[[:space:]]*"([^"]+)"')`, normalized)
+}
+
 func (a *App) canAccessMessageAsset(ctx context.Context, storageName string, username string, fields ...string) bool {
 	normalizedStorageName := strings.TrimSpace(storageName)
 	normalizedUsername := normalizeRequestUsername(username)
@@ -2711,7 +2716,7 @@ func (a *App) canAccessMessageAsset(ctx context.Context, storageName string, use
 	payloadFields := normalizeMessageAssetPayloadFields(fields...)
 	conditions := make([]string, 0, len(payloadFields))
 	for _, field := range payloadFields {
-		conditions = append(conditions, fmt.Sprintf("(m.content_payload::jsonb ->> '%s') = $1", field))
+		conditions = append(conditions, buildMessageAssetExtractExpression(field)+` = $1`)
 	}
 	query := `
 		SELECT EXISTS(
@@ -2728,6 +2733,7 @@ func (a *App) canAccessMessageAsset(ctx context.Context, storageName string, use
 		)`
 	var exists bool
 	if err := a.db.QueryRow(ctx, query, normalizedStorageName, normalizedUsername).Scan(&exists); err != nil {
+		log.Printf("im message asset access query failed: username=%s storage=%s fields=%v err=%v", normalizedUsername, normalizedStorageName, payloadFields, err)
 		return false
 	}
 	return exists
@@ -2802,6 +2808,7 @@ func (a *App) authorizeImageAssetRequest(w http.ResponseWriter, r *http.Request,
 	}
 	if !a.canAccessMessageAsset(r.Context(), storageName, username, "storage_name", "original_storage_name") &&
 		!a.canAccessAvatarImageAsset(r.Context(), storageName, username) {
+		log.Printf("im image asset access miss: username=%s storage=%s path=%s", username, storageName, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 		return false
 	}
