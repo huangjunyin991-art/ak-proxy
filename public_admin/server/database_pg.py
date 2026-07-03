@@ -45,7 +45,7 @@ from .performance.login_events import (
 from .performance.notification_history import build_notification_campaign_page
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
-from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
+from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth_periods
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 from .db.sql_policy import classify_admin_sql
@@ -2316,11 +2316,15 @@ async def get_stats_summary() -> Dict:
     """获取统计摘要"""
     pool = _get_pool()
     await ensure_ban_normalized(pool)
-    return await build_admin_summary(
-        pool,
-        user_growth_loader=lambda: build_user_growth(pool),
-        on_user_growth_error=lambda exc: logger.warning(f"[DashboardStats] 用户增长数据加载失败: {exc}"),
-    )
+    summary = await build_admin_summary(pool)
+    try:
+        user_growth_periods = await build_user_growth_periods(pool)
+    except Exception as exc:
+        logger.warning(f"[DashboardStats] 用户增长数据加载失败: {exc}")
+        user_growth_periods = {'day': [], 'week': [], 'month': []}
+    summary['user_growth_periods'] = user_growth_periods
+    summary['user_growth'] = user_growth_periods.get('day') or []
+    return summary
 
 
 # ===== IP 统计 =====

@@ -198,3 +198,88 @@ async def fetch_user_growth_rows(conn, days: int = 30) -> List[Dict[str, Any]]:
         ORDER BY day
     ''', normalized_days)
     return [dict(row) for row in rows]
+
+
+async def fetch_user_growth_bucket_rows(conn, period: str, count: int) -> List[Dict[str, Any]]:
+    normalized_period = str(period or '').strip().lower()
+    if normalized_period == 'week':
+        return await _fetch_user_growth_week_rows(conn, count)
+    if normalized_period == 'month':
+        return await _fetch_user_growth_month_rows(conn, count)
+    return await fetch_user_growth_rows(conn, count)
+
+
+async def _fetch_user_growth_week_rows(conn, count: int) -> List[Dict[str, Any]]:
+    normalized_count = max(1, min(int(count or 12), 104))
+    rows = await conn.fetch('''
+        WITH bounds AS (
+            SELECT date_trunc('week', CURRENT_DATE)::date AS current_bucket,
+                   (date_trunc('week', CURRENT_DATE) - (($1::int - 1) * INTERVAL '1 week'))::date AS start_bucket,
+                   (date_trunc('week', CURRENT_DATE) + INTERVAL '1 week')::timestamp AS end_ts
+        ),
+        buckets AS (
+            SELECT generate_series(start_bucket, current_bucket, INTERVAL '1 week')::date AS bucket_start
+            FROM bounds
+        ),
+        baseline AS (
+            SELECT COUNT(*) AS count
+            FROM user_stats, bounds
+            WHERE first_login IS NULL OR first_login < start_bucket::timestamp
+        ),
+        weekly AS (
+            SELECT date_trunc('week', first_login)::date AS bucket_start, COUNT(*) AS count
+            FROM user_stats, bounds
+            WHERE first_login IS NOT NULL
+              AND first_login >= start_bucket::timestamp
+              AND first_login < end_ts
+            GROUP BY date_trunc('week', first_login)::date
+        )
+        SELECT bucket_start::text AS date,
+               (bucket_start + INTERVAL '6 days')::date::text AS end_date,
+               to_char(bucket_start, 'MM-DD') || '~' || to_char((bucket_start + INTERVAL '6 days')::date, 'MM-DD') AS label,
+               COALESCE(weekly.count, 0) AS increase,
+               baseline.count + SUM(COALESCE(weekly.count, 0)) OVER (ORDER BY bucket_start) AS total
+        FROM buckets
+        CROSS JOIN baseline
+        LEFT JOIN weekly USING(bucket_start)
+        ORDER BY bucket_start
+    ''', normalized_count)
+    return [dict(row) for row in rows]
+
+
+async def _fetch_user_growth_month_rows(conn, count: int) -> List[Dict[str, Any]]:
+    normalized_count = max(1, min(int(count or 12), 60))
+    rows = await conn.fetch('''
+        WITH bounds AS (
+            SELECT date_trunc('month', CURRENT_DATE)::date AS current_bucket,
+                   (date_trunc('month', CURRENT_DATE) - (($1::int - 1) * INTERVAL '1 month'))::date AS start_bucket,
+                   (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::timestamp AS end_ts
+        ),
+        buckets AS (
+            SELECT generate_series(start_bucket, current_bucket, INTERVAL '1 month')::date AS bucket_start
+            FROM bounds
+        ),
+        baseline AS (
+            SELECT COUNT(*) AS count
+            FROM user_stats, bounds
+            WHERE first_login IS NULL OR first_login < start_bucket::timestamp
+        ),
+        monthly AS (
+            SELECT date_trunc('month', first_login)::date AS bucket_start, COUNT(*) AS count
+            FROM user_stats, bounds
+            WHERE first_login IS NOT NULL
+              AND first_login >= start_bucket::timestamp
+              AND first_login < end_ts
+            GROUP BY date_trunc('month', first_login)::date
+        )
+        SELECT bucket_start::text AS date,
+               (bucket_start + INTERVAL '1 month' - INTERVAL '1 day')::date::text AS end_date,
+               to_char(bucket_start, 'YYYY-MM') AS label,
+               COALESCE(monthly.count, 0) AS increase,
+               baseline.count + SUM(COALESCE(monthly.count, 0)) OVER (ORDER BY bucket_start) AS total
+        FROM buckets
+        CROSS JOIN baseline
+        LEFT JOIN monthly USING(bucket_start)
+        ORDER BY bucket_start
+    ''', normalized_count)
+    return [dict(row) for row in rows]

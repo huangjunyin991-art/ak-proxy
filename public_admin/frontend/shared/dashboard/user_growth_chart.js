@@ -6,6 +6,14 @@
         bound: false,
         chart: null,
         chartLoading: false,
+        period: 'day',
+        chartRows: [],
+    };
+
+    const PERIODS = {
+        day: { label: '日', currentLabel: '当天新增', rangeLabel: '近30天新增' },
+        week: { label: '周', currentLabel: '本周新增', rangeLabel: '近12周新增' },
+        month: { label: '月', currentLabel: '本月新增', rangeLabel: '近12个月新增' },
     };
 
     function formatNumber(value) {
@@ -17,9 +25,24 @@
     function normalizeRows(rows) {
         return Array.isArray(rows) ? rows.map(item => ({
             date: String(item.date || ''),
+            endDate: String(item.end_date || ''),
+            label: String(item.label || item.date || ''),
             increase: Number(item.increase || 0),
             total: Number(item.total || 0),
         })).filter(item => item.date) : [];
+    }
+
+    function getRowsForPeriod(period) {
+        const stats = state.stats || {};
+        const periods = stats.user_growth_periods && typeof stats.user_growth_periods === 'object'
+            ? stats.user_growth_periods
+            : {};
+        const rows = periods[period] || (period === 'day' ? stats.user_growth : []);
+        return normalizeRows(rows);
+    }
+
+    function getCurrentPeriod() {
+        return PERIODS[state.period] ? state.period : 'day';
     }
 
     function ensureModal() {
@@ -156,12 +179,12 @@
                         callbacks: {
                             title: function (items) {
                                 const idx = items[0].dataIndex;
-                                const rows = normalizeRows(state.stats && state.stats.user_growth || []);
-                                return rows[idx] ? rows[idx].date : items[0].label;
+                                const rows = state.chartRows || [];
+                                return rows[idx] ? (rows[idx].label || rows[idx].date) : items[0].label;
                             },
                             label: function (ctx) {
                                 const idx = ctx.dataIndex;
-                                const rows = normalizeRows(state.stats && state.stats.user_growth || []);
+                                const rows = state.chartRows || [];
                                 if (rows[idx]) {
                                     return [
                                         '新增: +' + formatNumber(rows[idx].increase),
@@ -211,32 +234,69 @@
         removeChartOverlay();
     }
 
-    function open() {
-        var modal = ensureModal();
-        var rows = state.stats && state.stats.user_growth;
-        var data = normalizeRows(rows);
-        var content = document.getElementById('userGrowthContent');
+    function renderPeriodTabs(activePeriod) {
+        return '<div class="ug-period-tabs" role="tablist" aria-label="用户增长统计周期">' +
+            Object.keys(PERIODS).map(function (period) {
+                const active = period === activePeriod;
+                return '<button type="button" class="ug-period-tab' + (active ? ' active' : '') + '" data-ug-period="' + period + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '">' + PERIODS[period].label + '</button>';
+            }).join('') +
+            '</div>';
+    }
+
+    function bindPeriodTabs(content) {
+        const buttons = content ? content.querySelectorAll('[data-ug-period]') : [];
+        buttons.forEach(function (button) {
+            button.addEventListener('click', function () {
+                const nextPeriod = button.getAttribute('data-ug-period') || 'day';
+                if (!PERIODS[nextPeriod] || nextPeriod === state.period) return;
+                state.period = nextPeriod;
+                destroyChart();
+                renderGrowthContent();
+            });
+        });
+    }
+
+    function buildAxisLabels(data, period) {
+        return data.map(function (item, i) {
+            if (period === 'day') {
+                return (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : '';
+            }
+            if (period === 'week') {
+                return item.label || item.date.slice(5);
+            }
+            return item.label || item.date.slice(0, 7);
+        });
+    }
+
+    function renderGrowthContent() {
+        const content = document.getElementById('userGrowthContent');
+        if (!content) return;
+        const period = getCurrentPeriod();
+        const periodConfig = PERIODS[period];
+        const data = getRowsForPeriod(period);
+        state.chartRows = data;
 
         if (!data.length) {
-            if (content) content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
-            modal.classList.add('active');
-            modal.style.display = 'flex';
+            destroyChart();
+            content.innerHTML = renderPeriodTabs(period) + '<div class="ug-empty">暂无增长数据</div>';
+            bindPeriodTabs(content);
             return;
         }
 
-        var last = data[data.length - 1];
-        var periodIncrease = data.reduce(function (s, i) { return s + i.increase; }, 0);
-        var trendDelta = data.length > 1 ? last.total - data[0].total : 0;
-        var trendUp = trendDelta >= 0;
-        var trendPercent = data.length > 1 && data[0].total > 0
+        const last = data[data.length - 1];
+        const periodIncrease = data.reduce(function (s, i) { return s + i.increase; }, 0);
+        const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
+        const trendUp = trendDelta >= 0;
+        const trendPercent = data.length > 1 && data[0].total > 0
             ? ((trendDelta / data[0].total) * 100).toFixed(1)
             : '0';
 
-        var lbls = data.map(function (item, i) { return (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : ''; });
-        var vals = data.map(function (item) { return item.increase; });
-        var maxVal = Math.max.apply(null, vals.concat([1]));
+        const lbls = buildAxisLabels(data, period);
+        const vals = data.map(function (item) { return item.increase; });
+        const maxVal = Math.max.apply(null, vals.concat([1]));
 
         content.innerHTML = [
+            renderPeriodTabs(period),
             '<div class="ug-summary">',
             '<div class="ug-stat-card">',
             '<div class="ug-stat-icon" style="background:linear-gradient(135deg,#00d4ff22,#00d4ff44);">',
@@ -246,12 +306,12 @@
             '<div class="ug-stat-card">',
             '<div class="ug-stat-icon" style="background:linear-gradient(135deg,#ffd70022,#ffd70044);">',
             '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffd700" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
-            '</div><div class="ug-stat-body"><div class="ug-stat-label">当天新增</div>',
+            '</div><div class="ug-stat-body"><div class="ug-stat-label">' + periodConfig.currentLabel + '</div>',
             '<div class="ug-stat-value" style="color:#ffd700">+' + formatNumber(last.increase) + '</div></div></div>',
             '<div class="ug-stat-card">',
             '<div class="ug-stat-icon" style="background:linear-gradient(135deg,#00ff8822,#00ff8844);">',
             '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>',
-            '</div><div class="ug-stat-body"><div class="ug-stat-label">近' + data.length + '天新增</div>',
+            '</div><div class="ug-stat-body"><div class="ug-stat-label">' + periodConfig.rangeLabel + '</div>',
             '<div class="ug-stat-value green">+' + formatNumber(periodIncrease) + '</div></div></div>',
             '<div class="ug-stat-card">',
             '<div class="ug-stat-icon" style="background:linear-gradient(135deg,' + (trendUp ? '#00ff8822,#00ff8844' : '#ff475722,#ff475744') + ');">',
@@ -262,10 +322,16 @@
             '<div class="ug-chart-shell" style="position:relative;"><canvas id="userGrowthChart"></canvas></div>',
         ].join('');
 
-        modal.classList.add('active');
-        modal.style.display = 'flex';
+        bindPeriodTabs(content);
         showChartLoading();
         requestAnimationFrame(function () { initChart(lbls, vals, maxVal); });
+    }
+
+    function open() {
+        var modal = ensureModal();
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+        renderGrowthContent();
     }
 
     function close() {
@@ -285,6 +351,11 @@
 
     function updateStats(stats) {
         state.stats = stats || null;
+        const modal = document.getElementById('userGrowthModal');
+        if (modal && modal.classList.contains('active')) {
+            destroyChart();
+            renderGrowthContent();
+        }
     }
 
     window.addEventListener('admin:stats-refreshed', event => updateStats(event.detail || null));

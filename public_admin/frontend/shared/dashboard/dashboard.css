@@ -42,6 +42,39 @@
     margin-bottom: 20px;
 }
 
+.ug-period-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(0, 212, 255, 0.18);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.ug-period-tab {
+    min-width: 48px;
+    height: 30px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.ug-period-tab.active {
+    background: rgba(0, 212, 255, 0.16);
+    color: var(--accent);
+}
+
+.ug-period-tab:hover {
+    color: var(--accent);
+}
+
 /* 顶部统计卡片：4列 */
 .ug-summary {
     display: grid;

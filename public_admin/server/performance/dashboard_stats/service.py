@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
-from .repository import fetch_traffic_dashboard_row, fetch_user_growth_rows
+from .repository import fetch_traffic_dashboard_row, fetch_user_growth_bucket_rows, fetch_user_growth_rows
 
 
 _EMPTY_TRAFFIC_DASHBOARD = {
@@ -40,6 +40,18 @@ async def build_traffic_dashboard(pool) -> Dict[str, Any]:
 async def build_user_growth(pool, days: int = 30) -> List[Dict[str, Any]]:
     async with pool.acquire() as conn:
         return await fetch_user_growth_rows(conn, days)
+
+
+async def build_user_growth_periods(pool) -> Dict[str, List[Dict[str, Any]]]:
+    async with pool.acquire() as conn:
+        day_rows = await fetch_user_growth_rows(conn, 30)
+        week_rows = await fetch_user_growth_bucket_rows(conn, 'week', 12)
+        month_rows = await fetch_user_growth_bucket_rows(conn, 'month', 12)
+    return {
+        'day': day_rows,
+        'week': week_rows,
+        'month': month_rows,
+    }
 
 
 def _load_json_list(value: Any) -> List[Dict[str, Any]]:
