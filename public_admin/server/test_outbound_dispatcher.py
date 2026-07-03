@@ -220,6 +220,34 @@ def test_wide_spread_fallback_ignores_dedicated_fast_pool_size():
 
 
 @pytest.mark.anyio
+async def test_start_starts_initial_and_periodic_ip_detect_tasks(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    created = []
+
+    class DummyTask:
+        def __init__(self, name):
+            self.name = name
+
+        def done(self):
+            return False
+
+    def fake_create_task(coro, name=""):
+        coro.close()
+        created.append(name)
+        return DummyTask(name)
+
+    monkeypatch.setattr(dispatcher, "_ensure_health_check_started", lambda: None)
+    monkeypatch.setattr(dispatcher, "_ensure_latency_probe_started", lambda: None)
+    monkeypatch.setattr(dispatcher, "_safe_create_task", fake_create_task)
+
+    await dispatcher.start()
+
+    assert created == ["initial_ip_detect", "periodic_ip_detect"]
+    assert dispatcher._initial_ip_detect_task is not None
+    assert dispatcher._periodic_ip_detect_task is not None
+
+
+@pytest.mark.anyio
 async def test_login_non_json_response_retries_next_exit():
     dispatcher = OutboundDispatcher()
     dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
@@ -416,3 +444,36 @@ async def test_rpc_non_json_response_raises_after_all_fallbacks_fail():
     assert attempts == ["bad-json-1", "bad-json-2", "direct"]
     assert not dispatcher.exits[1].is_frozen
     assert not dispatcher.exits[2].is_frozen
+
+
+@pytest.mark.anyio
+async def test_successful_response_resets_connect_failure_gradient():
+    dispatcher = OutboundDispatcher()
+    dispatcher.add_socks5("recovering", 10001)
+    recovering = dispatcher.exits[1]
+    recovering.freeze_for_connect_error("boom", 30)
+    recovering._frozen_until = 0
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+        return httpx.Response(
+            200,
+            json={"Error": False, "Data": {"ok": True}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+
+    response = await dispatcher.forward(
+        recovering,
+        "POST",
+        "https://example.test/RPC/Public_ACE",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Public_ACE",
+    )
+
+    assert recovering._connect_failures == 0
+    assert recovering._frozen_reason == ""
+    assert response.json()["Data"]["ok"] is True

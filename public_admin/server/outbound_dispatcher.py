@@ -19,7 +19,7 @@ import logging
 import json
 import inspect
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -384,6 +384,8 @@ class OutboundDispatcher:
 
     MAX_LOGIN_PER_MIN = 10
     LOGIN_403_FREEZE_SECONDS = 60
+    INITIAL_IP_DETECT_DELAY_SECONDS = 30
+    IP_DETECT_INTERVAL_SECONDS = 60 * 60
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
@@ -419,6 +421,8 @@ class OutboundDispatcher:
         self._direct_critical_timestamps = deque()
         self._health_task: Optional[asyncio.Task] = None
         self._latency_probe_task: Optional[asyncio.Task] = None
+        self._initial_ip_detect_task: Optional[asyncio.Task] = None
+        self._periodic_ip_detect_task: Optional[asyncio.Task] = None
         self._started = False
         self._rr_counter: int = 0
         self._wide_spread_rr_counter: int = 0
@@ -517,6 +521,16 @@ class OutboundDispatcher:
         self._latency_probe_task = self._safe_create_task(self._latency_probe_loop(), "latency_probe_loop")
         logger.info("[Dispatcher] 延迟测速任务已启动")
 
+    def _ensure_ip_detect_started(self):
+        if not self._started:
+            return
+        if self._initial_ip_detect_task is None or self._initial_ip_detect_task.done():
+            self._initial_ip_detect_task = self._safe_create_task(self._initial_ip_detect(), "initial_ip_detect")
+            logger.info("[Dispatcher] 初始IP检测任务已启动")
+        if self._periodic_ip_detect_task is None or self._periodic_ip_detect_task.done():
+            self._periodic_ip_detect_task = self._safe_create_task(self._periodic_ip_detect_loop(), "periodic_ip_detect")
+            logger.info("[Dispatcher] 周期IP检测任务已启动")
+
     # ===== 启停 =====
 
     async def start(self):
@@ -526,8 +540,7 @@ class OutboundDispatcher:
         self._started = True
         self._ensure_health_check_started()
         self._ensure_latency_probe_started()
-        # 启动每日凌晨4点定时IP检测任务
-        self._safe_create_task(self._scheduled_ip_detect_loop(), "scheduled_ip_detect")
+        self._ensure_ip_detect_started()
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
 
     async def stop(self):
@@ -545,6 +558,18 @@ class OutboundDispatcher:
                 await self._latency_probe_task
             except asyncio.CancelledError:
                 pass
+        if self._initial_ip_detect_task:
+            self._initial_ip_detect_task.cancel()
+            try:
+                await self._initial_ip_detect_task
+            except asyncio.CancelledError:
+                pass
+        if self._periodic_ip_detect_task:
+            self._periodic_ip_detect_task.cancel()
+            try:
+                await self._periodic_ip_detect_task
+            except asyncio.CancelledError:
+                pass
         # 关闭所有出口的持久 client
         for ex in self.exits:
             await ex.close_client()
@@ -552,28 +577,27 @@ class OutboundDispatcher:
 
     async def _initial_ip_detect(self):
         """启动后延迟30秒执行一次全量IP检测（等待_restore_dispatcher_exits完成且sing-box预热）"""
-        await asyncio.sleep(30)
+        await asyncio.sleep(self.INITIAL_IP_DETECT_DELAY_SECONDS)
+        if not self._started:
+            return
         try:
             await self.detect_all_ips()
         except Exception as e:
             logger.warning(f"[Dispatcher] 初始IP检测异常: {e}")
 
-    async def _scheduled_ip_detect_loop(self):
-        """每天凌晨4点执行一次全量IP检测（低峰期检测，不影响用户请求）"""
+    async def _periodic_ip_detect_loop(self):
+        """每小时执行一次全量IP检测，失败状态可自动恢复，不依赖人工触发。"""
         while True:
-            now = datetime.now()
-            target = now.replace(hour=4, minute=0, second=0, microsecond=0)
-            if now >= target:
-                target += timedelta(days=1)
-            wait_seconds = (target - now).total_seconds()
-            logger.info(f"[Dispatcher] 每日IP检测定时任务将在 {wait_seconds/3600:.1f} 小时后执行（凌晨4点）")
-            await asyncio.sleep(wait_seconds)
-            logger.info("[Dispatcher] 每日定时全量IP检测开始...")
+            logger.info(f"[Dispatcher] 下次周期IP检测将在 {self.IP_DETECT_INTERVAL_SECONDS / 3600:.1f} 小时后执行")
+            await asyncio.sleep(self.IP_DETECT_INTERVAL_SECONDS)
+            if not self._started:
+                return
+            logger.info("[Dispatcher] 周期IP检测开始...")
             try:
                 await self.detect_all_ips()
-                logger.info("[Dispatcher] 每日定时IP检测完成")
+                logger.info("[Dispatcher] 周期IP检测完成")
             except Exception as e:
-                logger.warning(f"[Dispatcher] 每日IP检测异常: {e}")
+                logger.warning(f"[Dispatcher] 周期IP检测异常: {e}")
 
     # ===== 内部工具 =====
 
