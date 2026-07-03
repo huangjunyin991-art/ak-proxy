@@ -386,6 +386,7 @@ class OutboundDispatcher:
     LOGIN_403_FREEZE_SECONDS = 60
     INITIAL_IP_DETECT_DELAY_SECONDS = 30
     IP_DETECT_INTERVAL_SECONDS = 60 * 60
+    FAILED_IP_DETECT_INTERVAL_SECONDS = 5 * 60
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
@@ -423,7 +424,9 @@ class OutboundDispatcher:
         self._latency_probe_task: Optional[asyncio.Task] = None
         self._initial_ip_detect_task: Optional[asyncio.Task] = None
         self._periodic_ip_detect_task: Optional[asyncio.Task] = None
+        self._failed_ip_detect_task: Optional[asyncio.Task] = None
         self._started = False
+        self._ip_detect_run_lock = asyncio.Lock()
         self._rr_counter: int = 0
         self._wide_spread_rr_counter: int = 0
         self._wide_spread_group_rr_counter: int = 0
@@ -530,6 +533,9 @@ class OutboundDispatcher:
         if self._periodic_ip_detect_task is None or self._periodic_ip_detect_task.done():
             self._periodic_ip_detect_task = self._safe_create_task(self._periodic_ip_detect_loop(), "periodic_ip_detect")
             logger.info("[Dispatcher] 周期IP检测任务已启动")
+        if self._failed_ip_detect_task is None or self._failed_ip_detect_task.done():
+            self._failed_ip_detect_task = self._safe_create_task(self._failed_ip_detect_loop(), "failed_ip_detect")
+            logger.info("[Dispatcher] 失败节点IP快检任务已启动")
 
     # ===== 启停 =====
 
@@ -570,6 +576,12 @@ class OutboundDispatcher:
                 await self._periodic_ip_detect_task
             except asyncio.CancelledError:
                 pass
+        if self._failed_ip_detect_task:
+            self._failed_ip_detect_task.cancel()
+            try:
+                await self._failed_ip_detect_task
+            except asyncio.CancelledError:
+                pass
         # 关闭所有出口的持久 client
         for ex in self.exits:
             await ex.close_client()
@@ -598,6 +610,19 @@ class OutboundDispatcher:
                 logger.info("[Dispatcher] 周期IP检测完成")
             except Exception as e:
                 logger.warning(f"[Dispatcher] 周期IP检测异常: {e}")
+
+    async def _failed_ip_detect_loop(self):
+        """仅对检测失败的节点做快速重试，帮助节点尽快恢复。"""
+        while True:
+            await asyncio.sleep(self.FAILED_IP_DETECT_INTERVAL_SECONDS)
+            if not self._started:
+                return
+            try:
+                recovered = await self.detect_failed_ips()
+                if recovered > 0:
+                    logger.info(f"[Dispatcher] 失败节点IP快检恢复 {recovered} 个出口")
+            except Exception as e:
+                logger.warning(f"[Dispatcher] 失败节点IP快检异常: {e}")
 
     # ===== 内部工具 =====
 
@@ -1472,10 +1497,8 @@ class OutboundDispatcher:
                 logger.warning(f"[Dispatcher] 出口 {ex.name} 连续{ex._ip_detect_failures}次IP检测失败，标记下线")
         return False
 
-    async def detect_all_ips(self):
-        """全量IP检测：两轮检测，两轮均失败才标记死节点下线（Semaphore=40 限并发）"""
+    async def _probe_ip_batch(self, exits_snapshot: list[OutboundExit]) -> list:
         sem = asyncio.Semaphore(40)
-        exits_snapshot = list(self.exits)
 
         async def _probe(ex: OutboundExit) -> bool:
             async with sem:
@@ -1485,27 +1508,47 @@ class OutboundDispatcher:
                 finally:
                     ex.ip_detecting = False
 
-        # 第一轮：并发检测（逐个清空、逐个更新，前端实时可见）
-        results = await asyncio.gather(*[_probe(ex) for ex in exits_snapshot], return_exceptions=True)
+        if not exits_snapshot:
+            return []
+        return await asyncio.gather(*[_probe(ex) for ex in exits_snapshot], return_exceptions=True)
 
-        # 找出第一轮失败的出口
-        failed = [ex for ex, r in zip(exits_snapshot, results)
-                  if not (isinstance(r, bool) and r)]
+    async def detect_all_ips(self):
+        """Run a full IP detection pass and only mark exits offline after two failed rounds."""
+        async with self._ip_detect_run_lock:
+            exits_snapshot = list(self.exits)
 
-        if not failed:
-            return
+            # First round: probe every exit concurrently so the UI can update incrementally.
+            results = await self._probe_ip_batch(exits_snapshot)
 
-        logger.info(f"[Dispatcher] IP检测第一轮: {len(failed)} 个出口失败，5秒后重试")
-        await asyncio.sleep(5)
+            failed = [
+                ex for ex, result in zip(exits_snapshot, results)
+                if not (isinstance(result, bool) and result)
+            ]
+            if not failed:
+                return
 
-        # 第二轮：只对失败出口重试
-        retry_results = await asyncio.gather(*[_probe(ex) for ex in failed], return_exceptions=True)
+            logger.info(f"[Dispatcher] IP detect round 1: {len(failed)} exits failed, retrying in 5s")
+            await asyncio.sleep(5)
 
-        # 两轮均失败 → 标记死节点下线（不依赖_ever_healthy，新节点也适用）
-        for ex, r in zip(failed, retry_results):
-            if not (isinstance(r, bool) and r) and ex.healthy and not ex.is_direct:
-                ex.healthy = False
-                logger.warning(f"[Dispatcher] 死节点: {ex.name} 两轮IP检测均失败，标记下线")
+            # Second round: only retry the exits that failed in round one.
+            retry_results = await self._probe_ip_batch(failed)
+            for ex, result in zip(failed, retry_results):
+                if not (isinstance(result, bool) and result) and ex.healthy and not ex.is_direct:
+                    ex.healthy = False
+                    logger.warning(f"[Dispatcher] Dead exit: {ex.name} failed both IP detection rounds")
+
+    async def detect_failed_ips(self) -> int:
+        """Only re-probe exits with recent IP detection failures; return recovered count."""
+        async with self._ip_detect_run_lock:
+            failed_exits = [
+                ex for ex in self.exits
+                if not ex.is_direct and (ex._ip_detect_failures > 0 or bool(ex.ip_detect_last_error))
+            ]
+            if not failed_exits:
+                return 0
+
+            results = await self._probe_ip_batch(failed_exits)
+            return sum(1 for result in results if isinstance(result, bool) and result)
 
     async def _latency_probe_loop(self):
         await asyncio.sleep(self.policy_config.initial_probe_delay_seconds)

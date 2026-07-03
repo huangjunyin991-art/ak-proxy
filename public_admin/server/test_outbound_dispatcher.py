@@ -242,9 +242,32 @@ async def test_start_starts_initial_and_periodic_ip_detect_tasks(monkeypatch):
 
     await dispatcher.start()
 
-    assert created == ["initial_ip_detect", "periodic_ip_detect"]
+    assert created == ["initial_ip_detect", "periodic_ip_detect", "failed_ip_detect"]
     assert dispatcher._initial_ip_detect_task is not None
     assert dispatcher._periodic_ip_detect_task is not None
+    assert dispatcher._failed_ip_detect_task is not None
+
+
+@pytest.mark.anyio
+async def test_detect_failed_ips_only_probes_failed_exits(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    dispatcher.add_socks5("healthy", 10001)
+    dispatcher.add_socks5("failed-a", 10002)
+    dispatcher.add_socks5("failed-b", 10003)
+    dispatcher.exits[2]._ip_detect_failures = 2
+    dispatcher.exits[3].ip_detect_last_error = "timeout"
+    probed = []
+
+    async def fake_probe(exits_snapshot):
+        probed.extend(ex.name for ex in exits_snapshot)
+        return [True, False]
+
+    monkeypatch.setattr(dispatcher, "_probe_ip_batch", fake_probe)
+
+    recovered = await dispatcher.detect_failed_ips()
+
+    assert probed == ["failed-a", "failed-b"]
+    assert recovered == 1
 
 
 @pytest.mark.anyio
