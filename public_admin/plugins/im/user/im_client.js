@@ -6524,12 +6524,11 @@
     function getPushNotificationStatus() {
         if (isMobileBrowser()) {
             const item = state.ntfyBinding && typeof state.ntfyBinding === 'object' ? state.ntfyBinding : {};
-            const topic = String(item.topic || '');
             const enabled = !!(item.bound && item.enabled);
             const busy = !!state.ntfyLoading || !!state.ntfySaving || !!state.ntfyDeleting;
             return {
                 title: enabled ? '消息通知已开启' : '开启消息通知',
-                meta: state.ntfyLoading ? '正在读取消息提醒状态...' : (enabled ? (topic ? ('Topic：' + topic) : '消息提醒已开启') : '打开后生成 ntfy 订阅 Topic，并在 ntfy App 中添加订阅'),
+                meta: state.ntfyLoading ? '正在读取消息提醒状态...' : (enabled ? '消息提醒已开启' : '打开后生成用户通知绑定码，并在通知应用中添加订阅'),
                 disabled: busy,
                 checked: enabled
             };
