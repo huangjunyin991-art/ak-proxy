@@ -235,6 +235,9 @@
     function installRuntimePagePatches() {
         try {
             var patches = window.AKClientRuntimePatches;
+            if (patches && typeof patches.installRecommendFriendRelationLabelPatch === 'function') {
+                patches.installRecommendFriendRelationLabelPatch();
+            }
             if (patches && typeof patches.installRecommendFriendFirstCardBackPatch === 'function') {
                 patches.installRecommendFriendFirstCardBackPatch();
             }

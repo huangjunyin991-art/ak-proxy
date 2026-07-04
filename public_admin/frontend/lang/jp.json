@@ -1022,7 +1022,11 @@
     "LOAD_COMPLETE_TEXT": "これ以上なし...",
     "NONE_DATA_TEXT": "フレンドなし",
     "SEARCH": "検索",
-    "INPUT_PLACEHOLDER": "IDを入力"
+    "INPUT_PLACEHOLDER": "IDを入力",
+    "RELATION_DIRECT": "直接紹介",
+    "RELATION_SUB_ACCOUNT": "サブアカウント",
+    "RELATION_LEFT_ZONE": "左区",
+    "RELATION_RIGHT_ZONE": "右区"
   },
   "my.fans.list": {
     "TITLE_TEXT": "マイファン",

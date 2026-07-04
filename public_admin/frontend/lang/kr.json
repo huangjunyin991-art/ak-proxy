@@ -966,7 +966,11 @@
     "LOAD_COMPLETE_TEXT": "더 이상 없음...",
     "NONE_DATA_TEXT": "친구 없음",
     "SEARCH": "검색",
-    "INPUT_PLACEHOLDER": "ID 입력"
+    "INPUT_PLACEHOLDER": "ID 입력",
+    "RELATION_DIRECT": "직추천",
+    "RELATION_SUB_ACCOUNT": "하위 계정",
+    "RELATION_LEFT_ZONE": "왼쪽 구역",
+    "RELATION_RIGHT_ZONE": "오른쪽 구역"
   },
   "my.fans.list": {
     "TITLE_TEXT": "내 팬",

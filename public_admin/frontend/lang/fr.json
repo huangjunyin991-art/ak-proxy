@@ -913,7 +913,11 @@
     "LOAD_COMPLETE_TEXT": "Plus de données...",
     "NONE_DATA_TEXT": "Pas d'amis",
     "SEARCH": "Rechercher",
-    "INPUT_PLACEHOLDER": "Entrez l'ID"
+    "INPUT_PLACEHOLDER": "Entrez l'ID",
+    "RELATION_DIRECT": "Direct",
+    "RELATION_SUB_ACCOUNT": "Sous-compte",
+    "RELATION_LEFT_ZONE": "Zone gauche",
+    "RELATION_RIGHT_ZONE": "Zone droite"
   },
   "my.fans.list": {
     "TITLE_TEXT": "Mes fans",

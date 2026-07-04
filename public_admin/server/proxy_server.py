@@ -18108,6 +18108,13 @@ _AK_TAB_BAR_PAGE_JS_PATHS = {
 }
 _AK_TAB_BAR_PAGE_JS_VERSION = "tabbar-initial-20260617"
 _AK_CENTER_PAGE_JS_VERSION = "center-defer-20260617-v4"
+_AK_RECOMMEND_FRIEND_PAGE_PATH = "pages/center/my.friend.html"
+_AK_RECOMMEND_FRIEND_RELATION_LABEL_KEYS = (
+    ("F", "RELATION_DIRECT"),
+    ("S", "RELATION_SUB_ACCOUNT"),
+    ("L", "RELATION_LEFT_ZONE"),
+    ("R", "RELATION_RIGHT_ZONE"),
+)
 
 
 def _rewrite_vue_component_script_version(text: str) -> str:
@@ -18129,6 +18136,34 @@ def _rewrite_tab_bar_page_script_versions(text: str) -> str:
         repl,
         str(text or ""),
     )
+
+
+def _normalize_ak_html_page_path(path: str) -> str:
+    normalized = str(path or "").split("?", 1)[0].replace("\\", "/").strip().strip("/").lower()
+    for prefix in ("admin/ak-site/", "admin/ak-web/", "ak-web/"):
+        if normalized.startswith(prefix):
+            return normalized[len(prefix):]
+    return normalized
+
+
+def _rewrite_recommend_friend_relation_labels(text: str, page_path: str) -> str:
+    if _normalize_ak_html_page_path(page_path) != _AK_RECOMMEND_FRIEND_PAGE_PATH:
+        return str(text or "")
+    rewritten = str(text or "")
+    for label, language_key in _AK_RECOMMEND_FRIEND_RELATION_LABEL_KEYS:
+        pattern = re.compile(
+            r"(<div\b(?=[^>]*\bclass=(['\"])label\2)[^>]*>)\s*"
+            + re.escape(label)
+            + r"\s*(</div>)",
+            re.IGNORECASE,
+        )
+        rewritten = pattern.sub(
+            lambda match, key=language_key, fallback=label: (
+                f"{match.group(1)}{{{{ language.{key} || '{fallback}' }}}}{match.group(3)}"
+            ),
+            rewritten,
+        )
+    return rewritten
 
 
 def _patch_tab_bar_page_js_language(text: str) -> tuple[str, bool]:
@@ -18495,6 +18530,7 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
     rewritten = _rewrite_base_js_script_version(rewritten)
     rewritten = _rewrite_vue_component_script_version(rewritten)
     rewritten = _rewrite_tab_bar_page_script_versions(rewritten)
+    rewritten = _rewrite_recommend_friend_relation_labels(rewritten, request.url.path)
     rewritten = rewritten.replace(
         "/assets/css/vue-component.css",
         "/assets/css/vue-component.css?ak_static_v=public-css-20260611",
@@ -19095,6 +19131,7 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_base_js_script_version(text)
                 text = _rewrite_vue_component_script_version(text)
                 text = _rewrite_tab_bar_page_script_versions(text)
+                text = _rewrite_recommend_friend_relation_labels(text, normalized_path)
                 if transform_proxied_site_prefetch_html is not None:
                     try:
                         text, proxied_site_prefetch_injected = transform_proxied_site_prefetch_html(

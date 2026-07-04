@@ -681,7 +681,11 @@
     "LOAD_COMPLETE_TEXT": "No hay más...",
     "NONE_DATA_TEXT": "Sin amigos",
     "SEARCH": "Buscar",
-    "INPUT_PLACEHOLDER": "Ingrese ID"
+    "INPUT_PLACEHOLDER": "Ingrese ID",
+    "RELATION_DIRECT": "Directo",
+    "RELATION_SUB_ACCOUNT": "Subcuenta",
+    "RELATION_LEFT_ZONE": "Zona izquierda",
+    "RELATION_RIGHT_ZONE": "Zona derecha"
   },
   "my.fans.list": {
     "TITLE_TEXT": "Mis fans",

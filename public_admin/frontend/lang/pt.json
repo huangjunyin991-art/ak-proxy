@@ -1128,7 +1128,11 @@
     "LOAD_COMPLETE_TEXT": "Não há mais...",
     "NONE_DATA_TEXT": "Sem amigos",
     "SEARCH": "Buscar",
-    "INPUT_PLACEHOLDER": "Digite ID"
+    "INPUT_PLACEHOLDER": "Digite ID",
+    "RELATION_DIRECT": "Direto",
+    "RELATION_SUB_ACCOUNT": "Subconta",
+    "RELATION_LEFT_ZONE": "Zona esquerda",
+    "RELATION_RIGHT_ZONE": "Zona direita"
   },
   "my.fans.list": {
     "TITLE_TEXT": "Meus fãs",

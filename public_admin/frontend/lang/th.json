@@ -817,7 +817,11 @@
     "LOAD_COMPLETE_TEXT": "ไม่มีอีกแล้ว...",
     "NONE_DATA_TEXT": "ไม่มีเพื่อน",
     "SEARCH": "ค้นหา",
-    "INPUT_PLACEHOLDER": "ใส่ ID"
+    "INPUT_PLACEHOLDER": "ใส่ ID",
+    "RELATION_DIRECT": "แนะนำตรง",
+    "RELATION_SUB_ACCOUNT": "บัญชีย่อย",
+    "RELATION_LEFT_ZONE": "โซนซ้าย",
+    "RELATION_RIGHT_ZONE": "โซนขวา"
   },
   "my.fans.list": {
     "TITLE_TEXT": "แฟนของฉัน",

@@ -817,7 +817,11 @@
     "LOAD_COMPLETE_TEXT": "No more...",
     "NONE_DATA_TEXT": "No friends",
     "SEARCH": "Search",
-    "INPUT_PLACEHOLDER": "Enter ID"
+    "INPUT_PLACEHOLDER": "Enter ID",
+    "RELATION_DIRECT": "Direct",
+    "RELATION_SUB_ACCOUNT": "Sub Account",
+    "RELATION_LEFT_ZONE": "Left Zone",
+    "RELATION_RIGHT_ZONE": "Right Zone"
   },
   "my.fans.list": {
     "TITLE_TEXT": "My Fans",

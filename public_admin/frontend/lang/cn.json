@@ -844,7 +844,11 @@
         "LOADING_TEXT": "正在加载...",
         "LOAD_COMPLETE_TEXT": "没有更多数据了...",
         "NONE_DATA_TEXT": "暂无好友信息",
-        "t1": "搜索"
+        "t1": "搜索",
+        "RELATION_DIRECT": "直推",
+        "RELATION_SUB_ACCOUNT": "子账号",
+        "RELATION_LEFT_ZONE": "左区",
+        "RELATION_RIGHT_ZONE": "右区"
     },
     "my.fans.list": {
         "TITLE_TEXT": "全球玩家(表)",

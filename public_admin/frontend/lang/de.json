@@ -722,7 +722,11 @@
     "LOAD_COMPLETE_TEXT": "Keine weiteren...",
     "NONE_DATA_TEXT": "Keine Freunde",
     "SEARCH": "Suchen",
-    "INPUT_PLACEHOLDER": "ID eingeben"
+    "INPUT_PLACEHOLDER": "ID eingeben",
+    "RELATION_DIRECT": "Direkt",
+    "RELATION_SUB_ACCOUNT": "Unterkonto",
+    "RELATION_LEFT_ZONE": "Linke Zone",
+    "RELATION_RIGHT_ZONE": "Rechte Zone"
   },
   "my.fans.list": {
     "TITLE_TEXT": "Meine Fans",
