@@ -47,7 +47,7 @@ from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth_periods
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
-from .account_identity import AccountIdentityService
+from .account_identity import AccountIdentityMigrationService, AccountIdentityService
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 from .db.sql_policy import classify_admin_sql
 from .login_account_hint import find_best_account_match, normalize_login_account
@@ -170,6 +170,7 @@ _pool_monitor_task: Optional[asyncio.Task] = None
 _pool_metrics = DbAcquireMetrics()
 _login_audit_queue: Optional[LoginAuditQueue] = None
 _account_identity_service = AccountIdentityService(lambda: _get_pool())
+_account_identity_migration_service = AccountIdentityMigrationService(lambda: _get_pool())
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -1372,6 +1373,30 @@ async def list_account_identity_usernames(username: str = '', account_id: int = 
 
 async def record_account_username_change(old_username: str, new_username: str) -> Dict[str, Any]:
     return await _account_identity_service.record_username_change(old_username, new_username)
+
+
+def get_account_id_migration_plan() -> List[Dict[str, Any]]:
+    return _account_identity_migration_service.list_plan()
+
+
+async def ensure_account_id_migration_columns(phase_key: str = '') -> List[Dict[str, Any]]:
+    return await _account_identity_migration_service.ensure_phase_columns(phase_key=phase_key)
+
+
+async def collect_account_id_migration_stats(phase_key: str = '') -> List[Dict[str, Any]]:
+    return await _account_identity_migration_service.collect_phase_stats(phase_key=phase_key)
+
+
+async def backfill_account_id_migration(
+    phase_key: str = '',
+    limit_per_spec: int = 0,
+    dry_run: bool = True,
+) -> List[Dict[str, Any]]:
+    return await _account_identity_migration_service.backfill_phase_account_ids(
+        phase_key=phase_key,
+        limit_per_spec=limit_per_spec,
+        dry_run=dry_run,
+    )
 
 
 async def load_ak_auth_state(username: str, check_expiry: bool = True) -> Optional[Dict]:
