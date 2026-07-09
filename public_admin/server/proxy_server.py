@@ -2398,7 +2398,7 @@ def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_n
 
                 continue
 
-            if (ex.healthy or ex.is_direct) and not ex.is_frozen:
+            if getattr(ex, "is_dispatch_ready", False) and not ex.is_frozen:
 
                 ex.record_request()
 

@@ -34,7 +34,7 @@ class DispatcherStatusService:
         total_exits = self._to_int(status.get("total_exits"), len(light_exits))
         available_exits = self._to_optional_int(status.get("available_exits"))
         if available_exits is None:
-            available_exits = sum(1 for item in light_exits if item.get("healthy") and not item.get("frozen"))
+            available_exits = sum(1 for item in light_exits if item.get("dispatch_ready") and not item.get("frozen"))
         disabled_exits = self._to_optional_int(status.get("disabled_exits"))
         if disabled_exits is None:
             disabled_exits = max(0, total_exits - available_exits)

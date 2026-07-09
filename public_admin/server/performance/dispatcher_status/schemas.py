@@ -9,6 +9,7 @@ LIGHT_EXIT_FIELDS = {
     "local_port",
     "proxy",
     "healthy",
+    "dispatch_ready",
     "exit_ip",
     "ip_detecting",
     "ip_detect_checked_at",

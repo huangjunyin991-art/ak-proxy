@@ -74,7 +74,7 @@ class OutboundExit:
                  'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures', '_ip_detect_failures',
-                 'ip_detect_checked_at', 'ip_detect_last_error',
+                 'ip_detect_checked_at', 'ip_detect_last_error', 'ip_detect_ready',
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
                  '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason')
@@ -111,6 +111,7 @@ class OutboundExit:
         self._ip_detect_failures: int = 0  # 连续IP检测失败次数（用于剔除死节点）
         self.ip_detect_checked_at: str = ""
         self.ip_detect_last_error: str = ""
+        self.ip_detect_ready: bool = proxy_url is None
         self.latency_ms: Optional[int] = None
         self.latency_checked_at: str = ""
         self.latency_probe_failures: int = 0
@@ -129,6 +130,10 @@ class OutboundExit:
     @property
     def is_direct(self) -> bool:
         return self.proxy_url is None
+
+    @property
+    def is_dispatch_ready(self) -> bool:
+        return self.is_direct or (self.healthy and self.ip_detect_ready)
 
     @property
     def is_frozen(self) -> bool:
@@ -635,7 +640,7 @@ class OutboundDispatcher:
         candidates = [
             ex for ex in self.exits
             if ex is not failed_exit
-            and (ex.healthy or ex.is_direct)
+            and ex.is_dispatch_ready
             and not ex.is_frozen
         ]
         if not candidates:
@@ -670,7 +675,7 @@ class OutboundDispatcher:
             i for i, ex in enumerate(self.exits)
             if ex is not failed_exit
             and not ex.is_direct
-            and ex.healthy
+            and ex.is_dispatch_ready
             and not ex.is_frozen
             and self._exit_has_dispatch_capacity(ex)
         ]
@@ -718,13 +723,13 @@ class OutboundDispatcher:
 
     def _get_healthy(self) -> list[int]:
         """获取所有健康且未冻结的出口索引（直连永远包含）"""
-        return [i for i, ex in enumerate(self.exits) if (ex.healthy or ex.is_direct) and not ex.is_frozen]
+        return [i for i, ex in enumerate(self.exits) if ex.is_dispatch_ready and not ex.is_frozen]
 
     def _get_healthy_tunnels(self) -> list[int]:
         return [
             i for i, ex in enumerate(self.exits)
             if not ex.is_direct
-            and ex.healthy
+            and ex.is_dispatch_ready
             and not ex.is_frozen
             and self._exit_has_dispatch_capacity(ex)
         ]
@@ -860,7 +865,7 @@ class OutboundDispatcher:
         return [
             i for i, ex in enumerate(self.exits)
             if not ex.is_direct
-            and ex.healthy
+            and ex.is_dispatch_ready
             and not ex.is_frozen
         ]
 
@@ -1074,7 +1079,7 @@ class OutboundDispatcher:
         candidates = [
             i for i, ex in enumerate(self.exits)
             if not ex.is_direct
-            and ex.healthy
+            and ex.is_dispatch_ready
             and not ex.is_frozen
         ]
         candidates = self._filter_latency_failed_pool(candidates)
@@ -1423,14 +1428,34 @@ class OutboundDispatcher:
         if reachable:
             ex.healthy = True
             ex._ever_healthy = True
+            if not ex.is_direct and not ex.ip_detect_ready and not ex.ip_detecting and (not was_healthy or not ex.ip_detect_checked_at):
+                self._schedule_single_exit_ip_detect(ex)
             if not was_healthy:
                 logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
             pass  # IP检测由定时任务负责（每日凌晨4点），不在健康检查中触发
         else:
             if not ex.is_direct:  # 直连出口永远不标记为离线
                 ex.healthy = False
+                ex.ip_detect_ready = False
                 if was_healthy and ex._ever_healthy and self._started:
                     logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
+
+    def _schedule_single_exit_ip_detect(self, ex: OutboundExit) -> None:
+        if ex.is_direct or ex.ip_detect_ready or ex.ip_detecting or not ex.healthy:
+            return
+        ex.ip_detecting = True
+
+        async def _run():
+            try:
+                async with self._ip_detect_run_lock:
+                    if ex.healthy and not ex.ip_detect_ready:
+                        await self._detect_exit_ip(ex)
+            except Exception as e:
+                logger.warning(f"[Dispatcher] single exit ip detect failed: {ex.name}: {e}")
+            finally:
+                ex.ip_detecting = False
+
+        self._safe_create_task(_run(), f"single_ip_detect_{ex.name}")
 
     IP_SERVICES = (
         "https://api4.ipify.org",
@@ -1448,6 +1473,7 @@ class OutboundDispatcher:
             client = await ex.get_client()
         except Exception as e:
             ex.ip_detect_last_error = str(e)
+            ex.ip_detect_ready = False
             return False
         last_error = ""
         tasks = [
@@ -1479,6 +1505,7 @@ class OutboundDispatcher:
                             ex.exit_ip = ip
                         ex._ip_detect_failures = 0  # 连通成功，重置失败计数
                         ex.ip_detect_last_error = ""
+                        ex.ip_detect_ready = True
                         return True  # 连通即成功，不管 IP 是否变化
                 else:
                     last_error = f"HTTP {resp.status_code}"
@@ -1488,12 +1515,12 @@ class OutboundDispatcher:
                     task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+        ex.ip_detect_ready = False
         # 所有服务均失败
         ex.ip_detect_last_error = last_error or "所有IP检测服务均失败"
         if not ex.is_direct:
             ex._ip_detect_failures += 1
-            if ex._ip_detect_failures >= 3 and ex._ever_healthy and ex.healthy:
-                ex.healthy = False
+            if ex._ip_detect_failures >= 3 and ex._ever_healthy:
                 logger.warning(f"[Dispatcher] 出口 {ex.name} 连续{ex._ip_detect_failures}次IP检测失败，标记下线")
         return False
 
@@ -1533,8 +1560,8 @@ class OutboundDispatcher:
             # Second round: only retry the exits that failed in round one.
             retry_results = await self._probe_ip_batch(failed)
             for ex, result in zip(failed, retry_results):
-                if not (isinstance(result, bool) and result) and ex.healthy and not ex.is_direct:
-                    ex.healthy = False
+                if not (isinstance(result, bool) and result) and not ex.is_direct:
+                    ex.ip_detect_ready = False
                     logger.warning(f"[Dispatcher] Dead exit: {ex.name} failed both IP detection rounds")
 
     async def detect_failed_ips(self) -> int:
@@ -1542,7 +1569,7 @@ class OutboundDispatcher:
         async with self._ip_detect_run_lock:
             failed_exits = [
                 ex for ex in self.exits
-                if not ex.is_direct and (ex._ip_detect_failures > 0 or bool(ex.ip_detect_last_error))
+                if not ex.is_direct and (not ex.ip_detect_ready or ex._ip_detect_failures > 0 or bool(ex.ip_detect_last_error))
             ]
             if not failed_exits:
                 return 0
@@ -1606,6 +1633,7 @@ class OutboundDispatcher:
                     "source_url": ex.source_url,
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
+                    "dispatch_ready": ex.is_dispatch_ready,
                     "exit_ip": ex.exit_ip,
                     "ip_detecting": ex.ip_detecting,
                     "ip_detect_checked_at": ex.ip_detect_checked_at,
@@ -1635,7 +1663,7 @@ class OutboundDispatcher:
 
             total_exits = len(self.exits)
             healthy_count = sum(1 for ex in self.exits if ex.healthy)
-            available_count = sum(1 for ex in self.exits if ex.healthy and not ex.is_frozen)
+            available_count = sum(1 for ex in self.exits if ex.is_dispatch_ready and not ex.is_frozen)
             disabled_count = max(0, total_exits - available_count)
             available_ratio = round((available_count / total_exits) * 100, 1) if total_exits else 0
             total_active = sum(ex.active for ex in self.exits)
@@ -1746,7 +1774,7 @@ class AceSellDispatcher:
         """返回健康且未403冻结的出口列表"""
         return [
             ex for ex in self._dispatcher.exits
-            if (ex.healthy or ex.is_direct) and not ex.is_frozen
+            if ex.is_dispatch_ready and not ex.is_frozen
         ]
 
     def acquire(self) -> OutboundExit:
