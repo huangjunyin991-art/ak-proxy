@@ -194,7 +194,11 @@ func (a *App) emitCallOutcomeMessage(ctx context.Context, session *imCallSession
 		return MessageItem{}, false, err
 	}
 	if senderUsername != "" {
-		if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, payload.ConversationID, senderUsername); err != nil {
+		_, candidateUsernames := a.identityLookupUsernames(ctx, senderUsername, true)
+		if len(candidateUsernames) == 0 {
+			candidateUsernames = []string{strings.ToLower(strings.TrimSpace(senderUsername))}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = ANY($3::text[])`, item.SeqNo, payload.ConversationID, candidateUsernames); err != nil {
 			return MessageItem{}, false, err
 		}
 	}

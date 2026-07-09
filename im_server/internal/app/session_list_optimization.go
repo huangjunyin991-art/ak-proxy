@@ -40,6 +40,13 @@ func collectSessionPeerUsernames(items []SessionItem) []string {
 
 func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionItem, error) {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	canonicalUsername, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if canonicalUsername == "" {
+		canonicalUsername = normalizedUsername
+	}
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{canonicalUsername}
+	}
 	rows, err := a.db.Query(ctx, `
 		WITH visible AS (
 			SELECT c.id,
@@ -61,7 +68,21 @@ func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionI
 			       c.last_message_at,
 			       c.created_at
 			FROM im_conversation c
-			JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
+			JOIN LATERAL (
+				SELECT cm.last_read_seq_no,
+				       cm.joined_at,
+				       cm.mute_until,
+				       COALESCE(cm.pin_type, 'none') AS pin_type,
+				       cm.pinned_at
+				FROM im_conversation_member cm
+				WHERE cm.conversation_id = c.id
+				  AND cm.username = ANY($1::text[])
+				  AND cm.left_at IS NULL
+				ORDER BY CASE WHEN cm.username = $2 THEN 0 ELSE 1 END,
+				         cm.joined_at DESC NULLS LAST,
+				         cm.id DESC
+				LIMIT 1
+			) cm ON TRUE
 			WHERE c.deleted_at IS NULL AND COALESCE(c.hidden_for_all, FALSE) = FALSE
 		),
 		member_counts AS (
@@ -75,7 +96,7 @@ func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionI
 			SELECT peer.conversation_id, MIN(peer.username) AS peer_username
 			FROM im_conversation_member peer
 			JOIN visible v ON v.id = peer.conversation_id
-			WHERE peer.username <> $1 AND peer.left_at IS NULL
+			WHERE peer.username <> ALL($1::text[]) AND peer.left_at IS NULL
 			GROUP BY peer.conversation_id
 		),
 		unread AS (
@@ -83,7 +104,7 @@ func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionI
 			FROM visible v
 			JOIN im_message m ON m.conversation_id = v.id
 			WHERE m.deleted_at IS NULL
-			  AND m.sender_username <> $1
+			  AND m.sender_username <> ALL($1::text[])
 			  AND m.seq_no > v.last_read_seq_no
 			  AND m.seq_no > v.purged_before_seq_no
 			  AND m.sent_at + INTERVAL '2 seconds' >= v.joined_at
@@ -92,17 +113,17 @@ func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionI
 		mention_unread AS (
 			SELECT v.id AS conversation_id,
 			       COUNT(DISTINCT m.id) AS mention_unread_count,
-			       BOOL_OR(mm.mentioned_username = $1 AND mm.mention_all = FALSE) AS mention_me_unread,
+			       BOOL_OR(mm.mentioned_username = ANY($1::text[]) AND mm.mention_all = FALSE) AS mention_me_unread,
 			       BOOL_OR(mm.mention_all = TRUE) AS mention_all_unread
 			FROM visible v
 			JOIN im_message_mention mm ON mm.conversation_id = v.id
 			JOIN im_message m ON m.id = mm.message_id
 			WHERE m.deleted_at IS NULL
-			  AND m.sender_username <> $1
+			  AND m.sender_username <> ALL($1::text[])
 			  AND m.seq_no > v.last_read_seq_no
 			  AND m.seq_no > v.purged_before_seq_no
 			  AND m.sent_at + INTERVAL '2 seconds' >= v.joined_at
-			  AND (mm.mention_all = TRUE OR mm.mentioned_username = $1)
+			  AND (mm.mention_all = TRUE OR mm.mentioned_username = ANY($1::text[]))
 			GROUP BY v.id
 		)
 		SELECT v.id,
@@ -134,7 +155,7 @@ func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionI
 		LEFT JOIN peers p ON p.conversation_id = v.id
 		ORDER BY CASE v.pin_type WHEN 'system' THEN 2 WHEN 'manual' THEN 1 ELSE 0 END DESC,
 		         COALESCE(v.pinned_at, v.last_message_at, v.created_at) DESC,
-		         COALESCE(v.last_message_at, v.created_at) DESC`, normalizedUsername)
+		         COALESCE(v.last_message_at, v.created_at) DESC`, candidateUsernames, canonicalUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -179,6 +200,7 @@ func (a *App) enrichSessionItems(ctx context.Context, username string, items []S
 		return items
 	}
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
 	peerIdentities := a.buildUserIdentityItems(ctx, collectSessionPeerUsernames(items))
 	groupIDs := uniqueSessionConversationIDs(items)
 	roles, err := a.loadSessionGroupRoles(ctx, normalizedUsername, groupIDs)
@@ -216,7 +238,7 @@ func (a *App) enrichSessionItems(ctx context.Context, username string, items []S
 		items[index].PeerUsername = ""
 		if role := strings.ToLower(strings.TrimSpace(roles[items[index].ConversationID])); role != "" {
 			items[index].MyRole = role
-		} else if strings.EqualFold(items[index].OwnerUsername, normalizedUsername) {
+		} else if identityHasUsername(candidateUsernames, items[index].OwnerUsername) {
 			items[index].MyRole = "owner"
 		} else {
 			items[index].MyRole = "member"
@@ -238,19 +260,26 @@ func (a *App) loadSessionGroupRoles(ctx context.Context, username string, groupI
 	if len(groupIDs) == 0 || username == "" {
 		return result, nil
 	}
+	canonicalUsername, candidateUsernames := a.identityLookupUsernames(ctx, username, true)
+	if canonicalUsername == "" {
+		canonicalUsername = strings.ToLower(strings.TrimSpace(username))
+	}
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{canonicalUsername}
+	}
 	rows, err := a.db.Query(ctx, `
 		SELECT c.id,
 		       CASE
-		           WHEN LOWER(COALESCE(c.owner_username, '')) = $2 THEN 'owner'
+		           WHEN LOWER(COALESCE(c.owner_username, '')) = ANY($2::text[]) THEN 'owner'
 		           WHEN EXISTS(
 		               SELECT 1
 		               FROM im_conversation_admin admin
-		               WHERE admin.conversation_id = c.id AND admin.username = $2 AND admin.revoked_at IS NULL
+		               WHERE admin.conversation_id = c.id AND admin.username = ANY($2::text[]) AND admin.revoked_at IS NULL
 		           ) THEN 'admin'
 		           ELSE 'member'
 		       END AS my_role
 		FROM im_conversation c
-		WHERE c.id = ANY($1::bigint[])`, groupIDs, username)
+		WHERE c.id = ANY($1::bigint[])`, groupIDs, candidateUsernames)
 	if err != nil {
 		return result, err
 	}

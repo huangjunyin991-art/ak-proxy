@@ -25,9 +25,25 @@ func (a *App) loadUserHonorNames(ctx context.Context, usernames []string) map[st
 		return result
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT input.username, COALESCE(ua.honor_name, '') AS honor_name
-		FROM unnest($1::text[]) AS input(username)
-		LEFT JOIN user_assets ua ON ua.username = input.username`, normalizedUsernames)
+		WITH input(username) AS (
+			SELECT unnest($1::text[])
+		),
+		resolved AS (
+			SELECT input.username AS lookup_username,
+			       COALESCE(canon.username, input.username) AS data_username
+			FROM input
+			LEFT JOIN account_username_aliases lookup ON lookup.username = input.username
+			LEFT JOIN LATERAL (
+				SELECT alias2.username
+				FROM account_username_aliases alias2
+				WHERE alias2.account_id = lookup.account_id AND alias2.is_canonical = TRUE
+				ORDER BY alias2.updated_at DESC, alias2.username ASC
+				LIMIT 1
+			) canon ON TRUE
+		)
+		SELECT resolved.lookup_username, COALESCE(ua.honor_name, '') AS honor_name
+		FROM resolved
+		LEFT JOIN user_assets ua ON ua.username = resolved.data_username`, normalizedUsernames)
 	if err != nil {
 		log.Printf("load user honor names failed: count=%d err=%v", len(normalizedUsernames), err)
 		return result
@@ -59,9 +75,25 @@ func (a *App) loadUserHideHonorSet(ctx context.Context, usernames []string) map[
 		return result
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT input.username
-		FROM unnest($1::text[]) AS input(username)
-		JOIN im_user_profile p ON p.username = input.username
+		WITH input(username) AS (
+			SELECT unnest($1::text[])
+		),
+		resolved AS (
+			SELECT input.username AS lookup_username,
+			       COALESCE(canon.username, input.username) AS data_username
+			FROM input
+			LEFT JOIN account_username_aliases lookup ON lookup.username = input.username
+			LEFT JOIN LATERAL (
+				SELECT alias2.username
+				FROM account_username_aliases alias2
+				WHERE alias2.account_id = lookup.account_id AND alias2.is_canonical = TRUE
+				ORDER BY alias2.updated_at DESC, alias2.username ASC
+				LIMIT 1
+			) canon ON TRUE
+		)
+		SELECT resolved.lookup_username
+		FROM resolved
+		JOIN im_user_profile p ON p.username = resolved.data_username
 		WHERE COALESCE(p.hide_honor, FALSE) = TRUE`, normalizedUsernames)
 	if err != nil {
 		log.Printf("load user hide honor set failed: count=%d err=%v", len(normalizedUsernames), err)
@@ -146,17 +178,33 @@ func (a *App) loadUserIdentityRecords(ctx context.Context, usernames []string) m
 		return result
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT input.username,
-		       COALESCE(NULLIF(p.nickname, ''), NULLIF(us.real_name, ''), input.username) AS display_name,
+		WITH input(username) AS (
+			SELECT unnest($1::text[])
+		),
+		resolved AS (
+			SELECT input.username AS lookup_username,
+			       COALESCE(canon.username, input.username) AS data_username
+			FROM input
+			LEFT JOIN account_username_aliases lookup ON lookup.username = input.username
+			LEFT JOIN LATERAL (
+				SELECT alias2.username
+				FROM account_username_aliases alias2
+				WHERE alias2.account_id = lookup.account_id AND alias2.is_canonical = TRUE
+				ORDER BY alias2.updated_at DESC, alias2.username ASC
+				LIMIT 1
+			) canon ON TRUE
+		)
+		SELECT resolved.lookup_username,
+		       COALESCE(NULLIF(p.nickname, ''), NULLIF(us.real_name, ''), resolved.lookup_username) AS display_name,
 		       COALESCE(NULLIF(p.avatar_style, ''), $2) AS avatar_style,
 		       COALESCE(p.avatar_seed, '') AS avatar_seed,
 		       COALESCE(p.avatar_url, '') AS avatar_url,
 		       COALESCE(p.hide_honor, FALSE) AS hide_honor,
 		       COALESCE(ua.honor_name, '') AS honor_name
-		FROM unnest($1::text[]) AS input(username)
-		LEFT JOIN im_user_profile p ON p.username = input.username
-		LEFT JOIN user_stats us ON us.username = input.username
-		LEFT JOIN user_assets ua ON ua.username = input.username`, normalizedUsernames, defaultAvatarStyle)
+		FROM resolved
+		LEFT JOIN im_user_profile p ON p.username = resolved.data_username
+		LEFT JOIN user_stats us ON us.username = resolved.data_username
+		LEFT JOIN user_assets ua ON ua.username = resolved.data_username`, normalizedUsernames, defaultAvatarStyle)
 	if err != nil {
 		log.Printf("load user identity records failed: count=%d err=%v", len(normalizedUsernames), err)
 		return result

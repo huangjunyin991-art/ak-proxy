@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"im_server/internal/accountidentity"
 	"im_server/internal/ai/billing"
 	"im_server/internal/ai/bot"
 	"im_server/internal/ai/provider"
@@ -54,6 +55,7 @@ var (
 type App struct {
 	cfg               config.Config
 	db                *pgxpool.Pool
+	accountIdentity   *accountidentity.Service
 	social            *socialsvc.Service
 	sessionVisibility *sessionvisibility.Service
 	mediaTasks        *taskstore.Store
@@ -92,21 +94,22 @@ type HubConn struct {
 }
 
 type BootstrapResponse struct {
-	Enabled          bool             `json:"enabled"`
-	Allowed          bool             `json:"allowed"`
-	Username         string           `json:"username"`
-	DisplayName      string           `json:"display_name"`
-	HonorName        string           `json:"honor_name,omitempty"`
-	CanAddFriend     bool             `json:"can_add_friend"`
-	HideHonor        bool             `json:"hide_honor"`
-	AvatarKind       string           `json:"avatar_kind,omitempty"`
-	AvatarStyle      string           `json:"avatar_style,omitempty"`
-	AvatarSeed       string           `json:"avatar_seed,omitempty"`
-	AvatarURL        string           `json:"avatar_url,omitempty"`
-	EmojiAssets      []EmojiAssetItem `json:"emoji_assets,omitempty"`
-	RetentionDays    int              `json:"retention_days"`
-	StoreEncoding    string           `json:"store_encoding"`
-	CompressMinBytes int              `json:"compress_min_bytes"`
+	Enabled           bool             `json:"enabled"`
+	Allowed           bool             `json:"allowed"`
+	Username          string           `json:"username"`
+	IdentityUsernames []string         `json:"identity_usernames,omitempty"`
+	DisplayName       string           `json:"display_name"`
+	HonorName         string           `json:"honor_name,omitempty"`
+	CanAddFriend      bool             `json:"can_add_friend"`
+	HideHonor         bool             `json:"hide_honor"`
+	AvatarKind        string           `json:"avatar_kind,omitempty"`
+	AvatarStyle       string           `json:"avatar_style,omitempty"`
+	AvatarSeed        string           `json:"avatar_seed,omitempty"`
+	AvatarURL         string           `json:"avatar_url,omitempty"`
+	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
+	RetentionDays     int              `json:"retention_days"`
+	StoreEncoding     string           `json:"store_encoding"`
+	CompressMinBytes  int              `json:"compress_min_bytes"`
 }
 
 type SessionItem struct {
@@ -300,6 +303,7 @@ func New(cfg config.Config) (*App, error) {
 	app := &App{
 		cfg:             cfg,
 		db:              pool,
+		accountIdentity: accountidentity.New(pool),
 		hub:             &Hub{conns: map[string]map[*HubConn]struct{}{}},
 		callSessions:    map[string]*imCallSession{},
 		messageNotifier: NewMessageNotifyPublisher(cfg),
@@ -327,6 +331,11 @@ func New(cfg config.Config) (*App, error) {
 	app.ai.SetMessageSink(app)
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
+	}
+	if app.accountIdentity != nil {
+		if err := app.accountIdentity.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if app.aiProvider != nil {
 		if err := app.aiProvider.EnsureSchema(ctx); err != nil {
@@ -834,25 +843,26 @@ func (a *App) requireAllowedUser(r *http.Request) (string, error) {
 }
 
 func (a *App) requireAllowedUsername(ctx context.Context, username string) (string, error) {
-	username = strings.ToLower(strings.TrimSpace(username))
-	if username == "" {
+	normalized := strings.ToLower(strings.TrimSpace(username))
+	if normalized == "" {
 		return "", errors.New("missing username cookie")
 	}
+	canonicalUsername, candidateUsernames := a.identityLookupUsernames(ctx, normalized, true)
 	var exists bool
-	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = $1)`, username).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = ANY($1::text[]))`, candidateUsernames).Scan(&exists); err != nil {
 		return "", err
 	}
 	if !exists {
 		return "", errors.New("user not found")
 	}
 	var allowed bool
-	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, username).Scan(&allowed); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = ANY($1::text[]) AND COALESCE(status, '') <> 'deleted')`, candidateUsernames).Scan(&allowed); err != nil {
 		return "", err
 	}
 	if !allowed {
 		return "", errors.New("user not in whitelist")
 	}
-	return username, nil
+	return canonicalUsername, nil
 }
 
 func (a *App) resolveSignedIdentityUsername(r *http.Request) string {
@@ -980,8 +990,20 @@ func (a *App) fetchBaseDisplayName(ctx context.Context, username string) string 
 	if normalizedUsername == "" {
 		return ""
 	}
+	canonicalUsername, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if canonicalUsername == "" {
+		canonicalUsername = normalizedUsername
+	}
 	var displayName string
-	_ = a.db.QueryRow(ctx, `SELECT COALESCE(NULLIF(real_name, ''), username) FROM user_stats WHERE username = $1`, normalizedUsername).Scan(&displayName)
+	_ = a.db.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(real_name, ''), username)
+		FROM user_stats
+		WHERE username = ANY($1::text[])
+		ORDER BY CASE WHEN username = $2 THEN 0 ELSE 1 END,
+		         COALESCE(ak_auth_updated_at, last_login, first_login) DESC NULLS LAST,
+		         username ASC
+		LIMIT 1
+	`, candidateUsernames, canonicalUsername).Scan(&displayName)
 	if strings.TrimSpace(displayName) == "" {
 		return normalizedUsername
 	}
@@ -1094,8 +1116,12 @@ func normalizeProfileGender(value string) string {
 
 func (a *App) loadUserProfileRecord(ctx context.Context, username string) (userProfileRecord, error) {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	canonicalUsername, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if canonicalUsername == "" {
+		canonicalUsername = normalizedUsername
+	}
 	record := userProfileRecord{
-		Username:    normalizedUsername,
+		Username:    canonicalUsername,
 		Nickname:    "",
 		Gender:      "unknown",
 		AvatarStyle: defaultAvatarStyle,
@@ -1107,9 +1133,13 @@ func (a *App) loadUserProfileRecord(ctx context.Context, username string) (userP
 		return record, nil
 	}
 	err := a.db.QueryRow(ctx, `
-		SELECT COALESCE(nickname, ''), COALESCE(NULLIF(gender, ''), 'unknown'), COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(avatar_url, ''), COALESCE(hide_honor, FALSE)
+		SELECT COALESCE(nickname, ''), COALESCE(NULLIF(gender, ''), 'unknown'), COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, ''), COALESCE(avatar_url, ''), COALESCE(hide_honor, FALSE)
 		FROM im_user_profile
-		WHERE username = $1`, normalizedUsername, defaultAvatarStyle).Scan(&record.Nickname, &record.Gender, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL, &record.HideHonor)
+		WHERE username = ANY($1::text[])
+		ORDER BY CASE WHEN username = $2 THEN 0 ELSE 1 END,
+		         updated_at DESC NULLS LAST,
+		         username ASC
+		LIMIT 1`, candidateUsernames, canonicalUsername, defaultAvatarStyle).Scan(&record.Nickname, &record.Gender, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL, &record.HideHonor)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return record, nil
@@ -1197,11 +1227,19 @@ func (a *App) loadUserHonorName(ctx context.Context, username string) (string, e
 	if normalizedUsername == "" || a == nil || a.db == nil {
 		return "", nil
 	}
+	canonicalUsername, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if canonicalUsername == "" {
+		canonicalUsername = normalizedUsername
+	}
 	var honorName string
 	err := a.db.QueryRow(ctx, `
 		SELECT COALESCE(honor_name, '')
 		FROM user_assets
-		WHERE LOWER(username) = $1`, normalizedUsername).Scan(&honorName)
+		WHERE username = ANY($1::text[])
+		ORDER BY CASE WHEN username = $2 THEN 0 ELSE 1 END,
+		         updated_at DESC NULLS LAST,
+		         username ASC
+		LIMIT 1`, candidateUsernames, canonicalUsername).Scan(&honorName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -1557,16 +1595,20 @@ func (a *App) removeUserAvatarHistory(ctx context.Context, username string, hist
 }
 
 func (a *App) findWhitelistConversationID(ctx context.Context, username string) (int64, error) {
+	_, candidateUsernames := a.identityLookupUsernames(ctx, username, true)
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{strings.ToLower(strings.TrimSpace(username))}
+	}
 	var conversationID int64
 	err := a.db.QueryRow(ctx, `
 		SELECT c.id
 		FROM im_conversation c
-		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
+		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = ANY($1::text[]) AND cm.left_at IS NULL
 		WHERE c.deleted_at IS NULL
 			AND c.conversation_type = 'group'
 			AND c.conversation_key LIKE $2
 		ORDER BY c.id ASC
-		LIMIT 1`, username, whitelistGroupKeyPrefix+"%").Scan(&conversationID)
+		LIMIT 1`, candidateUsernames, whitelistGroupKeyPrefix+"%").Scan(&conversationID)
 	if err != nil {
 		return 0, err
 	}
@@ -1578,6 +1620,7 @@ func (a *App) listWhitelistContacts(ctx context.Context, username string) ([]Con
 	if normalizedUsername == "" {
 		return []ContactItem{}, nil
 	}
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
 	conversationID, err := a.findWhitelistConversationID(ctx, normalizedUsername)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1595,7 +1638,7 @@ func (a *App) listWhitelistContacts(ctx context.Context, username string) ([]Con
 	}
 	items := make([]ContactItem, 0, len(members))
 	for _, member := range members {
-		if strings.EqualFold(member.Username, normalizedUsername) {
+		if identityHasUsername(candidateUsernames, member.Username) {
 			continue
 		}
 		items = append(items, ContactItem{
@@ -1622,23 +1665,25 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, BootstrapResponse{Enabled: true, Allowed: false})
 		return
 	}
+	identityUsernames := a.listIdentityUsernames(r.Context(), username)
 	profile := a.buildUserProfileItem(r.Context(), username)
 	writeJSON(w, http.StatusOK, BootstrapResponse{
-		Enabled:          true,
-		Allowed:          true,
-		Username:         username,
-		DisplayName:      profile.DisplayName,
-		HonorName:        profile.HonorName,
-		CanAddFriend:     profile.CanAddFriend,
-		HideHonor:        profile.HideHonor,
-		AvatarURL:        profile.AvatarURL,
-		AvatarKind:       profile.AvatarKind,
-		AvatarStyle:      profile.AvatarStyle,
-		AvatarSeed:       profile.AvatarSeed,
-		EmojiAssets:      a.loadBootstrapEmojiAssets(r.Context()),
-		RetentionDays:    180,
-		StoreEncoding:    "plain",
-		CompressMinBytes: a.cfg.CompressMinBytes,
+		Enabled:           true,
+		Allowed:           true,
+		Username:          username,
+		IdentityUsernames: identityUsernames,
+		DisplayName:       profile.DisplayName,
+		HonorName:         profile.HonorName,
+		CanAddFriend:      profile.CanAddFriend,
+		HideHonor:         profile.HideHonor,
+		AvatarURL:         profile.AvatarURL,
+		AvatarKind:        profile.AvatarKind,
+		AvatarStyle:       profile.AvatarStyle,
+		AvatarSeed:        profile.AvatarSeed,
+		EmojiAssets:       a.loadBootstrapEmojiAssets(r.Context()),
+		RetentionDays:     180,
+		StoreEncoding:     "plain",
+		CompressMinBytes:  a.cfg.CompressMinBytes,
 	})
 }
 
@@ -1877,12 +1922,20 @@ func (a *App) handleDirectSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := strings.ToLower(strings.TrimSpace(req.TargetUsername))
-	if target == "" || target == username {
+	_, selfCandidateUsernames := a.identityLookupUsernames(r.Context(), username, true)
+	if target == "" || identityHasUsername(selfCandidateUsernames, target) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid target username"})
 		return
 	}
+	targetCanonical, targetCandidateUsernames := a.identityLookupUsernames(r.Context(), target, false)
+	if targetCanonical == "" {
+		targetCanonical = target
+	}
+	if len(targetCandidateUsernames) == 0 {
+		targetCandidateUsernames = []string{targetCanonical}
+	}
 	var targetExists bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = $1)`, target).Scan(&targetExists); err != nil {
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = ANY($1::text[]))`, targetCandidateUsernames).Scan(&targetExists); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
@@ -1891,7 +1944,7 @@ func (a *App) handleDirectSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var targetAllowed bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, target).Scan(&targetAllowed); err != nil {
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = ANY($1::text[]) AND COALESCE(status, '') <> 'deleted')`, targetCandidateUsernames).Scan(&targetAllowed); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
@@ -1899,7 +1952,7 @@ func (a *App) handleDirectSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "target user not allowed"})
 		return
 	}
-	conversationID, err := a.ensureDirectConversation(r.Context(), username, target)
+	conversationID, err := a.ensureDirectConversation(r.Context(), username, targetCanonical)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -1908,7 +1961,21 @@ func (a *App) handleDirectSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) ensureDirectConversation(ctx context.Context, username string, target string) (int64, error) {
-	users := []string{strings.ToLower(username), strings.ToLower(target)}
+	leftCanonical, leftCandidates := a.identityLookupUsernames(ctx, username, true)
+	rightCanonical, rightCandidates := a.identityLookupUsernames(ctx, target, true)
+	if leftCanonical == "" {
+		leftCanonical = strings.ToLower(strings.TrimSpace(username))
+	}
+	if rightCanonical == "" {
+		rightCanonical = strings.ToLower(strings.TrimSpace(target))
+	}
+	if len(leftCandidates) == 0 {
+		leftCandidates = []string{leftCanonical}
+	}
+	if len(rightCandidates) == 0 {
+		rightCandidates = []string{rightCanonical}
+	}
+	users := []string{leftCanonical, rightCanonical}
 	sort.Strings(users)
 	key := "direct:" + users[0] + ":" + users[1]
 	tx, err := a.db.Begin(ctx)
@@ -1917,7 +1984,22 @@ func (a *App) ensureDirectConversation(ctx context.Context, username string, tar
 	}
 	defer tx.Rollback(ctx)
 	var conversationID int64
-	err = tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, key).Scan(&conversationID)
+	err = tx.QueryRow(ctx, `
+		SELECT c.id
+		FROM im_conversation c
+		JOIN im_conversation_member left_member
+		  ON left_member.conversation_id = c.id
+		 AND left_member.username = ANY($1::text[])
+		 AND left_member.left_at IS NULL
+		JOIN im_conversation_member right_member
+		  ON right_member.conversation_id = c.id
+		 AND right_member.username = ANY($2::text[])
+		 AND right_member.left_at IS NULL
+		WHERE c.deleted_at IS NULL
+		  AND c.conversation_type = 'direct'
+		ORDER BY c.id ASC
+		LIMIT 1
+	`, leftCandidates, rightCandidates).Scan(&conversationID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
@@ -2363,7 +2445,11 @@ func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = timezone('Asia/Shanghai', NOW()), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return insertedMessageResult{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {
+	_, memberCandidateUsernames := a.identityLookupUsernames(ctx, username, true)
+	if len(memberCandidateUsernames) == 0 {
+		memberCandidateUsernames = []string{strings.ToLower(strings.TrimSpace(username))}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = ANY($3::text[])`, item.SeqNo, conversationID, memberCandidateUsernames); err != nil {
 		return insertedMessageResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2655,6 +2741,11 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 }
 
 func (a *App) ensureConversationMember(ctx context.Context, conversationID string, username string) bool {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{normalizedUsername}
+	}
 	var exists bool
 	_ = a.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -2662,17 +2753,17 @@ func (a *App) ensureConversationMember(ctx context.Context, conversationID strin
 			FROM im_conversation_member cm
 			JOIN im_conversation c ON c.id = cm.conversation_id
 			WHERE cm.conversation_id = $1::bigint
-				AND cm.username = $2
+				AND cm.username = ANY($2::text[])
 				AND cm.left_at IS NULL
 				AND c.deleted_at IS NULL
 				AND (
 					COALESCE(c.hidden_for_all, FALSE) = FALSE
 					OR (
 						c.conversation_type = 'group'
-						AND LOWER(COALESCE(c.owner_username, '')) = LOWER($2)
+						AND LOWER(COALESCE(c.owner_username, '')) = ANY($2::text[])
 					)
 				)
-		)`, conversationID, username).Scan(&exists)
+		)`, conversationID, candidateUsernames).Scan(&exists)
 	return exists
 }
 
@@ -2896,7 +2987,11 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 			if !a.ensureConversationMember(r.Context(), fmt.Sprintf("%d", payload.ConversationID), username) {
 				continue
 			}
-			_, _ = a.db.Exec(r.Context(), `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, payload.SeqNo, payload.ConversationID, username)
+			_, candidateUsernames := a.identityLookupUsernames(r.Context(), username, true)
+			if len(candidateUsernames) == 0 {
+				candidateUsernames = []string{strings.ToLower(strings.TrimSpace(username))}
+			}
+			_, _ = a.db.Exec(r.Context(), `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = ANY($3::text[])`, payload.SeqNo, payload.ConversationID, candidateUsernames)
 			a.broadcastConversation(payload.ConversationID, map[string]any{"type": "im.message.read", "payload": wsReadBroadcastPayload{
 				ConversationID:    payload.ConversationID,
 				SeqNo:             payload.SeqNo,

@@ -101,8 +101,7 @@
         normalizeCallTextPreview(preview, senderUsername) {
             const normalizedPreview = String(preview || '').trim();
             const normalizedSender = String(senderUsername || '').trim().toLowerCase();
-            const viewerUsername = String(this.ctx && this.ctx.state && this.ctx.state.username || '').trim().toLowerCase();
-            const isRemote = !!(normalizedSender && viewerUsername && normalizedSender !== viewerUsername);
+            const isRemote = !!(normalizedSender && !(this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function' && this.ctx.isCurrentIdentityUsername(normalizedSender)));
             const durationMatch = normalizedPreview.match(/通话时长\s*([0-9:]+)/);
             if (durationMatch && durationMatch[1]) return '通话时长 ' + durationMatch[1];
             if (normalizedPreview.indexOf('拒接') >= 0) return isRemote ? '对方已拒接' : '已拒接';
@@ -389,7 +388,9 @@
             if (!this.ctx || !this.ctx.state || !item || !item.conversation_id) return false;
             const state = this.ctx.state;
             const targetConversationId = Number(item.conversation_id || 0);
-            const isSelfMessage = String(item.sender_username || '') === String(state.username || '');
+            const isSelfMessage = this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function'
+                ? this.ctx.isCurrentIdentityUsername(item.sender_username)
+                : String(item.sender_username || '') === String(state.username || '');
             const nextMessageType = String(item.message_type || '').trim();
             const nextPreview = nextMessageType.toLowerCase() === 'call_event'
                 ? (this.normalizeCallEventPreview(item, item.content_preview) || String(item.content_preview || '').trim())

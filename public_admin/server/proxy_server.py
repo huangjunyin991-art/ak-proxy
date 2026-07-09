@@ -16281,6 +16281,7 @@ async def _sync_changed_username_after_rpc_success(
             login_payload=patched_payload,
             ttl_seconds=_BROWSE_SESSION_TTL,
         )
+        await db.record_account_username_change(current_username, renamed_username)
         logger.info(
             f"[AccountUsernameSync] updated source={source} path={api_path} "
             f"old={current_username} new={renamed_username}"

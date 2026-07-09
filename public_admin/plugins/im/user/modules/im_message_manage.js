@@ -25,6 +25,14 @@
             return this.ctx && this.ctx.state ? this.ctx.state : null;
         },
 
+        isSelfUsername(username) {
+            if (this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function') {
+                return !!this.ctx.isCurrentIdentityUsername(username);
+            }
+            const state = this.getState();
+            return String(username || '').trim().toLowerCase() === String(state && state.username || '').trim().toLowerCase();
+        },
+
         getCachedMessages(conversationId) {
             const state = this.getState();
             const key = String(Number(conversationId || 0) || 0);
@@ -471,7 +479,7 @@
             if (item.__akAITreeMessage) return false;
             if (Number(item.id || 0) <= 0 || this.isLocalTempMessage(item)) return false;
             if (String(item.status || '').toLowerCase() === 'recalled') return false;
-            if (String(item.sender_username || '') !== String(state.username || '')) return false;
+            if (!this.isSelfUsername(item.sender_username)) return false;
             try {
                 const sentAt = new Date(item.sent_at);
                 if (isNaN(sentAt.getTime())) return false;
@@ -539,7 +547,7 @@
             const senderUsername = String(item && item.sender_username || '').trim().toLowerCase();
             if (!state || !activeSession || !senderUsername || !this.isGroupSession(activeSession)) return false;
             if (senderUsername === String(activeSession.owner_username || '').trim().toLowerCase()) return true;
-            if (senderUsername === String(state.username || '').trim().toLowerCase()) {
+            if (this.isSelfUsername(senderUsername)) {
                 const myRole = String(activeSession.my_role || '').trim().toLowerCase();
                 if (myRole === 'owner' || myRole === 'admin') return true;
             }
@@ -559,17 +567,16 @@
             if (!state || !item) return '';
             const parts = [];
             if (this.shouldShowMentionAllBadge(item)) parts.push('@全体');
-            if (String(item.sender_username || '') === String(state.username || '')) {
+            if (this.isSelfUsername(item.sender_username)) {
                 if (!parts.length) return '';
                 return '<div class="ak-im-mention-badges">' + parts.map(function(label) {
                     return '<span class="ak-im-mention-badge">' + this.ctx.escapeHtml(label) + '</span>';
                 }.bind(this)).join('') + '</div>';
             }
-            const currentUsername = String(state.username || '').trim().toLowerCase();
             const mentionUsernames = Array.isArray(item.mention_usernames) ? item.mention_usernames : [];
             const mentionedMe = mentionUsernames.some(function(username) {
-                return String(username || '').trim().toLowerCase() === currentUsername;
-            });
+                return this.isSelfUsername(username);
+            }.bind(this));
             if (mentionedMe) parts.push('@我');
             if (!parts.length) return '';
             return '<div class="ak-im-mention-badges">' + parts.map(function(label) {
@@ -597,9 +604,8 @@
         },
 
         getMessageDisplayName(item) {
-            const state = this.getState();
             const sender = String(item && item.sender_username || '').trim();
-            if (state && sender && sender === String(state.username || '').trim()) return '我';
+            if (sender && this.isSelfUsername(sender)) return '我';
             return String(item && (item.sender_display_name || item.sender_username) || '').trim() || '成员';
         },
 
@@ -953,7 +959,7 @@
             const self = this;
             let lastTimeMinuteKey = '';
             state.activeMessages.forEach(function(item) {
-                const isSelf = item.sender_username === state.username;
+                const isSelf = self.isSelfUsername(item.sender_username);
                 const isRecalled = String(item.status || '').toLowerCase() === 'recalled';
                 const wrapper = document.createElement('div');
                 wrapper.className = 'ak-im-message-item';
@@ -1599,7 +1605,7 @@
             let lastPeerMessage = null;
             for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
                 const candidate = state.activeMessages[index];
-                if (candidate && candidate.sender_username !== state.username) {
+                if (candidate && !this.isSelfUsername(candidate.sender_username)) {
                     lastPeerMessage = candidate;
                     break;
                 }
@@ -1695,10 +1701,10 @@
                     }
                     this.upsertActiveMessage(item);
                     this.renderMessages();
-                    if (item.sender_username === state.username) this.forceScrollToBottom(1800);
-                    if (item.sender_username !== state.username) this.markRead(item.conversation_id);
+                    if (this.isSelfUsername(item.sender_username)) this.forceScrollToBottom(1800);
+                    if (!this.isSelfUsername(item.sender_username)) this.markRead(item.conversation_id);
                 }
-                if ((isActiveChat || !sessionUpdated || item.sender_username === state.username) && typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();
+                if ((isActiveChat || !sessionUpdated || this.isSelfUsername(item.sender_username)) && typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();
                 return;
             }
             if (data.type === 'im.message.read') {

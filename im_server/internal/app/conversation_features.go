@@ -244,6 +244,10 @@ func (a *App) isWhitelistRuleConversationMember(ctx context.Context, meta conver
 	if normalizedUsername == "" || !isWhitelistManagedConversation(meta) {
 		return false, nil
 	}
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, false)
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{normalizedUsername}
+	}
 	normalizedAdminKey := extractWhitelistGroupAdminKey(meta.ConversationKey)
 	if normalizedAdminKey == "" {
 		normalizedAdminKey = strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
@@ -256,11 +260,11 @@ func (a *App) isWhitelistRuleConversationMember(ctx context.Context, meta conver
 		SELECT EXISTS(
 			SELECT 1
 			FROM authorized_accounts
-			WHERE LOWER(username) = $1
+			WHERE LOWER(username) = ANY($1::text[])
 				AND LOWER(COALESCE(added_by, '')) = $2
 				AND status = 'active'
 				AND expire_time > NOW()
-		)`, normalizedUsername, normalizedAdminKey).Scan(&exists); err != nil {
+		)`, candidateUsernames, normalizedAdminKey).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil
@@ -271,7 +275,8 @@ func (a *App) resolveConversationMemberLeavePermission(ctx context.Context, meta
 	if normalizedUsername == "" {
 		return false, "账号无效", nil
 	}
-	if strings.EqualFold(normalizedUsername, meta.OwnerUsername) {
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, false)
+	if identityHasUsername(candidateUsernames, meta.OwnerUsername) {
 		return false, "群主不可退群，请先转让群主或解散本群", nil
 	}
 	if !isWhitelistManagedConversation(meta) {
@@ -308,15 +313,19 @@ func (a *App) ensureAllowedConversationTarget(ctx context.Context, username stri
 	if normalizedUsername == "" {
 		return errors.New("invalid username")
 	}
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, false)
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{normalizedUsername}
+	}
 	var exists bool
-	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = $1)`, normalizedUsername).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = ANY($1::text[]))`, candidateUsernames).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
 		return errors.New("user not found")
 	}
 	var allowed bool
-	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, normalizedUsername).Scan(&allowed); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = ANY($1::text[]) AND COALESCE(status, '') <> 'deleted')`, candidateUsernames).Scan(&allowed); err != nil {
 		return err
 	}
 	if !allowed {
@@ -362,7 +371,8 @@ func (a *App) ensureAllowedConversationAdminTarget(ctx context.Context, meta con
 	if normalizedUsername == "" {
 		return errors.New("invalid username")
 	}
-	if normalizedOwner != "" && normalizedUsername == normalizedOwner && isWhitelistManagedConversation(meta) {
+	_, ownerCandidateUsernames := a.identityLookupUsernames(ctx, normalizedOwner, false)
+	if normalizedOwner != "" && identityHasUsername(ownerCandidateUsernames, normalizedUsername) && isWhitelistManagedConversation(meta) {
 		return a.ensureAllowedConversationOwnerTarget(ctx, normalizedUsername)
 	}
 	return a.ensureAllowedConversationTarget(ctx, normalizedUsername)
@@ -373,8 +383,12 @@ func (a *App) isConversationAdmin(ctx context.Context, conversationID int64, use
 	if normalizedUsername == "" {
 		return false
 	}
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{normalizedUsername}
+	}
 	meta, err := a.loadConversationMeta(ctx, conversationID)
-	if err == nil && strings.EqualFold(meta.OwnerUsername, normalizedUsername) {
+	if err == nil && identityHasUsername(candidateUsernames, meta.OwnerUsername) {
 		return true
 	}
 	var exists bool
@@ -382,8 +396,8 @@ func (a *App) isConversationAdmin(ctx context.Context, conversationID int64, use
 		SELECT EXISTS(
 			SELECT 1
 			FROM im_conversation_admin
-			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
-		)`, conversationID, normalizedUsername).Scan(&exists)
+			WHERE conversation_id = $1 AND username = ANY($2::text[]) AND revoked_at IS NULL
+		)`, conversationID, candidateUsernames).Scan(&exists)
 	return exists
 }
 

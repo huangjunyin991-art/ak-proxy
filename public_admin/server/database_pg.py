@@ -47,6 +47,7 @@ from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth_periods
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
+from .account_identity import AccountIdentityService
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 from .db.sql_policy import classify_admin_sql
 from .login_account_hint import find_best_account_match, normalize_login_account
@@ -168,6 +169,7 @@ _TABLE_COLUMNS_CACHE: Dict[str, List[str]] = {}
 _pool_monitor_task: Optional[asyncio.Task] = None
 _pool_metrics = DbAcquireMetrics()
 _login_audit_queue: Optional[LoginAuditQueue] = None
+_account_identity_service = AccountIdentityService(lambda: _get_pool())
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -384,6 +386,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         _pool_monitor_task = asyncio.create_task(_pool_monitor(), name='ak-db-pool-monitor')
 
     async with _pool.acquire() as conn:
+        await _account_identity_service.ensure_schema(conn)
         # 用户登录记录表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS login_records (
@@ -1353,6 +1356,22 @@ async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = N
 
 async def get_ak_auth_state(username: str) -> Optional[Dict]:
     return await load_ak_auth_state(username, check_expiry=True)
+
+
+async def ensure_account_identity(username: str) -> Dict[str, Any]:
+    return await _account_identity_service.ensure_identity(username)
+
+
+async def resolve_account_identity(username: str, auto_create: bool = False) -> Dict[str, Any]:
+    return await _account_identity_service.resolve_identity(username, auto_create=auto_create)
+
+
+async def list_account_identity_usernames(username: str = '', account_id: int = 0) -> List[str]:
+    return await _account_identity_service.list_identity_usernames(username=username, account_id=account_id)
+
+
+async def record_account_username_change(old_username: str, new_username: str) -> Dict[str, Any]:
+    return await _account_identity_service.record_username_change(old_username, new_username)
 
 
 async def load_ak_auth_state(username: str, check_expiry: bool = True) -> Optional[Dict]:

@@ -399,15 +399,29 @@ func (a *App) assertGroupCanSendMessageTx(ctx context.Context, tx pgx.Tx, conver
 	if normalizedUsername == "" || conversationID <= 0 {
 		return nil
 	}
+	_, candidateUsernames := a.identityLookupUsernames(ctx, normalizedUsername, true)
+	if len(candidateUsernames) == 0 {
+		candidateUsernames = []string{normalizedUsername}
+	}
 	var conversationType string
 	var ownerUsername string
 	var allMuted bool
 	var muteUntil *time.Time
 	err := tx.QueryRow(ctx, `
-		SELECT COALESCE(c.conversation_type, ''), COALESCE(c.owner_username, ''), COALESCE(c.all_muted, FALSE), cm.mute_until
+		SELECT COALESCE(c.conversation_type, ''), COALESCE(c.owner_username, ''), COALESCE(c.all_muted, FALSE), member.mute_until
 		FROM im_conversation c
-		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $2 AND cm.left_at IS NULL
-		WHERE c.id = $1 AND c.deleted_at IS NULL`, conversationID, normalizedUsername).Scan(&conversationType, &ownerUsername, &allMuted, &muteUntil)
+		JOIN LATERAL (
+			SELECT cm.mute_until
+			FROM im_conversation_member cm
+			WHERE cm.conversation_id = c.id
+			  AND cm.username = ANY($2::text[])
+			  AND cm.left_at IS NULL
+			ORDER BY CASE WHEN cm.username = $3 THEN 0 ELSE 1 END,
+			         cm.joined_at DESC NULLS LAST,
+			         cm.id DESC
+			LIMIT 1
+		) member ON TRUE
+		WHERE c.id = $1 AND c.deleted_at IS NULL`, conversationID, candidateUsernames, normalizedUsername).Scan(&conversationType, &ownerUsername, &allMuted, &muteUntil)
 	if err != nil {
 		return err
 	}
@@ -421,15 +435,15 @@ func (a *App) assertGroupCanSendMessageTx(ctx context.Context, tx pgx.Tx, conver
 	if !allMuted {
 		return nil
 	}
-	if strings.EqualFold(ownerUsername, normalizedUsername) {
+	if identityHasUsername(candidateUsernames, ownerUsername) {
 		return nil
 	}
 	var isAdmin bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM im_conversation_admin
-			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
-		)`, conversationID, normalizedUsername).Scan(&isAdmin); err != nil {
+			WHERE conversation_id = $1 AND username = ANY($2::text[]) AND revoked_at IS NULL
+		)`, conversationID, candidateUsernames).Scan(&isAdmin); err != nil {
 		return err
 	}
 	if isAdmin {

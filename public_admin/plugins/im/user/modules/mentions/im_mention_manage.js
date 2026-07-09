@@ -212,7 +212,6 @@
             const state = this.getState();
             const mentionState = this.syncConversationScope();
             if (!state || !mentionState) return [];
-            const currentUsername = String(state.username || '').trim().toLowerCase();
             const keyword = String(mentionState.keyword || '').trim().toLowerCase();
             const members = Array.isArray(mentionState.members) ? mentionState.members : [];
             const filteredMembers = members.map(function(member, index) {
@@ -220,12 +219,12 @@
             }).filter(function(entry) {
                 const member = entry.member;
                 const username = String(member && member.username || '').trim().toLowerCase();
-                if (!username || username === currentUsername) return false;
+                if (!username || (this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function' && this.ctx.isCurrentIdentityUsername(username))) return false;
                 const displayName = String(member && member.display_name || '').trim().toLowerCase();
                 const honorName = String(member && member.honor_name || '').trim().toLowerCase();
                 const text = username + '\n' + displayName + '\n' + honorName;
                 return !keyword || text.indexOf(keyword) >= 0;
-            });
+            }.bind(this));
             filteredMembers.sort(function(left, right) {
                 const leftAI = this.isAISystemIdentity(left.member);
                 const rightAI = this.isAISystemIdentity(right.member);

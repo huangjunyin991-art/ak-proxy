@@ -247,13 +247,14 @@
         isMentionedInMessage(item) {
             const state = this.getState();
             if (!state || !item) return '';
-            if (String(item.sender_username || '') === String(state.username || '')) return '';
+            if (this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function' && this.ctx.isCurrentIdentityUsername(item.sender_username)) return '';
             if (item.mention_all) return '@全体';
-            const currentUsername = String(state.username || '').trim().toLowerCase();
             const mentionUsernames = Array.isArray(item.mention_usernames) ? item.mention_usernames : [];
             const matched = mentionUsernames.some(function(username) {
-                return String(username || '').trim().toLowerCase() === currentUsername;
-            });
+                return this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function'
+                    ? this.ctx.isCurrentIdentityUsername(username)
+                    : String(username || '').trim().toLowerCase() === String(state.username || '').trim().toLowerCase();
+            }.bind(this));
             return matched ? '@我' : '';
         },
 
@@ -264,8 +265,10 @@
             const entryUnreadCount = Math.max(0, Number(navState.entryUnreadCount || 0) || 0);
             if (entryUnreadCount <= 0) return;
             const peerMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(item) {
-                return item && Number(item.seq_no || 0) > 0 && String(item.sender_username || '') !== String(state.username || '');
-            });
+                return item && Number(item.seq_no || 0) > 0 && !(this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function'
+                    ? this.ctx.isCurrentIdentityUsername(item.sender_username)
+                    : String(item.sender_username || '') === String(state.username || ''));
+            }.bind(this));
             if (!peerMessages.length) return;
             const anchorIndex = Math.max(0, peerMessages.length - entryUnreadCount);
             const anchorMessage = peerMessages[anchorIndex] || peerMessages[0];
@@ -280,8 +283,10 @@
             const entryUnreadCount = Math.max(0, Number(navState.entryUnreadCount || 0) || 0);
             if (entryUnreadCount <= 0) return [];
             const peerMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(item) {
-                return item && Number(item.seq_no || 0) > 0 && String(item.sender_username || '') !== String(state.username || '');
-            });
+                return item && Number(item.seq_no || 0) > 0 && !(this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function'
+                    ? this.ctx.isCurrentIdentityUsername(item.sender_username)
+                    : String(item.sender_username || '') === String(state.username || ''));
+            }.bind(this));
             if (peerMessages.length < entryUnreadCount) return [];
             return peerMessages.slice(peerMessages.length - entryUnreadCount);
         },
@@ -314,7 +319,7 @@
             const navState = this.ensureNavigationState();
             if (!navState || !item) return;
             if (Number(item.conversation_id || 0) !== this.getActiveConversationId()) return;
-            if (state && String(item.sender_username || '') === String(state.username || '')) return;
+            if (state && this.ctx && typeof this.ctx.isCurrentIdentityUsername === 'function' && this.ctx.isCurrentIdentityUsername(item.sender_username)) return;
             const mentionLabel = this.isMentionedInMessage(item);
             if (this.isAtBottom()) {
                 navState.newMessageCount = 0;

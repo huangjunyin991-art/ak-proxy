@@ -234,6 +234,7 @@
         bootstrapLoading: false,
         ready: false,
         username: '',
+        identityUsernames: [],
         displayName: '',
         honorName: '',
         canAddFriend: false,
@@ -1759,7 +1760,8 @@
             restorePersistedConversationMessages: applyPersistedConversationMessages,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
-            buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup
+            buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup,
+            isCurrentIdentityUsername: isCurrentIdentityUsername
         });
     }
 
@@ -2211,7 +2213,8 @@
             getMentionManage: getMentionManageModule,
             getGroupAdmins: getGroupAdminsModule,
             getMessageStore: getMessageStoreModule,
-            getMessageSync: getMessageSyncModule
+            getMessageSync: getMessageSyncModule,
+            isCurrentIdentityUsername: isCurrentIdentityUsername
         });
     }
 
@@ -2332,7 +2335,8 @@
                     messageManageModule.markRead(conversationId || state.activeConversationId);
                 }
             },
-            escapeHtml: escapeHtml
+            escapeHtml: escapeHtml,
+            isCurrentIdentityUsername: isCurrentIdentityUsername
         });
     }
 
@@ -2358,7 +2362,8 @@
             getActiveSession: getActiveSession,
             isGroupSession: isGroupSession,
             isAISystemIdentity: isAISystemIdentity,
-            buildAIBadgeMarkup: buildAIBadgeMarkup
+            buildAIBadgeMarkup: buildAIBadgeMarkup,
+            isCurrentIdentityUsername: isCurrentIdentityUsername
         });
     }
 
@@ -3467,8 +3472,10 @@
     function setCurrentIMUsername(username) {
         const value = String(username || '').trim().toLowerCase();
         if (!value) return;
+        state.identityUsernames = normalizeIdentityUsernames(state.identityUsernames, value);
         try {
             window.AKIMClientUsername = value;
+            window.AKIMClientIdentityUsernames = state.identityUsernames.slice();
             deleteCookieEverywhere('ak_username');
             deleteCookieEverywhere('ak_im_username');
             document.cookie = 'ak_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
@@ -3489,10 +3496,35 @@
                 push.disableServerBinding(previousUsername);
             }
             window.AKIMClientUsername = '';
+            window.AKIMClientIdentityUsernames = [];
             document.cookie = 'ak_username=; path=/; max-age=0; SameSite=Lax';
             document.cookie = 'ak_im_username=; path=/; max-age=0; SameSite=Lax';
         } catch (e) {
         }
+    }
+
+    function normalizeIdentityUsernames(usernames, fallbackUsername) {
+        const result = [];
+        const seen = Object.create(null);
+        const values = Array.isArray(usernames) ? usernames.slice() : [];
+        if (fallbackUsername) values.unshift(fallbackUsername);
+        values.forEach(function(item) {
+            const normalized = String(item || '').trim().toLowerCase();
+            if (!normalized || seen[normalized]) return;
+            seen[normalized] = true;
+            result.push(normalized);
+        });
+        return result;
+    }
+
+    function getCurrentIdentityUsernames() {
+        return normalizeIdentityUsernames(state.identityUsernames, state.username || getCanonicalUsername());
+    }
+
+    function isCurrentIdentityUsername(username) {
+        const normalized = String(username || '').trim().toLowerCase();
+        if (!normalized) return false;
+        return getCurrentIdentityUsernames().indexOf(normalized) >= 0;
     }
 
     function getLoginCookieUsername() {
@@ -3536,6 +3568,7 @@
             if (confirmedUsername && confirmedUsername !== runtimeUsername) {
                 try { window.AKIMClientUsername = ''; } catch (e) {}
                 state.username = '';
+                state.identityUsernames = [];
             }
             return runtimeUsername;
         }
@@ -6159,6 +6192,7 @@
         state.profile = profile;
         if (profile.username) {
             state.username = profile.username;
+            state.identityUsernames = normalizeIdentityUsernames(state.identityUsernames, state.username);
             setCurrentIMUsername(state.username);
         }
         if (profile.display_name) state.displayName = profile.display_name;
@@ -6911,6 +6945,7 @@
             state.allowed = !!(data && data.allowed);
             state.ready = true;
             state.username = String((data && data.username) || '').trim().toLowerCase();
+            state.identityUsernames = normalizeIdentityUsernames(data && data.identity_usernames, state.username);
             setCurrentIMUsername(state.username);
             state.displayName = String((data && data.display_name) || state.username || '').trim();
             state.honorName = normalizeHonorName(data && data.honor_name);
