@@ -106,6 +106,8 @@ class OperationScopeResolver:
             ('POST', '/admin/api/point-stats/backfill/run'): 'point_stats_ops',
             ('GET', '/admin/api/point-stats'): 'point_stats_ops',
             ('GET', '/admin/api/point-stats/backfill/status'): 'point_stats_ops',
+            ('POST', '/admin/api/recommend-tree/refresh'): 'recommend_tree_ops',
+            ('POST', '/admin/api/recommend-tree/promotion-policy'): 'recommend_tree_ops',
             ('POST', '/admin/api/ak-data/config'): 'ak_data_ops',
             ('POST', '/admin/api/ak-data/backfill/start'): 'ak_data_ops',
             ('POST', '/admin/api/ak-data/backfill/pause'): 'ak_data_ops',
@@ -123,8 +125,6 @@ class OperationScopeResolver:
             ('POST', '/admin/api/subscription_groups/', 'dispatcher_ops'),
             ('PATCH', '/admin/api/subscription_groups/', 'dispatcher_ops'),
             ('POST', '/admin/api/monitoring/chat/file-assets/', 'im_admin_ops'),
-            ('GET', '/admin/api/recommend-tree/', 'recommend_tree_ops'),
-            ('POST', '/admin/api/recommend-tree/', 'recommend_tree_ops'),
         ]
 
     def resolve(self, method: str, path: str, body: bytes | None = None) -> str:

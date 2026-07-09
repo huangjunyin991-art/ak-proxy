@@ -53,6 +53,21 @@ def test_risk_isolation_umbrella_requires_account_scope():
     assert resolver.resolve("POST", "/admin/api/risk-isolation/release_umbrella") == "account_ops"
 
 
+def test_recommend_tree_reads_do_not_require_operation_auth():
+    resolver = OperationScopeResolver()
+
+    assert resolver.resolve("GET", "/admin/api/recommend-tree/accounts") == ""
+    assert resolver.resolve("GET", "/admin/api/recommend-tree/cache") == ""
+    assert resolver.resolve("GET", "/admin/api/recommend-tree/promotion-policy") == ""
+
+
+def test_recommend_tree_writes_require_operation_auth():
+    resolver = OperationScopeResolver()
+
+    assert resolver.resolve("POST", "/admin/api/recommend-tree/refresh") == "recommend_tree_ops"
+    assert resolver.resolve("POST", "/admin/api/recommend-tree/promotion-policy") == "recommend_tree_ops"
+
+
 def main():
     test_admin_raw_sql_always_uses_write_scope()
     test_admin_embedded_ak_proxy_unsafe_methods_require_dispatcher_scope()
@@ -60,6 +75,8 @@ def main():
     test_cdn_cgi_unsafe_methods_require_dispatcher_scope()
     test_license_password_reset_requires_account_scope()
     test_risk_isolation_umbrella_requires_account_scope()
+    test_recommend_tree_reads_do_not_require_operation_auth()
+    test_recommend_tree_writes_require_operation_auth()
 
 
 if __name__ == "__main__":

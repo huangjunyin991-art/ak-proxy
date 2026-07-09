@@ -49,10 +49,21 @@ def test_operation_auth_self_check_reports_missing_scope():
     assert result.issues
 
 
+def test_fallback_recommend_tree_auth_only_applies_to_writes():
+    resolver = FallbackOperationScopeResolver()
+
+    assert resolver.resolve("GET", "/admin/api/recommend-tree/accounts") == ""
+    assert resolver.resolve("GET", "/admin/api/recommend-tree/cache") == ""
+    assert resolver.resolve("GET", "/admin/api/recommend-tree/promotion-policy") == ""
+    assert resolver.resolve("POST", "/admin/api/recommend-tree/refresh") == "recommend_tree_ops"
+    assert resolver.resolve("POST", "/admin/api/recommend-tree/promotion-policy") == "recommend_tree_ops"
+
+
 def main():
     test_fallback_resolver_covers_sensitive_operation_auth_paths()
     test_operation_auth_self_check_passes_for_fallback_resolver()
     test_operation_auth_self_check_reports_missing_scope()
+    test_fallback_recommend_tree_auth_only_applies_to_writes()
 
 
 if __name__ == "__main__":
