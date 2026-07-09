@@ -18037,66 +18037,6 @@ def _normalize_ak_local_language_code(file_name: str) -> str:
     return code
 
 
-def _get_ak_local_language_pack_path(normalized_path: str) -> Optional[Path]:
-    lowered_path = str(normalized_path or "").strip("/").lower()
-    if lowered_path == "content/js/cn.json":
-        lowered_path = "content/lang/cn.json"
-    if not lowered_path.startswith("content/lang/") or not lowered_path.endswith(".json"):
-        return None
-    code = _normalize_ak_local_language_code(lowered_path.rsplit("/", 1)[-1])
-    if not code:
-        return None
-    base_dir = Path(FRONTEND_LANG_DIR).resolve()
-    candidate = (base_dir / f"{code}.json").resolve()
-    try:
-        candidate.relative_to(base_dir)
-    except ValueError:
-        return None
-    if not candidate.is_file():
-        return None
-    return candidate
-
-
-def _build_ak_local_language_pack_response(request: Request, normalized_path: str) -> Optional[Response]:
-    local_path = _get_ak_local_language_pack_path(normalized_path)
-    if local_path is None:
-        return None
-    try:
-        stat = local_path.stat()
-    except OSError:
-        return None
-    query = parse_qs(str(request.url.query or ""), keep_blank_values=True)
-    version = str((query.get("v") or [""])[0] or "").strip().lower()
-    is_content_versioned = bool(re.fullmatch(r"[0-9a-f]{8,40}", version))
-    etag = f'"ak-lang-{local_path.stem}-{stat.st_mtime_ns:x}-{stat.st_size:x}"'
-    last_modified = formatdate(stat.st_mtime, usegmt=True)
-    cache_control = (
-        "public, max-age=604800, immutable"
-        if is_content_versioned
-        else "no-cache, must-revalidate"
-    )
-    headers = {
-        "Cache-Control": cache_control,
-        "ETag": etag,
-        "Last-Modified": last_modified,
-        "X-AK-Static-Cache": "LOCAL",
-        "X-AK-Language-Source": "local",
-        "X-AK-Language-Path": local_path.name,
-        "X-Content-Type-Options": "nosniff",
-    }
-    if not is_content_versioned:
-        headers["Pragma"] = "no-cache"
-        headers["Expires"] = "0"
-    if str(request.headers.get("if-none-match") or "").strip() == etag:
-        return Response(status_code=304, headers=headers)
-    body = b"" if request.method == "HEAD" else local_path.read_bytes()
-    return Response(
-        content=body,
-        media_type="application/json",
-        headers=headers,
-    )
-
-
 def _build_ak_public_static_target_url(normalized_path: str, request: Request) -> str:
     query_parts = [
         p for p in str(request.url.query).split("&")
@@ -18204,67 +18144,6 @@ def _patch_vue_component_content(text: str) -> str:
     text = _patch_vue_component_language_names(text)
     text, _ = _patch_vue_component_tab_bar_language(text)
     return text
-
-
-def _build_ak_language_pack_cache_version() -> str:
-    base_dir = Path(FRONTEND_LANG_DIR).resolve()
-    files = []
-    signature_parts = []
-    for local_path in sorted(base_dir.glob("*.json")):
-        code = _normalize_ak_local_language_code(local_path.name)
-        if not code:
-            continue
-        try:
-            stat = local_path.stat()
-        except Exception:
-            continue
-        files.append(local_path)
-        signature_parts.append(f"{local_path.name}:{stat.st_mtime_ns}:{stat.st_size}")
-    signature = "|".join(signature_parts)
-    cached = getattr(_build_ak_language_pack_cache_version, "_cache", None)
-    if cached and cached[0] == signature:
-        return cached[1]
-
-    digest = hashlib.sha1()
-    found = False
-    for local_path in files:
-        try:
-            digest.update(local_path.name.encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(local_path.read_bytes())
-            digest.update(b"\0")
-            found = True
-        except Exception:
-            continue
-    version = digest.hexdigest()[:12] if found else "0"
-    setattr(_build_ak_language_pack_cache_version, "_cache", (signature, version))
-    return version
-
-
-def _rewrite_base_js_script_version(text: str) -> str:
-    version = _build_ak_language_pack_cache_version()
-    return re.sub(
-        r"(/content/js/base\.js\?v=28)(?:&ak_static_v=[^\"'<>\s]*)?",
-        rf"\1&ak_static_v=public-rpc-20260616-lang-v2-{version}",
-        str(text or ""),
-    )
-
-
-def _patch_base_js_language_pack_version(text: str) -> tuple[str, bool]:
-    version = _build_ak_language_pack_cache_version()
-
-    def repl(match):
-        prefix = match.group(1)
-        suffix = match.group(2)
-        return f"{prefix}{version}{suffix}"
-
-    next_text, count = re.subn(
-        r"('/content/lang/'\s*\+\s*_currentLanguage\(\)\s*\+\s*'\.json\?v=)(?:27|[0-9a-f]{8,40})(?:&ak_lang_v=[^']*)?(')",
-        repl,
-        str(text or ""),
-        count=1,
-    )
-    return next_text, bool(count)
 
 
 _AK_TAB_BAR_PAGE_JS_PATHS = {
@@ -18473,7 +18352,6 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
         text, _ = _patch_base_js_tab_bar_language_fallback(text)
-        text, _ = _patch_base_js_language_pack_version(text)
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text = content.decode("utf-8", errors="replace")
@@ -18694,7 +18572,6 @@ def _transform_ak_public_page_html(text: str, request: Request) -> str:
     if public_host:
         rewritten = rewritten.replace("www.akapi1.com", public_host)
         rewritten = rewritten.replace("www.akapi3.com", public_host)
-    rewritten = _rewrite_base_js_script_version(rewritten)
     rewritten = _rewrite_vue_component_script_version(rewritten)
     rewritten = _rewrite_tab_bar_page_script_versions(rewritten)
     rewritten = _rewrite_recommend_friend_relation_labels(rewritten, request.url.path)
@@ -18868,20 +18745,6 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
     normalized_path = _normalize_ak_public_static_path(prefix, asset_path)
     if not normalized_path:
         return Response(status_code=404)
-    local_lang_response = _build_ak_local_language_pack_response(request, normalized_path)
-    if local_lang_response is not None:
-        _record_request_metric(
-            kind="static_asset",
-            method=request.method,
-            path="/" + normalized_path,
-            status_code=200,
-            total_ms=_elapsed_ms(request_started_at),
-            upstream_ms=0,
-            cache_state="LOCAL",
-            content_type="application/json",
-            response_bytes=len(local_lang_response.body or b""),
-        )
-        return local_lang_response
     target_url = _build_ak_public_static_target_url(normalized_path, request)
     cache_request = _build_ak_web_static_cache_request(
         request.method,
@@ -19256,8 +19119,6 @@ async def ak_web_proxy(request: Request, path: str):
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
             text, tab_bar_language_rewritten = _patch_base_js_tab_bar_language_fallback(text)
             base_js_rewritten = base_js_rewritten or tab_bar_language_rewritten
-            text, lang_pack_version_rewritten = _patch_base_js_language_pack_version(text)
-            base_js_rewritten = base_js_rewritten or lang_pack_version_rewritten
             if base_js_rewritten:
                 _admin_ak_trace(lambda: f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
@@ -19295,7 +19156,6 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
-                text = _rewrite_base_js_script_version(text)
                 text = _rewrite_vue_component_script_version(text)
                 text = _rewrite_tab_bar_page_script_versions(text)
                 text = _rewrite_recommend_friend_relation_labels(text, normalized_path)
