@@ -89,18 +89,26 @@
         if (!state.isSuperAdmin) return '';
         var snapshot = state.promotionPolicy || {};
         var rules = Array.isArray(snapshot.rules) ? snapshot.rules : [];
-        var rows = rules.map(function(rule) {
-            return renderPromotionPolicyRow(rule, state);
-        }).join('');
+        var expanded = !!state.policyPanelExpanded;
         var status = state.policySaving ? '正在保存' : (state.policyLoading ? '正在读取' : '总管理员可配置');
         return '<section class="rt-policy-panel">' +
             '<div class="rt-policy-head">' +
-                '<div class="rt-policy-title"><strong>晋升策略</strong><span>按等级独立控制是否考核三足鼎立，修改后全局生效。</span></div>' +
-                '<span class="rt-policy-status">' + utils.escapeHtml(status) + '</span>' +
+                '<div class="rt-policy-head-main">' +
+                    '<div class="rt-policy-title"><strong>晋升策略</strong><span>按等级独立控制是否考核三足鼎立，修改后全局生效。</span></div>' +
+                    '<span class="rt-policy-status">' + utils.escapeHtml(status) + '</span>' +
+                '</div>' +
+                '<button type="button" class="rt-policy-toggle ' + (expanded ? 'expanded' : 'collapsed') + '" data-action="toggle-policy-panel" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
+                    '<span>' + (expanded ? '收起' : '展开') + '</span>' +
+                    '<i></i>' +
+                '</button>' +
             '</div>' +
-            '<div class="rt-policy-list">' +
-                (rows || '<div class="rt-policy-empty">正在读取晋升策略...</div>') +
-            '</div>' +
+            (expanded
+                ? ('<div class="rt-policy-list">' +
+                    (rules.map(function(rule) {
+                        return renderPromotionPolicyRow(rule, state);
+                    }).join('') || '<div class="rt-policy-empty">正在读取晋升策略...</div>') +
+                '</div>')
+                : '') +
         '</section>';
     }
 

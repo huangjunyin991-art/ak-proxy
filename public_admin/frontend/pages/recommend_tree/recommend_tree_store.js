@@ -11,6 +11,7 @@
             policyLoading: false,
             policySaving: false,
             policyLoaded: false,
+            policyPanelExpanded: false,
             isSuperAdmin: false,
             query: '',
             generation: '',
@@ -58,6 +59,10 @@
         function setPromotionPolicy(policy) {
             state.promotionPolicy = policy && typeof policy === 'object' ? policy : null;
             state.policyLoaded = !!state.promotionPolicy;
+        }
+
+        function togglePromotionPolicyPanel() {
+            state.policyPanelExpanded = !state.policyPanelExpanded;
         }
 
         function selectAccount(row) {
@@ -118,6 +123,7 @@
             setAccountQuery: setAccountQuery,
             setAccountOptions: setAccountOptions,
             setPromotionPolicy: setPromotionPolicy,
+            togglePromotionPolicyPanel: togglePromotionPolicyPanel,
             selectAccount: selectAccount,
             applyFilter: applyFilter,
             setQuery: setQuery,

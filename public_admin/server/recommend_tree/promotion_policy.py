@@ -27,7 +27,7 @@ PROMOTION_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "M3": {
         "level": 3,
         "direct_push": 15,
-        "small_area": 50,
+        "small_area": 200,
         "required_lines": 3,
         "next_level": "M2",
         "tripod_applicable": True,

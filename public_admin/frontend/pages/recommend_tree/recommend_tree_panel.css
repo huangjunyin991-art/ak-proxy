@@ -3415,7 +3415,16 @@
 
 .rt-policy-head {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.rt-policy-head-main {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
 }
@@ -3452,6 +3461,41 @@
     font-size: 12px;
     font-weight: 900;
     white-space: nowrap;
+}
+
+.rt-policy-toggle {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(129, 212, 250, 0.20);
+    background: rgba(6, 17, 31, 0.82);
+    color: #d8ecff;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.rt-policy-toggle:hover {
+    border-color: rgba(0, 212, 255, 0.42);
+    box-shadow: 0 0 14px rgba(0, 212, 255, 0.14);
+}
+
+.rt-policy-toggle i {
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.16s ease;
+}
+
+.rt-policy-toggle.expanded i {
+    transform: rotate(225deg);
 }
 
 .rt-policy-list {
@@ -3582,6 +3626,17 @@
 }
 
 @media (max-width: 760px) {
+    .rt-policy-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .rt-policy-head-main {
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
     .rt-policy-row {
         grid-template-columns: 1fr;
     }
@@ -3590,6 +3645,7 @@
         justify-self: start;
     }
 
+    .rt-policy-toggle,
     .rt-policy-switch {
         width: 100%;
         justify-content: space-between;

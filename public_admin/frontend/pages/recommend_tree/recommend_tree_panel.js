@@ -23,7 +23,7 @@
     }
 
     function ensureCss() {
-        var version = window.AKRecommendTreePanelAssetVersion || '20260508-37';
+        var version = window.AKRecommendTreePanelAssetVersion || '20260709-02';
         var href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=' + encodeURIComponent(version);
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
@@ -183,6 +183,14 @@
             item.onclick = function(event) {
                 event.stopPropagation();
                 togglePromotionPolicy(item.getAttribute('data-policy-level') || '');
+            };
+        });
+
+        root.querySelectorAll('[data-action="toggle-policy-panel"]').forEach(function(btn) {
+            btn.onclick = function(event) {
+                event.stopPropagation();
+                store.togglePromotionPolicyPanel();
+                render();
             };
         });
 

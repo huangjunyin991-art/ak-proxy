@@ -61,6 +61,23 @@ def test_apply_policy_to_payload_recomputes_flat_honor_levels():
     assert updated["nodesByHonorLevel"]["M2"] == 1
 
 
+def test_calculate_inferred_level_uses_min_side_for_m3_small_area():
+    relaxed_policy = normalize_promotion_policy(
+        {
+            "levels": {
+                "M2": {"require_tripod": False},
+                "M3": {"require_tripod": False},
+            }
+        }
+    )
+
+    root_below_threshold = {"F": 15, "L": 300, "R": 199, "children": []}
+    root_meets_threshold = {"F": 15, "L": 300, "R": 200, "children": []}
+
+    assert calculate_inferred_level(root_below_threshold, policy=relaxed_policy) == 2
+    assert calculate_inferred_level(root_meets_threshold, policy=relaxed_policy) == 3
+
+
 def test_recommend_tree_service_get_cache_applies_current_policy():
     class FakeRepository:
         @staticmethod
