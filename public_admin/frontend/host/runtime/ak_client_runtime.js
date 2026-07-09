@@ -250,6 +250,9 @@
             if (patches && typeof patches.installLoginPasswordErrorPatch === 'function') {
                 patches.installLoginPasswordErrorPatch();
             }
+            if (patches && typeof patches.installNonLoginAutofillPatch === 'function') {
+                patches.installNonLoginAutofillPatch();
+            }
         } catch(e) {
         }
     }

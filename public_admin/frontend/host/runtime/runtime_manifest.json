@@ -47,6 +47,11 @@
       "required": false
     },
     {
+      "name": "non_login_autofill_patch",
+      "path": "patches/non_login_autofill_patch.js",
+      "required": false
+    },
+    {
       "name": "push_permission",
       "path": "push/push_permission.js",
       "required": false
