@@ -26,8 +26,8 @@ def test_normalize_promotion_policy_keeps_m1_not_applicable():
 def test_calculate_inferred_level_skips_tripod_when_policy_disabled():
     root = {
         "F": 10,
-        "L": 10,
-        "R": 10,
+        "L": 20,
+        "R": 20,
         "children": [
             {"F": 5, "L": 2, "R": 2, "children": []},
             {"F": 5, "L": 2, "R": 2, "children": []},
@@ -45,7 +45,7 @@ def test_calculate_inferred_level_skips_tripod_when_policy_disabled():
 def test_apply_policy_to_payload_recomputes_flat_honor_levels():
     payload = {
         "nodes": [
-            {"id": "root", "parentId": None, "depth": 0, "account": "root", "honorLevel": "M1", "F": 10, "L": 10, "R": 10, "S": 0},
+            {"id": "root", "parentId": None, "depth": 0, "account": "root", "honorLevel": "M1", "F": 10, "L": 20, "R": 20, "S": 0},
             {"id": "left", "parentId": "root", "depth": 1, "account": "left", "honorLevel": "M1", "F": 5, "L": 2, "R": 2, "S": 0},
             {"id": "right", "parentId": "root", "depth": 1, "account": "right", "honorLevel": "M1", "F": 5, "L": 2, "R": 2, "S": 0},
         ],
@@ -59,6 +59,16 @@ def test_apply_policy_to_payload_recomputes_flat_honor_levels():
 
     assert updated["nodes"][0]["honorLevel"] == "M2"
     assert updated["nodesByHonorLevel"]["M2"] == 1
+
+
+def test_calculate_inferred_level_uses_min_side_for_m2_small_area():
+    relaxed_policy = normalize_promotion_policy({"levels": {"M2": {"require_tripod": False}}})
+
+    root_below_threshold = {"F": 10, "L": 100, "R": 19, "children": []}
+    root_meets_threshold = {"F": 10, "L": 100, "R": 20, "children": []}
+
+    assert calculate_inferred_level(root_below_threshold, policy=relaxed_policy) == 1
+    assert calculate_inferred_level(root_meets_threshold, policy=relaxed_policy) == 2
 
 
 def test_calculate_inferred_level_uses_min_side_for_m3_small_area():
@@ -89,7 +99,7 @@ def test_recommend_tree_service_get_cache_applies_current_policy():
                 "meta": {"nodeCount": 3},
                 "payload": {
                     "nodes": [
-                        {"id": "root", "parentId": None, "depth": 0, "account": "root", "honorLevel": "M1", "F": 10, "L": 10, "R": 10, "S": 0},
+                        {"id": "root", "parentId": None, "depth": 0, "account": "root", "honorLevel": "M1", "F": 10, "L": 20, "R": 20, "S": 0},
                         {"id": "left", "parentId": "root", "depth": 1, "account": "left", "honorLevel": "M1", "F": 5, "L": 2, "R": 2, "S": 0},
                         {"id": "right", "parentId": "root", "depth": 1, "account": "right", "honorLevel": "M1", "F": 5, "L": 2, "R": 2, "S": 0},
                     ],
