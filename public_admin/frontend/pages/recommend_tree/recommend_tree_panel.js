@@ -18,6 +18,10 @@
         return document.getElementById('recommendTreePanelMount');
     }
 
+    function isSuperAdmin() {
+        return String(sessionStorage.getItem('admin_role') || '').toLowerCase() === 'super_admin';
+    }
+
     function ensureCss() {
         var version = window.AKRecommendTreePanelAssetVersion || '20260508-37';
         var href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=' + encodeURIComponent(version);
@@ -109,6 +113,7 @@
                 }
             };
         }
+
         if (searchInput) {
             searchInput.oninput = function() {
                 searchSelectionStart = typeof searchInput.selectionStart === 'number' ? searchInput.selectionStart : searchInput.value.length;
@@ -117,8 +122,10 @@
                 render(false, true);
             };
         }
+
         if (loadBtn) loadBtn.onclick = loadCache;
         if (refreshBtn) refreshBtn.onclick = refreshTree;
+
         if (generationTrigger && generationFilter) {
             generationTrigger.onclick = function(event) {
                 event.stopPropagation();
@@ -169,6 +176,13 @@
                 var nodeId = item.getAttribute('data-id') || '';
                 var node = store.state.index.byId.get(String(nodeId));
                 renderer.showDetail(node, item);
+            };
+        });
+
+        root.querySelectorAll('[data-policy-level]').forEach(function(item) {
+            item.onclick = function(event) {
+                event.stopPropagation();
+                togglePromotionPolicy(item.getAttribute('data-policy-level') || '');
             };
         });
 
@@ -227,34 +241,41 @@
         });
     }
 
+    function fetchCache(account, options) {
+        var opts = options || {};
+        store.state.loading = !opts.silent;
+        store.state.error = '';
+        store.state.account = account;
+        store.state.accountQuery = account;
+        store.state.accountDropdownOpen = false;
+        render(opts.focusAccount, opts.focusSearch);
+        return api.getCache(account).then(function(result) {
+            store.state.loading = false;
+            if (!result.cached) {
+                store.setPayload(account, { cached: false, meta: null, payload: null });
+                if (!opts.silent) notify('该账号暂无缓存，请点击更新数据', 'warning');
+            } else {
+                store.setPayload(account, result);
+                if (!opts.silent) notify('已读取缓存', 'success');
+            }
+            render(opts.focusAccount, opts.focusSearch);
+            return result;
+        }).catch(function(error) {
+            store.state.loading = false;
+            store.state.error = error.message || String(error);
+            render(opts.focusAccount, opts.focusSearch);
+            if (!opts.quietError) notify(store.state.error, 'error');
+            throw error;
+        });
+    }
+
     function loadCache() {
         var account = currentAccount();
         if (!account) {
             notify('请输入账号', 'warning');
             return;
         }
-        store.state.loading = true;
-        store.state.error = '';
-        store.state.account = account;
-        store.state.accountQuery = account;
-        store.state.accountDropdownOpen = false;
-        render();
-        api.getCache(account).then(function(result) {
-            store.state.loading = false;
-            if (!result.cached) {
-                store.setPayload(account, { cached: false, meta: null, payload: null });
-                notify('该账号暂无缓存，请点击更新数据', 'warning');
-            } else {
-                store.setPayload(account, result);
-                notify('已读取缓存', 'success');
-            }
-            render();
-        }).catch(function(error) {
-            store.state.loading = false;
-            store.state.error = error.message || String(error);
-            render();
-            notify(store.state.error, 'error');
-        });
+        fetchCache(account, {});
     }
 
     function showRefreshConfirm(onConfirm) {
@@ -268,15 +289,14 @@
             +   '<div style="padding:22px 26px 14px;border-bottom:1px solid var(--border);">'
             +     '<h3 style="margin:0;color:#ffc45a;font-size:18px;">确认更新数据</h3>'
             +     '<div style="margin-top:10px;color:var(--text-secondary);font-size:14px;line-height:1.75;">'
-            +       '如果近期<strong style="color:#ffc45a;">没有新玩家报单</strong>，建议直接点击「<strong style="color:#00ff88;">查看架构</strong>」读取本地缓存，'
-            +       '<strong>无需更新数据</strong>，以<strong>减少您的等待时间</strong>！'
+            +       '如果近期没有新增玩家，建议优先读取缓存，避免重复等待远端组织架构拉取。'
             +     '</div>'
             +     '<div style="margin-top:8px;color:var(--text-secondary);font-size:12px;line-height:1.6;opacity:0.75;">'
-            +       '更新数据会从远程拉取最新组织架构，耗时较长。'
+            +       '更新数据会重新从上游获取组织架构，耗时可能较长。'
             +     '</div>'
             +   '</div>'
             +   '<div style="display:flex;gap:10px;padding:16px 26px 22px;">'
-            +     '<button id="rtRefreshCancelBtn" class="btn" style="flex:1;background:var(--bg-secondary);">取消，使用缓存</button>'
+            +     '<button id="rtRefreshCancelBtn" class="btn" style="flex:1;background:var(--bg-secondary);">取消</button>'
             +     '<button id="rtRefreshConfirmBtn" class="btn btn-primary" style="flex:1;" disabled>确定 (5)</button>'
             +   '</div>'
             + '</div>';
@@ -300,15 +320,25 @@
         }, 1000);
 
         function close() {
-            if (timer) { clearInterval(timer); timer = null; }
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
             if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
         }
+
         if (cancelBtn) cancelBtn.onclick = close;
-        if (confirmBtn) confirmBtn.onclick = function() {
-            if (confirmBtn.disabled) return;
-            close();
-            try { onConfirm && onConfirm(); } catch (e) { console.error('[RecommendTreePanel] refresh confirm error', e); }
-        };
+        if (confirmBtn) {
+            confirmBtn.onclick = function() {
+                if (confirmBtn.disabled) return;
+                close();
+                try {
+                    onConfirm && onConfirm();
+                } catch (e) {
+                    console.error('[RecommendTreePanel] refresh confirm error', e);
+                }
+            };
+        }
         modal.onclick = function(event) {
             if (event.target === modal) close();
         };
@@ -355,13 +385,68 @@
         showRefreshConfirm(doRefreshTree);
     }
 
+    function loadPromotionPolicy() {
+        if (!store.state.isSuperAdmin) return Promise.resolve(null);
+        store.state.policyLoading = true;
+        render();
+        return api.getPromotionPolicy().then(function(result) {
+            store.state.policyLoading = false;
+            store.setPromotionPolicy(result.item || null);
+            render();
+            return result;
+        }).catch(function(error) {
+            store.state.policyLoading = false;
+            render();
+            notify(error.message || String(error), 'error');
+            throw error;
+        });
+    }
+
+    function refreshCurrentCacheSilently() {
+        var account = currentAccount();
+        if (!account || !store.state.payload) return Promise.resolve(null);
+        return fetchCache(account, { silent: true, quietError: true }).catch(function() {
+            return null;
+        });
+    }
+
+    function togglePromotionPolicy(level) {
+        if (!store.state.isSuperAdmin || !level || store.state.policySaving || store.state.policyLoading) return;
+        var current = store.state.promotionPolicy || {};
+        var next = JSON.parse(JSON.stringify(current || {}));
+        next.levels = next.levels || {};
+        next.levels[level] = next.levels[level] || {};
+        next.levels[level].require_tripod = !next.levels[level].require_tripod;
+        store.state.policySaving = true;
+        render();
+        api.updatePromotionPolicy(next).then(function(result) {
+            store.state.policySaving = false;
+            store.setPromotionPolicy(result.item || null);
+            render();
+            notify('晋升策略已更新', 'success');
+            refreshCurrentCacheSilently();
+        }).catch(function(error) {
+            store.state.policySaving = false;
+            render();
+            notify(error.message || String(error), 'error');
+        });
+    }
+
     function start() {
         ensureCss();
+        store.state.isSuperAdmin = isSuperAdmin();
+        if (!store.state.isSuperAdmin) {
+            store.setPromotionPolicy(null);
+            store.state.policyLoaded = false;
+        }
         if (!initialized) {
             initialized = true;
             render();
         } else {
             render();
+        }
+        if (store.state.isSuperAdmin) {
+            loadPromotionPolicy().catch(function() {});
         }
     }
 

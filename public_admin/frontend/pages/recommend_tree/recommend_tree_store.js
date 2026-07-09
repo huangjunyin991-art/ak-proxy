@@ -8,6 +8,10 @@
             account: '',
             loading: false,
             refreshing: false,
+            policyLoading: false,
+            policySaving: false,
+            policyLoaded: false,
+            isSuperAdmin: false,
             query: '',
             generation: '',
             viewMode: 'level',
@@ -24,7 +28,8 @@
             filtered: [],
             expandedLevelGroups: {},
             index: utils.buildNodeIndex([]),
-            error: ''
+            error: '',
+            promotionPolicy: null
         };
 
         function setPayload(account, result) {
@@ -48,6 +53,11 @@
         function setAccountOptions(rows) {
             state.accountOptions = Array.isArray(rows) ? rows : [];
             state.accountSearching = false;
+        }
+
+        function setPromotionPolicy(policy) {
+            state.promotionPolicy = policy && typeof policy === 'object' ? policy : null;
+            state.policyLoaded = !!state.promotionPolicy;
         }
 
         function selectAccount(row) {
@@ -107,6 +117,7 @@
             setPayload: setPayload,
             setAccountQuery: setAccountQuery,
             setAccountOptions: setAccountOptions,
+            setPromotionPolicy: setPromotionPolicy,
             selectAccount: selectAccount,
             applyFilter: applyFilter,
             setQuery: setQuery,

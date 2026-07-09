@@ -46,9 +46,30 @@
         }).then(parseResponse);
     }
 
+    function getPromotionPolicy() {
+        return fetch('/admin/api/recommend-tree/promotion-policy', {
+            headers: { 'Authorization': 'Bearer ' + token() },
+            credentials: 'same-origin'
+        }).then(parseResponse);
+    }
+
+    function updatePromotionPolicy(payload) {
+        return fetch('/admin/api/recommend-tree/promotion-policy', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token(),
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(payload || {})
+        }).then(parseResponse);
+    }
+
     window.AKRecommendTreeApi = {
         getCache: getCache,
         searchAccounts: searchAccounts,
-        refresh: refresh
+        refresh: refresh,
+        getPromotionPolicy: getPromotionPolicy,
+        updatePromotionPolicy: updatePromotionPolicy
     };
 })();

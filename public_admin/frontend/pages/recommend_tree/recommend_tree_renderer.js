@@ -6,9 +6,10 @@
     function render(root, store) {
         var state = store.state;
         root.innerHTML = '' +
-            '<div class="rt-root ' + ((state.loading || state.refreshing) ? 'is-busy' : '') + '">' +
+            '<div class="rt-root ' + ((state.loading || state.refreshing || state.policySaving) ? 'is-busy' : '') + '">' +
                 renderHero(state) +
                 renderStats(state) +
+                renderPromotionPolicy(state) +
                 renderControls(state) +
                 '<section class="rt-view-shell">' +
                     renderViewTabs(state) +
@@ -82,6 +83,56 @@
 
     function statCard(value, label) {
         return '<div class="rt-stat"><b>' + utils.escapeHtml(value) + '</b><span>' + utils.escapeHtml(label) + '</span></div>';
+    }
+
+    function renderPromotionPolicy(state) {
+        if (!state.isSuperAdmin) return '';
+        var snapshot = state.promotionPolicy || {};
+        var rules = Array.isArray(snapshot.rules) ? snapshot.rules : [];
+        var rows = rules.map(function(rule) {
+            return renderPromotionPolicyRow(rule, state);
+        }).join('');
+        var status = state.policySaving ? '正在保存' : (state.policyLoading ? '正在读取' : '总管理员可配置');
+        return '<section class="rt-policy-panel">' +
+            '<div class="rt-policy-head">' +
+                '<div class="rt-policy-title"><strong>晋升策略</strong><span>按等级独立控制是否考核三足鼎立，修改后全局生效。</span></div>' +
+                '<span class="rt-policy-status">' + utils.escapeHtml(status) + '</span>' +
+            '</div>' +
+            '<div class="rt-policy-list">' +
+                (rows || '<div class="rt-policy-empty">正在读取晋升策略...</div>') +
+            '</div>' +
+        '</section>';
+    }
+
+    function renderPromotionPolicyRow(rule, state) {
+        var level = String(rule && rule.level || '');
+        var tripodApplicable = !!(rule && rule.tripod_applicable);
+        var requireTripod = !!(rule && rule.require_tripod);
+        var directPush = Number(rule && rule.direct_push || 0);
+        var smallArea = Number(rule && rule.small_area || 0);
+        var requiredLines = Number(rule && rule.required_lines || 0);
+        var nextLevel = String(rule && rule.next_level || '');
+        var busy = !!(state.policySaving || state.policyLoading);
+        var tripodSummary = tripodApplicable
+            ? (requireTripod ? ('三线至少 ' + requiredLines + ' 条达到 ' + nextLevel + ' 及以上') : '忽略三足鼎立')
+            : '不考核三足鼎立';
+        var switchHtml = tripodApplicable
+            ? '<button type="button" class="rt-policy-switch ' + (requireTripod ? 'on' : 'off') + (busy ? ' disabled' : '') + '" data-policy-level="' + utils.escapeHtml(level) + '" aria-pressed="' + (requireTripod ? 'true' : 'false') + '"' + (busy ? ' disabled' : '') + '>' +
+                '<span class="rt-policy-switch-track"><span class="rt-policy-switch-thumb"></span></span>' +
+                '<span class="rt-policy-switch-text">' + utils.escapeHtml(requireTripod ? '考核三足鼎立' : '忽略三足鼎立') + '</span>' +
+            '</button>'
+            : '<span class="rt-policy-fixed">不适用</span>';
+        return '<div class="rt-policy-row">' +
+            '<div class="rt-policy-rule">' +
+                '<div class="rt-policy-level">' + utils.escapeHtml(level) + '</div>' +
+                '<div class="rt-policy-condition">' +
+                    '<span>直推 >= ' + utils.escapeHtml(directPush) + '</span>' +
+                    '<span>小区 >= ' + utils.escapeHtml(smallArea) + '</span>' +
+                    '<span>' + utils.escapeHtml(tripodSummary) + '</span>' +
+                '</div>' +
+            '</div>' +
+            '<div class="rt-policy-action">' + switchHtml + '</div>' +
+        '</div>';
     }
 
     function renderControls(state) {

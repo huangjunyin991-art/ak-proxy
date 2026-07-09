@@ -3399,3 +3399,199 @@
     background: transparent;
     box-shadow: none;
 }
+
+.rt-policy-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(129, 212, 250, 0.14);
+    background:
+        radial-gradient(520px 180px at 8% 0%, rgba(33, 209, 159, 0.10), transparent 72%),
+        radial-gradient(420px 160px at 100% 8%, rgba(67, 183, 255, 0.10), transparent 74%),
+        rgba(8, 19, 32, 0.92);
+    box-shadow: 0 12px 28px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.rt-policy-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.rt-policy-title strong,
+.rt-policy-title span {
+    display: block;
+}
+
+.rt-policy-title strong {
+    color: #f6fbff;
+    font-size: 16px;
+    font-weight: 950;
+}
+
+.rt-policy-title span {
+    margin-top: 4px;
+    color: #8aa4bc;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.rt-policy-status {
+    flex: 0 0 auto;
+    min-height: 26px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid rgba(129, 212, 250, 0.20);
+    background: rgba(6, 17, 31, 0.78);
+    color: #8aa4bc;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.rt-policy-list {
+    display: grid;
+    gap: 8px;
+}
+
+.rt-policy-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(129, 212, 250, 0.10);
+    background: linear-gradient(135deg, rgba(12, 25, 43, 0.96), rgba(8, 20, 36, 0.96));
+}
+
+.rt-policy-level {
+    color: #00d4ff;
+    font-size: 15px;
+    font-weight: 950;
+    margin-bottom: 6px;
+}
+
+.rt-policy-condition {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.rt-policy-condition span,
+.rt-policy-fixed {
+    min-height: 28px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.05);
+    color: #d8ecff;
+    font-size: 12px;
+    font-weight: 850;
+    white-space: nowrap;
+}
+
+.rt-policy-fixed {
+    color: #8aa4bc;
+}
+
+.rt-policy-action {
+    justify-self: end;
+}
+
+.rt-policy-switch {
+    min-height: 40px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(129, 212, 250, 0.20);
+    background: rgba(6, 17, 31, 0.82);
+    color: #d8ecff;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.rt-policy-switch.on {
+    border-color: rgba(34, 224, 146, 0.35);
+    box-shadow: 0 0 16px rgba(34, 224, 146, 0.12);
+}
+
+.rt-policy-switch.off {
+    border-color: rgba(255, 212, 90, 0.35);
+    box-shadow: 0 0 16px rgba(255, 212, 90, 0.12);
+}
+
+.rt-policy-switch.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.rt-policy-switch-track {
+    width: 42px;
+    height: 24px;
+    border-radius: 999px;
+    position: relative;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.10);
+}
+
+.rt-policy-switch-thumb {
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: rgba(230,242,255,0.90);
+    transition: transform 0.16s ease;
+}
+
+.rt-policy-switch.on .rt-policy-switch-track {
+    background: linear-gradient(135deg, rgba(34, 224, 146, 0.85), rgba(0, 212, 255, 0.85));
+    border-color: transparent;
+}
+
+.rt-policy-switch.off .rt-policy-switch-track {
+    background: linear-gradient(135deg, rgba(255, 212, 90, 0.42), rgba(255, 143, 78, 0.42));
+}
+
+.rt-policy-switch.on .rt-policy-switch-thumb {
+    transform: translateX(18px);
+    background: #ffffff;
+}
+
+.rt-policy-empty {
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px dashed rgba(129, 212, 250, 0.18);
+    color: #8aa4bc;
+    font-size: 13px;
+    font-weight: 850;
+    text-align: center;
+}
+
+@media (max-width: 760px) {
+    .rt-policy-row {
+        grid-template-columns: 1fr;
+    }
+
+    .rt-policy-action {
+        justify-self: start;
+    }
+
+    .rt-policy-switch {
+        width: 100%;
+        justify-content: space-between;
+    }
+}

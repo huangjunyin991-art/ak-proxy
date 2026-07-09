@@ -4,14 +4,21 @@ import httpx
 
 from ..security.upstream_http import resolve_upstream_tls_verify
 from .provider import RecommendTreeProvider, make_headers
+from .promotion_policy import RecommendTreePromotionPolicyService
 from .repository import RecommendTreeRepository
-from .tree_builder import build_payload
+from .tree_builder import apply_policy_to_payload, build_payload
 
 
 class RecommendTreeService:
-    def __init__(self, repository: RecommendTreeRepository, provider: RecommendTreeProvider | None = None):
+    def __init__(
+        self,
+        repository: RecommendTreeRepository,
+        provider: RecommendTreeProvider | None = None,
+        policy_service: RecommendTreePromotionPolicyService | None = None,
+    ):
         self.repository = repository
         self.provider = provider or RecommendTreeProvider()
+        self.policy_service = policy_service
 
     async def get_cache(self, account: str) -> dict[str, Any]:
         normalized = self.repository.normalize_account(account)
@@ -25,7 +32,7 @@ class RecommendTreeService:
             "cached": True,
             "account": normalized,
             "meta": cached.get("meta") or {},
-            "payload": cached.get("payload") or {},
+            "payload": await self._apply_current_policy(cached.get("payload") or {}),
         }
 
     async def refresh(self, account: str, root_rid: str = "", page_size: int = 15, max_pages: int = 0, max_depth: int = 0, max_nodes: int = 0) -> dict[str, Any]:
@@ -41,7 +48,7 @@ class RecommendTreeService:
             max_depth=self._clamp(max_depth, 0, 100, 0),
             max_nodes=self._clamp(max_nodes, 0, 200000, 0),
         )
-        payload = build_payload(normalized, tree_data)
+        payload = build_payload(normalized, tree_data, policy=await self._current_policy())
         meta = await self.repository.save_cache(normalized, payload, source_status="success", source_error="")
         return {"success": True, "cached": True, "account": normalized, "meta": meta, "payload": payload}
 
@@ -76,3 +83,11 @@ class RecommendTreeService:
         except (TypeError, ValueError):
             parsed = default
         return max(0, parsed)
+
+    async def _current_policy(self) -> dict[str, Any] | None:
+        if self.policy_service is None:
+            return None
+        return await self.policy_service.get_policy_payload()
+
+    async def _apply_current_policy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return apply_policy_to_payload(payload, policy=await self._current_policy())
