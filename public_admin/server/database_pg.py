@@ -1401,6 +1401,364 @@ async def clear_ak_auth_state(username: str) -> bool:
         return int(result.split()[-1]) > 0
 
 
+async def rename_account_username(old_username: str, new_username: str) -> Dict[str, Any]:
+    pool = _get_pool()
+    source_username = str(old_username or '').strip().lower()
+    target_username = str(new_username or '').strip().lower()
+    if not source_username or not target_username:
+        return {"changed": False, "reason": "missing_username"}
+    if source_username == target_username:
+        return {"changed": False, "reason": "same_username", "username": source_username}
+
+    async def _table_exists(conn: asyncpg.Connection, table_name: str) -> bool:
+        return bool(await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", table_name))
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute('''
+                INSERT INTO user_stats (
+                    username, password, login_count, first_login, last_login, last_ip, is_banned,
+                    banned_at, banned_reason, real_name, ak_userkey, ak_login_cookies,
+                    ak_login_payload, ak_auth_updated_at, ak_auth_expires_at, active_login_device_id
+                )
+                SELECT
+                    $2, password, login_count, first_login, last_login, last_ip, is_banned,
+                    banned_at, banned_reason, real_name, ak_userkey, ak_login_cookies,
+                    ak_login_payload, ak_auth_updated_at, ak_auth_expires_at, active_login_device_id
+                FROM user_stats
+                WHERE username = $1
+                ON CONFLICT (username) DO UPDATE SET
+                    password = CASE WHEN EXCLUDED.password <> '' THEN EXCLUDED.password ELSE user_stats.password END,
+                    login_count = GREATEST(user_stats.login_count, EXCLUDED.login_count),
+                    first_login = CASE
+                        WHEN user_stats.first_login IS NULL THEN EXCLUDED.first_login
+                        WHEN EXCLUDED.first_login IS NULL THEN user_stats.first_login
+                        ELSE LEAST(user_stats.first_login, EXCLUDED.first_login)
+                    END,
+                    last_login = CASE
+                        WHEN user_stats.last_login IS NULL THEN EXCLUDED.last_login
+                        WHEN EXCLUDED.last_login IS NULL THEN user_stats.last_login
+                        ELSE GREATEST(user_stats.last_login, EXCLUDED.last_login)
+                    END,
+                    last_ip = CASE WHEN EXCLUDED.last_ip <> '' THEN EXCLUDED.last_ip ELSE user_stats.last_ip END,
+                    is_banned = user_stats.is_banned OR EXCLUDED.is_banned,
+                    banned_at = CASE
+                        WHEN user_stats.banned_at IS NULL THEN EXCLUDED.banned_at
+                        WHEN EXCLUDED.banned_at IS NULL THEN user_stats.banned_at
+                        ELSE GREATEST(user_stats.banned_at, EXCLUDED.banned_at)
+                    END,
+                    banned_reason = CASE WHEN EXCLUDED.banned_reason <> '' THEN EXCLUDED.banned_reason ELSE user_stats.banned_reason END,
+                    real_name = CASE WHEN EXCLUDED.real_name <> '' THEN EXCLUDED.real_name ELSE user_stats.real_name END,
+                    ak_userkey = CASE WHEN EXCLUDED.ak_userkey <> '' THEN EXCLUDED.ak_userkey ELSE user_stats.ak_userkey END,
+                    ak_login_cookies = CASE WHEN EXCLUDED.ak_login_cookies <> '' THEN EXCLUDED.ak_login_cookies ELSE user_stats.ak_login_cookies END,
+                    ak_login_payload = CASE WHEN EXCLUDED.ak_login_payload <> '' THEN EXCLUDED.ak_login_payload ELSE user_stats.ak_login_payload END,
+                    ak_auth_updated_at = CASE
+                        WHEN user_stats.ak_auth_updated_at IS NULL THEN EXCLUDED.ak_auth_updated_at
+                        WHEN EXCLUDED.ak_auth_updated_at IS NULL THEN user_stats.ak_auth_updated_at
+                        ELSE GREATEST(user_stats.ak_auth_updated_at, EXCLUDED.ak_auth_updated_at)
+                    END,
+                    ak_auth_expires_at = CASE
+                        WHEN user_stats.ak_auth_expires_at IS NULL THEN EXCLUDED.ak_auth_expires_at
+                        WHEN EXCLUDED.ak_auth_expires_at IS NULL THEN user_stats.ak_auth_expires_at
+                        ELSE GREATEST(user_stats.ak_auth_expires_at, EXCLUDED.ak_auth_expires_at)
+                    END,
+                    active_login_device_id = CASE
+                        WHEN EXCLUDED.active_login_device_id <> '' THEN EXCLUDED.active_login_device_id
+                        ELSE user_stats.active_login_device_id
+                    END
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM user_stats WHERE username = $1', source_username)
+
+            await conn.execute('''
+                INSERT INTO user_assets (
+                    username, ace_count, total_ace, weekly_money, sp, tp, ep, rp, ap, rate,
+                    honor_name, left_area, right_area, direct_push, sub_account, updated_at
+                )
+                SELECT
+                    $2, ace_count, total_ace, weekly_money, sp, tp, ep, rp, ap, rate,
+                    honor_name, left_area, right_area, direct_push, sub_account, updated_at
+                FROM user_assets
+                WHERE username = $1
+                ON CONFLICT (username) DO UPDATE SET
+                    ace_count = EXCLUDED.ace_count,
+                    total_ace = EXCLUDED.total_ace,
+                    weekly_money = EXCLUDED.weekly_money,
+                    sp = EXCLUDED.sp,
+                    tp = EXCLUDED.tp,
+                    ep = EXCLUDED.ep,
+                    rp = EXCLUDED.rp,
+                    ap = EXCLUDED.ap,
+                    rate = EXCLUDED.rate,
+                    honor_name = EXCLUDED.honor_name,
+                    left_area = EXCLUDED.left_area,
+                    right_area = EXCLUDED.right_area,
+                    direct_push = EXCLUDED.direct_push,
+                    sub_account = EXCLUDED.sub_account,
+                    updated_at = GREATEST(user_assets.updated_at, EXCLUDED.updated_at)
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM user_assets WHERE username = $1', source_username)
+
+            await conn.execute('''
+                INSERT INTO point_history_records (
+                    username, point_type, record_key, record_time, record_date, resolved_category,
+                    operation_type, amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+                )
+                SELECT
+                    $2, point_type, record_key, record_time, record_date, resolved_category,
+                    operation_type, amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+                FROM point_history_records
+                WHERE username = $1
+                ON CONFLICT (username, point_type, record_key) DO UPDATE SET
+                    record_time = EXCLUDED.record_time,
+                    record_date = EXCLUDED.record_date,
+                    resolved_category = EXCLUDED.resolved_category,
+                    operation_type = EXCLUDED.operation_type,
+                    amount = EXCLUDED.amount,
+                    balance = EXCLUDED.balance,
+                    type_name = EXCLUDED.type_name,
+                    type_name_cn = EXCLUDED.type_name_cn,
+                    description = EXCLUDED.description,
+                    raw_data = EXCLUDED.raw_data,
+                    saved_at = GREATEST(point_history_records.saved_at, EXCLUDED.saved_at)
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM point_history_records WHERE username = $1', source_username)
+
+            await conn.execute('''
+                INSERT INTO point_history_user_summary (username, record_count, latest_saved_at)
+                SELECT $2, record_count, latest_saved_at
+                FROM point_history_user_summary
+                WHERE username = $1
+                ON CONFLICT (username) DO UPDATE SET
+                    record_count = GREATEST(point_history_user_summary.record_count, EXCLUDED.record_count),
+                    latest_saved_at = CASE
+                        WHEN point_history_user_summary.latest_saved_at IS NULL THEN EXCLUDED.latest_saved_at
+                        WHEN EXCLUDED.latest_saved_at IS NULL THEN point_history_user_summary.latest_saved_at
+                        ELSE GREATEST(point_history_user_summary.latest_saved_at, EXCLUDED.latest_saved_at)
+                    END
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM point_history_user_summary WHERE username = $1', source_username)
+
+            await conn.execute('''
+                INSERT INTO authorized_accounts (
+                    username, password, added_by, plan_type, credits_cost, start_time,
+                    expire_time, status, nickname, created_at, updated_at
+                )
+                SELECT
+                    $2, password, added_by, plan_type, credits_cost, start_time,
+                    expire_time, status, nickname, created_at, updated_at
+                FROM authorized_accounts
+                WHERE username = $1
+                ON CONFLICT (username) DO UPDATE SET
+                    password = CASE WHEN EXCLUDED.password <> '' THEN EXCLUDED.password ELSE authorized_accounts.password END,
+                    added_by = CASE WHEN EXCLUDED.added_by <> '' THEN EXCLUDED.added_by ELSE authorized_accounts.added_by END,
+                    plan_type = EXCLUDED.plan_type,
+                    credits_cost = EXCLUDED.credits_cost,
+                    start_time = CASE
+                        WHEN authorized_accounts.start_time IS NULL THEN EXCLUDED.start_time
+                        WHEN EXCLUDED.start_time IS NULL THEN authorized_accounts.start_time
+                        ELSE LEAST(authorized_accounts.start_time, EXCLUDED.start_time)
+                    END,
+                    expire_time = CASE
+                        WHEN authorized_accounts.expire_time IS NULL THEN EXCLUDED.expire_time
+                        WHEN EXCLUDED.expire_time IS NULL THEN authorized_accounts.expire_time
+                        ELSE GREATEST(authorized_accounts.expire_time, EXCLUDED.expire_time)
+                    END,
+                    status = CASE
+                        WHEN EXCLUDED.status = 'active' THEN EXCLUDED.status
+                        ELSE authorized_accounts.status
+                    END,
+                    nickname = CASE WHEN EXCLUDED.nickname <> '' THEN EXCLUDED.nickname ELSE authorized_accounts.nickname END,
+                    updated_at = GREATEST(authorized_accounts.updated_at, EXCLUDED.updated_at)
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM authorized_accounts WHERE username = $1', source_username)
+
+            await conn.execute('''
+                DELETE FROM sub_admin_account_bindings
+                WHERE account_username = $1
+                  AND EXISTS (
+                      SELECT 1 FROM sub_admin_account_bindings WHERE account_username = $2
+                  )
+            ''', source_username, target_username)
+            await conn.execute('''
+                UPDATE sub_admin_account_bindings
+                SET account_username = $2, updated_at = NOW()
+                WHERE account_username = $1
+            ''', source_username, target_username)
+
+            await conn.execute('''
+                INSERT INTO meeting_publish_permissions (
+                    username, can_publish_owned, can_publish_all, granted_by, scope_owner, created_at, updated_at
+                )
+                SELECT
+                    $2, can_publish_owned, can_publish_all, granted_by, scope_owner, created_at, updated_at
+                FROM meeting_publish_permissions
+                WHERE username = $1
+                ON CONFLICT (username) DO UPDATE SET
+                    can_publish_owned = meeting_publish_permissions.can_publish_owned OR EXCLUDED.can_publish_owned,
+                    can_publish_all = meeting_publish_permissions.can_publish_all OR EXCLUDED.can_publish_all,
+                    granted_by = CASE WHEN EXCLUDED.granted_by <> '' THEN EXCLUDED.granted_by ELSE meeting_publish_permissions.granted_by END,
+                    scope_owner = CASE WHEN EXCLUDED.scope_owner <> '' THEN EXCLUDED.scope_owner ELSE meeting_publish_permissions.scope_owner END,
+                    updated_at = GREATEST(meeting_publish_permissions.updated_at, EXCLUDED.updated_at)
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM meeting_publish_permissions WHERE username = $1', source_username)
+
+            await conn.execute('''
+                UPDATE ak_scan_runtime
+                SET current_account_username = $2, updated_at = NOW()
+                WHERE current_account_username = $1
+            ''', source_username, target_username)
+
+            await conn.execute('''
+                INSERT INTO admin_recommend_tree_cache (
+                    account, root_rid, payload_json, node_count, max_depth, branch_count,
+                    leaf_count, source_status, source_error, fetched_at, created_at, updated_at
+                )
+                SELECT
+                    $2, root_rid, payload_json, node_count, max_depth, branch_count,
+                    leaf_count, source_status, source_error, fetched_at, created_at, updated_at
+                FROM admin_recommend_tree_cache
+                WHERE account = $1
+                ON CONFLICT (account) DO UPDATE SET
+                    root_rid = CASE WHEN EXCLUDED.root_rid <> '' THEN EXCLUDED.root_rid ELSE admin_recommend_tree_cache.root_rid END,
+                    payload_json = CASE WHEN EXCLUDED.payload_json <> '{}' THEN EXCLUDED.payload_json ELSE admin_recommend_tree_cache.payload_json END,
+                    node_count = GREATEST(admin_recommend_tree_cache.node_count, EXCLUDED.node_count),
+                    max_depth = GREATEST(admin_recommend_tree_cache.max_depth, EXCLUDED.max_depth),
+                    branch_count = GREATEST(admin_recommend_tree_cache.branch_count, EXCLUDED.branch_count),
+                    leaf_count = GREATEST(admin_recommend_tree_cache.leaf_count, EXCLUDED.leaf_count),
+                    source_status = EXCLUDED.source_status,
+                    source_error = EXCLUDED.source_error,
+                    fetched_at = GREATEST(admin_recommend_tree_cache.fetched_at, EXCLUDED.fetched_at),
+                    updated_at = GREATEST(admin_recommend_tree_cache.updated_at, EXCLUDED.updated_at)
+            ''', source_username, target_username)
+            await conn.execute('DELETE FROM admin_recommend_tree_cache WHERE account = $1', source_username)
+
+            if await _table_exists(conn, 'risk_isolations'):
+                await conn.execute('''
+                    INSERT INTO risk_isolations (
+                        username, isolated_by, isolated_by_role, reason, isolation_source,
+                        umbrella_root, is_active, created_at, updated_at, released_at
+                    )
+                    SELECT
+                        $2, isolated_by, isolated_by_role, reason, isolation_source,
+                        CASE WHEN umbrella_root = $1 THEN $2 ELSE umbrella_root END,
+                        is_active, created_at, updated_at, released_at
+                    FROM risk_isolations
+                    WHERE username = $1
+                    ON CONFLICT (username) DO UPDATE SET
+                        isolated_by = CASE WHEN EXCLUDED.isolated_by <> '' THEN EXCLUDED.isolated_by ELSE risk_isolations.isolated_by END,
+                        isolated_by_role = CASE WHEN EXCLUDED.isolated_by_role <> '' THEN EXCLUDED.isolated_by_role ELSE risk_isolations.isolated_by_role END,
+                        reason = CASE WHEN EXCLUDED.reason <> '' THEN EXCLUDED.reason ELSE risk_isolations.reason END,
+                        isolation_source = CASE WHEN EXCLUDED.isolation_source <> '' THEN EXCLUDED.isolation_source ELSE risk_isolations.isolation_source END,
+                        umbrella_root = CASE WHEN EXCLUDED.umbrella_root <> '' THEN EXCLUDED.umbrella_root ELSE risk_isolations.umbrella_root END,
+                        is_active = risk_isolations.is_active OR EXCLUDED.is_active,
+                        updated_at = GREATEST(risk_isolations.updated_at, EXCLUDED.updated_at),
+                        released_at = CASE
+                            WHEN risk_isolations.released_at IS NULL THEN EXCLUDED.released_at
+                            WHEN EXCLUDED.released_at IS NULL THEN risk_isolations.released_at
+                            ELSE GREATEST(risk_isolations.released_at, EXCLUDED.released_at)
+                        END
+                ''', source_username, target_username)
+                await conn.execute('DELETE FROM risk_isolations WHERE username = $1', source_username)
+            if await _table_exists(conn, 'risk_isolation_userkeys'):
+                await conn.execute('''
+                    UPDATE risk_isolation_userkeys
+                    SET username = $2, updated_at = NOW()
+                    WHERE username = $1
+                ''', source_username, target_username)
+
+            if await _table_exists(conn, 'notify_push_subscriptions'):
+                await conn.execute('''
+                    INSERT INTO notify_push_subscriptions (
+                        username, endpoint, endpoint_hash, p256dh, auth, user_agent, platform,
+                        enabled, metadata_json, created_at, updated_at, last_seen_at, disabled_at
+                    )
+                    SELECT
+                        $2, endpoint, endpoint_hash, p256dh, auth, user_agent, platform,
+                        enabled, metadata_json, created_at, updated_at, last_seen_at, disabled_at
+                    FROM notify_push_subscriptions
+                    WHERE username = $1
+                    ON CONFLICT (username, endpoint_hash) DO UPDATE SET
+                        endpoint = EXCLUDED.endpoint,
+                        p256dh = EXCLUDED.p256dh,
+                        auth = EXCLUDED.auth,
+                        user_agent = EXCLUDED.user_agent,
+                        platform = EXCLUDED.platform,
+                        enabled = EXCLUDED.enabled,
+                        metadata_json = EXCLUDED.metadata_json,
+                        updated_at = GREATEST(notify_push_subscriptions.updated_at, EXCLUDED.updated_at),
+                        last_seen_at = GREATEST(notify_push_subscriptions.last_seen_at, EXCLUDED.last_seen_at),
+                        disabled_at = CASE
+                            WHEN notify_push_subscriptions.disabled_at IS NULL THEN EXCLUDED.disabled_at
+                            WHEN EXCLUDED.disabled_at IS NULL THEN notify_push_subscriptions.disabled_at
+                            ELSE GREATEST(notify_push_subscriptions.disabled_at, EXCLUDED.disabled_at)
+                        END
+                ''', source_username, target_username)
+                await conn.execute('DELETE FROM notify_push_subscriptions WHERE username = $1', source_username)
+            if await _table_exists(conn, 'notify_pushdeer_bindings'):
+                await conn.execute('''
+                    INSERT INTO notify_pushdeer_bindings (
+                        username, pushkey, server_url, enabled, created_at, updated_at, last_sent_at, last_error
+                    )
+                    SELECT
+                        $2, pushkey, server_url, enabled, created_at, updated_at, last_sent_at, last_error
+                    FROM notify_pushdeer_bindings
+                    WHERE username = $1
+                    ON CONFLICT (username) DO UPDATE SET
+                        pushkey = CASE WHEN EXCLUDED.pushkey <> '' THEN EXCLUDED.pushkey ELSE notify_pushdeer_bindings.pushkey END,
+                        server_url = CASE WHEN EXCLUDED.server_url <> '' THEN EXCLUDED.server_url ELSE notify_pushdeer_bindings.server_url END,
+                        enabled = EXCLUDED.enabled,
+                        updated_at = GREATEST(notify_pushdeer_bindings.updated_at, EXCLUDED.updated_at),
+                        last_sent_at = CASE
+                            WHEN notify_pushdeer_bindings.last_sent_at IS NULL THEN EXCLUDED.last_sent_at
+                            WHEN EXCLUDED.last_sent_at IS NULL THEN notify_pushdeer_bindings.last_sent_at
+                            ELSE GREATEST(notify_pushdeer_bindings.last_sent_at, EXCLUDED.last_sent_at)
+                        END,
+                        last_error = CASE WHEN EXCLUDED.last_error <> '' THEN EXCLUDED.last_error ELSE notify_pushdeer_bindings.last_error END
+                ''', source_username, target_username)
+                await conn.execute('DELETE FROM notify_pushdeer_bindings WHERE username = $1', source_username)
+            if await _table_exists(conn, 'notify_ntfy_bindings'):
+                await conn.execute('''
+                    INSERT INTO notify_ntfy_bindings (
+                        username, topic, server_url, enabled, created_at, updated_at, last_sent_at, last_error
+                    )
+                    SELECT
+                        $2, topic, server_url, enabled, created_at, updated_at, last_sent_at, last_error
+                    FROM notify_ntfy_bindings
+                    WHERE username = $1
+                    ON CONFLICT (username) DO UPDATE SET
+                        topic = CASE WHEN EXCLUDED.topic <> '' THEN EXCLUDED.topic ELSE notify_ntfy_bindings.topic END,
+                        server_url = CASE WHEN EXCLUDED.server_url <> '' THEN EXCLUDED.server_url ELSE notify_ntfy_bindings.server_url END,
+                        enabled = EXCLUDED.enabled,
+                        updated_at = GREATEST(notify_ntfy_bindings.updated_at, EXCLUDED.updated_at),
+                        last_sent_at = CASE
+                            WHEN notify_ntfy_bindings.last_sent_at IS NULL THEN EXCLUDED.last_sent_at
+                            WHEN EXCLUDED.last_sent_at IS NULL THEN notify_ntfy_bindings.last_sent_at
+                            ELSE GREATEST(notify_ntfy_bindings.last_sent_at, EXCLUDED.last_sent_at)
+                        END,
+                        last_error = CASE WHEN EXCLUDED.last_error <> '' THEN EXCLUDED.last_error ELSE notify_ntfy_bindings.last_error END
+                ''', source_username, target_username)
+                await conn.execute('DELETE FROM notify_ntfy_bindings WHERE username = $1', source_username)
+            if await _table_exists(conn, 'notify_outbox'):
+                await conn.execute('''
+                    UPDATE notify_outbox
+                    SET recipient_username = $2, updated_at = NOW()
+                    WHERE recipient_username = $1 AND status <> 'sent'
+                ''', source_username, target_username)
+
+            if await _table_exists(conn, 'im_switch_tokens'):
+                await conn.execute('''
+                    UPDATE im_switch_tokens
+                    SET username = $2
+                    WHERE username = $1
+                ''', source_username, target_username)
+
+    return {
+        "changed": True,
+        "old_username": source_username,
+        "new_username": target_username,
+    }
+
+
 async def consume_im_switch_token(token_hash: str, username: str, conversation_id: int,
                                   nonce: str, issued_at: datetime, expires_at: datetime,
                                   client_ip: str = '', user_agent: str = '') -> Dict[str, Any]:

@@ -224,6 +224,7 @@ from .static_resource_cache import (
     WarmupFetchResult,
     create_static_resource_cache_service,
 )
+from .account_username_sync import extract_changed_username, patch_login_payload_username
 
 try:
     from .proxied_site_prefetch import transform_html as transform_proxied_site_prefetch_html
@@ -3579,6 +3580,26 @@ async def proxy_rpc(path: str, request: Request):
                 )
             except Exception as e:
                 logger.warning(f"[AKSecurityStateSync] 处理安全状态返回失败: source=rpc path={path} error={e}")
+        renamed_username = ""
+        if normalized_path == "change_username":
+            try:
+                result = _parse_rpc_upstream_json(
+                    response,
+                    path,
+                    "rpc_change_username",
+                    account=_extract_forward_account(params),
+                    client_ip=client_ip,
+                )
+                renamed_username = await _sync_changed_username_after_rpc_success(
+                    path,
+                    params,
+                    result,
+                    "rpc",
+                    request=request,
+                    response_headers=response.headers,
+                )
+            except Exception as e:
+                logger.warning(f"[AccountUsernameSync] 澶勭悊鏀瑰悕杩斿洖澶辫触 source=rpc path={path} error={e}")
         if ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer):
 
             try:
@@ -3600,6 +3621,7 @@ async def proxy_rpc(path: str, request: Request):
         if not (
             _is_login_forget_rpc(path)
             or _security_state_patch_for_rpc(path)
+            or normalized_path == "change_username"
             or (ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer))
         ):
             try:
@@ -3656,7 +3678,11 @@ async def proxy_rpc(path: str, request: Request):
         if response.status_code < 500:
             _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
 
-        return _build_proxy_passthrough_response(response)
+        proxy_response = _build_proxy_passthrough_response(response)
+        if renamed_username:
+            _attach_browser_login_identity_cookies(proxy_response, request, renamed_username)
+            await _activate_login_device(proxy_response, request, renamed_username)
+        return proxy_response
 
     except Exception as e:
 
@@ -16138,6 +16164,133 @@ async def _sync_cached_security_state_after_rpc_success(
         logger.warning(f"[AKSecurityStateSync] persist_failed source={source} path={api_path} username={username}: {e}")
 
 
+async def _sync_changed_username_after_rpc_success(
+    api_path: str,
+    params: dict,
+    result: dict,
+    source: str,
+    session: Optional[dict] = None,
+    request: Optional[Request] = None,
+    response_headers=None,
+) -> str:
+    renamed_username = online_manager.normalize_username(
+        extract_changed_username(api_path, params, result)
+    )
+    if not renamed_username:
+        return ""
+
+    current_username = ""
+    if isinstance(session, dict):
+        current_username = online_manager.normalize_username(session.get("username") or "")
+    if not current_username and request is not None:
+        current_username = online_manager.normalize_username(
+            request.cookies.get("ak_username")
+            or request.cookies.get("ak_im_username")
+            or ""
+        )
+
+    cached = {}
+    if current_username:
+        cached = dict(_ak_auth_cache.get(current_username) or {})
+        if not cached:
+            try:
+                cached = await db.load_ak_auth_state(current_username, check_expiry=False) or {}
+            except Exception as e:
+                logger.warning(
+                    f"[AccountUsernameSync] load_auth_failed source={source} "
+                    f"path={api_path} username={current_username}: {e}"
+                )
+                cached = {}
+
+    login_payload = {}
+    if isinstance(session, dict) and isinstance(session.get("login_result"), dict):
+        login_payload = dict(session.get("login_result") or {})
+    elif isinstance(cached.get("login_result"), dict):
+        login_payload = dict(cached.get("login_result") or {})
+
+    if not current_username:
+        current_username = online_manager.normalize_username(
+            _extract_login_result_username(login_payload, "")
+        )
+    if not current_username:
+        logger.warning(
+            f"[AccountUsernameSync] skip_missing_current_username source={source} path={api_path} "
+            f"target={renamed_username}"
+        )
+        return ""
+    if current_username == renamed_username:
+        return renamed_username
+
+    if login_payload:
+        auth_matches, auth_mismatch_reason = _rpc_auth_matches_cached_login(params, login_payload, cached, session)
+        if not auth_matches:
+            logger.warning(
+                f"[AccountUsernameSync] skip_identity_mismatch source={source} path={api_path} "
+                f"username={current_username} target={renamed_username} reason={auth_mismatch_reason} "
+                f"request_key_fp={fingerprint_log_secret(_rpc_auth_pair(params)[0])} "
+                f"cached_key_fp={fingerprint_log_secret(str((cached or {}).get('userkey') or _extract_login_result_userkey(login_payload) or ''))}"
+            )
+            return ""
+
+    patched_payload = patch_login_payload_username(login_payload, renamed_username)
+    user_data = patched_payload.get("UserData")
+    if not isinstance(user_data, dict):
+        user_data = {}
+        patched_payload["UserData"] = user_data
+
+    cookies = dict(cached.get("cookies") or {})
+    if isinstance(session, dict):
+        cookies.update(dict(session.get("cookies") or {}))
+    cookies.update(_extract_cookie_map(response_headers or {}))
+
+    userkey = ""
+    if isinstance(session, dict):
+        userkey = str(session.get("userkey") or "").strip()
+    userkey = userkey or str(cached.get("userkey") or "").strip() or _extract_login_result_userkey(patched_payload)
+    if userkey:
+        patched_payload["Key"] = userkey
+        user_data["Key"] = userkey
+
+    if isinstance(session, dict):
+        session["username"] = renamed_username
+        session["login_result"] = patched_payload
+        if userkey:
+            session["userkey"] = userkey
+        session["auth_ticket_validated"] = True
+
+    _ak_auth_cache.pop(current_username, None)
+    updated_cached = {
+        "cookies": cookies,
+        "userkey": userkey,
+        "login_result": patched_payload,
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+        "auth_ticket_validated": True,
+    }
+    _ak_auth_cache[renamed_username] = updated_cached
+
+    try:
+        await db.rename_account_username(current_username, renamed_username)
+        await db.save_ak_auth_state(
+            renamed_username,
+            userkey=userkey,
+            cookies=cookies,
+            login_payload=patched_payload,
+            ttl_seconds=_BROWSE_SESSION_TTL,
+        )
+        logger.info(
+            f"[AccountUsernameSync] updated source={source} path={api_path} "
+            f"old={current_username} new={renamed_username}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[AccountUsernameSync] persist_failed source={source} path={api_path} "
+            f"old={current_username} new={renamed_username}: {e}"
+        )
+        return ""
+
+    return renamed_username
+
+
 def _extract_login_result_username(login_result: dict, fallback: str = "") -> str:
     if not isinstance(login_result, dict):
         return str(fallback or "").strip().lower()
@@ -17232,6 +17385,15 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             session=session,
             response_headers=response.headers,
         )
+        renamed_username = await _sync_changed_username_after_rpc_success(
+            path,
+            params,
+            result,
+            "admin_ak_rpc",
+            session=session,
+            request=request,
+            response_headers=response.headers,
+        )
         if is_login_success:
             account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
             password = (params.get("password") or session.get("password") or "").strip()
@@ -17247,6 +17409,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
                 f"session_cookie_count={len(session.get('cookies', {}))} "
                 f"session_cookie_names={_summarize_cookie_names(session.get('cookies', {}))}"
             ))
+            should_persist = True
+        elif renamed_username:
             should_persist = True
         if should_persist:
             await _persist_browse_session_auth(session)
@@ -17268,6 +17432,9 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             login_identity_username = _extract_login_result_username(result, account) or account
             _attach_browser_login_identity_cookies(proxy_response, request, login_identity_username)
             await _activate_login_device(proxy_response, request, login_identity_username)
+        elif renamed_username:
+            _attach_browser_login_identity_cookies(proxy_response, request, renamed_username)
+            await _activate_login_device(proxy_response, request, renamed_username)
         response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         total_ms = _elapsed_ms(request_started_at)
         _schedule_remote_assist_proxy_event(
