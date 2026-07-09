@@ -156,6 +156,12 @@
     
     // 手动登出时清除保存的凭据
     window._akLogout = function() {
+        try {
+            var auth = getAuthModule();
+            if (auth && typeof auth.clearPendingIdentitySwitch === 'function') {
+                auth.clearPendingIdentitySwitch();
+            }
+        } catch(e) {}
         _akClearCred();
         window.location.href = '/pages/account/login.html';
     };

@@ -2,6 +2,8 @@
     'use strict';
 
     var AK_CRED_KEY = '_ak_sl';
+    var PENDING_IDENTITY_SWITCH_STORAGE_KEY = 'ak_pending_identity_switch_v1';
+    var PENDING_IDENTITY_SWITCH_TTL_MS = 2 * 60 * 1000;
 
     function encodeCredentials(account, password) {
         try { return btoa(unescape(encodeURIComponent(JSON.stringify({a:account,p:password,t:Date.now()})))); }
@@ -154,6 +156,20 @@
         } catch(e) {}
     }
 
+    function readStorageItem(store, key) {
+        try {
+            if (!store || !key) return '';
+            return String(store.getItem(key) || '');
+        } catch(e) {}
+        return '';
+    }
+
+    function removeStorageItem(store, key) {
+        try {
+            if (store && key) store.removeItem(key);
+        } catch(e) {}
+    }
+
     function pruneBootstrapCachesExcept(username) {
         var normalized = normalizeUsername(username);
         if (!normalized) return;
@@ -172,6 +188,74 @@
                 }
             } catch(e3) {}
         }
+    }
+
+    function buildPendingIdentitySnapshot(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return null;
+        var username = normalizeUsername(snapshot.username)
+            || normalizeUsername(pickUsernameFromObject(snapshot.userModel))
+            || normalizeUsername(pickUsernameFromObject(snapshot.loginResult && snapshot.loginResult.UserData));
+        var userkey = String(snapshot.userkey || extractUserKey(snapshot.userModel) || extractUserKey(snapshot.loginResult) || '').trim();
+        if (!username || !userkey) return null;
+        return {
+            username: username,
+            userkey: userkey,
+            userModel: clonePlainObject(snapshot.userModel),
+            loginResult: clonePlainObject(snapshot.loginResult),
+            createdAt: Date.now()
+        };
+    }
+
+    function clearPendingIdentitySwitch() {
+        try { window.__AK_PENDING_IDENTITY_SWITCH__ = null; } catch(e) {}
+        try { removeStorageItem(sessionStorage, PENDING_IDENTITY_SWITCH_STORAGE_KEY); } catch(e2) {}
+        try { removeStorageItem(localStorage, PENDING_IDENTITY_SWITCH_STORAGE_KEY); } catch(e3) {}
+    }
+
+    function persistPendingIdentitySwitch(snapshot) {
+        var pending = buildPendingIdentitySnapshot(snapshot);
+        if (!pending) return false;
+        var text = '';
+        try {
+            text = JSON.stringify(pending);
+        } catch(e) {
+            return false;
+        }
+        try { window.__AK_PENDING_IDENTITY_SWITCH__ = pending; } catch(e2) {}
+        writeStorageItem(sessionStorage, PENDING_IDENTITY_SWITCH_STORAGE_KEY, text);
+        writeStorageItem(localStorage, PENDING_IDENTITY_SWITCH_STORAGE_KEY, text);
+        return true;
+    }
+
+    function readPendingIdentitySwitch() {
+        var pending = null;
+        try {
+            if (window.__AK_PENDING_IDENTITY_SWITCH__ && typeof window.__AK_PENDING_IDENTITY_SWITCH__ === 'object') {
+                pending = window.__AK_PENDING_IDENTITY_SWITCH__;
+            }
+        } catch(e) {}
+        if (!pending) {
+            var stores = [];
+            try { stores.push(sessionStorage); } catch(e2) {}
+            try { stores.push(localStorage); } catch(e3) {}
+            for (var i = 0; i < stores.length; i++) {
+                var raw = readStorageItem(stores[i], PENDING_IDENTITY_SWITCH_STORAGE_KEY);
+                if (!raw) continue;
+                try {
+                    pending = JSON.parse(raw);
+                } catch(e4) {
+                    pending = null;
+                }
+                if (pending) break;
+            }
+        }
+        if (!pending || typeof pending !== 'object') return null;
+        var createdAt = Number(pending.createdAt || 0);
+        if (!createdAt || (Date.now() - createdAt) > PENDING_IDENTITY_SWITCH_TTL_MS) {
+            clearPendingIdentitySwitch();
+            return null;
+        }
+        return pending;
     }
 
     function buildIdentityModel(snapshot, username, userkey) {
@@ -266,9 +350,9 @@
 
     function consumePendingIdentitySwitch() {
         try {
-            var pending = window.__AK_PENDING_IDENTITY_SWITCH__;
+            var pending = readPendingIdentitySwitch();
             if (!pending || typeof pending !== 'object') return;
-            window.__AK_PENDING_IDENTITY_SWITCH__ = null;
+            clearPendingIdentitySwitch();
             applyIdentitySnapshot(pending, { source: 'pending-identity-switch' });
         } catch(e) {}
     }
@@ -281,12 +365,14 @@
             var model = Object.assign({}, userData);
             var key = extractUserKey(result);
             if (key) model.Key = key;
-            if (key && applyIdentitySnapshot({
+            var snapshot = {
                 username: pickUsernameFromObject(model),
                 userkey: key,
                 userModel: model,
                 loginResult: result
-            }, { source: 'login-capture', silent: true }).applied) {
+            };
+            if (key) persistPendingIdentitySwitch(snapshot);
+            if (key && applyIdentitySnapshot(snapshot, { source: 'login-capture', silent: true }).applied) {
                 dispatchIdentitySwitched(normalizeUsername(pickUsernameFromObject(model)), { userModel: model, loginResult: result }, 'login-capture');
                 return;
             }
@@ -477,6 +563,7 @@
     window.AKClientRuntimeAuth.syncLoginUsernameCookie = syncLoginUsernameCookie;
     window.AKClientRuntimeAuth.ensureIMUsernameCookieFromUserModel = ensureIMUsernameCookieFromUserModel;
     window.AKClientRuntimeAuth.applyIdentitySnapshot = applyIdentitySnapshot;
+    window.AKClientRuntimeAuth.clearPendingIdentitySwitch = clearPendingIdentitySwitch;
     window.AKClientRuntimeAuth.consumePendingIdentitySwitch = consumePendingIdentitySwitch;
     window.AKClientRuntimeAuth.setupLoginCapture = setupLoginCapture;
     window.AKClientRuntimeAuth.autoLogin = autoLogin;
