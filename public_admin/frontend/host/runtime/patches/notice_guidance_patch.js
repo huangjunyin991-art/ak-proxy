@@ -1,6 +1,7 @@
 (function() {
     'use strict';
 
+    var NOTICE_DETAIL_PATH = '/pages/subpages/last.notice.detail.html';
     var ROUTE_POLL_MS = 700;
     var observer = null;
     var lastRouteKey = '';
@@ -9,9 +10,18 @@
     var installedNetworkHooks = false;
     var observerApplyTimer = 0;
 
+    function matchesNoticeDetailRoute(value) {
+        try {
+            return String(value || '').toLowerCase().indexOf(NOTICE_DETAIL_PATH) >= 0;
+        } catch (e) {}
+        return false;
+    }
+
     function isNoticeDetailPage() {
         try {
-            return String(window.location.pathname || '').toLowerCase() === '/pages/subpages/last.notice.detail.html';
+            if (matchesNoticeDetailRoute(window.location.pathname || '')) return true;
+            if (matchesNoticeDetailRoute(window.location.hash || '')) return true;
+            return false;
         } catch (e) {}
         return false;
     }
@@ -31,6 +41,7 @@
     }
 
     function safeParseJson(text) {
+        if (text && typeof text === 'object') return text;
         var raw = String(text == null ? '' : text).trim();
         if (!raw || raw.charAt(0) !== '{') return null;
         try {
@@ -212,8 +223,16 @@
                         try {
                             if (!isNoticeDetailPage()) return;
                             if (this.status && this.status !== 200) return;
-                            if (this.responseType && this.responseType !== 'text' && this.responseType !== '') return;
-                            inspectResponsePayload(this.responseText || '');
+                            var payloadSource = null;
+                            if (this.responseType === 'json' && this.response && typeof this.response === 'object') {
+                                payloadSource = this.response;
+                            } else if (typeof this.response === 'string' && this.response) {
+                                payloadSource = this.response;
+                            } else if (!this.responseType || this.responseType === 'text' || this.responseType === '') {
+                                payloadSource = this.responseText || '';
+                            }
+                            if (payloadSource == null) return;
+                            inspectResponsePayload(payloadSource);
                         } catch (e) {}
                     });
                 }
