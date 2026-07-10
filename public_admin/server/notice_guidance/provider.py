@@ -5,6 +5,11 @@ from typing import Any
 
 import httpx
 
+from ..rpc_timeout_policy import (
+    NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS,
+    NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
+    resolve_connect_timeout,
+)
 from ..security.upstream_http import resolve_upstream_tls_verify
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/RPC/"
@@ -44,7 +49,7 @@ class NoticeGuidanceProvider:
         client: httpx.AsyncClient,
         endpoint: str,
         data: dict[str, Any],
-        timeout: float = 20.0,
+        timeout: float = NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
         response = await client.post(self.base_url + endpoint, data=data, timeout=timeout)
         response.raise_for_status()
@@ -72,7 +77,7 @@ class NoticeGuidanceProvider:
                 "v": make_v(),
                 "lang": "cn",
             },
-            timeout=25.0,
+            timeout=NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
         )
         data = payload.get("Data") or {}
         if not isinstance(data, dict):
@@ -92,5 +97,11 @@ class NoticeGuidanceProvider:
             verify=resolve_upstream_tls_verify("notice_guidance", default=False),
             follow_redirects=True,
             trust_env=False,
-            timeout=25.0,
+            timeout=httpx.Timeout(
+                NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
+                connect=resolve_connect_timeout(
+                    NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
+                    connect_timeout_seconds=NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS,
+                ),
+            ),
         )

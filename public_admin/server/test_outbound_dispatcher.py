@@ -300,7 +300,7 @@ async def test_login_non_json_response_retries_next_exit():
     _add_ready_socks5(dispatcher, "good-json", 10002)
     attempts = []
 
-    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
         attempts.append(exit_obj.name)
         if exit_obj.name == "bad-html":
             return httpx.Response(
@@ -338,7 +338,7 @@ async def test_login_invalid_json_content_type_retries_next_exit():
     _add_ready_socks5(dispatcher, "good-json", 10002)
     attempts = []
 
-    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
         attempts.append(exit_obj.name)
         if exit_obj.name == "bad-json":
             return httpx.Response(
@@ -376,7 +376,7 @@ async def test_login_403_response_retries_next_exit_and_freezes_current():
     _add_ready_socks5(dispatcher, "good-json", 10002, group_id="g2")
     attempts = []
 
-    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
         attempts.append(exit_obj.name)
         if exit_obj.name == "bad-403":
             return httpx.Response(
@@ -420,7 +420,7 @@ async def test_rpc_non_json_response_retries_next_exit_and_records_diagnostic():
     def record_non_json(exit_obj, resp, api_path, client_ip, account, attempt_index):
         diagnostics.append((exit_obj.name, api_path, client_ip, account, attempt_index, resp.status_code))
 
-    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
         attempts.append(exit_obj.name)
         if exit_obj.name == "bad-html":
             return httpx.Response(
@@ -464,7 +464,7 @@ async def test_rpc_non_json_response_raises_after_all_fallbacks_fail():
     _add_ready_socks5(dispatcher, "bad-json-2", 10002, group_id="g2")
     attempts = []
 
-    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
         attempts.append(exit_obj.name)
         return httpx.Response(
             200,
@@ -499,7 +499,7 @@ async def test_successful_response_resets_connect_failure_gradient():
     recovering.freeze_for_connect_error("boom", 30)
     recovering._frozen_until = 0
 
-    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout):
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
         return httpx.Response(
             200,
             json={"Error": False, "Data": {"ok": True}},

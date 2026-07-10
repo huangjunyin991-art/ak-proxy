@@ -27,7 +27,11 @@ LOG_TO_CONSOLE = True
 LOG_TO_FILE = True
 
 # ===== 请求超时 =====
-REQUEST_TIMEOUT = 30  # 秒
+REQUEST_TIMEOUT = 5  # 普通 RPC 总超时（秒）
+LOGIN_REQUEST_TIMEOUT = 10  # 登录 RPC 总超时（秒）
+RPC_CONNECT_TIMEOUT = 3  # RPC 建连超时（秒）
+NOTICE_GUIDANCE_REQUEST_TIMEOUT = 8  # 指导销售内部查询超时（秒）
+NOTICE_GUIDANCE_CONNECT_TIMEOUT = 1  # 指导销售内部查询建连超时（秒）
 
 # ===== 封禁功能（本地） =====
 ENABLE_LOCAL_BAN = True  # 是否启用本地封禁检查

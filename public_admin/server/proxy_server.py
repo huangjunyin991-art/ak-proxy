@@ -112,7 +112,11 @@ except ImportError:
 
     LOG_TO_FILE = True
 
-    REQUEST_TIMEOUT = 30
+    REQUEST_TIMEOUT = 5
+    LOGIN_REQUEST_TIMEOUT = 10
+    RPC_CONNECT_TIMEOUT = 3
+    NOTICE_GUIDANCE_REQUEST_TIMEOUT = 8
+    NOTICE_GUIDANCE_CONNECT_TIMEOUT = 1
 
     ENABLE_LOCAL_BAN = True
     BAN_CACHE_REFRESH_SECONDS = int(os.environ.get("BAN_CACHE_REFRESH_SECONDS", "60"))
@@ -161,12 +165,45 @@ except NameError:
 
     BAN_CACHE_REFRESH_SECONDS = int(os.environ.get("BAN_CACHE_REFRESH_SECONDS", "60"))
 
+try:
+
+    LOGIN_REQUEST_TIMEOUT
+
+except NameError:
+
+    LOGIN_REQUEST_TIMEOUT = 10
+
+try:
+
+    RPC_CONNECT_TIMEOUT
+
+except NameError:
+
+    RPC_CONNECT_TIMEOUT = 3
+
+try:
+
+    NOTICE_GUIDANCE_REQUEST_TIMEOUT
+
+except NameError:
+
+    NOTICE_GUIDANCE_REQUEST_TIMEOUT = 8
+
+try:
+
+    NOTICE_GUIDANCE_CONNECT_TIMEOUT
+
+except NameError:
+
+    NOTICE_GUIDANCE_CONNECT_TIMEOUT = 1
+
 
 
 # 数据库模块
 
 from . import database_pg as db
 from .db_guard import GuardError
+from .rpc_timeout_policy import resolve_connect_timeout, resolve_rpc_forward_timeout
 from .security import AdminSecurityFacade
 from .security.audit import (
     fingerprint_log_secret,
@@ -2363,8 +2400,13 @@ async def forward_request(method: str, api_path: str, content_type: str,
         exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
 
     account = _extract_forward_account(params)
+    request_timeout = resolve_rpc_forward_timeout(api_path, is_login=is_login)
+    connect_timeout = resolve_connect_timeout(request_timeout)
 
-    logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
+    logger.debug(
+        f"[Forward] {api_path} -> 出口[{exit_obj.name}] "
+        f"timeout={request_timeout}s connect={connect_timeout}s"
+    )
 
 
 
@@ -2378,7 +2420,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                 content_type=content_type, params=params,
 
-                raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account,
+                raw_body=raw_body, timeout=request_timeout, connect_timeout=connect_timeout,
+                client_ip=real_ip, account=account,
                 api_path=api_path
 
             )
@@ -2399,7 +2442,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         content_type=content_type, params=params,
 
-        raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account,
+        raw_body=raw_body, timeout=request_timeout, connect_timeout=connect_timeout,
+        client_ip=real_ip, account=account,
         api_path=api_path
 
     )

@@ -24,6 +24,7 @@ from typing import Optional
 
 import httpx
 
+from .rpc_timeout_policy import resolve_connect_timeout
 from .runtime_hygiene import RuntimeHygienePolicy
 from .security.upstream_http import resolve_upstream_tls_verify
 
@@ -300,7 +301,7 @@ class OutboundExit:
                 verify=resolve_upstream_tls_verify("dispatcher", default=False),
                 limits=limits,
                 proxy=self.proxy_url,
-                timeout=httpx.Timeout(30, connect=10),
+                timeout=httpx.Timeout(30, connect=resolve_connect_timeout(30.0)),
                 trust_env=False,
                 http2=False,  # SOCKS5 代理不支持 h2
             )
@@ -1220,7 +1221,8 @@ class OutboundDispatcher:
     async def forward(self, exit_obj: OutboundExit, method: str, url: str,
                       headers: dict, content_type: str = "",
                       params: dict = None, raw_body: bytes = None,
-                      timeout: float = 30, client_ip: str = "", account: str = "",
+                      timeout: float = 30, connect_timeout: float | None = None,
+                      client_ip: str = "", account: str = "",
                       api_path: str = "") -> httpx.Response:
         """
         通过指定出口转发HTTP请求。
@@ -1250,7 +1252,7 @@ class OutboundDispatcher:
             current_exit.active += 1
             try:
                 resp = await self._do_request(current_exit, method, url, headers,
-                                              content_type, params, raw_body, timeout)
+                                              content_type, params, raw_body, timeout, connect_timeout)
                 resp.extensions["ak_exit_name"] = current_exit.name
                 resp.extensions["ak_exit_proxy"] = current_exit.proxy_url or "direct"
                 resp.extensions["ak_exit_is_direct"] = current_exit.is_direct
@@ -1320,10 +1322,13 @@ class OutboundDispatcher:
     async def _do_request(self, exit_obj: OutboundExit, method: str, url: str,
                           headers: dict, content_type: str,
                           params: dict, raw_body: bytes,
-                          timeout: float) -> httpx.Response:
+                          timeout: float, connect_timeout: float | None = None) -> httpx.Response:
         """执行实际HTTP请求（复用持久连接池）"""
         client = await exit_obj.get_client()
-        req_timeout = httpx.Timeout(timeout, connect=10)
+        req_timeout = httpx.Timeout(
+            timeout,
+            connect=resolve_connect_timeout(timeout, connect_timeout_seconds=connect_timeout),
+        )
         if method == "GET":
             return await client.get(url, params=params, headers=headers, timeout=req_timeout)
         else:
