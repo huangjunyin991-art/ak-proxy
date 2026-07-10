@@ -168,7 +168,7 @@
                 lines: wrapTextByLength('您当前没有账户处于此指导周期！', maxLineLength)
             };
         }
-        var message = '例如您的账户' + accounts.join('，') + '处于此指导周期内！';
+        var message = '您的账户' + accounts.join('，') + '处于此指导周期内！';
         return {
             text: message,
             lines: wrapTextByLength(message, maxLineLength)
