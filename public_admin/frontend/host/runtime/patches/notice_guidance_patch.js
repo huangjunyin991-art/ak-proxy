@@ -181,6 +181,10 @@
     function findBestNoticeContentRoot(root) {
         if (!root) return null;
         var selectors = [
+            '#app-content .html_container > .text',
+            '#app-content .html_container .text',
+            '.html_container > .text',
+            '.html_container .text',
             '[data-notice-content]',
             '.notice-content',
             '.notice-detail',
