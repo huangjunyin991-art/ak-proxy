@@ -6675,7 +6675,7 @@ elif _RECOMMEND_TREE_IMPORT_ERROR is not None:
 if create_notice_guidance_router is not None:
     try:
         app.include_router(create_notice_guidance_router(
-            origin_validator=_validate_ak_proxy_write_origin,
+            origin_validator=lambda request: _validate_ak_proxy_write_origin(request),
             logger=logger,
         ))
     except Exception as e:
