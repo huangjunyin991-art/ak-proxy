@@ -104,13 +104,22 @@
         };
     }
 
+    function buildNoticeIdentityKey(notice) {
+        var noticeId = trimString(notice && (notice.Id || notice.id));
+        if (noticeId) return 'id:' + noticeId;
+        var title = normalizeInlineText(notice && (notice.Title || notice.title));
+        var createTime = trimString(notice && (notice.CreateTime || notice.createTime || notice.create_time));
+        if (title || createTime) {
+            return 'meta:' + title + '|' + createTime;
+        }
+        var textFingerprint = buildNoticeTextFingerprint(notice && (notice.Text || notice.text));
+        return textFingerprint ? ('text:' + textFingerprint) : '';
+    }
+
     function buildAnalysisCacheKey(notice, auth) {
         return [
             trimString(auth && auth.account).toLowerCase() || trimString(auth && auth.userId),
-            trimString(notice && (notice.Id || notice.id)),
-            trimString(notice && (notice.Title || notice.title)),
-            trimString(notice && (notice.CreateTime || notice.createTime || notice.create_time)),
-            buildNoticeTextFingerprint(notice && (notice.Text || notice.text))
+            buildNoticeIdentityKey(notice)
         ].join('|');
     }
 
