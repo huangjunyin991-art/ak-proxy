@@ -4,14 +4,24 @@ import asyncio
 from datetime import datetime
 from typing import Any
 
-from .service import compute_next_auto_run_at
+from .service import compute_auto_run_window, compute_next_auto_run_at
 
 
 class AccountIdentitySyncScheduler:
-    def __init__(self, service, logger=None, poll_seconds: float = 30.0):
+    def __init__(
+        self,
+        service,
+        logger=None,
+        poll_seconds: float = 30.0,
+        auto_trigger_grace_seconds: float = 300.0,
+        now_provider=None,
+    ):
         self._service = service
         self._logger = logger
         self._poll_seconds = max(5.0, float(poll_seconds or 30.0))
+        base_grace_seconds = max(60.0, float(auto_trigger_grace_seconds or 300.0))
+        self._auto_trigger_grace_seconds = base_grace_seconds + min(self._poll_seconds, 60.0)
+        self._now_provider = now_provider or datetime.now
         self._task: asyncio.Task | None = None
         self._last_tick_at: datetime | None = None
         self._last_auto_trigger_at: datetime | None = None
@@ -63,15 +73,21 @@ class AccountIdentitySyncScheduler:
         policy = await self._service.get_policy()
         if not policy.get("enabled"):
             return
-        now = datetime.now()
+        now = self._now_provider()
+        await self._refresh_persisted_auto_run_state(now)
         next_run_at = compute_next_auto_run_at(policy, now=now)
         if next_run_at is None:
             return
-        target_hour = int(str(policy.get("daily_time") or "00:00").split(":", 1)[0])
-        target_minute = int(str(policy.get("daily_time") or "00:00").split(":", 1)[1])
-        target_today = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+        window = compute_auto_run_window(
+            policy,
+            now=now,
+            grace_seconds=self._auto_trigger_grace_seconds,
+        )
+        if window is None:
+            return
+        target_today, trigger_deadline = window
         today_key = now.strftime("%Y-%m-%d")
-        if now < target_today or self._last_auto_run_day == today_key:
+        if now < target_today or now > trigger_deadline or self._last_auto_run_day == today_key:
             return
         result = await self._service.start_sync(
             triggered_by="system:auto",
@@ -88,6 +104,23 @@ class AccountIdentitySyncScheduler:
                     "[AccountIdentitySyncScheduler] auto sync started daily_time=%s",
                     policy.get("daily_time"),
                 )
+
+    async def _refresh_persisted_auto_run_state(self, now: datetime) -> None:
+        today_key = now.strftime("%Y-%m-%d")
+        if self._last_auto_run_day == today_key and self._last_auto_trigger_at is not None:
+            return
+        if not hasattr(self._service, "get_latest_auto_sync_run_for_day"):
+            return
+        latest_run = await self._service.get_latest_auto_sync_run_for_day(now=now)
+        if not isinstance(latest_run, dict):
+            return
+        started_at = latest_run.get("started_at")
+        if not isinstance(started_at, datetime):
+            return
+        if started_at.strftime("%Y-%m-%d") != today_key:
+            return
+        self._last_auto_trigger_at = started_at
+        self._last_auto_run_day = today_key
 
 
 def _serialize_time(value: Any) -> str:

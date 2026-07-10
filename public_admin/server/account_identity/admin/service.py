@@ -58,6 +58,22 @@ def compute_next_auto_run_at(policy: dict[str, Any] | None, now: datetime | None
     return target
 
 
+def compute_auto_run_window(
+    policy: dict[str, Any] | None,
+    *,
+    now: datetime | None = None,
+    grace_seconds: float = 300.0,
+) -> tuple[datetime, datetime] | None:
+    normalized = normalize_account_identity_sync_policy(policy)
+    if not normalized["enabled"]:
+        return None
+    hour, minute = _split_daily_time(normalized["daily_time"])
+    current = now or datetime.now()
+    target = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    window_seconds = max(30.0, float(grace_seconds or 0.0))
+    return target, target + timedelta(seconds=window_seconds)
+
+
 class AccountIdentityAdminService:
     def __init__(
         self,
@@ -94,6 +110,13 @@ class AccountIdentityAdminService:
         except Exception:
             saved = None
         return normalize_account_identity_sync_policy(saved if isinstance(saved, dict) else None)
+
+    async def get_latest_auto_sync_run_for_day(self, now: datetime | None = None) -> dict[str, Any] | None:
+        await self.ensure_ready()
+        current = now or datetime.now()
+        day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        return await self.repository.get_latest_auto_sync_run(day_start=day_start, day_end=day_end)
 
     async def set_policy(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         normalized = normalize_account_identity_sync_policy(payload if isinstance(payload, dict) else None)

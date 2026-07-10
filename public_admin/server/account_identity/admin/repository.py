@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Callable
 
 
@@ -222,3 +223,59 @@ class AccountIdentityAdminRepository:
                 safe_limit,
             )
         return [dict(row) for row in rows]
+
+    async def get_latest_auto_sync_run(
+        self,
+        *,
+        day_start: datetime | None = None,
+        day_end: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            if day_start is not None and day_end is not None:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id,
+                        trigger_mode,
+                        triggered_by,
+                        phase_key,
+                        dry_run,
+                        limit_per_spec,
+                        status,
+                        summary_json,
+                        error_message,
+                        started_at,
+                        finished_at
+                    FROM account_identity_sync_runs
+                    WHERE trigger_mode = 'auto'
+                      AND started_at >= $1
+                      AND started_at < $2
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    day_start,
+                    day_end,
+                )
+            else:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id,
+                        trigger_mode,
+                        triggered_by,
+                        phase_key,
+                        dry_run,
+                        limit_per_spec,
+                        status,
+                        summary_json,
+                        error_message,
+                        started_at,
+                        finished_at
+                    FROM account_identity_sync_runs
+                    WHERE trigger_mode = 'auto'
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT 1
+                    """
+                )
+        return dict(row) if row else None
