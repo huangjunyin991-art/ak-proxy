@@ -320,37 +320,28 @@
         }
     }
 
-    function chooseAnchorElement(targetLine) {
-        if (!targetLine) return null;
+    function chooseHintTemplateElement(container) {
+        if (!container) return null;
         var selectors = 'p, div, li, article, section, span';
         var candidates = [];
         try {
-            candidates = document.querySelectorAll(selectors);
+            candidates = container.querySelectorAll(selectors);
         } catch (e) {
             candidates = [];
         }
-        var best = null;
-        var bestScore = Number.MAX_SAFE_INTEGER;
-        var normalizedTarget = normalizeText(targetLine);
-        for (var i = 0; i < candidates.length; i++) {
+        for (var i = candidates.length - 1; i >= 0; i--) {
             var node = candidates[i];
             if (!node || node.getAttribute('data-ak-guided-sale-hint') === '1') continue;
             var text = normalizeText(node.textContent || '');
-            if (!text || text.indexOf(normalizedTarget) < 0) continue;
-            var score = Math.abs(text.length - normalizedTarget.length);
-            if (text === normalizedTarget) score -= 1000;
-            if (score < bestScore) {
-                best = node;
-                bestScore = score;
+            if (!text) continue;
+            var tag = String(node.tagName || '').toUpperCase();
+            if (tag === 'SPAN' && node.parentElement) {
+                var parentTag = String(node.parentElement.tagName || '').toUpperCase();
+                if (parentTag === 'P' || parentTag === 'DIV' || parentTag === 'LI') return node.parentElement;
             }
+            return node;
         }
-        if (!best) return null;
-        var tag = String(best.tagName || '').toUpperCase();
-        if (tag === 'SPAN' && best.parentElement) {
-            var parentTag = String(best.parentElement.tagName || '').toUpperCase();
-            if (parentTag === 'P' || parentTag === 'DIV' || parentTag === 'LI') return best.parentElement;
-        }
-        return best;
+        return container;
     }
 
     function removeIdsDeep(node) {
@@ -377,10 +368,10 @@
         var templateChild = anchor && anchor.firstElementChild ? anchor.firstElementChild.cloneNode(false) : null;
         if (templateChild) {
             removeIdsDeep(templateChild);
-            templateChild.innerHTML = result.hintHtml || '';
+            templateChild.innerHTML = '<br />' + (result.hintHtml || '');
             note.appendChild(templateChild);
         } else {
-            note.innerHTML = result.hintHtml || '';
+            note.innerHTML = '<br />' + (result.hintHtml || '');
         }
         return note;
     }
@@ -399,15 +390,19 @@
                 return true;
             }
         }
-        var anchor = chooseAnchorElement(result.targetLine);
-        if (!anchor || !anchor.parentNode) return false;
-        var note = buildHintElement(anchor, result);
-        if (!note) return false;
-        if (anchor.nextSibling) {
-            anchor.parentNode.insertBefore(note, anchor.nextSibling);
-        } else {
-            anchor.parentNode.appendChild(note);
+        var root = null;
+        try {
+            root = document.querySelector('#app') || document.body || document.documentElement || null;
+        } catch (e2) {
+            root = document.body || document.documentElement || null;
         }
+        if (!root) return false;
+        var contentRoot = findBestNoticeContentRoot(root);
+        if (!contentRoot) return false;
+        var templateNode = chooseHintTemplateElement(contentRoot);
+        var note = buildHintElement(templateNode || contentRoot, result);
+        if (!note) return false;
+        contentRoot.appendChild(note);
         return true;
     }
 
