@@ -660,6 +660,13 @@ except Exception as e:
     _RECOMMEND_TREE_IMPORT_ERROR = e
 
 try:
+    from .notice_guidance import create_notice_guidance_router
+    _NOTICE_GUIDANCE_IMPORT_ERROR = None
+except Exception as e:
+    create_notice_guidance_router = None
+    _NOTICE_GUIDANCE_IMPORT_ERROR = e
+
+try:
     from .account_identity.admin import (
         AccountIdentityAdminService,
         AccountIdentitySyncScheduler,
@@ -6664,6 +6671,17 @@ elif _RECOMMEND_TREE_IMPORT_ERROR is not None:
 
 
 # --- 启动任务 ---
+
+if create_notice_guidance_router is not None:
+    try:
+        app.include_router(create_notice_guidance_router(
+            origin_validator=_validate_ak_proxy_write_origin,
+            logger=logger,
+        ))
+    except Exception as e:
+        logger.warning(f"[NoticeGuidance] 公告提示路由注册失败，已跳过: {e}")
+elif _NOTICE_GUIDANCE_IMPORT_ERROR is not None:
+    logger.warning(f"[NoticeGuidance] 公告提示模块不可用，已跳过: {_NOTICE_GUIDANCE_IMPORT_ERROR}")
 
 if create_account_identity_admin_router is not None and AccountIdentityAdminService is not None:
     try:
