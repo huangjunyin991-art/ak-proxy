@@ -54,6 +54,16 @@
         return '';
     }
 
+    function stripHtmlTags(value) {
+        return String(value == null ? '' : value).replace(/<[^>]*>/g, ' ');
+    }
+
+    function buildNoticeTextFingerprint(value) {
+        var normalized = normalizeInlineText(stripHtmlTags(value));
+        if (!normalized) return '';
+        return String(normalized.length) + ':' + normalized.slice(0, 160);
+    }
+
     function readCurrentAuth() {
         var model = null;
         try {
@@ -99,7 +109,8 @@
             trimString(auth && auth.account).toLowerCase() || trimString(auth && auth.userId),
             trimString(notice && (notice.Id || notice.id)),
             trimString(notice && (notice.Title || notice.title)),
-            trimString(notice && (notice.CreateTime || notice.createTime || notice.create_time))
+            trimString(notice && (notice.CreateTime || notice.createTime || notice.create_time)),
+            buildNoticeTextFingerprint(notice && (notice.Text || notice.text))
         ].join('|');
     }
 
