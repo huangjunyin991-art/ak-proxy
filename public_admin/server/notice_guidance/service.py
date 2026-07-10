@@ -6,8 +6,12 @@ from html.parser import HTMLParser
 from typing import Any
 
 from .provider import DEFAULT_PAGE_SIZE, NoticeGuidanceProvider
+from .subaccount_pause import (
+    NoticeGuidanceMySubaccountPauseCoordinator,
+    notice_guidance_my_subaccount_pause_coordinator,
+)
 
-DEFAULT_PAGE_INTERVAL_SECONDS = 0.5
+DEFAULT_PAGE_INTERVAL_SECONDS = 0.3
 DEFAULT_MAX_LINE_LENGTH = 24
 
 GUIDED_SALE_RANGE_RE = re.compile(
@@ -124,11 +128,13 @@ class NoticeGuidanceService:
         page_size: int = DEFAULT_PAGE_SIZE,
         page_interval_seconds: float = DEFAULT_PAGE_INTERVAL_SECONDS,
         logger=None,
+        pause_coordinator: NoticeGuidanceMySubaccountPauseCoordinator | None = None,
     ) -> None:
         self.provider = provider or NoticeGuidanceProvider()
         self.page_size = max(1, min(int(page_size or DEFAULT_PAGE_SIZE), 100))
         self.page_interval_seconds = max(0.0, float(page_interval_seconds or 0.0))
         self.logger = logger
+        self.pause_coordinator = pause_coordinator or notice_guidance_my_subaccount_pause_coordinator
 
     async def analyze_notice_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         notice = payload.get("notice") if isinstance(payload.get("notice"), dict) else {}
@@ -140,6 +146,25 @@ class NoticeGuidanceService:
         if info is None:
             return {"success": True, "enabled": False}
         scan_result = await self.scan_subaccounts_within_window(info, auth)
+        if scan_result.get("paused"):
+            return {
+                "success": True,
+                "enabled": True,
+                "deferred": True,
+                "result": {
+                    "paused": True,
+                    "noticeKey": self.build_notice_key(info, auth),
+                    "noticeId": info["notice_id"],
+                    "title": info["title"],
+                    "targetLine": info["target_line"],
+                    "startDateLabel": info["start_date_label"],
+                    "endDateLabel": info["end_date_label"],
+                    "maxLineLength": info["max_line_length"],
+                    "retryAfterSeconds": scan_result["retry_after_seconds"],
+                    "pauseUntilEpochMs": scan_result["pause_until_epoch_ms"],
+                    "pauseReason": "manual_my_subaccount_recently_used",
+                },
+            }
         return {
             "success": True,
             "enabled": True,
@@ -222,6 +247,17 @@ class NoticeGuidanceService:
         stop_reason = "empty"
         async with self.provider.build_client() as client:
             while True:
+                pause_info = self.pause_coordinator.get_pause_info(auth)
+                if pause_info["remaining_seconds"] > 0:
+                    return {
+                        "paused": True,
+                        "accounts": [trim_string(item.get("account")) for item in matched_rows if trim_string(item.get("account"))],
+                        "rows": matched_rows,
+                        "pages_scanned": pages_scanned,
+                        "stop_reason": "paused_for_manual_my_subaccount",
+                        "retry_after_seconds": pause_info["remaining_seconds"],
+                        "pause_until_epoch_ms": pause_info["pause_until_epoch_ms"],
+                    }
                 result = await self.provider.fetch_subaccount_page(client, auth, page, self.page_size)
                 pages_scanned += 1
                 rows = result.get("rows") or []
@@ -279,6 +315,7 @@ class NoticeGuidanceService:
         )
         accounts = [trim_string(item.get("account")) for item in matched_rows if trim_string(item.get("account"))]
         return {
+            "paused": False,
             "accounts": accounts,
             "rows": matched_rows,
             "pages_scanned": pages_scanned,

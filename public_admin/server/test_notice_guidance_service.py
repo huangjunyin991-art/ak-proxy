@@ -33,6 +33,20 @@ class FakeProvider:
         return self.pages.get(page, {"rows": [], "page_size": page_size, "count": 0})
 
 
+class FakePauseCoordinator:
+    def __init__(self, remaining_seconds=0.0, pause_until_epoch_ms=0.0):
+        self.remaining_seconds = remaining_seconds
+        self.pause_until_epoch_ms = pause_until_epoch_ms
+        self.calls = []
+
+    def get_pause_info(self, auth):
+        self.calls.append(dict(auth))
+        return {
+            "remaining_seconds": self.remaining_seconds,
+            "pause_until_epoch_ms": self.pause_until_epoch_ms,
+        }
+
+
 def test_extract_guided_sale_window_reads_target_line_and_line_length():
     service = NoticeGuidanceService(provider=FakeProvider({}), page_interval_seconds=0.0)
     info = service.extract_guided_sale_window(
@@ -130,3 +144,35 @@ def test_scan_subaccounts_stops_immediately_when_first_page_is_before_window():
     assert result["enabled"] is True
     assert result["result"]["accounts"] == []
     assert result["result"]["stopReason"] == "first_page_before_start"
+
+
+def test_analyze_notice_payload_returns_paused_result_without_calling_provider():
+    provider = FakeProvider({})
+    pause_coordinator = FakePauseCoordinator(remaining_seconds=42.5, pause_until_epoch_ms=1899999999000.0)
+    service = NoticeGuidanceService(
+        provider=provider,
+        page_interval_seconds=0.0,
+        pause_coordinator=pause_coordinator,
+    )
+
+    result = asyncio.run(
+        service.analyze_notice_payload(
+            {
+                "notice": {
+                    "Id": "604",
+                    "Title": "銆怉K绗?9娆℃寚瀵奸攢鍞叕鍛娿€?",
+                    "Text": NOTICE_HTML,
+                },
+                "auth": {"key": "k", "userId": "u1", "account": "demo"},
+            }
+        )
+    )
+
+    assert result["success"] is True
+    assert result["enabled"] is True
+    assert result["deferred"] is True
+    assert result["result"]["paused"] is True
+    assert result["result"]["retryAfterSeconds"] == 42.5
+    assert result["result"]["pauseUntilEpochMs"] == 1899999999000.0
+    assert provider.calls == []
+    assert pause_coordinator.calls == [{"account": "demo", "key": "k", "user_id": "u1"}]

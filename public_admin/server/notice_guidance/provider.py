@@ -11,6 +11,7 @@ from ..rpc_timeout_policy import (
     resolve_connect_timeout,
 )
 from ..security.upstream_http import resolve_upstream_tls_verify
+from .subaccount_pause import NOTICE_GUIDANCE_INTERNAL_HEADER
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/RPC/"
 DEFAULT_PAGE_SIZE = 15
@@ -37,6 +38,7 @@ def make_headers() -> dict[str, str]:
         "X-Requested-With": "XMLHttpRequest",
         "Origin": "https://www.akapi1.com",
         "Referer": "https://www.akapi1.com/",
+        NOTICE_GUIDANCE_INTERNAL_HEADER: "1",
     }
 
 

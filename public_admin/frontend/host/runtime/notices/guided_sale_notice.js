@@ -192,6 +192,14 @@
         clearPersistentGuidedSalePending(key);
     }
 
+    function readPersistentGuidedSalePending(cacheKey) {
+        var key = trimString(cacheKey);
+        var cache = getGuidedSaleCache();
+        if (!key || !cache || typeof cache.getPendingEntry !== 'function') return null;
+        var entry = cache.getPendingEntry(key);
+        return entry && typeof entry === 'object' ? entry : null;
+    }
+
     function rememberAnalysisCacheKey(key) {
         if (!key) return;
         if (analysisCacheKeys.indexOf(key) >= 0) return;
@@ -296,6 +304,34 @@
 
     function decorateGuidedSaleResult(result) {
         if (!result || typeof result !== 'object') return null;
+        if (result.paused === true) {
+            var retryAfterSeconds = Math.max(0, Number(result.retryAfterSeconds || 0));
+            var pauseUntilEpochMs = Math.max(
+                0,
+                parseInt(result.pauseUntilEpochMs, 10) || Math.round(Date.now() + retryAfterSeconds * 1000)
+            );
+            return {
+                paused: true,
+                noticeKey: trimString(result.noticeKey),
+                noticeId: trimString(result.noticeId),
+                title: trimString(result.title),
+                targetLine: trimString(result.targetLine),
+                startDateLabel: trimString(result.startDateLabel),
+                endDateLabel: trimString(result.endDateLabel),
+                maxLineLength: Math.max(8, parseInt(result.maxLineLength, 10) || DEFAULT_MAX_LINE_LENGTH),
+                retryAfterSeconds: retryAfterSeconds,
+                retryAfterMs: Math.max(0, pauseUntilEpochMs - Date.now()),
+                pauseUntilEpochMs: pauseUntilEpochMs,
+                pauseReason: trimString(result.pauseReason || 'manual_my_subaccount_recently_used'),
+                accounts: [],
+                rows: [],
+                pagesScanned: parseInt(result.pagesScanned, 10) || 0,
+                stopReason: trimString(result.stopReason || 'paused_for_manual_my_subaccount'),
+                hintText: '',
+                hintLines: [],
+                hintHtml: ''
+            };
+        }
         var accounts = Array.isArray(result.accounts) ? result.accounts.filter(function(item) {
             return !!trimString(item);
         }) : [];
@@ -346,10 +382,22 @@
         }
         var promise = requestGuidedSaleAnalysis(notice, auth)
             .then(function(result) {
-                clearPersistentGuidedSalePending(cacheKey);
                 if (!result || typeof result !== 'object') return null;
                 var decoratedResult = decorateGuidedSaleResult(result);
-                if (cacheKey && decoratedResult) {
+                if (!cacheKey) return decoratedResult;
+                if (decoratedResult && decoratedResult.paused) {
+                    storePersistentGuidedSalePending(cacheKey, notice, auth, {
+                        status: 'paused',
+                        lastAttemptAt: Date.now(),
+                        retryAtEpochMs: decoratedResult.pauseUntilEpochMs,
+                        retryAfterMs: decoratedResult.retryAfterMs,
+                        pauseReason: decoratedResult.pauseReason
+                    });
+                    delete analysisPromiseCache[cacheKey];
+                    return decoratedResult;
+                }
+                clearPersistentGuidedSalePending(cacheKey);
+                if (decoratedResult) {
                     storePersistentGuidedSaleResult(cacheKey, notice, auth, result);
                 }
                 return decoratedResult;
@@ -394,9 +442,30 @@
         return cachedResult;
     }
 
+    function getPendingGuidedSaleRetryByNoticeId(noticeId) {
+        var normalizedNoticeId = trimString(noticeId);
+        if (!normalizedNoticeId) return null;
+        var auth = readCurrentAuth();
+        var cacheKey = buildAnalysisCacheKey({ Id: normalizedNoticeId }, auth);
+        if (!cacheKey) return null;
+        var pending = readPersistentGuidedSalePending(cacheKey);
+        if (!pending || typeof pending !== 'object') return null;
+        var retryAtEpochMs = Math.max(0, parseInt(pending.retryAtEpochMs, 10) || 0);
+        return {
+            status: trimString(pending.status || 'pending') || 'pending',
+            noticeId: normalizedNoticeId,
+            retryAtEpochMs: retryAtEpochMs,
+            retryAfterMs: retryAtEpochMs > 0 ? Math.max(0, retryAtEpochMs - Date.now()) : 0,
+            lastAttemptAt: parseInt(pending.lastAttemptAt, 10) || 0,
+            lastError: trimString(pending.lastError || ''),
+            pauseReason: trimString(pending.pauseReason || '')
+        };
+    }
+
     window.AKClientRuntimeNotices = window.AKClientRuntimeNotices || {};
     window.AKClientRuntimeNotices.extractNoticeDetail = extractNoticeDetail;
     window.AKClientRuntimeNotices.getCachedGuidedSaleResultByNoticeId = getCachedGuidedSaleResultByNoticeId;
+    window.AKClientRuntimeNotices.getPendingGuidedSaleRetryByNoticeId = getPendingGuidedSaleRetryByNoticeId;
     window.AKClientRuntimeNotices.analyzeGuidedSaleNotice = analyzeGuidedSaleNotice;
     window.AKClientRuntimeNotices.analyzeGuidedSaleNoticeEnvelope = analyzeGuidedSaleNoticeEnvelope;
 })();

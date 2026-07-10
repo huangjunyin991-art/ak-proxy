@@ -698,9 +698,17 @@ except Exception as e:
 
 try:
     from .notice_guidance import create_notice_guidance_router
+    from .notice_guidance.subaccount_pause import (
+        DEFAULT_MANUAL_MY_SUBACCOUNT_PAUSE_SECONDS,
+        NOTICE_GUIDANCE_INTERNAL_HEADER,
+        notice_guidance_my_subaccount_pause_coordinator,
+    )
     _NOTICE_GUIDANCE_IMPORT_ERROR = None
 except Exception as e:
     create_notice_guidance_router = None
+    DEFAULT_MANUAL_MY_SUBACCOUNT_PAUSE_SECONDS = 60.0
+    NOTICE_GUIDANCE_INTERNAL_HEADER = "x-ak-notice-guidance"
+    notice_guidance_my_subaccount_pause_coordinator = None
     _NOTICE_GUIDANCE_IMPORT_ERROR = e
 
 try:
@@ -3466,6 +3474,9 @@ async def proxy_rpc(path: str, request: Request):
     content_type = request.headers.get("content-type", "")
 
     referer = request.headers.get("referer", "")
+    notice_guidance_internal_request = (
+        str(request.headers.get(NOTICE_GUIDANCE_INTERNAL_HEADER) or "").strip() == "1"
+    )
 
     fetch_dest = request.headers.get("sec-fetch-dest", "")
 
@@ -3555,6 +3566,26 @@ async def proxy_rpc(path: str, request: Request):
         "mnemonic_confirm",
     }
     normalized_path = path.strip("/").lower()
+    if (
+        normalized_path == "my_subaccount"
+        and not notice_guidance_internal_request
+        and notice_guidance_my_subaccount_pause_coordinator is not None
+    ):
+        try:
+            pause_info = notice_guidance_my_subaccount_pause_coordinator.mark_manual_call(
+                {
+                    "account": params.get("account") or params.get("Account") or "",
+                    "key": params.get("key") or params.get("Key") or "",
+                    "user_id": params.get("UserID") or params.get("userId") or params.get("userid") or "",
+                },
+                pause_seconds=DEFAULT_MANUAL_MY_SUBACCOUNT_PAUSE_SECONDS,
+            )
+            logger.debug(
+                "[NoticeGuidance] manual My_Subaccount detected, pause refresh: "
+                f"path=/RPC/{path} pause_until_ms={int(pause_info.get('pause_until_epoch_ms') or 0)}"
+            )
+        except Exception as e:
+            logger.warning(f"[NoticeGuidance] 刷新 My_Subaccount 暂停窗口失败: path=/RPC/{path} error={e}")
     if normalized_path in trace_rpc_paths:
         _user_rpc_trace(lambda: (
             f"[RpcInput/{path}] referer={referer} cookie_bs={cookie_bs or '-'} "
@@ -3599,6 +3630,7 @@ async def proxy_rpc(path: str, request: Request):
 
         upstream_started_at = time.perf_counter()
         forward_headers = dict(request.headers)
+        forward_headers.pop(NOTICE_GUIDANCE_INTERNAL_HEADER, None)
         if auth_cookie_header:
             forward_headers["cookie"] = auth_cookie_header
         response = await forward_request(

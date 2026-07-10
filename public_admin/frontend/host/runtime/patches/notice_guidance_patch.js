@@ -12,6 +12,8 @@
     var domProbeMutationTimer = 0;
     var domProbeScheduleToken = 0;
     var latestDomProbeSignature = '';
+    var latestNoticePayload = null;
+    var pendingRetryTimer = 0;
 
     function matchesNoticeDetailRoute(value) {
         try {
@@ -41,6 +43,10 @@
             .replace(/\u00a0/g, ' ')
             .replace(/[ \t\r\f\v]+/g, ' ')
             .trim();
+    }
+
+    function trimString(value) {
+        return String(value == null ? '' : value).trim();
     }
 
     function htmlEscape(value) {
@@ -408,10 +414,26 @@
 
     function applyAnalysisResult(result) {
         if (!result || !result.noticeKey) return false;
+        if (result.paused) return false;
         latestResult = result;
         latestNoticeKey = result.noticeKey;
+        if (pendingRetryTimer) {
+            clearTimeout(pendingRetryTimer);
+            pendingRetryTimer = 0;
+        }
         scheduleHintApply();
         return true;
+    }
+
+    function rememberLatestNoticePayload(notice) {
+        if (!notice || typeof notice !== 'object') return null;
+        latestNoticePayload = {
+            Id: trimString(notice.Id || notice.id),
+            Title: String(notice.Title || notice.title || ''),
+            Text: String(notice.Text || notice.text || ''),
+            CreateTime: trimString(notice.CreateTime || notice.createTime || notice.create_time)
+        };
+        return latestNoticePayload;
     }
 
     function applyCachedGuidedSaleResultForCurrentNotice() {
@@ -423,6 +445,58 @@
         var result = service.getCachedGuidedSaleResultByNoticeId(noticeId);
         if (!result) return false;
         return applyAnalysisResult(result);
+    }
+
+    function retryLatestNoticeAnalysis() {
+        if (!isNoticeDetailPage()) return;
+        var service = getNoticeService();
+        if (!service || typeof service.analyzeGuidedSaleNotice !== 'function') return;
+        if (!latestNoticePayload) {
+            probeNoticeFromDom();
+            return;
+        }
+        service.analyzeGuidedSaleNotice(latestNoticePayload)
+            .then(function(result) {
+                if (result && result.paused) {
+                    schedulePendingGuidedSaleRetry(result);
+                    return;
+                }
+                applyAnalysisResult(result);
+            })
+            .catch(function(error) {
+                logWarn('failed to retry guided sale notice', String(error && error.message || error || 'unknown'));
+            });
+    }
+
+    function schedulePendingGuidedSaleRetry(state) {
+        if (pendingRetryTimer) {
+            clearTimeout(pendingRetryTimer);
+            pendingRetryTimer = 0;
+        }
+        if (!isNoticeDetailPage()) return false;
+        var retryAfterMs = Math.max(0, parseInt(state && state.retryAfterMs, 10) || 0);
+        pendingRetryTimer = setTimeout(function() {
+            pendingRetryTimer = 0;
+            retryLatestNoticeAnalysis();
+        }, retryAfterMs);
+        return true;
+    }
+
+    function restorePendingGuidedSaleRetryForCurrentNotice() {
+        if (!isNoticeDetailPage()) return false;
+        var noticeId = getCurrentNoticeId();
+        if (!noticeId) return false;
+        var service = getNoticeService();
+        if (!service || typeof service.getPendingGuidedSaleRetryByNoticeId !== 'function') return false;
+        var pending = service.getPendingGuidedSaleRetryByNoticeId(noticeId);
+        if (!pending) return false;
+        if (pending.status === 'paused') {
+            return schedulePendingGuidedSaleRetry(pending);
+        }
+        setTimeout(function() {
+            if (isNoticeDetailPage()) retryLatestNoticeAnalysis();
+        }, 0);
+        return true;
     }
 
     function scheduleHintApply() {
@@ -442,11 +516,16 @@
         if (!service || typeof service.analyzeGuidedSaleNotice !== 'function') return;
         var notice = buildDomNoticePayload();
         if (!notice) return;
+        rememberLatestNoticePayload(notice);
         var signature = buildDomNoticeSignature(notice);
         if (!signature || signature === latestDomProbeSignature) return;
         latestDomProbeSignature = signature;
         service.analyzeGuidedSaleNotice(notice)
             .then(function(result) {
+                if (result && result.paused) {
+                    schedulePendingGuidedSaleRetry(result);
+                    return;
+                }
                 applyAnalysisResult(result);
             })
             .catch(function(error) {
@@ -471,9 +550,16 @@
     function handleNoticePayload(detailEnvelope) {
         if (!isNoticeDetailPage()) return;
         var service = getNoticeService();
-        if (!service || typeof service.analyzeGuidedSaleNoticeEnvelope !== 'function') return;
-        service.analyzeGuidedSaleNoticeEnvelope(detailEnvelope)
+        if (!service || typeof service.extractNoticeDetail !== 'function' || typeof service.analyzeGuidedSaleNotice !== 'function') return;
+        var notice = service.extractNoticeDetail(detailEnvelope);
+        if (!notice) return;
+        rememberLatestNoticePayload(notice);
+        service.analyzeGuidedSaleNotice(notice)
             .then(function(result) {
+                if (result && result.paused) {
+                    schedulePendingGuidedSaleRetry(result);
+                    return;
+                }
                 applyAnalysisResult(result);
             })
             .catch(function(error) {
@@ -552,8 +638,13 @@
     function resetNoticeState() {
         latestResult = null;
         latestNoticeKey = '';
+        latestNoticePayload = null;
         latestDomProbeSignature = '';
         domProbeScheduleToken += 1;
+        if (pendingRetryTimer) {
+            clearTimeout(pendingRetryTimer);
+            pendingRetryTimer = 0;
+        }
     }
 
     function installRouteHooks() {
@@ -566,6 +657,7 @@
                 return;
             }
             applyCachedGuidedSaleResultForCurrentNotice();
+            restorePendingGuidedSaleRetryForCurrentNotice();
             scheduleHintApply();
             scheduleDomProbeSequence();
         }
@@ -642,11 +734,13 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', function() {
                 applyCachedGuidedSaleResultForCurrentNotice();
+                restorePendingGuidedSaleRetryForCurrentNotice();
                 scheduleHintApply();
                 scheduleDomProbeSequence();
             }, { once: true });
         } else {
             applyCachedGuidedSaleResultForCurrentNotice();
+            restorePendingGuidedSaleRetryForCurrentNotice();
             scheduleHintApply();
             scheduleDomProbeSequence();
         }
