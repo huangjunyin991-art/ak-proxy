@@ -225,7 +225,7 @@
                 var breakIndex = -1;
                 for (var i = next; i > cursor + Math.floor(limit * 0.4); i--) {
                     var ch = normalized.charAt(i - 1);
-                    if (ch === '，' || ch === ',' || ch === '、' || ch === '；' || ch === ';' || ch === ' ') {
+                    if (ch === '，' || ch === ',' || ch === '。' || ch === '、' || ch === '；' || ch === ';' || ch === ' ') {
                         breakIndex = i;
                         break;
                     }
@@ -382,7 +382,13 @@
         }
         var promise = requestGuidedSaleAnalysis(notice, auth)
             .then(function(result) {
-                if (!result || typeof result !== 'object') return null;
+                if (!result || typeof result !== 'object') {
+                    if (cacheKey && Object.prototype.hasOwnProperty.call(analysisPromiseCache, cacheKey)) {
+                        delete analysisPromiseCache[cacheKey];
+                    }
+                    if (cacheKey) clearPersistentGuidedSalePending(cacheKey);
+                    return null;
+                }
                 var decoratedResult = decorateGuidedSaleResult(result);
                 if (!cacheKey) return decoratedResult;
                 if (decoratedResult && decoratedResult.paused) {
@@ -396,10 +402,13 @@
                     delete analysisPromiseCache[cacheKey];
                     return decoratedResult;
                 }
-                clearPersistentGuidedSalePending(cacheKey);
-                if (decoratedResult) {
-                    storePersistentGuidedSaleResult(cacheKey, notice, auth, result);
+                if (!decoratedResult) {
+                    clearPersistentGuidedSalePending(cacheKey);
+                    delete analysisPromiseCache[cacheKey];
+                    return null;
                 }
+                clearPersistentGuidedSalePending(cacheKey);
+                storePersistentGuidedSaleResult(cacheKey, notice, auth, result);
                 return decoratedResult;
             })
             .catch(function(error) {

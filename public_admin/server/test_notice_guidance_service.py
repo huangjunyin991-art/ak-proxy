@@ -12,6 +12,19 @@ NOTICE_HTML = """
 <p>指导销售后：</p>
 """
 
+SCREENSHOT_NOTICE_HTML = """
+<p>全球AK玩家：</p>
+<p><br /></p>
+2026年6月15日9：00am -6月16日20：00 pm（开曼群岛时间，GMT-5）<br />
+将进行18次指导销售<br />
+本次指导销售规则为：<br />
+2024年9月23日-2024年9月25日之间注册的账户<br />
+指导销售后：<br />
+每个二星账户保留1000张AK<br />
+每个三星账户保留2000张AK<br />
+<p>多出的AK按注册时间的先后顺序依次售出</p>
+"""
+
 
 class FakeProvider:
     def __init__(self, pages):
@@ -62,6 +75,22 @@ def test_extract_guided_sale_window_reads_target_line_and_line_length():
     assert info["start_date_key"] == 20240926
     assert info["end_date_key"] == 20240927
     assert info["max_line_length"] >= len(info["target_line"])
+
+
+def test_extract_guided_sale_window_supports_notice_markup_from_detail_page():
+    service = NoticeGuidanceService(provider=FakeProvider({}), page_interval_seconds=0.0)
+    info = service.extract_guided_sale_window(
+        {
+            "Id": "216",
+            "Title": "【AK第18次指导销售公告】",
+            "Text": SCREENSHOT_NOTICE_HTML,
+        }
+    )
+
+    assert info is not None
+    assert info["target_line"] == "2024年9月23日-2024年9月25日之间注册的账户"
+    assert info["start_date_key"] == 20240923
+    assert info["end_date_key"] == 20240925
 
 
 def test_analyze_notice_payload_returns_disabled_for_non_guided_sale_notice():
@@ -160,7 +189,7 @@ def test_analyze_notice_payload_returns_paused_result_without_calling_provider()
             {
                 "notice": {
                     "Id": "604",
-                    "Title": "銆怉K绗?9娆℃寚瀵奸攢鍞叕鍛娿€?",
+                    "Title": "【AK第19次指导销售公告】",
                     "Text": NOTICE_HTML,
                 },
                 "auth": {"key": "k", "userId": "u1", "account": "demo"},

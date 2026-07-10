@@ -14,12 +14,9 @@ from .subaccount_pause import (
 DEFAULT_PAGE_INTERVAL_SECONDS = 0.3
 DEFAULT_MAX_LINE_LENGTH = 24
 
-GUIDED_SALE_RANGE_RE = re.compile(
-    r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(?:[-~—－]|至|到)\s*"
-    r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*之间注册的账户"
-)
-
-DATE_KEY_RE = re.compile(r"(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})")
+GUIDED_SALE_KEYWORD = "指导销售"
+GUIDED_SALE_TARGET_SUFFIX = "之间注册的账户"
+DATE_KEY_RE = re.compile(r"(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*日?")
 
 
 def trim_string(value: Any) -> str:
@@ -121,6 +118,21 @@ def extract_longest_line_length(lines: list[str], fallback_line: str) -> int:
     return max_length if max_length > 0 else DEFAULT_MAX_LINE_LENGTH
 
 
+def extract_guided_sale_range_line(lines: list[str]) -> tuple[str, tuple[int, int, int], tuple[int, int, int]] | None:
+    for raw_line in lines:
+        line = normalize_line_text(raw_line)
+        if "注册" not in line or "账户" not in line:
+            continue
+        dates = [
+            (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+            for match in DATE_KEY_RE.finditer(line)
+        ]
+        if len(dates) < 2:
+            continue
+        return line, dates[0], dates[1]
+    return None
+
+
 class NoticeGuidanceService:
     def __init__(
         self,
@@ -190,42 +202,31 @@ class NoticeGuidanceService:
             return None
         lines = extract_lines_from_html(html)
         content_text = "\n".join(lines)
-        if "指导销售" not in f"{title}\n{content_text}":
+        full_text = f"{title}\n{content_text}"
+        if GUIDED_SALE_KEYWORD not in full_text:
             return None
-        target_line = ""
-        match = None
-        for line in lines:
-            match = GUIDED_SALE_RANGE_RE.search(normalize_line_text(line))
-            if match:
-                target_line = normalize_line_text(line)
-                break
-        if match is None:
-            match = GUIDED_SALE_RANGE_RE.search(content_text)
-            if match:
-                target_line = normalize_line_text(match.group(0))
-        if match is None:
+        range_info = extract_guided_sale_range_line(lines)
+        if range_info is None:
             return None
-        start_year = int(match.group(1))
-        start_month = int(match.group(2))
-        start_day = int(match.group(3))
-        end_year = int(match.group(4))
-        end_month = int(match.group(5))
-        end_day = int(match.group(6))
+        target_line, start_date, end_date = range_info
+        start_year, start_month, start_day = start_date
+        end_year, end_month, end_day = end_date
         start_date_key = format_date_key(start_year, start_month, start_day)
         end_date_key = format_date_key(end_year, end_month, end_day)
         if not start_date_key or not end_date_key:
             return None
         start_label = format_date_label(start_year, start_month, start_day)
         end_label = format_date_label(end_year, end_month, end_day)
+        fallback_target_line = f"{start_label}-{end_label}{GUIDED_SALE_TARGET_SUFFIX}"
         return {
             "notice_id": trim_string(notice.get("Id") or notice.get("id")),
             "title": title,
-            "target_line": target_line or f"{start_label}-{end_label}之间注册的账户",
+            "target_line": target_line or fallback_target_line,
             "start_date_key": start_date_key,
             "end_date_key": end_date_key,
             "start_date_label": start_label,
             "end_date_label": end_label,
-            "max_line_length": extract_longest_line_length(lines, target_line),
+            "max_line_length": extract_longest_line_length(lines, target_line or fallback_target_line),
         }
 
     def build_notice_key(self, info: dict[str, Any], auth: dict[str, str]) -> str:
