@@ -1,6 +1,42 @@
 (function() {
     if (window.AKAccountMigrationRenderer) return;
 
+    var PHASE_KEY_LABELS = {
+        core: '核心',
+        relations: '关系',
+        im_core: 'IM 核心',
+        im_social: 'IM 社交'
+    };
+
+    var TABLE_LABELS = {
+        user_stats: '用户主资料',
+        user_assets: '用户资产',
+        authorized_accounts: '白名单授权',
+        point_history_records: '点数流水明细',
+        point_history_user_summary: '点数流水汇总',
+        meeting_publish_permissions: '会议发布权限',
+        ak_scan_runtime: 'AK 数据运行态',
+        admin_recommend_tree_cache: '组织架构缓存',
+        sub_admin_account_bindings: '子管理员绑定',
+        risk_isolations: '风险隔离',
+        risk_isolation_userkeys: '风险隔离 UserKey 缓存',
+        notify_push_subscriptions: 'Web Push 订阅',
+        notify_pushdeer_bindings: 'PushDeer 绑定',
+        notify_ntfy_bindings: 'ntfy 绑定',
+        notify_outbox: '通知发件箱',
+        im_user_profile: 'IM 用户资料',
+        im_user_avatar_history: 'IM 头像历史',
+        im_conversation: 'IM 会话',
+        im_conversation_member: 'IM 会话成员',
+        im_conversation_admin: 'IM 会话管理员',
+        im_message: 'IM 消息',
+        im_message_mention: 'IM 提及记录',
+        im_switch_tokens: 'IM 切换令牌',
+        im_user_contact: 'IM 联系人',
+        im_user_blacklist: 'IM 黑名单',
+        im_direct_message_gate: 'IM 私聊门禁'
+    };
+
     function escapeHtml(value) {
         return String(value == null ? '' : value)
             .replace(/&/g, '&amp;')
@@ -25,12 +61,41 @@
         return number.toFixed(2) + '%';
     }
 
-    function sumBackfillRows(run, key) {
-        var summary = run && run.summary;
-        var rows = summary && Array.isArray(summary.backfill_results) ? summary.backfill_results : [];
-        return rows.reduce(function(total, item) {
-            return total + Number(item && item[key] || 0);
-        }, 0);
+    function translatePhaseKey(value) {
+        var key = String(value || '').trim().toLowerCase();
+        return PHASE_KEY_LABELS[key] || key || '--';
+    }
+
+    function translateTableName(value) {
+        var key = String(value || '').trim();
+        return TABLE_LABELS[key] || key || '--';
+    }
+
+    function renderTranslatedTableName(value) {
+        var raw = String(value || '').trim();
+        var label = translateTableName(raw);
+        if (!raw || label === raw) {
+            return escapeHtml(label);
+        }
+        return '<span title="' + escapeHtml(raw) + '">' + escapeHtml(label) + '</span>';
+    }
+
+    function stageLabel(value) {
+        var stage = String(value || '').trim().toLowerCase();
+        if (stage === 'queued') return '排队中';
+        if (stage === 'ensuring_columns') return '检查迁移列';
+        if (stage === 'collecting_before_stats') return '采集同步前统计';
+        if (stage === 'backfilling') return '回填账号身份';
+        if (stage === 'collecting_after_stats') return '采集同步后统计';
+        if (stage === 'finished') return '已完成';
+        return stage || '--';
+    }
+
+    function triggerModeLabel(value) {
+        var mode = String(value || '').trim().toLowerCase();
+        if (mode === 'manual') return '手动';
+        if (mode === 'auto') return '自动';
+        return mode || '--';
     }
 
     function statusMeta(status) {
@@ -44,8 +109,16 @@
         if (value === 'dry_run') return { label: '演练', tone: 'warning' };
         if (value === 'missing_table') return { label: '缺表', tone: 'danger' };
         if (value === 'missing_account_id_column') return { label: '缺列', tone: 'danger' };
-        if (value === 'skipped_missing_table') return { label: '跳过', tone: 'muted' };
+        if (value === 'skipped_missing_table') return { label: '已跳过', tone: 'muted' };
         return { label: value || '--', tone: 'muted' };
+    }
+
+    function sumBackfillRows(run, key) {
+        var summary = run && run.summary;
+        var rows = summary && Array.isArray(summary.backfill_results) ? summary.backfill_results : [];
+        return rows.reduce(function(total, item) {
+            return total + Number(item && item[key] || 0);
+        }, 0);
     }
 
     function renderMetric(label, value, meta) {
@@ -57,6 +130,16 @@
             '</div>';
     }
 
+    function renderRangeList(items) {
+        var rows = Array.isArray(items) ? items : [];
+        if (!rows.length) {
+            return '--';
+        }
+        return rows.map(function(item) {
+            return translateTableName(item);
+        }).join('、');
+    }
+
     function renderPhasePlan(plan) {
         var items = Array.isArray(plan) ? plan : [];
         if (!items.length) {
@@ -66,13 +149,13 @@
             return '' +
                 '<div class="amp-phase-card">' +
                     '<div class="amp-phase-title-row">' +
-                        '<strong>' + escapeHtml(item.title || item.key || '--') + '</strong>' +
-                        '<span class="amp-badge amp-badge-muted">' + escapeHtml(item.key || '--') + '</span>' +
+                        '<strong>' + escapeHtml(item.title || translatePhaseKey(item.key) || '--') + '</strong>' +
+                        '<span class="amp-badge amp-badge-muted">' + escapeHtml(translatePhaseKey(item.key)) + '</span>' +
                     '</div>' +
                     '<div class="amp-phase-desc">' + escapeHtml(item.description || '') + '</div>' +
                     '<div class="amp-phase-meta">' +
                         '<span>映射数 ' + escapeHtml(formatNumber(item.column_count || 0)) + '</span>' +
-                        '<span>范围 ' + escapeHtml((item.tables || []).join(', ') || '--') + '</span>' +
+                        '<span>范围 ' + escapeHtml(renderRangeList(item.tables || [])) + '</span>' +
                     '</div>' +
                 '</div>';
         }).join('');
@@ -87,8 +170,8 @@
             var meta = statusMeta(item.status);
             return '' +
                 '<tr>' +
-                    '<td>' + escapeHtml(item.phase || '--') + '</td>' +
-                    '<td>' + escapeHtml(item.table_name || '--') + '</td>' +
+                    '<td>' + escapeHtml(translatePhaseKey(item.phase)) + '</td>' +
+                    '<td>' + renderTranslatedTableName(item.table_name) + '</td>' +
                     '<td>' + escapeHtml(item.username_column || '--') + '</td>' +
                     '<td>' + escapeHtml(item.account_id_column || '--') + '</td>' +
                     '<td><span class="amp-badge amp-badge-' + escapeHtml(meta.tone) + '">' + escapeHtml(meta.label) + '</span></td>' +
@@ -135,7 +218,7 @@
             return '' +
                 '<tr>' +
                     '<td>#' + escapeHtml(String(item.id || '--')) + '</td>' +
-                    '<td>' + escapeHtml(item.trigger_mode || '--') + '</td>' +
+                    '<td>' + escapeHtml(triggerModeLabel(item.trigger_mode)) + '</td>' +
                     '<td>' + escapeHtml(item.triggered_by || '--') + '</td>' +
                     '<td><span class="amp-badge amp-badge-' + escapeHtml(meta.tone) + '">' + escapeHtml(meta.label) + '</span></td>' +
                     '<td>' + escapeHtml(formatNumber(sumBackfillRows(item, 'matched_rows'))) + '</td>' +
@@ -147,7 +230,7 @@
 
     function renderCurrentRun(run) {
         if (!run) {
-            return '<div class="amp-empty-inline">当前无运行中的同步任务</div>';
+            return '<div class="amp-empty-inline">当前没有运行中的同步任务</div>';
         }
         var meta = statusMeta(run.status);
         return '' +
@@ -157,9 +240,9 @@
                     '<span class="amp-badge amp-badge-' + escapeHtml(meta.tone) + '">' + escapeHtml(meta.label) + '</span>' +
                 '</div>' +
                 '<div class="amp-current-run-grid">' +
-                    '<span>阶段：' + escapeHtml(run.phase_key || 'all') + '</span>' +
-                    '<span>模式：' + escapeHtml(run.trigger_mode || '--') + '</span>' +
-                    '<span>状态：' + escapeHtml(run.stage || '--') + '</span>' +
+                    '<span>阶段：' + escapeHtml(translatePhaseKey(run.phase_key || '')) + '</span>' +
+                    '<span>模式：' + escapeHtml(triggerModeLabel(run.trigger_mode)) + '</span>' +
+                    '<span>状态：' + escapeHtml(stageLabel(run.stage)) + '</span>' +
                     '<span>开始：' + escapeHtml(formatTime(run.started_at)) + '</span>' +
                 '</div>' +
                 (run.error_message ? '<div class="amp-run-error">' + escapeHtml(run.error_message) + '</div>' : '') +
@@ -189,11 +272,11 @@
                 (state && state.error ? '<div class="amp-alert amp-alert-danger">' + escapeHtml(state.error) + '</div>' : '') +
 
                 '<section class="amp-metrics">' +
-                    renderMetric('身份总数', formatNumber(summary.total_identities || 0), '主账号标识') +
-                    renderMetric('别名总数', formatNumber(summary.total_aliases || 0), '历史账号轨迹') +
-                    renderMetric('有变更账号', formatNumber(summary.changed_identities || 0), formatTime(summary.last_renamed_at)) +
-                    renderMetric('下次自动同步', dashboard.next_auto_run_at || '--', policy.enabled ? '已启用' : '未启用') +
-                    renderMetric('当前任务', currentRun ? (currentRun.stage || 'running') : '空闲', currentRun ? (currentRun.trigger_mode || '--') : '--') +
+                    renderMetric('身份总数', formatNumber(summary.total_identities || 0), '已建立的稳定账号身份') +
+                    renderMetric('别名总数', formatNumber(summary.total_aliases || 0), '历史账号名称轨迹') +
+                    renderMetric('变更账号数', formatNumber(summary.changed_identities || 0), formatTime(summary.last_renamed_at)) +
+                    renderMetric('下次自动同步', dashboard.next_auto_run_at || '--', policy.enabled ? '自动同步已启用' : '自动同步未启用') +
+                    renderMetric('当前任务', currentRun ? stageLabel(currentRun.stage) : '空闲', currentRun ? triggerModeLabel(currentRun.trigger_mode) : '--') +
                 '</section>' +
 
                 '<section class="amp-layout">' +
@@ -238,7 +321,7 @@
                     '</div>' +
                     '<div class="amp-table-wrap">' +
                         '<table class="amp-table">' +
-                            '<thead><tr><th>阶段</th><th>表</th><th>账号列</th><th>ID 列</th><th>状态</th><th>待补</th><th>覆盖率</th></tr></thead>' +
+                            '<thead><tr><th>阶段</th><th>数据表</th><th>账号列</th><th>ID 列</th><th>状态</th><th>待补</th><th>覆盖率</th></tr></thead>' +
                             '<tbody>' + renderPhaseStats(dashboard.phase_stats) + '</tbody>' +
                         '</table>' +
                     '</div>' +
@@ -268,7 +351,7 @@
                     '</div>' +
                     '<div class="amp-table-wrap">' +
                         '<table class="amp-table">' +
-                            '<thead><tr><th>任务</th><th>触发</th><th>执行者</th><th>状态</th><th>匹配</th><th>更新</th><th>开始时间</th></tr></thead>' +
+                            '<thead><tr><th>任务</th><th>触发方式</th><th>执行者</th><th>状态</th><th>匹配</th><th>更新</th><th>开始时间</th></tr></thead>' +
                             '<tbody>' + renderRunRows(dashboard.recent_runs) + '</tbody>' +
                         '</table>' +
                     '</div>' +
