@@ -51,10 +51,12 @@ class AccountIdentityService:
             "ON account_username_aliases(account_id) WHERE is_canonical = TRUE"
         )
 
-    async def ensure_identity(self, username: str) -> dict[str, Any]:
+    async def ensure_identity(self, username: str, conn=None) -> dict[str, Any]:
         normalized = normalize_account_username(username)
         if not normalized:
             return {}
+        if conn is not None:
+            return await self._ensure_identity_tx(conn, normalized)
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             async with conn.transaction():

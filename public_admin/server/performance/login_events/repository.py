@@ -4,7 +4,12 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Iterable
 
+from ...account_identity import AccountIdentityService, get_phase_spec, sync_account_id_spec_for_username
 from .schemas import LoginAggregateDelta, LoginDeltaBackfillResult, LoginDeltaFlushResult
+
+
+_LOGIN_EVENT_IDENTITY_SERVICE = AccountIdentityService(lambda: None)
+_USER_STATS_ACCOUNT_ID_SPEC = get_phase_spec("core", "user_stats", "username", "account_id")
 
 
 async def ensure_login_event_tables(conn) -> None:
@@ -572,6 +577,13 @@ async def _update_user_stats_from_successes(conn, users: dict[tuple[str, Any], d
           AND COALESCE(us.real_name, '') = ''
           AND COALESCE(aa.nickname, '') <> ''
     ''', usernames)
+    for username in usernames:
+        await sync_account_id_spec_for_username(
+            conn,
+            _LOGIN_EVENT_IDENTITY_SERVICE,
+            _USER_STATS_ACCOUNT_ID_SPEC,
+            username,
+        )
 
 
 async def _update_ip_stats_from_events(conn, ips: dict[tuple[str, Any], dict[str, Any]]) -> None:

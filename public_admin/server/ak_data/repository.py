@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
+from ..account_identity import AccountIdentityService, get_phase_spec, sync_account_id_spec_for_username
 from .config import normalize_config
 
 
@@ -17,10 +18,14 @@ AK_TABLES = (
     "ak_data_config",
 )
 
+_USER_STATS_ACCOUNT_ID_SPEC = get_phase_spec("core", "user_stats", "username", "account_id")
+_AK_SCAN_RUNTIME_ACCOUNT_ID_SPEC = get_phase_spec("core", "ak_scan_runtime", "current_account_username", "current_account_id")
+
 
 class AkDataRepository:
     def __init__(self, pool_supplier: Callable[[], object]):
         self._pool_supplier = pool_supplier
+        self._identity_service = AccountIdentityService(pool_supplier)
 
     def _pool(self):
         return self._pool_supplier()
@@ -115,6 +120,14 @@ class AkDataRepository:
                 """,
                 *values,
             )
+            current_account_username = str(fields.get("current_account_username") or "").strip().lower()
+            if current_account_username:
+                await sync_account_id_spec_for_username(
+                    conn,
+                    self._identity_service,
+                    _AK_SCAN_RUNTIME_ACCOUNT_ID_SPEC,
+                    current_account_username,
+                )
 
     async def get_runtime(self) -> dict[str, Any]:
         pool = self._pool()
@@ -228,6 +241,12 @@ class AkDataRepository:
                 cookies_json,
                 payload_json,
                 max(60, int(ttl_seconds or 3600)),
+            )
+            await sync_account_id_spec_for_username(
+                conn,
+                self._identity_service,
+                _USER_STATS_ACCOUNT_ID_SPEC,
+                normalized,
             )
 
     async def get_status(self) -> dict[str, Any]:

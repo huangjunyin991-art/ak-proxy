@@ -8,6 +8,7 @@ PANEL_KEYS = (
     "activeDefense",
     "riskIsolation",
     "recommendTree",
+    "accountMigration",
     "pointStats",
     "rateBan",
     "settings",
@@ -40,6 +41,13 @@ PANEL_VERSION_FILES = {
         ("recommend_tree", "recommend_tree_renderer.js"),
         ("recommend_tree", "recommend_tree_store.js"),
         ("recommend_tree", "recommend_tree_utils.js"),
+    ),
+    "accountMigration": (
+        ("account_migration", "account_migration_api.js"),
+        ("account_migration", "account_migration_store.js"),
+        ("account_migration", "account_migration_renderer.js"),
+        ("account_migration", "account_migration_panel.js"),
+        ("account_migration", "account_migration_panel.css"),
     ),
     "pointStats": (
         ("point_stats", "date_picker", "date_picker.css"),

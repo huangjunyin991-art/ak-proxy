@@ -47,7 +47,13 @@ from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth_periods
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
-from .account_identity import AccountIdentityMigrationService, AccountIdentityService
+from .account_identity import (
+    AccountIdentityMigrationService,
+    AccountIdentityService,
+    PHASE_BY_KEY,
+    sync_account_id_spec_for_username,
+    sync_account_id_specs_for_username,
+)
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 from .db.sql_policy import classify_admin_sql
 from .login_account_hint import find_best_account_match, normalize_login_account
@@ -171,6 +177,18 @@ _pool_metrics = DbAcquireMetrics()
 _login_audit_queue: Optional[LoginAuditQueue] = None
 _account_identity_service = AccountIdentityService(lambda: _get_pool())
 _account_identity_migration_service = AccountIdentityMigrationService(lambda: _get_pool())
+_ACCOUNT_ID_CORE_SPECS = {
+    (spec.table_name, spec.username_column, spec.account_id_column): spec
+    for spec in PHASE_BY_KEY["core"].specs
+}
+_USER_STATS_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("user_stats", "username", "account_id")]
+_USER_ASSETS_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("user_assets", "username", "account_id")]
+_AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("authorized_accounts", "username", "account_id")]
+_POINT_HISTORY_RECORDS_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("point_history_records", "username", "account_id")]
+_POINT_HISTORY_SUMMARY_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("point_history_user_summary", "username", "account_id")]
+_MEETING_PUBLISH_PERMISSION_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("meeting_publish_permissions", "username", "account_id")]
+_AK_SCAN_RUNTIME_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("ak_scan_runtime", "current_account_username", "current_account_id")]
+_RECOMMEND_TREE_CACHE_ACCOUNT_ID_SPEC = _ACCOUNT_ID_CORE_SPECS[("admin_recommend_tree_cache", "account", "account_id")]
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -1056,6 +1074,26 @@ async def _get_table_columns(table_name: str, conn=None) -> List[str]:
     return columns
 
 
+async def _sync_account_id_spec(conn, spec, username: str, account_id: int = 0) -> int:
+    return await sync_account_id_spec_for_username(
+        conn,
+        _account_identity_service,
+        spec,
+        username,
+        account_id=account_id,
+    )
+
+
+async def _sync_account_id_specs(conn, specs: List[Any], username: str, account_id: int = 0) -> Dict[str, int]:
+    return await sync_account_id_specs_for_username(
+        conn,
+        _account_identity_service,
+        specs,
+        username,
+        account_id=account_id,
+    )
+
+
 # ===== 登录记录 =====
 
 async def record_login(username: str, ip_address: str, user_agent: str = "",
@@ -1134,6 +1172,7 @@ async def _write_login_audit_event(event: LoginAuditWrite, pool=None) -> None:
                     ON CONFLICT(username) DO UPDATE SET
                         password = $2
                 ''', record_username, event.password)
+                await _sync_account_id_spec(conn, _USER_STATS_ACCOUNT_ID_SPEC, record_username)
     if event.password_failure:
         await record_login_guard_event(
             pool,
@@ -1353,6 +1392,7 @@ async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = N
                 ak_auth_updated_at = $5,
                 ak_auth_expires_at = $6
         ''', username, userkey or '', cookies_json, payload_json, now, expires_at)
+        await _sync_account_id_spec(conn, _USER_STATS_ACCOUNT_ID_SPEC, username)
 
 
 async def get_ak_auth_state(username: str) -> Optional[Dict]:
@@ -1796,6 +1836,21 @@ async def rename_account_username(old_username: str, new_username: str) -> Dict[
                     WHERE username = $1
                 ''', source_username, target_username)
 
+            await _sync_account_id_specs(
+                conn,
+                [
+                    _USER_STATS_ACCOUNT_ID_SPEC,
+                    _USER_ASSETS_ACCOUNT_ID_SPEC,
+                    _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC,
+                    _POINT_HISTORY_RECORDS_ACCOUNT_ID_SPEC,
+                    _POINT_HISTORY_SUMMARY_ACCOUNT_ID_SPEC,
+                    _MEETING_PUBLISH_PERMISSION_ACCOUNT_ID_SPEC,
+                    _AK_SCAN_RUNTIME_ACCOUNT_ID_SPEC,
+                    _RECOMMEND_TREE_CACHE_ACCOUNT_ID_SPEC,
+                ],
+                target_username,
+            )
+
     return {
         "changed": True,
         "old_username": source_username,
@@ -1954,6 +2009,7 @@ async def _upsert_user_stats_identity(conn: asyncpg.Connection, username: str,
             password = CASE WHEN $2 <> '' THEN $2 ELSE user_stats.password END,
             real_name = CASE WHEN $3 <> '' THEN $3 ELSE user_stats.real_name END
     ''', normalized_username, normalized_password, normalized_real_name)
+    await _sync_account_id_spec(conn, _USER_STATS_ACCOUNT_ID_SPEC, normalized_username)
 
 
 async def sync_authorized_account_profile(username: str, password: str = '',
@@ -1980,6 +2036,7 @@ async def upsert_user_real_name(username: str, real_name: str) -> bool:
             VALUES ($1, $2)
             ON CONFLICT(username) DO UPDATE SET real_name = $2
         ''', username, real_name)
+        await _sync_account_id_spec(conn, _USER_STATS_ACCOUNT_ID_SPEC, username)
         return True
 
 
@@ -2051,6 +2108,7 @@ async def update_user_assets(username: str, data: Dict):
                  has_sp, has_tp, has_ep, has_rp, has_ap, has_rate,
                  has_honor_name, has_left_area, has_right_area,
                  has_direct_push, has_sub_account)
+            await _sync_account_id_spec(conn, _USER_ASSETS_ACCOUNT_ID_SPEC, username)
 
 
 
@@ -2297,6 +2355,7 @@ async def _refresh_point_history_user_summary(conn, username: str):
             record_count = EXCLUDED.record_count,
             latest_saved_at = EXCLUDED.latest_saved_at
     ''', normalized_username, record_count, row['latest_saved_at'])
+    await _sync_account_id_spec(conn, _POINT_HISTORY_SUMMARY_ACCOUNT_ID_SPEC, normalized_username)
 
 
 async def _upsert_point_history_records_bulk(conn, normalized: List[tuple], operation: str) -> None:
@@ -2376,6 +2435,11 @@ async def replace_point_history_records(username: str, point_type: str, records:
                 return 0
             await _upsert_point_history_records_bulk(conn, normalized, "point_history.replace")
             await _refresh_point_history_user_summary(conn, username)
+            await _sync_account_id_specs(
+                conn,
+                [_POINT_HISTORY_RECORDS_ACCOUNT_ID_SPEC, _POINT_HISTORY_SUMMARY_ACCOUNT_ID_SPEC],
+                username,
+            )
             return len(normalized)
 
 async def save_point_history_records(username: str, point_type: str, records: List[Dict]) -> int:
@@ -2394,6 +2458,11 @@ async def save_point_history_records(username: str, point_type: str, records: Li
         async with conn.transaction():
             await _upsert_point_history_records_bulk(conn, normalized, "point_history.save")
             await _refresh_point_history_user_summary(conn, username)
+            await _sync_account_id_specs(
+                conn,
+                [_POINT_HISTORY_RECORDS_ACCOUNT_ID_SPEC, _POINT_HISTORY_SUMMARY_ACCOUNT_ID_SPEC],
+                username,
+            )
     return len(normalized)
 
 async def get_point_stats(username: str = None, point_type: str = None, limit: int = 50, start_date: str = None, end_date: str = None) -> Dict:
@@ -3691,6 +3760,7 @@ async def add_authorized_account(username: str, password: str, added_by: str,
                 RETURNING id, expire_time
             ''', username, password, added_by, plan_type, credits_cost, now, expire_time, nickname)
             await _upsert_user_stats_identity(conn, username, real_name=nickname)
+            await _sync_account_id_spec(conn, _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC, username)
         return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username, 'real_name': nickname}
 
 
@@ -3746,6 +3816,7 @@ async def add_authorized_account_atomic(username: str, password: str, added_by: 
                 RETURNING id, expire_time
             ''', normalized_username, password, normalized_added_by, plan_type, credits_cost, now, expire_time, nickname)
             await _upsert_user_stats_identity(conn, normalized_username, real_name=nickname)
+            await _sync_account_id_spec(conn, _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC, normalized_username)
         return {
             'id': row['id'],
             'expire_time': str(row['expire_time']),
@@ -3773,6 +3844,7 @@ async def renew_authorized_account(username: str, plan_type: str, credits_cost: 
                 status='active', updated_at=NOW()
             WHERE username=$4
         ''', plan_type, credits_cost, new_expire, username)
+        await _sync_account_id_spec(conn, _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC, username)
         return {'id': row['id'], 'old_expire': str(row['expire_time']),
                 'new_expire': str(new_expire), 'username': username}
 
@@ -3784,6 +3856,7 @@ async def delete_authorized_account(username: str) -> bool:
         result = await conn.execute(
             "UPDATE authorized_accounts SET status='deleted', updated_at=NOW() WHERE username=$1",
             username)
+        await _sync_account_id_spec(conn, _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC, username)
         return int(result.split()[-1]) > 0
 
 
@@ -3823,6 +3896,7 @@ async def update_authorized_account_nickname(username: str, nickname: str,
             if not row:
                 return None
             await _upsert_user_stats_identity(conn, username, real_name=nickname)
+            await _sync_account_id_spec(conn, _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC, username)
             return dict(row)
 
 
@@ -3854,6 +3928,7 @@ async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_usernam
                 RETURNING id, username, added_by, status, expire_time
             ''', normalized_username, normalized_sub_name, now, expire_time)
             await _upsert_user_stats_identity(conn, normalized_username)
+            await _sync_account_id_spec(conn, _AUTHORIZED_ACCOUNTS_ACCOUNT_ID_SPEC, normalized_username)
         return {
             'id': row['id'],
             'username': row['username'],
@@ -4055,6 +4130,7 @@ async def set_meeting_publish_permission(username: str, can_publish_owned: bool,
                 updated_at = NOW()
         ''', normalized_username, bool(can_publish_owned), bool(can_publish_all),
                            normalized_granted_by, normalized_scope_owner)
+        await _sync_account_id_spec(conn, _MEETING_PUBLISH_PERMISSION_ACCOUNT_ID_SPEC, normalized_username)
     return await get_meeting_publish_permission(normalized_username)
 
 
@@ -4071,6 +4147,7 @@ async def revoke_meeting_publish_permission(username: str) -> bool:
                 updated_at = NOW()
             WHERE username = $1
         ''', normalized_username)
+        await _sync_account_id_spec(conn, _MEETING_PUBLISH_PERMISSION_ACCOUNT_ID_SPEC, normalized_username)
         return int(result.split()[-1]) > 0
 
 

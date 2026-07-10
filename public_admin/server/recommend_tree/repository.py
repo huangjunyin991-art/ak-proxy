@@ -2,11 +2,22 @@ import json
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from ..account_identity import AccountIdentityService, get_phase_spec, sync_account_id_spec_for_username
+
+
+_RECOMMEND_TREE_CACHE_ACCOUNT_ID_SPEC = get_phase_spec(
+    "core",
+    "admin_recommend_tree_cache",
+    "account",
+    "account_id",
+)
+
 
 class RecommendTreeRepository:
     def __init__(self, pool_supplier: Callable[[], object]):
         self.pool_supplier = pool_supplier
         self._ready = False
+        self._identity_service = AccountIdentityService(pool_supplier)
 
     async def ensure_ready(self):
         if self._ready:
@@ -92,6 +103,12 @@ class RecommendTreeRepository:
                     updated_at = NOW()
                 RETURNING fetched_at, created_at, updated_at
             ''', normalized, root_rid, payload_json, node_count, max_depth, branch_count, leaf_count, source_status, source_error[:1000])
+            await sync_account_id_spec_for_username(
+                conn,
+                self._identity_service,
+                _RECOMMEND_TREE_CACHE_ACCOUNT_ID_SPEC,
+                normalized,
+            )
         return {
             "nodeCount": node_count,
             "maxDepth": max_depth,

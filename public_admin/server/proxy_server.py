@@ -660,6 +660,19 @@ except Exception as e:
     _RECOMMEND_TREE_IMPORT_ERROR = e
 
 try:
+    from .account_identity.admin import (
+        AccountIdentityAdminService,
+        AccountIdentitySyncScheduler,
+        create_account_identity_admin_router,
+    )
+    _ACCOUNT_IDENTITY_ADMIN_IMPORT_ERROR = None
+except Exception as e:
+    AccountIdentityAdminService = None
+    AccountIdentitySyncScheduler = None
+    create_account_identity_admin_router = None
+    _ACCOUNT_IDENTITY_ADMIN_IMPORT_ERROR = e
+
+try:
     from .risk_isolation.umbrella import RiskIsolationUmbrellaResolver
     _RISK_ISOLATION_UMBRELLA_IMPORT_ERROR = None
 except Exception as e:
@@ -4823,6 +4836,8 @@ operation_auth_middleware_installed = False
 operation_auth_fail_closed_installed = False
 operation_auth_startup_error = ""
 _OPERATION_AUTH_INIT_ERROR = None
+account_identity_admin_service = None
+account_identity_sync_scheduler = None
 operation_totp_lockouts = LockoutStore(OPERATION_TOTP_MAX_FAILS, OPERATION_TOTP_LOCKOUT_SECONDS)
 if (
     OperationAuthService is not None
@@ -6650,6 +6665,34 @@ elif _RECOMMEND_TREE_IMPORT_ERROR is not None:
 
 # --- 启动任务 ---
 
+if create_account_identity_admin_router is not None and AccountIdentityAdminService is not None:
+    try:
+        account_identity_admin_service = AccountIdentityAdminService(
+            pool_supplier=db._get_pool,
+            system_config=db.system_config,
+            ensure_columns=db.ensure_account_id_migration_columns,
+            collect_stats=db.collect_account_id_migration_stats,
+            backfill=db.backfill_account_id_migration,
+            get_plan=db.get_account_id_migration_plan,
+            logger=logger,
+        )
+        account_identity_sync_scheduler = AccountIdentitySyncScheduler(
+            service=account_identity_admin_service,
+            logger=logger,
+        )
+        app.include_router(create_account_identity_admin_router(
+            service=account_identity_admin_service,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            super_admin_role=ROLE_SUPER_ADMIN,
+        ))
+    except Exception as e:
+        logger.warning(f"[AccountIdentityAdmin] 璐﹀彿杩佺Щ妯″潡娉ㄥ唽澶辫触锛屽凡璺宠繃: {e}")
+        account_identity_admin_service = None
+        account_identity_sync_scheduler = None
+elif _ACCOUNT_IDENTITY_ADMIN_IMPORT_ERROR is not None:
+    logger.warning(f"[AccountIdentityAdmin] 璐﹀彿杩佺Щ妯″潡涓嶅彲鐢紝宸茶烦杩? {_ACCOUNT_IDENTITY_ADMIN_IMPORT_ERROR}")
+
 if create_ak_data_router is not None:
     try:
         app.include_router(create_ak_data_router(
@@ -6813,6 +6856,15 @@ async def admin_startup():
     except Exception as e:
         logger.warning(f"[BlockingPools] init failed, fallback to env defaults: {e}")
 
+    if account_identity_admin_service is not None:
+        try:
+            await account_identity_admin_service.ensure_ready()
+            if account_identity_sync_scheduler is not None:
+                account_identity_sync_scheduler.start()
+            logger.info("[AccountIdentityAdmin] account migration module initialized")
+        except Exception as e:
+            logger.warning(f"[AccountIdentityAdmin] init failed, skip account migration module: {e}")
+
     try:
         hydration = await _AK_WEB_STATIC_CACHE_SERVICE.hydrate_memory_from_disk(reason="startup")
         logger.info(
@@ -6919,6 +6971,9 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    if account_identity_sync_scheduler is not None:
+        await account_identity_sync_scheduler.stop()
 
     if _runtime_hygiene_service is not None:
         await _runtime_hygiene_service.stop()
@@ -13212,6 +13267,7 @@ def _admin_panel_versions():
             'rateBan': 0.0,
             'riskIsolation': 0.0,
             'recommendTree': 0.0,
+            'accountMigration': 0.0,
             'pointStats': 0.0,
             'settings': 0.0,
             'remoteAssist': 0.0,
@@ -13228,6 +13284,7 @@ def _admin_panel_versions():
                 'rateBan': 0.0,
                 'riskIsolation': 0.0,
                 'recommendTree': 0.0,
+                'accountMigration': 0.0,
                 'pointStats': 0.0,
                 'settings': 0.0,
                 'remoteAssist': 0.0,
@@ -13240,7 +13297,7 @@ def _admin_panel_versions():
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
     r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
-    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion|"
+    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|accountMigrationPanelBuildVersion|pointStatsPanelBuildVersion|"
     r"rateBanPanelBuildVersion|settingsPanelBuildVersion|remoteAssistPanelBuildVersion|"
     r"aiAssistantPanelBuildVersion)\s*=\s*'[^']*'"
 )
@@ -13251,6 +13308,7 @@ _ADMIN_PANEL_VAR_TO_KEY = {
     'activeDefensePanelBuildVersion': 'activeDefense',
     'riskIsolationPanelBuildVersion': 'riskIsolation',
     'recommendTreePanelBuildVersion': 'recommendTree',
+    'accountMigrationPanelBuildVersion': 'accountMigration',
     'pointStatsPanelBuildVersion': 'pointStats',
     'rateBanPanelBuildVersion': 'rateBan',
     'settingsPanelBuildVersion': 'settings',
@@ -14498,6 +14556,30 @@ async def recommend_tree_panel_asset(request: Request, asset_name: str):
     if not media_type:
         return Response(content="// not found", media_type="application/javascript")
     asset_path = os.path.join(FRONTEND_PAGES_DIR, "recommend_tree", asset_name)
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
+
+
+@app.get("/admin/api/account-migration-panel/{asset_name:path}")
+async def account_migration_panel_asset(request: Request, asset_name: str):
+    allowed_assets = {
+        "account_migration_api.js": "application/javascript",
+        "account_migration_store.js": "application/javascript",
+        "account_migration_renderer.js": "application/javascript",
+        "account_migration_panel.js": "application/javascript",
+        "account_migration_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "account_migration"))
+    asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
+    if not asset_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
     return await _serve_text_asset(
         request,
         asset_path,
