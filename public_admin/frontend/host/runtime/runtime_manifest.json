@@ -37,8 +37,18 @@
       "required": false
     },
     {
+      "name": "guided_sale_notice",
+      "path": "notices/guided_sale_notice.js",
+      "required": false
+    },
+    {
       "name": "recommend_friend_patch",
       "path": "patches/recommend_friend_patch.js",
+      "required": false
+    },
+    {
+      "name": "notice_guidance_patch",
+      "path": "patches/notice_guidance_patch.js",
       "required": false
     },
     {
