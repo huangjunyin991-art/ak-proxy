@@ -37,6 +37,11 @@
       "required": false
     },
     {
+      "name": "guided_sale_notice_cache",
+      "path": "notices/guided_sale_notice_cache.js",
+      "required": false
+    },
+    {
       "name": "guided_sale_notice",
       "path": "notices/guided_sale_notice.js",
       "required": false

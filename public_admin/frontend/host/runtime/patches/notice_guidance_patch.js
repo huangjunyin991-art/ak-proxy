@@ -414,6 +414,17 @@
         return true;
     }
 
+    function applyCachedGuidedSaleResultForCurrentNotice() {
+        if (!isNoticeDetailPage()) return false;
+        var noticeId = getCurrentNoticeId();
+        if (!noticeId) return false;
+        var service = getNoticeService();
+        if (!service || typeof service.getCachedGuidedSaleResultByNoticeId !== 'function') return false;
+        var result = service.getCachedGuidedSaleResultByNoticeId(noticeId);
+        if (!result) return false;
+        return applyAnalysisResult(result);
+    }
+
     function scheduleHintApply() {
         if (!latestResult || !isNoticeDetailPage()) return;
         if (applyGuidedSaleHint(latestResult)) return;
@@ -554,6 +565,7 @@
                 clearStaleHints('');
                 return;
             }
+            applyCachedGuidedSaleResultForCurrentNotice();
             scheduleHintApply();
             scheduleDomProbeSequence();
         }
@@ -629,10 +641,12 @@
         installObserver();
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', function() {
+                applyCachedGuidedSaleResultForCurrentNotice();
                 scheduleHintApply();
                 scheduleDomProbeSequence();
             }, { once: true });
         } else {
+            applyCachedGuidedSaleResultForCurrentNotice();
             scheduleHintApply();
             scheduleDomProbeSequence();
         }

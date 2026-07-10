@@ -123,6 +123,75 @@
         ].join('|');
     }
 
+    function getGuidedSaleCache() {
+        try {
+            return window.AKClientRuntimeNoticeGuidanceCache || null;
+        } catch (e) {}
+        return null;
+    }
+
+    function buildCachedNoticeMeta(notice) {
+        return {
+            noticeId: trimString(notice && (notice.Id || notice.id)),
+            title: trimString(notice && (notice.Title || notice.title)),
+            createTime: trimString(notice && (notice.CreateTime || notice.createTime || notice.create_time))
+        };
+    }
+
+    function buildCachedAuthMeta(auth) {
+        return {
+            account: trimString(auth && auth.account).toLowerCase(),
+            userId: trimString(auth && auth.userId)
+        };
+    }
+
+    function readPersistentGuidedSaleResult(cacheKey) {
+        var key = trimString(cacheKey);
+        var cache = getGuidedSaleCache();
+        if (!key || !cache || typeof cache.getResultEntry !== 'function') return null;
+        var entry = cache.getResultEntry(key);
+        if (!entry || typeof entry !== 'object') return null;
+        return decorateGuidedSaleResult(entry.rawResult || entry.result || null);
+    }
+
+    function storePersistentGuidedSalePending(cacheKey, notice, auth, extra) {
+        var key = trimString(cacheKey);
+        var cache = getGuidedSaleCache();
+        if (!key || !cache || typeof cache.setPendingEntry !== 'function') return;
+        var payload = {
+            startedAt: Date.now(),
+            notice: buildCachedNoticeMeta(notice),
+            auth: buildCachedAuthMeta(auth)
+        };
+        if (extra && typeof extra === 'object') {
+            for (var prop in extra) {
+                if (!Object.prototype.hasOwnProperty.call(extra, prop)) continue;
+                payload[prop] = extra[prop];
+            }
+        }
+        cache.setPendingEntry(key, payload);
+    }
+
+    function clearPersistentGuidedSalePending(cacheKey) {
+        var key = trimString(cacheKey);
+        var cache = getGuidedSaleCache();
+        if (!key || !cache || typeof cache.clearPendingEntry !== 'function') return;
+        cache.clearPendingEntry(key);
+    }
+
+    function storePersistentGuidedSaleResult(cacheKey, notice, auth, rawResult) {
+        var key = trimString(cacheKey);
+        var cache = getGuidedSaleCache();
+        if (!key || !cache || typeof cache.setResultEntry !== 'function') return;
+        cache.setResultEntry(key, {
+            savedAt: Date.now(),
+            notice: buildCachedNoticeMeta(notice),
+            auth: buildCachedAuthMeta(auth),
+            rawResult: rawResult
+        });
+        clearPersistentGuidedSalePending(key);
+    }
+
     function rememberAnalysisCacheKey(key) {
         if (!key) return;
         if (analysisCacheKeys.indexOf(key) >= 0) return;
@@ -261,13 +330,40 @@
         if (cacheKey && analysisPromiseCache[cacheKey]) {
             return analysisPromiseCache[cacheKey];
         }
+        var cachedResult = cacheKey ? readPersistentGuidedSaleResult(cacheKey) : null;
+        if (cachedResult) {
+            if (cacheKey) {
+                analysisPromiseCache[cacheKey] = Promise.resolve(cachedResult);
+                rememberAnalysisCacheKey(cacheKey);
+            }
+            return cachedResult;
+        }
+        if (cacheKey) {
+            storePersistentGuidedSalePending(cacheKey, notice, auth, {
+                status: 'pending',
+                lastAttemptAt: Date.now()
+            });
+        }
         var promise = requestGuidedSaleAnalysis(notice, auth)
             .then(function(result) {
-                return decorateGuidedSaleResult(result);
+                clearPersistentGuidedSalePending(cacheKey);
+                if (!result || typeof result !== 'object') return null;
+                var decoratedResult = decorateGuidedSaleResult(result);
+                if (cacheKey && decoratedResult) {
+                    storePersistentGuidedSaleResult(cacheKey, notice, auth, result);
+                }
+                return decoratedResult;
             })
             .catch(function(error) {
                 if (cacheKey && Object.prototype.hasOwnProperty.call(analysisPromiseCache, cacheKey)) {
                     delete analysisPromiseCache[cacheKey];
+                }
+                if (cacheKey) {
+                    storePersistentGuidedSalePending(cacheKey, notice, auth, {
+                        status: 'error',
+                        lastAttemptAt: Date.now(),
+                        lastError: trimString(error && error.message || error || 'unknown')
+                    });
                 }
                 logWarn('guided sale analysis failed', String(error && error.message || error || 'unknown'));
                 return null;
@@ -285,8 +381,22 @@
         return analyzeGuidedSaleNotice(notice);
     }
 
+    function getCachedGuidedSaleResultByNoticeId(noticeId) {
+        var normalizedNoticeId = trimString(noticeId);
+        if (!normalizedNoticeId) return null;
+        var auth = readCurrentAuth();
+        var cacheKey = buildAnalysisCacheKey({ Id: normalizedNoticeId }, auth);
+        if (!cacheKey) return null;
+        var cachedResult = readPersistentGuidedSaleResult(cacheKey);
+        if (!cachedResult) return null;
+        analysisPromiseCache[cacheKey] = Promise.resolve(cachedResult);
+        rememberAnalysisCacheKey(cacheKey);
+        return cachedResult;
+    }
+
     window.AKClientRuntimeNotices = window.AKClientRuntimeNotices || {};
     window.AKClientRuntimeNotices.extractNoticeDetail = extractNoticeDetail;
+    window.AKClientRuntimeNotices.getCachedGuidedSaleResultByNoticeId = getCachedGuidedSaleResultByNoticeId;
     window.AKClientRuntimeNotices.analyzeGuidedSaleNotice = analyzeGuidedSaleNotice;
     window.AKClientRuntimeNotices.analyzeGuidedSaleNoticeEnvelope = analyzeGuidedSaleNoticeEnvelope;
 })();
