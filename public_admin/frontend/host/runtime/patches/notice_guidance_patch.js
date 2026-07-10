@@ -382,6 +382,24 @@
         return note;
     }
 
+    function insertHintElement(container, anchor, note) {
+        if (!note) return false;
+        var insertionParent = anchor && anchor.parentNode ? anchor.parentNode : null;
+        if (insertionParent && insertionParent.nodeType === 1) {
+            if (anchor.nextSibling) {
+                insertionParent.insertBefore(note, anchor.nextSibling);
+            } else {
+                insertionParent.appendChild(note);
+            }
+            return true;
+        }
+        if (container && container.appendChild) {
+            container.appendChild(note);
+            return true;
+        }
+        return false;
+    }
+
     function applyGuidedSaleHint(result) {
         if (!isNoticeDetailPage() || !result || !result.noticeKey) return false;
         clearStaleHints(result.noticeKey);
@@ -408,8 +426,7 @@
         var templateNode = chooseHintTemplateElement(contentRoot);
         var note = buildHintElement(templateNode || contentRoot, result);
         if (!note) return false;
-        contentRoot.appendChild(note);
-        return true;
+        return insertHintElement(contentRoot, templateNode, note);
     }
 
     function applyAnalysisResult(result) {
