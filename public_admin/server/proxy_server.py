@@ -6752,6 +6752,7 @@ if create_notice_guidance_router is not None:
     try:
         app.include_router(create_notice_guidance_router(
             origin_validator=lambda request: _validate_ak_proxy_write_origin(request),
+            pool_supplier=db._get_pool,
             logger=logger,
         ))
     except Exception as e:

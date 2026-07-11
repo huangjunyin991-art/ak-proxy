@@ -5,15 +5,18 @@ from typing import Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from .repository import NoticeGuidanceCacheRepository
 from .service import NoticeGuidanceService
 
 
 def create_notice_guidance_router(
     origin_validator: Callable[[Request], object] | None = None,
+    pool_supplier: Callable[[], object] | None = None,
     logger=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/notice-guidance")
-    service = NoticeGuidanceService(logger=logger)
+    cache_repository = NoticeGuidanceCacheRepository(pool_supplier) if pool_supplier is not None else None
+    service = NoticeGuidanceService(logger=logger, cache_repository=cache_repository)
 
     @router.post("/guided-sale")
     async def analyze_guided_sale_notice(request: Request):

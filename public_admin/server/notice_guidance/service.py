@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from html.parser import HTMLParser
 from typing import Any
 
 from .provider import DEFAULT_PAGE_SIZE, NoticeGuidanceProvider
+from .repository import NoticeGuidanceCacheRepository
 from .subaccount_pause import (
     NoticeGuidanceMySubaccountPauseCoordinator,
     notice_guidance_my_subaccount_pause_coordinator,
@@ -141,12 +143,16 @@ class NoticeGuidanceService:
         page_interval_seconds: float = DEFAULT_PAGE_INTERVAL_SECONDS,
         logger=None,
         pause_coordinator: NoticeGuidanceMySubaccountPauseCoordinator | None = None,
+        cache_repository: NoticeGuidanceCacheRepository | None = None,
     ) -> None:
         self.provider = provider or NoticeGuidanceProvider()
         self.page_size = max(1, min(int(page_size or DEFAULT_PAGE_SIZE), 100))
         self.page_interval_seconds = max(0.0, float(page_interval_seconds or 0.0))
         self.logger = logger
         self.pause_coordinator = pause_coordinator or notice_guidance_my_subaccount_pause_coordinator
+        self.cache_repository = cache_repository
+        self._inflight_scans: dict[str, asyncio.Task[dict[str, Any]]] = {}
+        self._inflight_scans_lock = asyncio.Lock()
 
     async def analyze_notice_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         notice = payload.get("notice") if isinstance(payload.get("notice"), dict) else {}
@@ -157,7 +163,11 @@ class NoticeGuidanceService:
         info = self.extract_guided_sale_window(notice)
         if info is None:
             return {"success": True, "enabled": False}
-        scan_result = await self.scan_subaccounts_within_window(info, auth)
+        cache_scope = self.build_cache_scope(info, auth)
+        cached_result = await self._load_cached_scan(cache_scope)
+        if cached_result is not None:
+            return self._build_completed_response(info, auth, cached_result, cache_hit=True)
+        scan_result = await self._get_or_start_scan(info, auth, cache_scope)
         if scan_result.get("paused"):
             return {
                 "success": True,
@@ -177,6 +187,16 @@ class NoticeGuidanceService:
                     "pauseReason": "manual_my_subaccount_recently_used",
                 },
             }
+        return self._build_completed_response(info, auth, scan_result, cache_hit=False)
+
+    def _build_completed_response(
+        self,
+        info: dict[str, Any],
+        auth: dict[str, str],
+        scan_result: dict[str, Any],
+        *,
+        cache_hit: bool,
+    ) -> dict[str, Any]:
         return {
             "success": True,
             "enabled": True,
@@ -192,6 +212,7 @@ class NoticeGuidanceService:
                 "rows": scan_result["rows"],
                 "pagesScanned": scan_result["pages_scanned"],
                 "stopReason": scan_result["stop_reason"],
+                "cacheHit": cache_hit,
             },
         }
 
@@ -239,6 +260,89 @@ class NoticeGuidanceService:
                 trim_string(info.get("end_date_label")),
             ]
         )
+
+    @staticmethod
+    def build_cache_scope(info: dict[str, Any], auth: dict[str, str]) -> dict[str, Any]:
+        notice_id = trim_string(info.get("notice_id"))
+        if notice_id:
+            notice_key = f"id:{notice_id}"
+        else:
+            fallback = "\x00".join([
+                trim_string(info.get("title")),
+                trim_string(info.get("target_line")),
+                trim_string(info.get("start_date_label")),
+                trim_string(info.get("end_date_label")),
+            ])
+            notice_key = "fallback:" + hashlib.sha256(fallback.encode("utf-8")).hexdigest()
+        return {
+            "viewer_user_id": trim_string(auth.get("user_id")),
+            "auth_key_fingerprint": hashlib.sha256(
+                trim_string(auth.get("key")).encode("utf-8")
+            ).hexdigest(),
+            "notice_key": notice_key,
+            "notice_id": notice_id,
+            "start_date_key": int(info.get("start_date_key") or 0),
+            "end_date_key": int(info.get("end_date_key") or 0),
+        }
+
+    async def _load_cached_scan(self, cache_scope: dict[str, Any]) -> dict[str, Any] | None:
+        if self.cache_repository is None:
+            return None
+        try:
+            return await self.cache_repository.get_completed_scan(cache_scope)
+        except Exception as exc:
+            self._log_cache_error("read", exc)
+            return None
+
+    async def _get_or_start_scan(
+        self,
+        info: dict[str, Any],
+        auth: dict[str, str],
+        cache_scope: dict[str, Any],
+    ) -> dict[str, Any]:
+        inflight_key = "|".join([
+            trim_string(cache_scope.get("viewer_user_id")),
+            trim_string(cache_scope.get("auth_key_fingerprint")),
+            trim_string(cache_scope.get("notice_key")),
+            str(cache_scope.get("start_date_key") or 0),
+            str(cache_scope.get("end_date_key") or 0),
+        ])
+        async with self._inflight_scans_lock:
+            task = self._inflight_scans.get(inflight_key)
+            if task is None:
+                task = asyncio.create_task(self._scan_and_cache(info, auth, cache_scope))
+                self._inflight_scans[inflight_key] = task
+                task.add_done_callback(
+                    lambda completed_task: self._clear_inflight_scan(inflight_key, completed_task)
+                )
+        return await asyncio.shield(task)
+
+    def _clear_inflight_scan(self, inflight_key: str, completed_task: asyncio.Task[dict[str, Any]]) -> None:
+        if self._inflight_scans.get(inflight_key) is completed_task:
+            self._inflight_scans.pop(inflight_key, None)
+
+    async def _scan_and_cache(
+        self,
+        info: dict[str, Any],
+        auth: dict[str, str],
+        cache_scope: dict[str, Any],
+    ) -> dict[str, Any]:
+        scan_result = await self.scan_subaccounts_within_window(info, auth)
+        if scan_result.get("paused") or self.cache_repository is None:
+            return scan_result
+        try:
+            await self.cache_repository.save_completed_scan(cache_scope, scan_result)
+        except Exception as exc:
+            self._log_cache_error("write", exc)
+        return scan_result
+
+    def _log_cache_error(self, operation: str, exc: Exception) -> None:
+        if self.logger is None:
+            return
+        try:
+            self.logger.warning("[NoticeGuidance] persistent cache %s failed: %s", operation, str(exc)[:500])
+        except Exception:
+            pass
 
     async def scan_subaccounts_within_window(self, info: dict[str, Any], auth: dict[str, str]) -> dict[str, Any]:
         page = 1
