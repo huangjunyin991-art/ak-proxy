@@ -6,7 +6,8 @@
 import os
 
 # ===== 代理服务器设置 =====
-PROXY_HOST = "0.0.0.0"
+# Backend is intentionally loopback-only; public traffic must enter through Nginx.
+PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 8080
 
 # ===== 上游API =====

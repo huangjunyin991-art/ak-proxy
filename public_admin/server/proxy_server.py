@@ -94,7 +94,8 @@ try:
 
 except ImportError:
 
-    PROXY_HOST = "0.0.0.0"
+    # Keep the secure loopback binding when the optional config module is unavailable.
+    PROXY_HOST = "127.0.0.1"
 
     PROXY_PORT = 8080
 
