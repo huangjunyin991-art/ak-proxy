@@ -1,0 +1,41 @@
+.ak-gss-root { color: var(--text-primary); display: grid; gap: 14px; }
+.ak-gss-toolbar, .ak-gss-notice, .ak-gss-section, .ak-gss-policy { border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 8px; }
+.ak-gss-toolbar { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 16px; }
+.ak-gss-title { display: grid; gap: 2px; font-size: 17px; font-weight: 700; }
+.ak-gss-title small { color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.ak-gss-actions { display: flex; align-items: center; gap: 8px; }
+.ak-gss-actions select, .ak-gss-policy input { height: 34px; min-width: 190px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 0 9px; }
+.ak-gss-btn, .ak-gss-icon-btn { height: 34px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); background: var(--bg-primary); cursor: pointer; padding: 0 12px; }
+.ak-gss-btn.primary { color: #06251b; background: #54d99c; border-color: #54d99c; font-weight: 700; }
+.ak-gss-icon-btn { width: 34px; padding: 0; font-size: 19px; }
+.ak-gss-btn:disabled { cursor: not-allowed; opacity: .55; }
+.ak-gss-error { border: 1px solid #d95c69; background: rgba(217,92,105,.11); color: #f3a5ad; padding: 10px 12px; border-radius: 6px; }
+.ak-gss-notice { min-height: 76px; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; }
+.ak-gss-notice > div:first-child { display: grid; gap: 4px; }
+.ak-gss-notice strong { font-size: 15px; }
+.ak-gss-notice span { color: var(--text-secondary); font-size: 13px; }
+.ak-gss-eyebrow { color: #67b7ff !important; font-size: 12px !important; }
+.ak-gss-notice.is-empty { justify-content: center; border-style: dashed; }
+.ak-gss-sale-count { font-size: 22px; font-weight: 700; color: #f4c76c; white-space: nowrap; }
+.ak-gss-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ak-gss-metrics > div { min-height: 76px; border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 8px; padding: 12px; display: grid; align-content: space-between; }
+.ak-gss-metrics span { color: var(--text-secondary); font-size: 12px; }
+.ak-gss-metrics strong { font-size: 24px; }
+.ak-gss-section { overflow: hidden; }
+.ak-gss-section-head { padding: 12px 14px; border-bottom: 1px solid var(--border-color); }
+.ak-gss-section-head h3 { margin: 0; font-size: 14px; }
+.ak-gss-table-wrap { overflow: auto; }
+.ak-gss-table-wrap table { width: 100%; min-width: 560px; border-collapse: collapse; }
+.ak-gss-table-wrap th, .ak-gss-table-wrap td { padding: 10px 14px; border-bottom: 1px solid var(--border-color); text-align: left; font-size: 13px; }
+.ak-gss-table-wrap th { color: var(--text-secondary); font-weight: 600; background: rgba(255,255,255,.02); }
+.ak-gss-table-wrap tbody tr:last-child td { border-bottom: 0; }
+.ak-gss-nickname { color: var(--text-secondary); font-size: 12px; margin-left: 8px; }
+.ak-gss-status { display: inline-flex; min-width: 52px; justify-content: center; border-radius: 999px; padding: 3px 8px; font-size: 12px; }
+.ak-gss-status.is-done { color: #76e6ad; background: rgba(84,217,156,.12); }
+.ak-gss-status.is-pending { color: #f4c76c; background: rgba(244,199,108,.12); }
+.ak-gss-number { font-variant-numeric: tabular-nums; }
+.ak-gss-empty { color: var(--text-secondary); text-align: center !important; padding: 24px !important; }
+.ak-gss-policy { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 12px; }
+.ak-gss-policy label { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.ak-gss-policy input { min-width: 82px; width: 82px; }
+@media (max-width: 720px) { .ak-gss-toolbar, .ak-gss-notice { align-items: stretch; flex-direction: column; } .ak-gss-actions { flex-wrap: wrap; } .ak-gss-actions select { min-width: 0; flex: 1 1 180px; } .ak-gss-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ak-gss-policy { justify-content: flex-start; flex-wrap: wrap; } }

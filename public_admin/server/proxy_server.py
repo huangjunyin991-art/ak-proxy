@@ -713,6 +713,18 @@ except Exception as e:
     _NOTICE_GUIDANCE_IMPORT_ERROR = e
 
 try:
+    from .guided_sale_statistics import GuidedSaleStatisticsService, create_guided_sale_statistics_router
+    from .guided_sale_statistics.repository import GuidedSaleStatisticsRepository
+    _GUIDED_SALE_STATISTICS_IMPORT_ERROR = None
+except Exception as e:
+    GuidedSaleStatisticsService = None
+    GuidedSaleStatisticsRepository = None
+    create_guided_sale_statistics_router = None
+    _GUIDED_SALE_STATISTICS_IMPORT_ERROR = e
+
+guided_sale_statistics_service = None
+
+try:
     from .account_identity.admin import (
         AccountIdentityAdminService,
         AccountIdentitySyncScheduler,
@@ -3475,8 +3487,12 @@ async def proxy_rpc(path: str, request: Request):
     content_type = request.headers.get("content-type", "")
 
     referer = request.headers.get("referer", "")
+    # Nginx itself is loopback, so forwarded client headers must be absent for internal jobs.
     notice_guidance_internal_request = (
         str(request.headers.get(NOTICE_GUIDANCE_INTERNAL_HEADER) or "").strip() == "1"
+        and str(getattr(request.client, "host", "") or "") in {"127.0.0.1", "::1"}
+        and not str(request.headers.get("x-forwarded-for") or "").strip()
+        and not str(request.headers.get("x-real-ip") or "").strip()
     )
 
     fetch_dest = request.headers.get("sec-fetch-dest", "")
@@ -3567,6 +3583,18 @@ async def proxy_rpc(path: str, request: Request):
         "mnemonic_confirm",
     }
     normalized_path = path.strip("/").lower()
+    guided_sale_external_rpc_lease = None
+    if (
+        normalized_path in {"notice_list", "my_subaccount"}
+        and not notice_guidance_internal_request
+        and guided_sale_statistics_service is not None
+    ):
+        guided_sale_external_rpc_lease = await guided_sale_statistics_service.reserve_external_rpc(params)
+        if guided_sale_external_rpc_lease is None:
+            return JSONResponse(
+                {"Error": True, "Msg": "请求正在排队，请稍后重试"},
+                status_code=503,
+            )
     if (
         normalized_path == "my_subaccount"
         and not notice_guidance_internal_request
@@ -3801,6 +3829,8 @@ async def proxy_rpc(path: str, request: Request):
             return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
     finally:
+        if guided_sale_external_rpc_lease is not None and guided_sale_statistics_service is not None:
+            await guided_sale_statistics_service.release_external_rpc(guided_sale_external_rpc_lease)
         if stock_price_cache_key and stock_price_cache_lock is not None:
             _AK_STOCK_PRICE_RPC_CACHE.release_lock(stock_price_cache_key, stock_price_cache_lock)
 
@@ -5559,6 +5589,23 @@ class OnlineUserManager:
     def __init__(self):
         self.users = {}
         self.messages = {}
+        self._presence_listeners = []
+
+    def add_presence_listener(self, listener):
+        if listener not in self._presence_listeners:
+            self._presence_listeners.append(listener)
+
+    def _notify_presence(self, event, username, connection_id):
+        normalized = self.normalize_username(username)
+        if not normalized or not connection_id:
+            return
+        for listener in list(self._presence_listeners):
+            try:
+                result = listener(event, normalized, connection_id)
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+            except Exception as e:
+                logger.warning(f"[OnlinePresence] listener failed: {e}")
 
     def normalize_username(self, username):
         return (str(username or '').strip().lower())
@@ -5592,6 +5639,7 @@ class OnlineUserManager:
         expired = [ws_id for ws_id, conn in connections.items() if not self._is_connection_active(conn, now)]
         for ws_id in expired:
             connections.pop(ws_id, None)
+            self._notify_presence("offline", normalized, ws_id)
         if not connections:
             self.users.pop(normalized, None)
             return None
@@ -5636,6 +5684,7 @@ class OnlineUserManager:
                     current_page_client_id and connection_page_client_id == current_page_client_id
                 ):
                     connections.pop(other_ws_id, None)
+                    self._notify_presence("offline", other_normalized, other_ws_id)
                     removed = True
             if not removed:
                 continue
@@ -5756,20 +5805,26 @@ class OnlineUserManager:
             'online_time': existing.get('online_time') or connections[ws_id]['online_time'],
             'connections': connections,
         }
-        return self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
+        summary = self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
+        self._notify_presence("online", normalized, ws_id)
+        return summary
 
     def user_offline(self, username, websocket=None):
         normalized = self.normalize_username(username)
         if normalized not in self.users:
             return None
         if websocket is None:
+            for ws_id in list((self.users.get(normalized) or {}).get('connections', {}).keys()):
+                self._notify_presence("offline", normalized, ws_id)
             self.users.pop(normalized, None)
             return None
         user = self.users.get(normalized)
         if not user:
             return None
         connections = user.get('connections') or {}
-        connections.pop(self.get_websocket_id(websocket), None)
+        ws_id = self.get_websocket_id(websocket)
+        connections.pop(ws_id, None)
+        self._notify_presence("offline", normalized, ws_id)
         if not connections:
             self.users.pop(normalized, None)
             return None
@@ -5791,7 +5846,9 @@ class OnlineUserManager:
                 connection['page'] = page
             if page_client_id:
                 connection['page_client_id'] = str(page_client_id)
-            return self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
+            summary = self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
+            self._notify_presence("heartbeat", normalized, ws_id)
+            return summary
         summary = self._refresh_user_summary(normalized)
         if summary:
             summary['last_heartbeat'] = datetime.now()
@@ -6761,6 +6818,30 @@ if create_notice_guidance_router is not None:
 elif _NOTICE_GUIDANCE_IMPORT_ERROR is not None:
     logger.warning(f"[NoticeGuidance] 公告提示模块不可用，已跳过: {_NOTICE_GUIDANCE_IMPORT_ERROR}")
 
+if (
+    create_guided_sale_statistics_router is not None
+    and GuidedSaleStatisticsService is not None
+    and GuidedSaleStatisticsRepository is not None
+):
+    try:
+        guided_sale_statistics_service = GuidedSaleStatisticsService(
+            repository=GuidedSaleStatisticsRepository(db._get_pool),
+            auth_store=db,
+            system_config=db.system_config,
+            logger=logger,
+        )
+        online_manager.add_presence_listener(guided_sale_statistics_service.handle_presence_event)
+        app.include_router(create_guided_sale_statistics_router(
+            service=guided_sale_statistics_service,
+            require_admin_identity=_require_admin_identity,
+            super_admin_role=ROLE_SUPER_ADMIN,
+        ))
+    except Exception as e:
+        logger.warning(f"[GuidedSaleStatistics] route registration failed, skipped: {e}")
+        guided_sale_statistics_service = None
+elif _GUIDED_SALE_STATISTICS_IMPORT_ERROR is not None:
+    logger.warning(f"[GuidedSaleStatistics] module unavailable, skipped: {_GUIDED_SALE_STATISTICS_IMPORT_ERROR}")
+
 if create_account_identity_admin_router is not None and AccountIdentityAdminService is not None:
     try:
         account_identity_admin_service = AccountIdentityAdminService(
@@ -6961,6 +7042,13 @@ async def admin_startup():
         except Exception as e:
             logger.warning(f"[AccountIdentityAdmin] init failed, skip account migration module: {e}")
 
+    if guided_sale_statistics_service is not None:
+        try:
+            await guided_sale_statistics_service.start()
+            logger.info("[GuidedSaleStatistics] worker started")
+        except Exception as e:
+            logger.warning(f"[GuidedSaleStatistics] worker start failed, skipped: {e}")
+
     try:
         hydration = await _AK_WEB_STATIC_CACHE_SERVICE.hydrate_memory_from_disk(reason="startup")
         logger.info(
@@ -7067,6 +7155,9 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    if guided_sale_statistics_service is not None:
+        await guided_sale_statistics_service.stop()
 
     if account_identity_sync_scheduler is not None:
         await account_identity_sync_scheduler.stop()
@@ -13364,6 +13455,7 @@ def _admin_panel_versions():
             'riskIsolation': 0.0,
             'recommendTree': 0.0,
             'accountMigration': 0.0,
+            'guidedSaleStatistics': 0.0,
             'pointStats': 0.0,
             'settings': 0.0,
             'remoteAssist': 0.0,
@@ -13381,6 +13473,7 @@ def _admin_panel_versions():
                 'riskIsolation': 0.0,
                 'recommendTree': 0.0,
                 'accountMigration': 0.0,
+                'guidedSaleStatistics': 0.0,
                 'pointStats': 0.0,
                 'settings': 0.0,
                 'remoteAssist': 0.0,
@@ -13393,7 +13486,7 @@ def _admin_panel_versions():
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
     r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
-    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|accountMigrationPanelBuildVersion|pointStatsPanelBuildVersion|"
+    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|accountMigrationPanelBuildVersion|guidedSaleStatisticsPanelBuildVersion|pointStatsPanelBuildVersion|"
     r"rateBanPanelBuildVersion|settingsPanelBuildVersion|remoteAssistPanelBuildVersion|"
     r"aiAssistantPanelBuildVersion)\s*=\s*'[^']*'"
 )
@@ -13405,6 +13498,7 @@ _ADMIN_PANEL_VAR_TO_KEY = {
     'riskIsolationPanelBuildVersion': 'riskIsolation',
     'recommendTreePanelBuildVersion': 'recommendTree',
     'accountMigrationPanelBuildVersion': 'accountMigration',
+    'guidedSaleStatisticsPanelBuildVersion': 'guidedSaleStatistics',
     'pointStatsPanelBuildVersion': 'pointStats',
     'rateBanPanelBuildVersion': 'rateBan',
     'settingsPanelBuildVersion': 'settings',
@@ -14673,6 +14767,29 @@ async def account_migration_panel_asset(request: Request, asset_name: str):
     if not media_type:
         return Response(content="// not found", media_type="application/javascript")
     base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "account_migration"))
+    asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
+    if not asset_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
+
+
+@app.get("/admin/api/guided-sale-statistics-panel/{asset_name:path}")
+async def guided_sale_statistics_panel_asset(request: Request, asset_name: str):
+    allowed_assets = {
+        "guided_sale_statistics_api.js": "application/javascript",
+        "guided_sale_statistics_renderer.js": "application/javascript",
+        "guided_sale_statistics_panel.js": "application/javascript",
+        "guided_sale_statistics_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "guided_sale_statistics"))
     asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
     if not asset_path.startswith(base_dir + os.sep):
         return Response(content="// not found", media_type="application/javascript")

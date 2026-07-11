@@ -9,6 +9,7 @@ PANEL_KEYS = (
     "riskIsolation",
     "recommendTree",
     "accountMigration",
+    "guidedSaleStatistics",
     "pointStats",
     "rateBan",
     "settings",
@@ -48,6 +49,12 @@ PANEL_VERSION_FILES = {
         ("account_migration", "account_migration_renderer.js"),
         ("account_migration", "account_migration_panel.js"),
         ("account_migration", "account_migration_panel.css"),
+    ),
+    "guidedSaleStatistics": (
+        ("guided_sale_statistics", "guided_sale_statistics_api.js"),
+        ("guided_sale_statistics", "guided_sale_statistics_renderer.js"),
+        ("guided_sale_statistics", "guided_sale_statistics_panel.js"),
+        ("guided_sale_statistics", "guided_sale_statistics_panel.css"),
     ),
     "pointStats": (
         ("point_stats", "date_picker", "date_picker.css"),
