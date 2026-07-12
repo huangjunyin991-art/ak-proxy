@@ -28,7 +28,7 @@
             var job = map[username.toLowerCase()];
             var done = job && job.state === 'completed';
             var pending = job && job.state === 'pending';
-            var status = done ? '已完成' : (pending ? (job.offline_since ? '离线计时中' : '等待离线') : '待扫描');
+            var status = done ? '已完成' : (pending ? (job.offline_since ? '离线保护' : '等待离线') : '待扫描');
             return '<tr>' +
                 '<td><strong>' + escapeHtml(username) + '</strong>' + (account.nickname ? '<span class="ak-gss-nickname">' + escapeHtml(account.nickname) + '</span>' : '') + '</td>' +
                 '<td><span class="ak-gss-status ' + (done ? 'is-done' : 'is-pending') + '">' + status + '</span></td>' +

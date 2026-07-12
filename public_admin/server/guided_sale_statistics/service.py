@@ -559,17 +559,19 @@ class GuidedSaleStatisticsService:
     ) -> tuple[bool, datetime | None, int]:
         presence_reader = getattr(self.repository, "get_account_presence_state", None)
         if callable(presence_reader):
-            presence = await presence_reader(account, fallback_offline_since=offline_since)
+            presence = await presence_reader(account)
             if bool(presence.get("online")):
                 return False, None, 60
             tracked_offline_since = presence.get("offline_since")
             if isinstance(tracked_offline_since, datetime):
                 offline_since = tracked_offline_since
-        elif await self.repository.is_account_online(account):
-            return False, None, 60
+            else:
+                return True, None, 0
+        else:
+            if await self.repository.is_account_online(account):
+                return False, None, 60
+            return True, None, 0
         now = datetime.now()
-        if offline_since is None:
-            return False, now, OFFLINE_GRACE_SECONDS
         elapsed = max(0, int((now - offline_since).total_seconds()))
         if elapsed < OFFLINE_GRACE_SECONDS:
             return False, offline_since, OFFLINE_GRACE_SECONDS - elapsed

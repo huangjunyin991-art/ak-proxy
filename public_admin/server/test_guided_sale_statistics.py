@@ -339,14 +339,15 @@ def test_pending_job_exposes_offline_grace_state_to_dashboard():
     assert result["offline_since"] == "2026-07-12 16:10:00"
 
 
-def test_offline_window_requires_thirty_continuous_minutes():
+def test_offline_window_only_waits_when_offline_time_is_recorded():
     class Repository:
         def __init__(self):
             self.online = True
+            self.offline_since = None
 
-        async def get_account_presence_state(self, account, fallback_offline_since=None):
+        async def get_account_presence_state(self, account):
             assert account == "target-a"
-            return {"online": self.online, "offline_since": fallback_offline_since}
+            return {"online": self.online, "offline_since": self.offline_since}
 
     repository = Repository()
     service = GuidedSaleStatisticsService(repository, auth_store=None, system_config=_SystemConfig())
@@ -356,14 +357,13 @@ def test_offline_window_requires_thirty_continuous_minutes():
 
     repository.online = False
     ready, offline_since, delay = asyncio.run(service._offline_window_ready("target-a", None))
-    assert ready is False
-    assert isinstance(offline_since, datetime)
-    assert delay == 30 * 60
+    assert (ready, offline_since, delay) == (True, None, 0)
 
+    repository.offline_since = datetime.now()
     ready, offline_since, delay = asyncio.run(
-        service._offline_window_ready("target-a", datetime.now() - timedelta(minutes=30, seconds=1))
+        service._offline_window_ready("target-a", None)
     )
-    assert (ready, delay) == (True, 0)
+    assert (ready, delay) == (False, 30 * 60)
     assert offline_since is not None
 
 
@@ -371,8 +371,8 @@ def test_offline_window_uses_persisted_presence_offline_time():
     persisted_offline_since = datetime.now() - timedelta(minutes=31)
 
     class Repository:
-        async def get_account_presence_state(self, account, fallback_offline_since=None):
-            assert (account, fallback_offline_since) == ("target-a", None)
+        async def get_account_presence_state(self, account):
+            assert account == "target-a"
             return {"online": False, "offline_since": persisted_offline_since}
 
     service = GuidedSaleStatisticsService(Repository(), auth_store=None, system_config=_SystemConfig())

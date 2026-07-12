@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable, Mapping
 
 
@@ -852,27 +852,15 @@ class GuidedSaleStatisticsRepository:
                 )
             )
 
-    async def get_account_presence_state(
-        self, username: str, fallback_offline_since: datetime | None = None
-    ) -> dict[str, Any]:
+    async def get_account_presence_state(self, username: str) -> dict[str, Any]:
         """Return the durable offline start time while pruning stale connections."""
         account = _text(username).lower()
         if not account:
-            return {"online": False, "offline_since": fallback_offline_since}
+            return {"online": False, "offline_since": None}
         await self.ensure_ready()
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                stale_seen_at = await conn.fetchval(
-                    """
-                    SELECT MAX(last_seen_at)
-                    FROM guided_sale_statistics_presence
-                    WHERE account_username = $1
-                      AND last_seen_at < NOW() - ($2::int * INTERVAL '1 second')
-                    """,
-                    account,
-                    PRESENCE_STALE_SECONDS,
-                )
                 await conn.execute(
                     """
                     DELETE FROM guided_sale_statistics_presence
@@ -903,25 +891,6 @@ class GuidedSaleStatisticsRepository:
                     account,
                 )
                 offline_since = stored_offline_since if isinstance(stored_offline_since, datetime) else None
-                if offline_since is None:
-                    if isinstance(fallback_offline_since, datetime):
-                        offline_since = fallback_offline_since
-                    elif isinstance(stale_seen_at, datetime):
-                        offline_since = stale_seen_at + timedelta(seconds=PRESENCE_STALE_SECONDS)
-                    else:
-                        offline_since = datetime.now()
-                    offline_since = await conn.fetchval(
-                        """
-                        INSERT INTO guided_sale_statistics_presence_state (account_username, offline_since, updated_at)
-                        VALUES ($1, $2, NOW())
-                        ON CONFLICT (account_username) DO UPDATE
-                        SET offline_since = COALESCE(guided_sale_statistics_presence_state.offline_since, EXCLUDED.offline_since),
-                            updated_at = NOW()
-                        RETURNING offline_since
-                        """,
-                        account,
-                        offline_since,
-                    )
                 return {"online": False, "offline_since": offline_since}
 
     @staticmethod
