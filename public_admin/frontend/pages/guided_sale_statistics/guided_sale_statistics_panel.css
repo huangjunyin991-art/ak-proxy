@@ -75,3 +75,10 @@
 .ak-gss-policy input { width: 74px; }
 @media (max-width: 820px) { .ak-gss-toolbar { align-items: stretch; flex-direction: column; } .ak-gss-actions { justify-content: flex-start; } .ak-gss-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .ak-gss-actions, .ak-gss-source-setting { flex-wrap: wrap; } .ak-gss-source-setting { width: 100%; } .ak-gss-source-setting input { flex: 1; min-width: 0; } .ak-gss-notice { min-height: 136px; padding: 20px 18px; } .ak-gss-notice-state { position: static; margin-top: 10px; } .ak-gss-notice-detail { align-items: flex-start; text-align: left; } .ak-gss-policy { justify-content: flex-start; flex-wrap: wrap; } }
+@media (max-width: 680px) {
+    .ak-gss-actions { width: 100%; flex-wrap: nowrap; gap: 8px; }
+    .ak-gss-source-setting { width: auto; min-width: 0; flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; }
+    .ak-gss-source-setting input { width: auto; min-width: 0; flex: 1 1 72px; padding: 0 8px; }
+    #guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="save-source"],
+    #guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"] { flex: 0 0 auto; padding: 0 9px !important; font-size: 12px; white-space: nowrap; }
+}
