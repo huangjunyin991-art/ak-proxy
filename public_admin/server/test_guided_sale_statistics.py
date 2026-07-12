@@ -248,6 +248,35 @@ def test_dashboard_uses_global_notice_without_exposing_source_to_normal_admin():
     assert result["notice"]["fresh"] is True
 
 
+def test_repeated_scan_request_keeps_active_run_unchanged():
+    class Repository:
+        def __init__(self):
+            self.ensure_calls = 0
+
+        async def get_run(self, owner_scope, source_account):
+            return {
+                "id": 41,
+                "state": "scanning",
+                "notice_id": "45",
+                "start_date_key": 20260601,
+                "end_date_key": 20260630,
+                "cache_written_at": datetime.now(),
+            }
+
+        async def ensure_run_jobs(self, run_id, targets):
+            self.ensure_calls += 1
+
+    repository = Repository()
+    service = GuidedSaleStatisticsService(repository, auth_store=None, system_config=_SystemConfig())
+
+    asyncio.run(service._ensure_owner_scan(
+        "operator-a", "system-source", _fresh_global_notice(),
+        [{"username": "target-a"}], 30,
+    ))
+
+    assert repository.ensure_calls == 0
+
+
 def test_dashboard_shows_shared_notice_cache_without_creating_a_scan():
     class Repository:
         def __init__(self):

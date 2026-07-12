@@ -316,6 +316,13 @@ class GuidedSaleStatisticsService:
             )
             self._wake.set()
             return
+        if (
+            trim_string(run.get("state")) == "scanning"
+            and trim_string(run.get("notice_id")) == trim_string(notice.get("notice_id"))
+            and int(run.get("start_date_key") or 0) == int(notice.get("start_date_key") or 0)
+            and int(run.get("end_date_key") or 0) == int(notice.get("end_date_key") or 0)
+        ):
+            return
         await self.repository.ensure_run_jobs(int(run["id"]), targets)
 
     @staticmethod
