@@ -248,6 +248,86 @@ def test_dashboard_uses_global_notice_without_exposing_source_to_normal_admin():
     assert result["notice"]["fresh"] is True
 
 
+def test_dashboard_shows_shared_notice_cache_without_creating_a_scan():
+    class Repository:
+        def __init__(self):
+            self.dashboard_calls = 0
+
+        async def list_scope_accounts(self, owner_scope, is_super_admin):
+            assert (owner_scope, is_super_admin) == ("operator-a", False)
+            return [{"username": "target-a", "nickname": "A"}]
+
+        async def dashboard(self, owner_scope, source_account, retention_days):
+            self.dashboard_calls += 1
+            return {"run": None, "jobs": [], "rows": []}
+
+        async def get_account_user_ids(self, usernames):
+            assert usernames == ["target-a"]
+            return {"target-a": "target-user"}
+
+    class NoticeCache:
+        async def get_completed_scans_for_users(self, user_ids, notice_id, start_date_key, end_date_key):
+            assert user_ids == ["target-user"]
+            assert (notice_id, start_date_key, end_date_key) == ("45", 20260601, 20260630)
+            return {
+                "target-user": {
+                    "rows": [{"account": "child-a", "createTime": "2026-06-15"}],
+                    "pages_scanned": 3,
+                    "completed_at": datetime(2026, 7, 12, 9, 0, 0),
+                }
+            }
+
+    repository = Repository()
+    service = GuidedSaleStatisticsService(
+        repository, auth_store=None, system_config=_SystemConfig(), notice_cache_repository=NoticeCache()
+    )
+
+    async def cached_notice(force_retry=False):
+        assert force_retry is False
+        return _fresh_global_notice()
+
+    service._ensure_global_notice = cached_notice
+    result = asyncio.run(service.dashboard("operator-a", False))
+
+    assert repository.dashboard_calls == 1
+    assert result["jobs"] == [{
+        "target_account": "target-a", "state": "completed", "matched_count": 1,
+        "completed_at": "2026-07-12 09:00:00",
+    }]
+    assert result["rows"] == [{
+        "target_account": "target-a", "child_account": "child-a", "create_time": "2026-06-15",
+    }]
+    assert result["summary"]["completed_accounts"] == 1
+    assert result["summary"]["matched_subaccounts"] == 1
+
+
+def test_dashboard_shared_cache_overrides_an_unfinished_job_and_deduplicates_rows():
+    jobs, rows = GuidedSaleStatisticsService._merge_dashboard_results(
+        [{"username": "target-a"}],
+        {
+            "jobs": [{"target_account": "target-a", "state": "pending", "matched_count": 1}],
+            "rows": [{"target_account": "target-a", "child_account": "partial-child", "create_time": "old"}],
+        },
+        {
+            "target-a": {
+                "rows": [
+                    {"account": "child-a", "createTime": "2026-06-15"},
+                    {"account": "CHILD-A", "createTime": "2026-06-15"},
+                ],
+                "pages_scanned": 2,
+            }
+        },
+    )
+
+    assert jobs == [{
+        "target_account": "target-a", "state": "completed", "next_page": 3,
+        "matched_count": 1, "completed_at": None,
+    }]
+    assert rows == [{
+        "target_account": "target-a", "child_account": "child-a", "create_time": "2026-06-15",
+    }]
+
+
 def test_worker_never_claims_legacy_source_notice_jobs():
     class Repository:
         async def claim_next_job(self, worker_id):

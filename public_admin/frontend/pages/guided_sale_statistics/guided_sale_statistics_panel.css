@@ -17,6 +17,8 @@
 .ak-gss-btn:disabled { cursor: not-allowed; opacity: .5; }
 .ak-gss-btn-primary { border-color: #239fc8; color: #e9faff; background: #167fa6; }
 .ak-gss-btn-primary:hover { border-color: #47c7ef; background: #1b90ba; }
+.ak-gss-actions .ak-gss-btn { border-color: #239fc8; color: #e9faff; background: #167fa6; }
+.ak-gss-actions .ak-gss-btn:hover { border-color: #47c7ef; background: #1b90ba; }
 .ak-gss-error { border: 1px solid #d95c69; border-radius: 6px; background: rgba(217,92,105,.1); color: #f4a8b0; padding: 9px 11px; font-size: 13px; }
 .ak-gss-notice { position: relative; min-height: 122px; display: grid; place-items: center; overflow: hidden; border-color: #245f76; background: rgba(20,44,55,.54); padding: 20px 64px; text-align: center; }
 .ak-gss-notice::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: #4cc6e9; }

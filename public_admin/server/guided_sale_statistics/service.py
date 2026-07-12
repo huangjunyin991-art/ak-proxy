@@ -132,8 +132,10 @@ class GuidedSaleStatisticsService:
         data = await self.repository.dashboard(owner_scope, source, policy["cache_retention_days"]) if source else {
             "run": None, "jobs": [], "rows": []
         }
-        completed = sum(1 for item in data["jobs"] if item.get("state") == "completed")
-        pending = sum(1 for item in data["jobs"] if item.get("state") == "pending")
+        shared_results = await self._load_dashboard_shared_results(accounts, global_notice) if fresh_notice else {}
+        jobs, rows = self._merge_dashboard_results(accounts, data, shared_results)
+        completed = sum(1 for item in jobs if item.get("state") == "completed")
+        pending = sum(1 for item in jobs if item.get("state") == "pending")
         return {
             "success": True,
             "policy": policy,
@@ -143,15 +145,103 @@ class GuidedSaleStatisticsService:
             "source_account": source if is_super_admin else "",
             "notice": self._serialize_global_notice(global_notice, include_source=is_super_admin),
             "run": self._serialize_run(data["run"]),
-            "jobs": [self._serialize_job(item) for item in data["jobs"]],
-            "rows": [self._serialize_row(item) for item in data["rows"]],
+            "jobs": [self._serialize_job(item) for item in jobs],
+            "rows": [self._serialize_row(item) for item in rows],
             "summary": {
                 "whitelist_accounts": len(accounts),
                 "completed_accounts": completed,
                 "pending_accounts": pending,
-                "matched_subaccounts": len(data["rows"]),
+                "matched_subaccounts": len(rows),
             },
         }
+
+    async def _load_dashboard_shared_results(
+        self, accounts: list[Mapping[str, Any]], notice: Mapping[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        """Read completed notice-viewer scans without creating jobs or calling upstream."""
+        cache_repository = self.notice_cache_repository
+        notice_id = trim_string(notice.get("notice_id"))
+        start_date_key = int(notice.get("start_date_key") or 0)
+        end_date_key = int(notice.get("end_date_key") or 0)
+        usernames = [trim_string(item.get("username")).lower() for item in accounts]
+        usernames = [item for item in usernames if item]
+        if not cache_repository or not notice_id or not start_date_key or not end_date_key or not usernames:
+            return {}
+        try:
+            account_user_ids = await self.repository.get_account_user_ids(usernames)
+            cached_by_user_id = await cache_repository.get_completed_scans_for_users(
+                list(account_user_ids.values()), notice_id, start_date_key, end_date_key
+            )
+        except (AttributeError, TypeError, ValueError):
+            return {}
+        except Exception as exc:
+            self._log("dashboard shared cache lookup failed: %s", str(exc)[:300])
+            return {}
+        return {
+            account: cached_by_user_id[user_id]
+            for account, user_id in account_user_ids.items()
+            if user_id in cached_by_user_id
+        }
+
+    @staticmethod
+    def _merge_dashboard_results(
+        accounts: list[Mapping[str, Any]], data: Mapping[str, Any], shared_results: Mapping[str, Mapping[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+        """Prefer a completed shared result over an unfinished local scan for the same account."""
+        account_order = [trim_string(item.get("username")).lower() for item in accounts]
+        account_order = [item for item in account_order if item]
+        account_set = set(account_order)
+        raw_jobs = [dict(item) for item in (data.get("jobs") or []) if isinstance(item, Mapping)]
+        jobs_by_account = {
+            trim_string(item.get("target_account")).lower(): item
+            for item in raw_jobs
+            if trim_string(item.get("target_account")).lower() in account_set
+        }
+        rows_by_account: dict[str, list[Mapping[str, Any]]] = {account: [] for account in account_order}
+        for item in data.get("rows") or []:
+            if not isinstance(item, Mapping):
+                continue
+            target = trim_string(item.get("target_account")).lower()
+            if target in rows_by_account:
+                rows_by_account[target].append(item)
+
+        jobs: list[dict[str, Any]] = []
+        rows: list[dict[str, str]] = []
+        seen_rows: set[tuple[str, str]] = set()
+        for account in account_order:
+            job = jobs_by_account.get(account)
+            shared = shared_results.get(account)
+            use_shared = bool(shared) and trim_string(job.get("state") if job else "") != "completed"
+            if use_shared:
+                shared_rows = [item for item in (shared.get("rows") or []) if isinstance(item, Mapping)]
+                shared_child_accounts = {
+                    trim_string(item.get("child_account") or item.get("account")).lower()
+                    for item in shared_rows
+                    if trim_string(item.get("child_account") or item.get("account"))
+                }
+                jobs.append({
+                    "target_account": account,
+                    "state": "completed",
+                    "next_page": max(1, int(shared.get("pages_scanned") or 0) + 1),
+                    "matched_count": len(shared_child_accounts),
+                    "completed_at": shared.get("completed_at"),
+                })
+                source_rows = shared_rows
+            else:
+                if job is not None:
+                    jobs.append(job)
+                source_rows = rows_by_account.get(account, [])
+            for item in source_rows:
+                child_account = trim_string(item.get("child_account") or item.get("account")).lower()
+                if not child_account or (account, child_account) in seen_rows:
+                    continue
+                seen_rows.add((account, child_account))
+                rows.append({
+                    "target_account": account,
+                    "child_account": child_account,
+                    "create_time": trim_string(item.get("create_time") or item.get("createTime")),
+                })
+        return jobs, rows
 
     async def _ensure_global_notice(self, force_retry: bool = False) -> dict[str, Any]:
         current = await self.repository.get_global_notice()

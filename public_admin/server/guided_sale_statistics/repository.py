@@ -17,6 +17,30 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _auth_user_id(login_payload: Any) -> str:
+    """Extract the persisted AK user ID without exposing login state to callers."""
+    if isinstance(login_payload, Mapping):
+        payload = login_payload
+    else:
+        try:
+            payload = json.loads(str(login_payload or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ""
+    if not isinstance(payload, Mapping):
+        return ""
+    containers: list[Mapping[str, Any]] = [payload]
+    for key in ("UserData", "userData", "Data", "data"):
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            containers.append(value)
+    for item in containers:
+        for key in ("UserID", "UserId", "userId", "user_id", "Id", "ID", "userid", "UID", "uid"):
+            value = _text(item.get(key))
+            if value:
+                return value
+    return ""
+
+
 class GuidedSaleStatisticsRepository:
     """PostgreSQL state for restart-safe guided-sale discovery and scanning."""
 
@@ -193,6 +217,30 @@ class GuidedSaleStatisticsRepository:
                     owner_scope,
                 )
         return [dict(row) for row in rows]
+
+    async def get_account_user_ids(self, usernames: list[str]) -> dict[str, str]:
+        """Resolve locally saved AK IDs for a whitelist slice in one database read."""
+        accounts = sorted({_text(item).lower() for item in usernames if _text(item)})
+        if not accounts:
+            return {}
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT username, ak_login_payload
+                FROM user_stats
+                WHERE username = ANY($1::text[])
+                """,
+                accounts,
+            )
+        result: dict[str, str] = {}
+        for row in rows:
+            username = _text(row["username"]).lower()
+            user_id = _auth_user_id(row["ak_login_payload"])
+            if username and user_id:
+                result[username] = user_id
+        return result
 
     async def get_scoped_account(
         self, owner_scope: str, is_super_admin: bool, username: str

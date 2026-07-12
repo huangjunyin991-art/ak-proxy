@@ -135,6 +135,45 @@ class NoticeGuidanceCacheRepository:
             )
         return self._decode_scan_row(row) if row else None
 
+    async def get_completed_scans_for_users(
+        self, viewer_user_ids: list[str], notice_id: str, start_date_key: int, end_date_key: int
+    ) -> dict[str, dict[str, Any]]:
+        """Read the newest completed scan for each local account in one query."""
+        user_ids = sorted({_trim_string(item) for item in viewer_user_ids if _trim_string(item)})
+        notice = _trim_string(notice_id)
+        start = max(0, int(start_date_key or 0))
+        end = max(0, int(end_date_key or 0))
+        if not user_ids or not notice or not start or not end:
+            return {}
+        await self.ensure_ready()
+        await self._maybe_cleanup_expired()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (viewer_user_id)
+                       viewer_user_id, accounts_json, rows_json, pages_scanned, stop_reason, completed_at
+                FROM notice_guided_sale_account_cache
+                WHERE viewer_user_id = ANY($1::text[])
+                  AND notice_id = $2
+                  AND start_date_key = $3
+                  AND end_date_key = $4
+                  AND completed_at >= NOW() - ($5::int * INTERVAL '1 day')
+                ORDER BY viewer_user_id, completed_at DESC
+                """,
+                user_ids,
+                notice,
+                start,
+                end,
+                self._retention_days,
+            )
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            user_id = _trim_string(row["viewer_user_id"])
+            if user_id:
+                result[user_id] = self._decode_scan_row(row)
+        return result
+
     @staticmethod
     def _decode_scan_row(row: Mapping[str, Any]) -> dict[str, Any]:
         accounts = [
