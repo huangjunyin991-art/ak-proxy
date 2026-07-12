@@ -5,12 +5,12 @@ from public_admin.server.guided_sale_statistics.parser import find_latest_guided
 from public_admin.server.guided_sale_statistics.service import GuidedSaleStatisticsService
 
 
-def _notice(count: int, created_at: str, start: str, end: str) -> dict:
+def _notice(count: int, created_at: str, start: str, end: str, guidance_time: str = "") -> dict:
     return {
         "Id": str(count),
         "Title": f"【AK第{count}次指导销售公告】",
         "CreateTime": created_at,
-        "Text": f"<p>本次指导销售规则为：</p><p>{start}至{end}之间注册的账户</p>",
+        "Text": f"<p>{guidance_time}</p><p>本次指导销售规则为：</p><p>{start}至{end}之间注册的账户</p>",
     }
 
 
@@ -19,7 +19,7 @@ def test_find_latest_guided_sale_sorts_by_create_time_and_extracts_window():
         "Data": {
             "List": [
                 _notice(18, "2026-06-01 09:00:00", "2026年5月1日", "2026年5月31日"),
-                _notice(19, "2026-07-01 09:00:00", "2026年6月1日", "2026年6月30日"),
+                _notice(19, "2026-07-01 09:00:00", "2026年6月1日", "2026年6月30日", "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）"),
             ]
         }
     }
@@ -28,6 +28,7 @@ def test_find_latest_guided_sale_sorts_by_create_time_and_extracts_window():
 
     assert result is not None
     assert result["sale_count"] == 19
+    assert result["guidance_time"] == "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）"
     assert result["start_date_key"] == 20260601
     assert result["end_date_key"] == 20260630
 
@@ -94,6 +95,7 @@ def _fresh_global_notice():
         "notice_id": "45",
         "sale_count": 45,
         "title": "第45次指导销售公告",
+        "guidance_time": "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）",
         "target_line": "2026-06-01 至 2026-06-30",
         "start_date_key": 20260601,
         "end_date_key": 20260630,
@@ -142,9 +144,12 @@ def test_global_notice_freshness_is_exactly_one_hour():
     fresh["notice_cached_at"] = datetime.now() - timedelta(minutes=59, seconds=59)
     stale = dict(fresh)
     stale["notice_cached_at"] = datetime.now() - timedelta(hours=1, seconds=1)
+    legacy = dict(fresh)
+    legacy.pop("guidance_time")
 
     assert GuidedSaleStatisticsService._global_notice_is_fresh(fresh) is True
     assert GuidedSaleStatisticsService._global_notice_is_fresh(stale) is False
+    assert GuidedSaleStatisticsService._global_notice_is_fresh(legacy) is False
 
 
 def test_global_refresh_reads_notice_without_checking_source_presence():

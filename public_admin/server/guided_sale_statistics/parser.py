@@ -4,11 +4,12 @@ import re
 from datetime import datetime
 from typing import Any, Mapping
 
-from ..notice_guidance.service import NoticeGuidanceService, trim_string
+from ..notice_guidance.service import NoticeGuidanceService, extract_lines_from_html, trim_string
 
 
 _SALE_COUNT_RE = re.compile(r"第\s*(\d{1,5})\s*次\s*指导销售")
 _AUTH_ERROR_MARKERS = ("key", "userkey", "token", "login", "登录", "失效", "无效", "认证")
+_GUIDANCE_TIME_MARKERS = ("开曼群岛时间", "gmt-5", "gmt -5")
 
 
 def _notice_list(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -55,11 +56,23 @@ def find_latest_guided_sale(payload: Mapping[str, Any]) -> dict[str, Any] | None
         item["created_at"] = trim_string(
             notice.get("CreateTime") or notice.get("createTime") or notice.get("create_time")
         )
+        item["guidance_time"] = extract_guidance_time(notice)
         candidates.append((_notice_sort_key(notice, position), item))
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0], reverse=True)
     return candidates[0][1]
+
+
+def extract_guidance_time(notice: Mapping[str, Any]) -> str:
+    """Return the announcement's guidance-time line without mixing it with the sale window."""
+    html = str(notice.get("Text") or notice.get("text") or "")
+    for line in extract_lines_from_html(html):
+        text = trim_string(line)
+        lowered = text.lower()
+        if text and any(marker in lowered for marker in _GUIDANCE_TIME_MARKERS):
+            return text
+    return ""
 
 
 def is_auth_error(exc: Exception) -> bool:

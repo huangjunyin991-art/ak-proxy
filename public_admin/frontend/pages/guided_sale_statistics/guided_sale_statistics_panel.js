@@ -36,23 +36,6 @@
         });
     }
 
-    function triggerRefresh() {
-        if (!api) return;
-        state.loading = true;
-        render();
-        api.refresh().then(function(data) {
-            state.data = data || {};
-            state.error = '';
-        }).catch(function(error) {
-            state.error = error.message || '公告同步请求失败';
-            toast(state.error, 'error');
-        }).finally(function() {
-            state.loading = false;
-            render();
-            schedule();
-        });
-    }
-
     function startScan() {
         if (!api) return;
         state.loading = true;
@@ -113,13 +96,12 @@
             var button = event.target.closest('[data-action]');
             if (!button) return;
             var action = button.getAttribute('data-action');
-            if (action === 'refresh') triggerRefresh();
             if (action === 'start-scan') startScan();
             if (action === 'save-source') saveSource();
             if (action === 'save-policy') savePolicy();
         });
     }
 
-    function start() { bind(); render(); if (!state.data && !state.loading) refresh(true); else schedule(); }
+    function start() { bind(); if (!state.loading) refresh(true); }
     window.AKGuidedSaleStatisticsPanel = { start: start, stop: stopTimer, refresh: function() { return refresh(true); } };
 })();

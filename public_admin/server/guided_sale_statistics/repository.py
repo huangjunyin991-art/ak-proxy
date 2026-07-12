@@ -45,6 +45,7 @@ class GuidedSaleStatisticsRepository:
                         notice_id TEXT NOT NULL DEFAULT '',
                         sale_count INTEGER NOT NULL DEFAULT 0,
                         title TEXT NOT NULL DEFAULT '',
+                        guidance_time TEXT NOT NULL DEFAULT '',
                         target_line TEXT NOT NULL DEFAULT '',
                         start_date_key INTEGER NOT NULL DEFAULT 0,
                         end_date_key INTEGER NOT NULL DEFAULT 0,
@@ -147,6 +148,10 @@ class GuidedSaleStatisticsRepository:
                 )
                 await conn.execute(
                     "INSERT INTO guided_sale_statistics_global_notice (slot) VALUES (1) ON CONFLICT (slot) DO NOTHING"
+                )
+                await conn.execute(
+                    "ALTER TABLE guided_sale_statistics_global_notice "
+                    "ADD COLUMN IF NOT EXISTS guidance_time TEXT NOT NULL DEFAULT ''"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_guided_sale_jobs_claim "
@@ -263,7 +268,7 @@ class GuidedSaleStatisticsRepository:
                 """
                 UPDATE guided_sale_statistics_global_notice
                 SET source_account = $1, source_user_id = '',
-                    notice_id = '', sale_count = 0, title = '', target_line = '',
+                    notice_id = '', sale_count = 0, title = '', guidance_time = '', target_line = '',
                     start_date_key = 0, end_date_key = 0, start_date_label = '', end_date_label = '',
                     notice_cached_at = NULL, refresh_state = CASE WHEN $1 = '' THEN 'unconfigured' ELSE 'pending' END,
                     refresh_after = NOW(), last_error = '', lease_owner = '', lease_expires_at = NULL,
@@ -288,7 +293,11 @@ class GuidedSaleStatisticsRepository:
                 WHERE slot = 1
                   AND source_account <> ''
                   AND (refresh_after <= NOW() OR $3::boolean)
-                  AND (notice_cached_at IS NULL OR notice_cached_at < NOW() - ($2::int * INTERVAL '1 second'))
+                  AND (
+                        notice_cached_at IS NULL
+                        OR notice_cached_at < NOW() - ($2::int * INTERVAL '1 second')
+                        OR COALESCE(guidance_time, '') = ''
+                  )
                   AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
                 RETURNING *
                 """,
@@ -307,8 +316,8 @@ class GuidedSaleStatisticsRepository:
             result = await conn.execute(
                 """
                 UPDATE guided_sale_statistics_global_notice
-                SET source_user_id = $3, notice_id = $4, sale_count = $5, title = $6, target_line = $7,
-                    start_date_key = $8, end_date_key = $9, start_date_label = $10, end_date_label = $11,
+                SET source_user_id = $3, notice_id = $4, sale_count = $5, title = $6, guidance_time = $7,
+                    target_line = $8, start_date_key = $9, end_date_key = $10, start_date_label = $11, end_date_label = $12,
                     notice_cached_at = NOW(), refresh_state = 'ready', refresh_after = NOW(), last_error = '',
                     lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
                 WHERE slot = 1 AND source_account = $2 AND lease_owner = $1
@@ -319,6 +328,7 @@ class GuidedSaleStatisticsRepository:
                 _text(notice.get("notice_id")),
                 max(0, int(notice.get("sale_count") or 0)),
                 _text(notice.get("title")),
+                _text(notice.get("guidance_time")),
                 _text(notice.get("target_line")),
                 max(0, int(notice.get("start_date_key") or 0)),
                 max(0, int(notice.get("end_date_key") or 0)),

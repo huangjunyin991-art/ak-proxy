@@ -226,6 +226,7 @@ class GuidedSaleStatisticsService:
         return bool(
             trim_string(record.get("notice_id"))
             and trim_string(record.get("title"))
+            and trim_string(record.get("guidance_time"))
             and isinstance(cached_at, datetime)
             and (datetime.now() - cached_at).total_seconds() <= GLOBAL_NOTICE_CACHE_SECONDS
         )
@@ -239,6 +240,7 @@ class GuidedSaleStatisticsService:
             "fresh": fresh,
             "sale_count": max(0, int(record.get("sale_count") or 0)),
             "title": trim_string(record.get("title")),
+            "guidance_time": trim_string(record.get("guidance_time")),
             "target_line": trim_string(record.get("target_line")),
             "start_date_label": trim_string(record.get("start_date_label")),
             "end_date_label": trim_string(record.get("end_date_label")),
