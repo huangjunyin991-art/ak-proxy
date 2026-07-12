@@ -344,9 +344,9 @@ def test_offline_window_requires_thirty_continuous_minutes():
         def __init__(self):
             self.online = True
 
-        async def is_account_online(self, account):
+        async def get_account_presence_state(self, account, fallback_offline_since=None):
             assert account == "target-a"
-            return self.online
+            return {"online": self.online, "offline_since": fallback_offline_since}
 
     repository = Repository()
     service = GuidedSaleStatisticsService(repository, auth_store=None, system_config=_SystemConfig())
@@ -365,6 +365,20 @@ def test_offline_window_requires_thirty_continuous_minutes():
     )
     assert (ready, delay) == (True, 0)
     assert offline_since is not None
+
+
+def test_offline_window_uses_persisted_presence_offline_time():
+    persisted_offline_since = datetime.now() - timedelta(minutes=31)
+
+    class Repository:
+        async def get_account_presence_state(self, account, fallback_offline_since=None):
+            assert (account, fallback_offline_since) == ("target-a", None)
+            return {"online": False, "offline_since": persisted_offline_since}
+
+    service = GuidedSaleStatisticsService(Repository(), auth_store=None, system_config=_SystemConfig())
+    ready, offline_since, delay = asyncio.run(service._offline_window_ready("target-a", None))
+
+    assert (ready, offline_since, delay) == (True, persisted_offline_since, 0)
 
 
 def test_worker_never_claims_legacy_source_notice_jobs():

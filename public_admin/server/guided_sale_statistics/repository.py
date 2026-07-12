@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Mapping
 
 
@@ -134,6 +134,15 @@ class GuidedSaleStatisticsRepository:
                         connection_id TEXT NOT NULL,
                         last_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         PRIMARY KEY(account_username, instance_id, connection_id)
+                    )
+                    """
+                )
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS guided_sale_statistics_presence_state (
+                        account_username TEXT PRIMARY KEY,
+                        offline_since TIMESTAMP NULL,
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
                     """
                 )
@@ -843,6 +852,119 @@ class GuidedSaleStatisticsRepository:
                 )
             )
 
+    async def get_account_presence_state(
+        self, username: str, fallback_offline_since: datetime | None = None
+    ) -> dict[str, Any]:
+        """Return the durable offline start time while pruning stale connections."""
+        account = _text(username).lower()
+        if not account:
+            return {"online": False, "offline_since": fallback_offline_since}
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                stale_seen_at = await conn.fetchval(
+                    """
+                    SELECT MAX(last_seen_at)
+                    FROM guided_sale_statistics_presence
+                    WHERE account_username = $1
+                      AND last_seen_at < NOW() - ($2::int * INTERVAL '1 second')
+                    """,
+                    account,
+                    PRESENCE_STALE_SECONDS,
+                )
+                await conn.execute(
+                    """
+                    DELETE FROM guided_sale_statistics_presence
+                    WHERE account_username = $1
+                      AND last_seen_at < NOW() - ($2::int * INTERVAL '1 second')
+                    """,
+                    account,
+                    PRESENCE_STALE_SECONDS,
+                )
+                online = bool(
+                    await conn.fetchval(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1 FROM guided_sale_statistics_presence
+                            WHERE account_username = $1
+                              AND last_seen_at >= NOW() - ($2::int * INTERVAL '1 second')
+                        )
+                        """,
+                        account,
+                        PRESENCE_STALE_SECONDS,
+                    )
+                )
+                if online:
+                    await self._mark_presence_state_online(conn, account)
+                    return {"online": True, "offline_since": None}
+                stored_offline_since = await conn.fetchval(
+                    "SELECT offline_since FROM guided_sale_statistics_presence_state WHERE account_username = $1",
+                    account,
+                )
+                offline_since = stored_offline_since if isinstance(stored_offline_since, datetime) else None
+                if offline_since is None:
+                    if isinstance(fallback_offline_since, datetime):
+                        offline_since = fallback_offline_since
+                    elif isinstance(stale_seen_at, datetime):
+                        offline_since = stale_seen_at + timedelta(seconds=PRESENCE_STALE_SECONDS)
+                    else:
+                        offline_since = datetime.now()
+                    offline_since = await conn.fetchval(
+                        """
+                        INSERT INTO guided_sale_statistics_presence_state (account_username, offline_since, updated_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (account_username) DO UPDATE
+                        SET offline_since = COALESCE(guided_sale_statistics_presence_state.offline_since, EXCLUDED.offline_since),
+                            updated_at = NOW()
+                        RETURNING offline_since
+                        """,
+                        account,
+                        offline_since,
+                    )
+                return {"online": False, "offline_since": offline_since}
+
+    @staticmethod
+    async def _mark_presence_state_online(conn, account: str) -> None:
+        await conn.execute(
+            """
+            INSERT INTO guided_sale_statistics_presence_state (account_username, offline_since, updated_at)
+            VALUES ($1, NULL, NOW())
+            ON CONFLICT (account_username) DO UPDATE
+            SET offline_since = NULL, updated_at = NOW()
+            WHERE guided_sale_statistics_presence_state.offline_since IS NOT NULL
+            """,
+            account,
+        )
+
+    @staticmethod
+    async def _mark_presence_state_offline_if_inactive(conn, account: str) -> None:
+        active = bool(
+            await conn.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM guided_sale_statistics_presence
+                    WHERE account_username = $1
+                      AND last_seen_at >= NOW() - ($2::int * INTERVAL '1 second')
+                )
+                """,
+                account,
+                PRESENCE_STALE_SECONDS,
+            )
+        )
+        if active:
+            return
+        await conn.execute(
+            """
+            INSERT INTO guided_sale_statistics_presence_state (account_username, offline_since, updated_at)
+            VALUES ($1, NOW(), NOW())
+            ON CONFLICT (account_username) DO UPDATE
+            SET offline_since = COALESCE(guided_sale_statistics_presence_state.offline_since, EXCLUDED.offline_since),
+                updated_at = NOW()
+            """,
+            account,
+        )
+
     async def record_presence(
         self, username: str, instance_id: str, connection_id: str, event: str
     ) -> None:
@@ -852,29 +974,33 @@ class GuidedSaleStatisticsRepository:
         await self.ensure_ready()
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
-            if event == "offline":
-                await conn.execute(
-                    """
-                    DELETE FROM guided_sale_statistics_presence
-                    WHERE account_username = $1 AND instance_id = $2 AND connection_id = $3
-                    """,
-                    username,
-                    instance_id,
-                    connection_id,
-                )
-            else:
-                await conn.execute(
-                    """
-                    INSERT INTO guided_sale_statistics_presence (
-                        account_username, instance_id, connection_id, last_seen_at
-                    ) VALUES ($1, $2, $3, NOW())
-                    ON CONFLICT (account_username, instance_id, connection_id)
-                    DO UPDATE SET last_seen_at = NOW()
-                    """,
-                    username,
-                    instance_id,
-                    connection_id,
-                )
+            async with conn.transaction():
+                if event == "offline":
+                    await conn.execute(
+                        """
+                        DELETE FROM guided_sale_statistics_presence
+                        WHERE account_username = $1 AND instance_id = $2 AND connection_id = $3
+                        """,
+                        username,
+                        instance_id,
+                        connection_id,
+                    )
+                    await self._mark_presence_state_offline_if_inactive(conn, username)
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO guided_sale_statistics_presence (
+                            account_username, instance_id, connection_id, last_seen_at
+                        ) VALUES ($1, $2, $3, NOW())
+                        ON CONFLICT (account_username, instance_id, connection_id)
+                        DO UPDATE SET last_seen_at = NOW()
+                        """,
+                        username,
+                        instance_id,
+                        connection_id,
+                    )
+                    if event == "online":
+                        await self._mark_presence_state_online(conn, username)
 
     async def mark_external_activity(self, user_id: str) -> None:
         value = _text(user_id)

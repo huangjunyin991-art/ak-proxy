@@ -557,7 +557,15 @@ class GuidedSaleStatisticsService:
     async def _offline_window_ready(
         self, account: str, offline_since: datetime | None
     ) -> tuple[bool, datetime | None, int]:
-        if await self.repository.is_account_online(account):
+        presence_reader = getattr(self.repository, "get_account_presence_state", None)
+        if callable(presence_reader):
+            presence = await presence_reader(account, fallback_offline_since=offline_since)
+            if bool(presence.get("online")):
+                return False, None, 60
+            tracked_offline_since = presence.get("offline_since")
+            if isinstance(tracked_offline_since, datetime):
+                offline_since = tracked_offline_since
+        elif await self.repository.is_account_online(account):
             return False, None, 60
         now = datetime.now()
         if offline_since is None:
