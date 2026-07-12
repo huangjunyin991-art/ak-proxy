@@ -40,8 +40,9 @@
     }
 
     window.AKGuidedSaleStatisticsApi = {
-        dashboard: function(sourceAccount) { return get('/dashboard', { source_account: sourceAccount || '' }); },
-        start: function(sourceAccount) { return post('/start', { source_account: sourceAccount || '' }); },
+        dashboard: function() { return get('/dashboard'); },
+        refresh: function() { return post('/start', {}); },
+        saveSource: function(sourceAccount) { return post('/source', { source_account: sourceAccount || '' }); },
         savePolicy: function(days) { return post('/policy', { cache_retention_days: days }); }
     };
 })();

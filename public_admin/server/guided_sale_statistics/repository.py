@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping
 OFFLINE_GRACE_SECONDS = 30 * 60
 PRESENCE_STALE_SECONDS = 60
 DEFAULT_CACHE_RETENTION_DAYS = 30
+GLOBAL_NOTICE_CACHE_SECONDS = 60 * 60
 
 
 def _text(value: Any) -> str:
@@ -120,6 +121,34 @@ class GuidedSaleStatisticsRepository:
                     """
                 )
                 await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS guided_sale_statistics_global_notice (
+                        slot SMALLINT PRIMARY KEY DEFAULT 1 CHECK (slot = 1),
+                        source_account TEXT NOT NULL DEFAULT '',
+                        source_user_id TEXT NOT NULL DEFAULT '',
+                        notice_id TEXT NOT NULL DEFAULT '',
+                        sale_count INTEGER NOT NULL DEFAULT 0,
+                        title TEXT NOT NULL DEFAULT '',
+                        target_line TEXT NOT NULL DEFAULT '',
+                        start_date_key INTEGER NOT NULL DEFAULT 0,
+                        end_date_key INTEGER NOT NULL DEFAULT 0,
+                        start_date_label TEXT NOT NULL DEFAULT '',
+                        end_date_label TEXT NOT NULL DEFAULT '',
+                        notice_cached_at TIMESTAMP NULL,
+                        refresh_state TEXT NOT NULL DEFAULT 'unconfigured',
+                        refresh_after TIMESTAMP NOT NULL DEFAULT NOW(),
+                        last_error TEXT NOT NULL DEFAULT '',
+                        lease_owner TEXT NOT NULL DEFAULT '',
+                        lease_expires_at TIMESTAMP NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+                await conn.execute(
+                    "INSERT INTO guided_sale_statistics_global_notice (slot) VALUES (1) ON CONFLICT (slot) DO NOTHING"
+                )
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_guided_sale_jobs_claim "
                     "ON guided_sale_statistics_jobs(state, next_attempt_at)"
                 )
@@ -182,6 +211,23 @@ class GuidedSaleStatisticsRepository:
                 )
         return dict(row) if row else None
 
+    async def get_active_account(self, username: str) -> dict[str, Any] | None:
+        """Return an active authorized account without applying an administrator scope."""
+        account = _text(username).lower()
+        if not account:
+            return None
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT username, nickname, added_by FROM authorized_accounts
+                WHERE username = $1 AND status = 'active' AND expire_time >= NOW()
+                """,
+                account,
+            )
+        return dict(row) if row else None
+
     async def get_account_password(self, username: str) -> str:
         await self.ensure_ready()
         pool = self._pool_supplier()
@@ -191,6 +237,104 @@ class GuidedSaleStatisticsRepository:
                     "SELECT COALESCE(password, '') FROM authorized_accounts WHERE username = $1",
                     _text(username).lower(),
                 )
+            )
+
+    async def get_global_notice(self) -> dict[str, Any]:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM guided_sale_statistics_global_notice WHERE slot = 1"
+            )
+        return dict(row or {})
+
+    async def configure_global_source(self, source_account: str) -> dict[str, Any]:
+        """Replace the sole notice credential and invalidate its shared announcement snapshot."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        account = _text(source_account).lower()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE guided_sale_statistics_global_notice
+                SET source_account = $1, source_user_id = '',
+                    notice_id = '', sale_count = 0, title = '', target_line = '',
+                    start_date_key = 0, end_date_key = 0, start_date_label = '', end_date_label = '',
+                    notice_cached_at = NULL, refresh_state = CASE WHEN $1 = '' THEN 'unconfigured' ELSE 'pending' END,
+                    refresh_after = NOW(), last_error = '', lease_owner = '', lease_expires_at = NULL,
+                    updated_at = NOW()
+                WHERE slot = 1
+                RETURNING *
+                """,
+                account,
+            )
+        return dict(row or {})
+
+    async def claim_global_notice_refresh(self, holder: str) -> dict[str, Any] | None:
+        """Claim one expired global snapshot so concurrent administrators share a single fetch."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE guided_sale_statistics_global_notice
+                SET refresh_state = 'refreshing', lease_owner = $1,
+                    lease_expires_at = NOW() + INTERVAL '45 seconds', updated_at = NOW()
+                WHERE slot = 1
+                  AND source_account <> ''
+                  AND refresh_after <= NOW()
+                  AND (notice_cached_at IS NULL OR notice_cached_at < NOW() - ($2::int * INTERVAL '1 second'))
+                  AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
+                RETURNING *
+                """,
+                _text(holder),
+                GLOBAL_NOTICE_CACHE_SECONDS,
+            )
+        return dict(row) if row else None
+
+    async def cache_global_notice(
+        self, holder: str, source_account: str, source_user_id: str, notice: Mapping[str, Any]
+    ) -> bool:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE guided_sale_statistics_global_notice
+                SET source_user_id = $3, notice_id = $4, sale_count = $5, title = $6, target_line = $7,
+                    start_date_key = $8, end_date_key = $9, start_date_label = $10, end_date_label = $11,
+                    notice_cached_at = NOW(), refresh_state = 'ready', refresh_after = NOW(), last_error = '',
+                    lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
+                WHERE slot = 1 AND source_account = $2 AND lease_owner = $1
+                """,
+                _text(holder),
+                _text(source_account).lower(),
+                _text(source_user_id),
+                _text(notice.get("notice_id")),
+                max(0, int(notice.get("sale_count") or 0)),
+                _text(notice.get("title")),
+                _text(notice.get("target_line")),
+                max(0, int(notice.get("start_date_key") or 0)),
+                max(0, int(notice.get("end_date_key") or 0)),
+                _text(notice.get("start_date_label")),
+                _text(notice.get("end_date_label")),
+            )
+        return str(result).endswith("1")
+
+    async def defer_global_notice_refresh(self, holder: str, seconds: int, error: str = "") -> None:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE guided_sale_statistics_global_notice
+                SET refresh_state = 'pending', refresh_after = NOW() + ($2::int * INTERVAL '1 second'),
+                    last_error = $3, lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
+                WHERE slot = 1 AND lease_owner = $1
+                """,
+                _text(holder),
+                max(1, int(seconds)),
+                _text(error)[:500],
             )
 
     async def create_or_get_run(self, owner_scope: str, source_account: str) -> dict[str, Any]:
@@ -325,14 +469,16 @@ class GuidedSaleStatisticsRepository:
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                targets = sorted({_text(item).lower() for item in target_accounts if _text(item)})
                 await conn.execute(
                     """
                     UPDATE guided_sale_statistics_runs
-                    SET source_user_id = $2, state = 'scanning', source_offline_since = NULL,
+                    SET source_user_id = $2, state = CASE WHEN $11::int = 0 THEN 'completed' ELSE 'scanning' END,
+                        source_offline_since = NULL,
                         notice_id = $3, sale_count = $4, title = $5, target_line = $6,
                         start_date_key = $7, end_date_key = $8, start_date_label = $9, end_date_label = $10,
                         cache_written_at = NOW(), last_error = '', lease_owner = '', lease_expires_at = NULL,
-                        updated_at = NOW()
+                        completed_at = CASE WHEN $11::int = 0 THEN NOW() ELSE NULL END, updated_at = NOW()
                     WHERE id = $1
                     """,
                     int(run_id),
@@ -345,8 +491,9 @@ class GuidedSaleStatisticsRepository:
                     max(0, int(notice.get("end_date_key") or 0)),
                     _text(notice.get("start_date_label")),
                     _text(notice.get("end_date_label")),
+                    len(targets),
                 )
-                for account in sorted({_text(item).lower() for item in target_accounts if _text(item)}):
+                for account in targets:
                     await conn.execute(
                         """
                         INSERT INTO guided_sale_statistics_jobs (run_id, target_account)
@@ -355,6 +502,37 @@ class GuidedSaleStatisticsRepository:
                         """,
                         int(run_id),
                         account,
+                    )
+
+    async def ensure_run_jobs(self, run_id: int, target_accounts: list[str]) -> None:
+        """Add newly whitelisted accounts to an existing run without restarting finished pages."""
+        targets = sorted({_text(item).lower() for item in target_accounts if _text(item)})
+        if not targets:
+            return
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        inserted = False
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for account in targets:
+                    result = await conn.execute(
+                        """
+                        INSERT INTO guided_sale_statistics_jobs (run_id, target_account)
+                        VALUES ($1, $2)
+                        ON CONFLICT (run_id, target_account) DO NOTHING
+                        """,
+                        int(run_id),
+                        account,
+                    )
+                    inserted = inserted or str(result).endswith("1")
+                if inserted:
+                    await conn.execute(
+                        """
+                        UPDATE guided_sale_statistics_runs
+                        SET state = 'scanning', completed_at = NULL, updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        int(run_id),
                     )
 
     async def set_run_user_id(self, run_id: int, user_id: str) -> None:

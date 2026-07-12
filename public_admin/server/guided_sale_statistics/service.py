@@ -12,6 +12,7 @@ from ..notice_guidance.service import parse_date_key, trim_string
 from .parser import extract_auth_fields, find_latest_guided_sale, is_auth_error
 from .repository import (
     DEFAULT_CACHE_RETENTION_DAYS,
+    GLOBAL_NOTICE_CACHE_SECONDS,
     OFFLINE_GRACE_SECONDS,
     GuidedSaleStatisticsRepository,
 )
@@ -88,36 +89,28 @@ class GuidedSaleStatisticsService:
     async def list_accounts(self, owner_scope: str, is_super_admin: bool) -> list[dict[str, Any]]:
         return await self.repository.list_scope_accounts(owner_scope, is_super_admin)
 
-    async def request_scan(
-        self, owner_scope: str, is_super_admin: bool, source_account: str
-    ) -> dict[str, Any]:
+    async def configure_global_source(self, source_account: str) -> dict[str, Any]:
         account = trim_string(source_account).lower()
         if not account:
-            raise ValueError("missing source account")
-        scoped = await self.repository.get_scoped_account(owner_scope, is_super_admin, account)
-        if scoped is None:
-            raise PermissionError("source account is outside the current whitelist scope")
-        run = await self.repository.create_or_get_run(owner_scope, account)
-        cached_auth = await self._load_auth(account)
-        if cached_auth["user_id"]:
-            await self.repository.set_run_user_id(int(run["id"]), cached_auth["user_id"])
-        policy = await self.get_policy()
-        written_at = run.get("cache_written_at")
-        expired = bool(
-            written_at
-            and (datetime.now() - written_at).total_seconds() > policy["cache_retention_days"] * 86400
-        )
-        if expired:
-            await self.repository.reset_run(int(run["id"]))
+            raise ValueError("missing global source account")
+        if await self.repository.get_active_account(account) is None:
+            raise ValueError("global source account is not an active authorized account")
+        record = await self.repository.configure_global_source(account)
         self._wake.set()
-        return await self.dashboard(owner_scope, is_super_admin, account)
+        return self._serialize_global_notice(record, include_source=True)
 
-    async def dashboard(
-        self, owner_scope: str, is_super_admin: bool, source_account: str
-    ) -> dict[str, Any]:
+    async def request_scan(self, owner_scope: str, is_super_admin: bool, source_account: str = "") -> dict[str, Any]:
+        """Retained for older clients; dashboard loading now creates the scan automatically."""
+        return await self.dashboard(owner_scope, is_super_admin)
+
+    async def dashboard(self, owner_scope: str, is_super_admin: bool, source_account: str = "") -> dict[str, Any]:
         policy = await self.get_policy()
         accounts = await self.repository.list_scope_accounts(owner_scope, is_super_admin)
-        source = trim_string(source_account).lower()
+        global_notice = await self._ensure_global_notice()
+        source = trim_string(global_notice.get("source_account")).lower()
+        fresh_notice = self._global_notice_is_fresh(global_notice)
+        if fresh_notice:
+            await self._ensure_owner_scan(owner_scope, source, global_notice, accounts, policy["cache_retention_days"])
         data = await self.repository.dashboard(owner_scope, source, policy["cache_retention_days"]) if source else {
             "run": None, "jobs": [], "rows": []
         }
@@ -128,7 +121,9 @@ class GuidedSaleStatisticsService:
             "policy": policy,
             "is_super_admin": bool(is_super_admin),
             "accounts": accounts,
-            "source_account": source,
+            "source_configured": bool(source),
+            "source_account": source if is_super_admin else "",
+            "notice": self._serialize_global_notice(global_notice, include_source=is_super_admin),
             "run": self._serialize_run(data["run"]),
             "jobs": [self._serialize_job(item) for item in data["jobs"]],
             "rows": [self._serialize_row(item) for item in data["rows"]],
@@ -138,6 +133,105 @@ class GuidedSaleStatisticsService:
                 "pending_accounts": pending,
                 "matched_subaccounts": len(data["rows"]),
             },
+        }
+
+    async def _ensure_global_notice(self) -> dict[str, Any]:
+        current = await self.repository.get_global_notice()
+        if self._global_notice_is_fresh(current):
+            return current
+        holder = "notice-refresh-" + uuid.uuid4().hex
+        claimed = await self.repository.claim_global_notice_refresh(holder)
+        if claimed is None:
+            return await self.repository.get_global_notice()
+        source_account = trim_string(claimed.get("source_account")).lower()
+        try:
+            if await self.repository.get_active_account(source_account) is None:
+                raise RuntimeError("global source account is no longer active")
+            async with self.provider.build_client() as client:
+                auth = await self._load_auth(source_account)
+
+                async def mark_refreshed() -> None:
+                    return None
+
+                payload, auth = await self._call_with_one_refresh(
+                    client,
+                    source_account,
+                    auth,
+                    endpoint="Notice_List",
+                    data={"p": "1", "pageSize": str(DEFAULT_PAGE_SIZE), "v": make_v(), "lang": "cn"},
+                    refresh_attempted=False,
+                    mark_refresh_attempted=mark_refreshed,
+                )
+            notice = find_latest_guided_sale(payload)
+            if notice is None:
+                raise RuntimeError("no complete guided sale notice")
+            await self.repository.cache_global_notice(holder, source_account, auth["user_id"], notice)
+        except RpcSlotBusy:
+            await self.repository.defer_global_notice_refresh(holder, 5)
+        except Exception as exc:
+            await self.repository.defer_global_notice_refresh(holder, RETRY_SECONDS, str(exc))
+            self._log("global notice refresh failed account=%s error=%s", source_account, str(exc)[:300])
+        return await self.repository.get_global_notice()
+
+    async def _ensure_owner_scan(
+        self,
+        owner_scope: str,
+        source_account: str,
+        notice: Mapping[str, Any],
+        accounts: list[Mapping[str, Any]],
+        retention_days: int,
+    ) -> None:
+        if not source_account or not trim_string(notice.get("notice_id")):
+            return
+        targets = [trim_string(item.get("username")) for item in accounts]
+        run = await self.repository.get_run(owner_scope, source_account)
+        needs_rebuild = run is None
+        if run is not None:
+            written_at = run.get("cache_written_at")
+            expired = bool(
+                written_at
+                and (datetime.now() - written_at).total_seconds() > max(1, retention_days) * 86400
+            )
+            needs_rebuild = (
+                trim_string(run.get("notice_id")) != trim_string(notice.get("notice_id"))
+                or trim_string(run.get("state")) in {"waiting_notice", "cancelled", "expired"}
+                or expired
+            )
+        if run is None:
+            run = await self.repository.create_or_get_run(owner_scope, source_account)
+        if needs_rebuild:
+            await self.repository.reset_run(int(run["id"]))
+            await self.repository.complete_discovery(
+                int(run["id"]), trim_string(notice.get("source_user_id")), notice, targets
+            )
+            self._wake.set()
+            return
+        await self.repository.ensure_run_jobs(int(run["id"]), targets)
+
+    @staticmethod
+    def _global_notice_is_fresh(record: Mapping[str, Any]) -> bool:
+        cached_at = record.get("notice_cached_at") if isinstance(record, Mapping) else None
+        return bool(
+            trim_string(record.get("notice_id"))
+            and trim_string(record.get("title"))
+            and isinstance(cached_at, datetime)
+            and (datetime.now() - cached_at).total_seconds() <= GLOBAL_NOTICE_CACHE_SECONDS
+        )
+
+    def _serialize_global_notice(self, record: Mapping[str, Any], *, include_source: bool) -> dict[str, Any]:
+        cached_at = record.get("notice_cached_at") if isinstance(record, Mapping) else None
+        fresh = self._global_notice_is_fresh(record)
+        return {
+            "state": trim_string(record.get("refresh_state")) or "unconfigured",
+            "available": bool(trim_string(record.get("notice_id")) and trim_string(record.get("title"))),
+            "fresh": fresh,
+            "sale_count": max(0, int(record.get("sale_count") or 0)),
+            "title": trim_string(record.get("title")),
+            "target_line": trim_string(record.get("target_line")),
+            "start_date_label": trim_string(record.get("start_date_label")),
+            "end_date_label": trim_string(record.get("end_date_label")),
+            "cached_at": self._serialize_time(cached_at),
+            "source_account": trim_string(record.get("source_account")) if include_source else "",
         }
 
     async def handle_presence_event(self, event: str, username: str, connection_id: str) -> None:
@@ -199,72 +293,11 @@ class GuidedSaleStatisticsService:
                 pass
 
     async def _run_once(self) -> bool:
-        run = await self.repository.claim_next_run(self.instance_id)
-        if run is not None:
-            await self._process_run(run)
-            return True
         job = await self.repository.claim_next_job(self.instance_id)
         if job is not None:
             await self._process_job(job)
             return True
         return False
-
-    async def _process_run(self, run: Mapping[str, Any]) -> None:
-        run_id = int(run["id"])
-        owner_scope = trim_string(run.get("owner_scope"))
-        source_account = trim_string(run.get("source_account")).lower()
-        is_super_admin = owner_scope == "__super__"
-        if await self.repository.get_scoped_account(owner_scope, is_super_admin, source_account) is None:
-            await self.repository.cancel_run(run_id, "source account no longer in whitelist scope")
-            return
-        ready, offline_since, delay = await self._offline_window_ready(
-            source_account, run.get("source_offline_since")
-        )
-        if not ready:
-            await self.repository.defer_run(run_id, delay, offline_since=offline_since)
-            return
-        try:
-            async with self.provider.build_client() as client:
-                auth = await self._load_auth(source_account)
-                payload, auth = await self._call_with_one_refresh(
-                    client,
-                    source_account,
-                    auth,
-                    endpoint="Notice_List",
-                    data={
-                        "p": "1",
-                        "pageSize": str(DEFAULT_PAGE_SIZE),
-                        "v": make_v(),
-                        "lang": "cn",
-                    },
-                    refresh_attempted=bool(run.get("source_auth_refresh_attempted")),
-                    mark_refresh_attempted=lambda: self.repository.set_run_auth_refresh_attempted(run_id),
-                )
-                await self.repository.set_run_user_id(run_id, auth["user_id"])
-            notice = find_latest_guided_sale(payload)
-            if notice is None:
-                await self.repository.defer_run(run_id, RETRY_SECONDS, offline_since=offline_since, error="no complete guided sale notice")
-                return
-            targets = await self.repository.list_scope_accounts(owner_scope, is_super_admin)
-            await self.repository.complete_discovery(
-                run_id,
-                auth["user_id"],
-                notice,
-                [trim_string(item.get("username")) for item in targets],
-            )
-            for item in targets:
-                target_account = trim_string(item.get("username")).lower()
-                if not target_account:
-                    continue
-                cached_auth = await self._load_auth(target_account)
-                if cached_auth["user_id"]:
-                    await self.repository.set_run_job_user_id(run_id, target_account, cached_auth["user_id"])
-            self._wake.set()
-        except RpcSlotBusy:
-            await self.repository.defer_run(run_id, 5, offline_since=offline_since)
-        except Exception as exc:
-            await self.repository.defer_run(run_id, RETRY_SECONDS, offline_since=offline_since, error=str(exc))
-            self._log("notice discovery failed account=%s error=%s", source_account, str(exc)[:300])
 
     async def _process_job(self, job: Mapping[str, Any]) -> None:
         job_id = int(job["id"])

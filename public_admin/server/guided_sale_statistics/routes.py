@@ -29,11 +29,11 @@ def create_guided_sale_statistics_router(
         return {"success": True, "accounts": await service.list_accounts(owner_scope, is_super_admin)}
 
     @router.get("/dashboard")
-    async def dashboard(request: Request, source_account: str = ""):
+    async def dashboard(request: Request):
         owner_scope, is_super_admin, error_response = await identity(request)
         if error_response is not None:
             return error_response
-        return await service.dashboard(owner_scope, is_super_admin, source_account)
+        return await service.dashboard(owner_scope, is_super_admin)
 
     @router.post("/start")
     async def start(request: Request):
@@ -45,11 +45,26 @@ def create_guided_sale_statistics_router(
         except Exception:
             payload = {}
         try:
-            return await service.request_scan(
-                owner_scope, is_super_admin, str((payload or {}).get("source_account") or "")
-            )
+            return await service.request_scan(owner_scope, is_super_admin)
         except PermissionError as exc:
             return JSONResponse(status_code=403, content={"success": False, "message": str(exc)})
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
+
+    @router.post("/source")
+    async def save_source(request: Request):
+        owner_scope, is_super_admin, error_response = await identity(request)
+        if error_response is not None:
+            return error_response
+        if not is_super_admin:
+            return JSONResponse(status_code=403, content={"success": False, "message": "super admin required"})
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        try:
+            source = await service.configure_global_source(str((payload or {}).get("source_account") or ""))
+            return {"success": True, "source": source}
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
 
