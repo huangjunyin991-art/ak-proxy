@@ -328,6 +328,45 @@ def test_dashboard_shared_cache_overrides_an_unfinished_job_and_deduplicates_row
     }]
 
 
+def test_pending_job_exposes_offline_grace_state_to_dashboard():
+    service = GuidedSaleStatisticsService(repository=None, auth_store=None, system_config=_SystemConfig())
+
+    result = service._serialize_job({
+        "target_account": "target-a", "state": "pending", "matched_count": 0,
+        "offline_since": datetime(2026, 7, 12, 16, 10, 0),
+    })
+
+    assert result["offline_since"] == "2026-07-12 16:10:00"
+
+
+def test_offline_window_requires_thirty_continuous_minutes():
+    class Repository:
+        def __init__(self):
+            self.online = True
+
+        async def is_account_online(self, account):
+            assert account == "target-a"
+            return self.online
+
+    repository = Repository()
+    service = GuidedSaleStatisticsService(repository, auth_store=None, system_config=_SystemConfig())
+
+    ready, offline_since, delay = asyncio.run(service._offline_window_ready("target-a", datetime.now() - timedelta(hours=1)))
+    assert (ready, offline_since, delay) == (False, None, 60)
+
+    repository.online = False
+    ready, offline_since, delay = asyncio.run(service._offline_window_ready("target-a", None))
+    assert ready is False
+    assert isinstance(offline_since, datetime)
+    assert delay == 30 * 60
+
+    ready, offline_since, delay = asyncio.run(
+        service._offline_window_ready("target-a", datetime.now() - timedelta(minutes=30, seconds=1))
+    )
+    assert (ready, delay) == (True, 0)
+    assert offline_since is not None
+
+
 def test_worker_never_claims_legacy_source_notice_jobs():
     class Repository:
         async def claim_next_job(self, worker_id):

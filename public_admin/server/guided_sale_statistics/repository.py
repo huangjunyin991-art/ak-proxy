@@ -969,7 +969,7 @@ class GuidedSaleStatisticsRepository:
         async with pool.acquire() as conn:
             jobs = await conn.fetch(
                 """
-                SELECT j.id, j.target_account, j.state, j.next_page, j.created_at, j.updated_at,
+                SELECT j.id, j.target_account, j.state, j.next_page, j.offline_since, j.created_at, j.updated_at,
                        j.completed_at, COUNT(r.child_account)::int AS matched_count
                 FROM guided_sale_statistics_jobs j
                 LEFT JOIN guided_sale_statistics_rows r ON r.job_id = j.id

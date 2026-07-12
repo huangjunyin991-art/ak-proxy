@@ -698,12 +698,16 @@ class GuidedSaleStatisticsService:
         }
 
     def _serialize_job(self, job: Mapping[str, Any]) -> dict[str, Any]:
-        return {
+        result = {
             "target_account": trim_string(job.get("target_account")),
             "state": trim_string(job.get("state")),
             "matched_count": max(0, int(job.get("matched_count") or 0)),
             "completed_at": self._serialize_time(job.get("completed_at")),
         }
+        offline_since = self._serialize_time(job.get("offline_since"))
+        if result["state"] == "pending" and offline_since:
+            result["offline_since"] = offline_since
+        return result
 
     @staticmethod
     def _serialize_row(row: Mapping[str, Any]) -> dict[str, str]:
