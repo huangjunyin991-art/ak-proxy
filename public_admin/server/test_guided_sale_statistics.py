@@ -231,7 +231,7 @@ def test_load_auth_allows_one_attempt_with_locally_expired_key():
             self.allow_expired = allow_expired
             return {
                 "userkey": "saved-key",
-                "login_result": {"Data": {"UserID": "source-user"}},
+                "login_result": {"UserData": {"Id": "source-user"}},
             }
 
     auth_store = AuthStore()

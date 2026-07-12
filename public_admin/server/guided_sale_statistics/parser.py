@@ -78,7 +78,7 @@ def extract_auth_fields(login_payload: Mapping[str, Any], fallback_key: str = ""
     key_value = trim_string(fallback_key)
     for item in containers:
         if not user_id:
-            for name in ("UserID", "UserId", "userId", "user_id", "UID", "uid"):
+            for name in ("UserID", "UserId", "userId", "user_id", "Id", "ID", "userid", "UID", "uid"):
                 user_id = trim_string(item.get(name))
                 if user_id:
                     break
