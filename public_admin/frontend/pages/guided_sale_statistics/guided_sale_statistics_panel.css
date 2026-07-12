@@ -19,6 +19,10 @@
 .ak-gss-btn-primary:hover { border-color: #47c7ef; background: #1b90ba; }
 .ak-gss-actions .ak-gss-btn { border-color: #239fc8; color: #e9faff; background: #167fa6; }
 .ak-gss-actions .ak-gss-btn:hover { border-color: #47c7ef; background: #1b90ba; }
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="save-source"],
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"] { border-color: #27d4df !important; color: #edffff !important; background: linear-gradient(135deg, #0bbbd0, #07869c) !important; box-shadow: 0 5px 14px rgba(11, 187, 208, .22); font-weight: 700; }
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="save-source"]:hover,
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"]:hover { border-color: #7df3f4 !important; background: linear-gradient(135deg, #1dcbdd, #0a9db3) !important; }
 .ak-gss-error { border: 1px solid #d95c69; border-radius: 6px; background: rgba(217,92,105,.1); color: #f4a8b0; padding: 9px 11px; font-size: 13px; }
 .ak-gss-notice { position: relative; min-height: 122px; display: grid; place-items: center; overflow: hidden; border-color: #245f76; background: rgba(20,44,55,.54); padding: 20px 64px; text-align: center; }
 .ak-gss-notice::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: #4cc6e9; }

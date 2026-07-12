@@ -108,11 +108,11 @@
                     '<div><span>白名单账号</span><strong>' + number(summary.whitelist_accounts) + '</strong></div>' +
                     '<div><span>已完成</span><strong>' + number(summary.completed_accounts) + '</strong></div>' +
                     '<div><span>等待扫描</span><strong>' + number(summary.pending_accounts) + '</strong></div>' +
-                    '<div><span>命中子账号</span><strong>' + number(summary.matched_subaccounts) + '</strong></div>' +
+                    '<div><span>被指导账号</span><strong>' + number(summary.matched_subaccounts) + '</strong></div>' +
                 '</section>' +
                 '<section class="ak-gss-section">' +
                     '<div class="ak-gss-section-head"><h3>白名单扫描状态</h3><span>' + number(summary.completed_accounts) + ' / ' + number(summary.whitelist_accounts) + '</span></div>' +
-                    '<div class="ak-gss-table-wrap"><table><thead><tr><th>白名单账号</th><th>状态</th><th>命中子账号</th></tr></thead><tbody>' + renderAccountRows(data.accounts, data.jobs) + '</tbody></table></div>' +
+                    '<div class="ak-gss-table-wrap"><table><thead><tr><th>白名单账号</th><th>状态</th><th>被指导账号</th></tr></thead><tbody>' + renderAccountRows(data.accounts, data.jobs) + '</tbody></table></div>' +
                 '</section>' +
                 '<section class="ak-gss-section">' +
                     '<div class="ak-gss-section-head"><h3>指导周期内子账号</h3><span>' + number(summary.matched_subaccounts) + ' 条</span></div>' +
