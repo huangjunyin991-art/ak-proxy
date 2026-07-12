@@ -1,7 +1,10 @@
 import pytest
 import httpx
+import asyncio
+import time
 
 from .outbound_dispatcher import OutboundDispatcher, RpcUpstreamNonJsonError
+from .dispatcher_policy.latency_probe import LatencyProbeService
 
 
 def _saturate_regular_direct(dispatcher: OutboundDispatcher) -> None:
@@ -290,6 +293,59 @@ async def test_detect_failed_ips_only_probes_failed_exits(monkeypatch):
 
     assert probed == ["healthy", "failed-a", "failed-b"]
     assert recovered == 1
+
+
+def test_health_check_ip_detect_requests_are_batched(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    first = _add_ready_socks5(dispatcher, "first", 10001)
+    second = _add_ready_socks5(dispatcher, "second", 10002)
+    dispatcher.exits[first].ip_detect_ready = False
+    dispatcher.exits[second].ip_detect_ready = False
+    scheduled = []
+
+    class PendingTask:
+        def done(self):
+            return False
+
+    def fake_create_task(coro, name=""):
+        coro.close()
+        scheduled.append(name)
+        return PendingTask()
+
+    monkeypatch.setattr(dispatcher, "_safe_create_task", fake_create_task)
+
+    dispatcher._schedule_single_exit_ip_detect(dispatcher.exits[first])
+    dispatcher._schedule_single_exit_ip_detect(dispatcher.exits[second])
+
+    assert scheduled == ["pending_ip_detect_batch"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_latency_probe_uses_first_successful_endpoint_without_waiting_for_slow_fallbacks():
+    class Client:
+        async def get(self, url, timeout):
+            if url == "https://fast.example":
+                await asyncio.sleep(0.01)
+                return httpx.Response(200, request=httpx.Request("GET", url))
+            await asyncio.sleep(1)
+            return httpx.Response(200, request=httpx.Request("GET", url))
+
+    class Exit:
+        async def get_client(self):
+            return Client()
+
+    probe = LatencyProbeService(
+        probe_urls=("https://slow-a.example", "https://fast.example", "https://slow-b.example"),
+        timeout_seconds=5,
+        concurrency=20,
+    )
+    started = time.perf_counter()
+    result = await probe.probe_exit(Exit(), asyncio.Semaphore(20))
+
+    assert result["success"] is True
+    assert result["url"] == "https://fast.example"
+    assert time.perf_counter() - started < 0.2
 
 
 @pytest.mark.anyio

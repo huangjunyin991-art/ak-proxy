@@ -431,6 +431,7 @@ class OutboundDispatcher:
         self._initial_ip_detect_task: Optional[asyncio.Task] = None
         self._periodic_ip_detect_task: Optional[asyncio.Task] = None
         self._failed_ip_detect_task: Optional[asyncio.Task] = None
+        self._pending_ip_detect_task: Optional[asyncio.Task] = None
         self._started = False
         self._ip_detect_run_lock = asyncio.Lock()
         self._rr_counter: int = 0
@@ -586,6 +587,12 @@ class OutboundDispatcher:
             self._failed_ip_detect_task.cancel()
             try:
                 await self._failed_ip_detect_task
+            except asyncio.CancelledError:
+                pass
+        if self._pending_ip_detect_task:
+            self._pending_ip_detect_task.cancel()
+            try:
+                await self._pending_ip_detect_task
             except asyncio.CancelledError:
                 pass
         # 关闭所有出口的持久 client
@@ -1448,19 +1455,20 @@ class OutboundDispatcher:
     def _schedule_single_exit_ip_detect(self, ex: OutboundExit) -> None:
         if ex.is_direct or ex.ip_detect_ready or ex.ip_detecting or not ex.healthy:
             return
-        ex.ip_detecting = True
+        if self._pending_ip_detect_task is not None and not self._pending_ip_detect_task.done():
+            return
 
         async def _run():
             try:
-                async with self._ip_detect_run_lock:
-                    if ex.healthy and not ex.ip_detect_ready:
-                        await self._detect_exit_ip(ex)
+                # Health checks can discover many new ports together. Debounce them into one batch
+                # so every port does not serialize behind the same IP-detection lock.
+                await asyncio.sleep(0.2)
+                if self._started:
+                    await self.detect_failed_ips()
             except Exception as e:
-                logger.warning(f"[Dispatcher] single exit ip detect failed: {ex.name}: {e}")
-            finally:
-                ex.ip_detecting = False
+                logger.warning(f"[Dispatcher] pending IP detect failed: {e}")
 
-        self._safe_create_task(_run(), f"single_ip_detect_{ex.name}")
+        self._pending_ip_detect_task = self._safe_create_task(_run(), "pending_ip_detect_batch")
 
     IP_SERVICES = (
         "https://api4.ipify.org",
