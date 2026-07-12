@@ -129,7 +129,7 @@ class GuidedSaleStatisticsService:
         fresh_notice = self._global_notice_is_fresh(global_notice)
         if fresh_notice and start_scan:
             await self._ensure_owner_scan(owner_scope, source, global_notice, accounts, policy["cache_retention_days"])
-        data = await self.repository.dashboard(owner_scope, source, policy["cache_retention_days"]) if source else {
+        data = await self.repository.dashboard(owner_scope, policy["cache_retention_days"]) if source else {
             "run": None, "jobs": [], "rows": []
         }
         shared_results = await self._load_dashboard_shared_results(accounts, global_notice) if fresh_notice else {}
@@ -292,7 +292,7 @@ class GuidedSaleStatisticsService:
         if not source_account or not trim_string(notice.get("notice_id")):
             return
         targets = [trim_string(item.get("username")) for item in accounts]
-        run = await self.repository.get_run(owner_scope, source_account)
+        run = await self.repository.get_run(owner_scope)
         needs_rebuild = run is None
         if run is not None:
             written_at = run.get("cache_written_at")

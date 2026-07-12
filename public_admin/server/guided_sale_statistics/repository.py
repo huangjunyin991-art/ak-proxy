@@ -85,7 +85,7 @@ class GuidedSaleStatisticsRepository:
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         completed_at TIMESTAMP NULL,
-                        UNIQUE(owner_scope, source_account)
+                        UNIQUE(owner_scope)
                     )
                     """
                 )
@@ -443,8 +443,8 @@ class GuidedSaleStatisticsRepository:
                 """
                 INSERT INTO guided_sale_statistics_runs (owner_scope, source_account)
                 VALUES ($1, $2)
-                ON CONFLICT (owner_scope, source_account)
-                DO UPDATE SET updated_at = NOW()
+                ON CONFLICT DO UPDATE
+                SET source_account = EXCLUDED.source_account, updated_at = NOW()
                 RETURNING *
                 """,
                 owner_scope,
@@ -473,14 +473,18 @@ class GuidedSaleStatisticsRepository:
                     int(run_id),
                 )
 
-    async def get_run(self, owner_scope: str, source_account: str) -> dict[str, Any] | None:
+    async def get_run(self, owner_scope: str) -> dict[str, Any] | None:
         await self.ensure_ready()
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT * FROM guided_sale_statistics_runs WHERE owner_scope = $1 AND source_account = $2",
+                """
+                SELECT * FROM guided_sale_statistics_runs
+                WHERE owner_scope = $1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """,
                 owner_scope,
-                _text(source_account).lower(),
             )
         return dict(row) if row else None
 
@@ -1061,10 +1065,8 @@ class GuidedSaleStatisticsRepository:
                 holder,
             )
 
-    async def dashboard(
-        self, owner_scope: str, source_account: str, retention_days: int
-    ) -> dict[str, Any]:
-        run = await self.get_run(owner_scope, source_account)
+    async def dashboard(self, owner_scope: str, retention_days: int) -> dict[str, Any]:
+        run = await self.get_run(owner_scope)
         if run is None:
             return {"run": None, "jobs": [], "rows": []}
         fresh = bool(

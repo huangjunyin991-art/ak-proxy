@@ -176,13 +176,13 @@ class _SystemConfig:
 
 class _GlobalDashboardRepository:
     def __init__(self):
-        self.dashboard_source = ""
+        self.dashboard_owner_scope = ""
         self.discovery = None
 
     async def list_scope_accounts(self, owner_scope, is_super_admin):
         return [{"username": "target-a", "nickname": "A"}]
 
-    async def get_run(self, owner_scope, source_account):
+    async def get_run(self, owner_scope):
         return None
 
     async def create_or_get_run(self, owner_scope, source_account):
@@ -197,8 +197,8 @@ class _GlobalDashboardRepository:
     async def ensure_run_jobs(self, run_id, targets):
         raise AssertionError("new runs must be initialized through complete_discovery")
 
-    async def dashboard(self, owner_scope, source_account, retention_days):
-        self.dashboard_source = source_account
+    async def dashboard(self, owner_scope, retention_days):
+        self.dashboard_owner_scope = owner_scope
         return {
             "run": {"state": "scanning", "notice_id": "45", "cache_written_at": datetime.now()},
             "jobs": [{"target_account": "target-a", "state": "pending", "matched_count": 0}],
@@ -236,7 +236,7 @@ def test_dashboard_uses_global_notice_without_exposing_source_to_normal_admin():
     service._ensure_global_notice = cached_notice
     result = asyncio.run(service.dashboard("operator-a", False))
 
-    assert repository.dashboard_source == "system-source"
+    assert repository.dashboard_owner_scope == "operator-a"
     assert repository.discovery is None
     result = asyncio.run(service.request_scan("operator-a", False))
 
@@ -253,7 +253,7 @@ def test_repeated_scan_request_keeps_active_run_unchanged():
         def __init__(self):
             self.ensure_calls = 0
 
-        async def get_run(self, owner_scope, source_account):
+        async def get_run(self, owner_scope):
             return {
                 "id": 41,
                 "state": "scanning",
@@ -286,7 +286,7 @@ def test_dashboard_shows_shared_notice_cache_without_creating_a_scan():
             assert (owner_scope, is_super_admin) == ("operator-a", False)
             return [{"username": "target-a", "nickname": "A"}]
 
-        async def dashboard(self, owner_scope, source_account, retention_days):
+        async def dashboard(self, owner_scope, retention_days):
             self.dashboard_calls += 1
             return {"run": None, "jobs": [], "rows": []}
 
