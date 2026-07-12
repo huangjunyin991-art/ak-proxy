@@ -1,7 +1,11 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from public_admin.server.guided_sale_statistics.parser import extract_guidance_time, find_latest_guided_sale
+from public_admin.server.guided_sale_statistics.parser import (
+    extract_guidance_time,
+    find_latest_guided_sale,
+    is_auth_error,
+)
 from public_admin.server.guided_sale_statistics.service import GuidedSaleStatisticsService
 
 
@@ -39,6 +43,10 @@ def test_extract_guidance_time_excludes_collapsed_notice_copy():
     })
 
     assert time_value == "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）"
+
+
+def test_auth_error_detects_traditional_not_logged_in_response():
+    assert is_auth_error(RuntimeError("\u7528\u6236\u672a\u767b\u9304"))
 
 
 def test_page_filter_keeps_window_matches_and_stops_after_older_page():
@@ -558,6 +566,50 @@ def test_valid_cached_key_calls_notice_without_login_refresh():
     assert payload == {"Data": {"List": []}}
     assert auth["key"] == "saved-key"
     assert calls == [("source-user", "Notice_List", {"p": "1", "key": "saved-key", "UserID": "source-user"})]
+
+
+def test_traditional_not_logged_in_refreshes_once_and_retries_notice():
+    class Repository:
+        pass
+
+    service = GuidedSaleStatisticsService(Repository(), auth_store=None, system_config=_SystemConfig())
+    calls = []
+    refreshes = []
+    marked = []
+
+    async def gated_post(client, identity, endpoint, data):
+        calls.append((identity, endpoint, dict(data)))
+        if len(calls) == 1:
+            raise RuntimeError("\u7528\u6236\u672a\u767b\u9304")
+        return {"Data": {"List": []}}
+
+    async def refresh_auth(client, account, auth):
+        refreshes.append((account, dict(auth)))
+        return {"account": account, "key": "new-key", "user_id": "new-user"}
+
+    async def mark_refresh_attempted():
+        marked.append(True)
+
+    service._gated_post = gated_post
+    service._refresh_auth = refresh_auth
+    payload, auth = asyncio.run(service._call_with_one_refresh(
+        None,
+        "system-source",
+        {"account": "system-source", "key": "saved-key", "user_id": "source-user"},
+        endpoint="Notice_List",
+        data={"p": "1"},
+        refresh_attempted=False,
+        mark_refresh_attempted=mark_refresh_attempted,
+    ))
+
+    assert payload == {"Data": {"List": []}}
+    assert auth == {"account": "system-source", "key": "new-key", "user_id": "new-user"}
+    assert marked == [True]
+    assert refreshes == [("system-source", {"account": "system-source", "key": "saved-key", "user_id": "source-user"})]
+    assert calls == [
+        ("source-user", "Notice_List", {"p": "1", "key": "saved-key", "UserID": "source-user"}),
+        ("new-user", "Notice_List", {"p": "1", "key": "new-key", "UserID": "new-user"}),
+    ]
 
 
 def test_refresh_auth_prefers_existing_user_password_store():

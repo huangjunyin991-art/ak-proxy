@@ -9,6 +9,8 @@ from ..notice_guidance.service import NoticeGuidanceService, extract_lines_from_
 
 _SALE_COUNT_RE = re.compile(r"第\s*(\d{1,5})\s*次\s*指导销售")
 _AUTH_ERROR_MARKERS = ("key", "userkey", "token", "login", "登录", "失效", "无效", "认证")
+_AUTH_ERROR_MARKERS += ("\u672a\u767b\u5f55", "\u672a\u767b\u9304")
+
 _GUIDANCE_TIME_RE = re.compile(
     r"(\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日?\s*\d{1,2}\s*[:：]\s*\d{2}\s*(?:a\.?m\.?|p\.?m\.?)"
     r"\s*[-~—]\s*(?:\d{4}\s*年\s*)?\d{1,2}\s*月\s*\d{1,2}\s*日?\s*\d{1,2}\s*[:：]\s*\d{2}\s*(?:a\.?m\.?|p\.?m\.?)"
