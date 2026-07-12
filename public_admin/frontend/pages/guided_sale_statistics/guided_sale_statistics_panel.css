@@ -20,9 +20,13 @@
 .ak-gss-actions .ak-gss-btn { border-color: #239fc8; color: #e9faff; background: #167fa6; }
 .ak-gss-actions .ak-gss-btn:hover { border-color: #47c7ef; background: #1b90ba; }
 #guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="save-source"],
-#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"] { height: 40px !important; border: 0 !important; border-radius: 12px !important; color: #001018 !important; background: linear-gradient(135deg, var(--accent), var(--accent-green)) !important; box-shadow: 0 6px 16px rgba(0, 212, 255, .22) !important; font-weight: 900; }
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"],
+#guidedSaleStatistics .ak-gss-policy button.ak-gss-btn[data-action="save-policy"] { border: 0 !important; border-radius: 12px !important; color: #001018 !important; background: linear-gradient(135deg, var(--accent), var(--accent-green)) !important; box-shadow: 0 6px 16px rgba(0, 212, 255, .22) !important; font-weight: 900; }
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="save-source"],
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"] { height: 40px !important; }
 #guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="save-source"]:hover,
-#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"]:hover { color: #001018 !important; background: linear-gradient(135deg, var(--accent), var(--accent-green)) !important; box-shadow: 0 8px 18px rgba(0, 212, 255, .3) !important; filter: brightness(1.05); }
+#guidedSaleStatistics .ak-gss-actions button.ak-gss-btn[data-action="start-scan"]:hover,
+#guidedSaleStatistics .ak-gss-policy button.ak-gss-btn[data-action="save-policy"]:hover { color: #001018 !important; background: linear-gradient(135deg, var(--accent), var(--accent-green)) !important; box-shadow: 0 8px 18px rgba(0, 212, 255, .3) !important; filter: brightness(1.05); }
 .ak-gss-error { border: 1px solid #d95c69; border-radius: 6px; background: rgba(217,92,105,.1); color: #f4a8b0; padding: 9px 11px; font-size: 13px; }
 .ak-gss-notice { position: relative; min-height: 122px; display: grid; place-items: center; overflow: hidden; border-color: #245f76; background: rgba(20,44,55,.54); padding: 20px 64px; text-align: center; }
 .ak-gss-notice::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: #4cc6e9; }
