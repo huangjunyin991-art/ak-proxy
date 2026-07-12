@@ -125,13 +125,17 @@ def extract_guided_sale_range_line(lines: list[str]) -> tuple[str, tuple[int, in
         line = normalize_line_text(raw_line)
         if "注册" not in line or "账户" not in line:
             continue
-        dates = [
-            (int(match.group(1)), int(match.group(2)), int(match.group(3)))
-            for match in DATE_KEY_RE.finditer(line)
-        ]
+        target_end = line.find(GUIDED_SALE_TARGET_SUFFIX)
+        if target_end < 0:
+            continue
+        target_end += len(GUIDED_SALE_TARGET_SUFFIX)
+        dates = list(DATE_KEY_RE.finditer(line[:target_end]))
         if len(dates) < 2:
             continue
-        return line, dates[0], dates[1]
+        start_match, end_match = dates[-2:]
+        start = (int(start_match.group(1)), int(start_match.group(2)), int(start_match.group(3)))
+        end = (int(end_match.group(1)), int(end_match.group(2)), int(end_match.group(3)))
+        return line[start_match.start():target_end], start, end
     return None
 
 

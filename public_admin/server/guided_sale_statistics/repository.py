@@ -10,6 +10,7 @@ OFFLINE_GRACE_SECONDS = 30 * 60
 PRESENCE_STALE_SECONDS = 60
 DEFAULT_CACHE_RETENTION_DAYS = 30
 GLOBAL_NOTICE_CACHE_SECONDS = 60 * 60
+GLOBAL_NOTICE_PARSE_VERSION = 2
 
 
 def _text(value: Any) -> str:
@@ -46,6 +47,7 @@ class GuidedSaleStatisticsRepository:
                         sale_count INTEGER NOT NULL DEFAULT 0,
                         title TEXT NOT NULL DEFAULT '',
                         guidance_time TEXT NOT NULL DEFAULT '',
+                        parse_version INTEGER NOT NULL DEFAULT 0,
                         target_line TEXT NOT NULL DEFAULT '',
                         start_date_key INTEGER NOT NULL DEFAULT 0,
                         end_date_key INTEGER NOT NULL DEFAULT 0,
@@ -152,6 +154,10 @@ class GuidedSaleStatisticsRepository:
                 await conn.execute(
                     "ALTER TABLE guided_sale_statistics_global_notice "
                     "ADD COLUMN IF NOT EXISTS guidance_time TEXT NOT NULL DEFAULT ''"
+                )
+                await conn.execute(
+                    "ALTER TABLE guided_sale_statistics_global_notice "
+                    "ADD COLUMN IF NOT EXISTS parse_version INTEGER NOT NULL DEFAULT 0"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_guided_sale_jobs_claim "
@@ -268,7 +274,7 @@ class GuidedSaleStatisticsRepository:
                 """
                 UPDATE guided_sale_statistics_global_notice
                 SET source_account = $1, source_user_id = '',
-                    notice_id = '', sale_count = 0, title = '', guidance_time = '', target_line = '',
+                    notice_id = '', sale_count = 0, title = '', guidance_time = '', parse_version = 0, target_line = '',
                     start_date_key = 0, end_date_key = 0, start_date_label = '', end_date_label = '',
                     notice_cached_at = NULL, refresh_state = CASE WHEN $1 = '' THEN 'unconfigured' ELSE 'pending' END,
                     refresh_after = NOW(), last_error = '', lease_owner = '', lease_expires_at = NULL,
@@ -297,6 +303,7 @@ class GuidedSaleStatisticsRepository:
                         notice_cached_at IS NULL
                         OR notice_cached_at < NOW() - ($2::int * INTERVAL '1 second')
                         OR COALESCE(guidance_time, '') = ''
+                        OR COALESCE(parse_version, 0) <> $4::int
                   )
                   AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
                 RETURNING *
@@ -304,6 +311,7 @@ class GuidedSaleStatisticsRepository:
                 _text(holder),
                 GLOBAL_NOTICE_CACHE_SECONDS,
                 bool(force_retry),
+                GLOBAL_NOTICE_PARSE_VERSION,
             )
         return dict(row) if row else None
 
@@ -318,6 +326,7 @@ class GuidedSaleStatisticsRepository:
                 UPDATE guided_sale_statistics_global_notice
                 SET source_user_id = $3, notice_id = $4, sale_count = $5, title = $6, guidance_time = $7,
                     target_line = $8, start_date_key = $9, end_date_key = $10, start_date_label = $11, end_date_label = $12,
+                    parse_version = $13,
                     notice_cached_at = NOW(), refresh_state = 'ready', refresh_after = NOW(), last_error = '',
                     lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
                 WHERE slot = 1 AND source_account = $2 AND lease_owner = $1
@@ -334,6 +343,7 @@ class GuidedSaleStatisticsRepository:
                 max(0, int(notice.get("end_date_key") or 0)),
                 _text(notice.get("start_date_label")),
                 _text(notice.get("end_date_label")),
+                GLOBAL_NOTICE_PARSE_VERSION,
             )
         return str(result).endswith("1")
 

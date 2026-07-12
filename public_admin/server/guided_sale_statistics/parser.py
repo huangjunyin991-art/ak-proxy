@@ -9,7 +9,12 @@ from ..notice_guidance.service import NoticeGuidanceService, extract_lines_from_
 
 _SALE_COUNT_RE = re.compile(r"第\s*(\d{1,5})\s*次\s*指导销售")
 _AUTH_ERROR_MARKERS = ("key", "userkey", "token", "login", "登录", "失效", "无效", "认证")
-_GUIDANCE_TIME_MARKERS = ("开曼群岛时间", "gmt-5", "gmt -5")
+_GUIDANCE_TIME_RE = re.compile(
+    r"(\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日?\s*\d{1,2}\s*[:：]\s*\d{2}\s*(?:a\.?m\.?|p\.?m\.?)"
+    r"\s*[-~—]\s*(?:\d{4}\s*年\s*)?\d{1,2}\s*月\s*\d{1,2}\s*日?\s*\d{1,2}\s*[:：]\s*\d{2}\s*(?:a\.?m\.?|p\.?m\.?)"
+    r"\s*[（(][^）)]*(?:开曼群岛时间|gmt\s*-?\s*5)[^）)]*[）)])",
+    re.IGNORECASE,
+)
 
 
 def _notice_list(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -65,13 +70,13 @@ def find_latest_guided_sale(payload: Mapping[str, Any]) -> dict[str, Any] | None
 
 
 def extract_guidance_time(notice: Mapping[str, Any]) -> str:
-    """Return the announcement's guidance-time line without mixing it with the sale window."""
+    """Extract only the Cayman guidance window when HTML has been collapsed into one line."""
     html = str(notice.get("Text") or notice.get("text") or "")
-    for line in extract_lines_from_html(html):
-        text = trim_string(line)
-        lowered = text.lower()
-        if text and any(marker in lowered for marker in _GUIDANCE_TIME_MARKERS):
-            return text
+    for line in extract_lines_from_html(html) or [html]:
+        match = _GUIDANCE_TIME_RE.search(trim_string(line))
+        if match is not None:
+            text = re.sub(r"\s*([-~—])\s*", r"\1", match.group(1))
+            return re.sub(r"(\d)\s+([ap]\.?(?:m\.?)?)", r"\1\2", text, flags=re.IGNORECASE)
     return ""
 
 

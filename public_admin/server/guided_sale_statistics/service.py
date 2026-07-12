@@ -14,6 +14,7 @@ from .parser import extract_auth_fields, find_latest_guided_sale, is_auth_error
 from .repository import (
     DEFAULT_CACHE_RETENTION_DAYS,
     GLOBAL_NOTICE_CACHE_SECONDS,
+    GLOBAL_NOTICE_PARSE_VERSION,
     OFFLINE_GRACE_SECONDS,
     GuidedSaleStatisticsRepository,
 )
@@ -211,6 +212,8 @@ class GuidedSaleStatisticsService:
             )
             needs_rebuild = (
                 trim_string(run.get("notice_id")) != trim_string(notice.get("notice_id"))
+                or int(run.get("start_date_key") or 0) != int(notice.get("start_date_key") or 0)
+                or int(run.get("end_date_key") or 0) != int(notice.get("end_date_key") or 0)
                 or trim_string(run.get("state")) in {"waiting_notice", "cancelled", "expired"}
                 or expired
             )
@@ -228,10 +231,15 @@ class GuidedSaleStatisticsService:
     @staticmethod
     def _global_notice_is_fresh(record: Mapping[str, Any]) -> bool:
         cached_at = record.get("notice_cached_at") if isinstance(record, Mapping) else None
+        try:
+            parse_version = int(record.get("parse_version") or 0)
+        except (TypeError, ValueError):
+            parse_version = 0
         return bool(
             trim_string(record.get("notice_id"))
             and trim_string(record.get("title"))
             and trim_string(record.get("guidance_time"))
+            and parse_version == GLOBAL_NOTICE_PARSE_VERSION
             and isinstance(cached_at, datetime)
             and (datetime.now() - cached_at).total_seconds() <= GLOBAL_NOTICE_CACHE_SECONDS
         )

@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from public_admin.server.guided_sale_statistics.parser import find_latest_guided_sale
+from public_admin.server.guided_sale_statistics.parser import extract_guidance_time, find_latest_guided_sale
 from public_admin.server.guided_sale_statistics.service import GuidedSaleStatisticsService
 
 
@@ -31,6 +31,14 @@ def test_find_latest_guided_sale_sorts_by_create_time_and_extracts_window():
     assert result["guidance_time"] == "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）"
     assert result["start_date_key"] == 20260601
     assert result["end_date_key"] == 20260630
+
+
+def test_extract_guidance_time_excludes_collapsed_notice_copy():
+    time_value = extract_guidance_time({
+        "Text": "全球AK玩家：2026年7月10日9：00am -7月10日20：00 pm（开曼群岛时间，GMT-5）将进行第19次指导销售本次指导销售规则为：2024年9月26日-2024年9月27日之间注册的账户"
+    })
+
+    assert time_value == "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）"
 
 
 def test_page_filter_keeps_window_matches_and_stops_after_older_page():
@@ -206,6 +214,7 @@ def _fresh_global_notice():
         "sale_count": 45,
         "title": "第45次指导销售公告",
         "guidance_time": "2026年7月10日9：00am-7月10日20：00pm（开曼群岛时间，GMT-5）",
+        "parse_version": 2,
         "target_line": "2026-06-01 至 2026-06-30",
         "start_date_key": 20260601,
         "end_date_key": 20260630,

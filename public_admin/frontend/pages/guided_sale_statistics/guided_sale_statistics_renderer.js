@@ -64,7 +64,7 @@
             return '<section class="ak-gss-notice ' + (failed ? 'is-error' : 'is-syncing') + '"><div class="ak-gss-notice-content"><h2>' + (failed ? '公告同步失败' : (syncing ? '正在同步公告' : '正在准备公告')) + '</h2><p>' + escapeHtml(failed || (syncing ? '正在读取全局绑定账号的公告。' : '公告将在打开模块时自动同步。')) + '</p></div><span class="ak-gss-notice-state">' + (failed ? '同步失败' : (syncing ? '同步中' : '待同步')) + '</span></section>';
         }
         var updateError = String(notice.error || '');
-        return '<section class="ak-gss-notice is-ready"><div class="ak-gss-notice-content"><p class="ak-gss-notice-detail"><span>指导时间：</span><strong>' + escapeHtml(notice.guidance_time || '--') + '</strong></p><p class="ak-gss-notice-detail"><span>指导周期：</span><strong>' + escapeHtml(guidancePeriod(notice)) + '</strong></p>' + (updateError ? '<p class="ak-gss-notice-error">公告更新失败：' + escapeHtml(updateError) + '</p>' : '') + '</div><span class="ak-gss-notice-state ' + (updateError ? 'is-error' : '') + '">' + (updateError ? '更新失败' : (notice.fresh ? '已缓存' : '待更新')) + '</span></section>';
+        return '<section class="ak-gss-notice is-ready"><div class="ak-gss-notice-content"><h2>第 ' + number(notice.sale_count) + ' 次指导销售</h2><p class="ak-gss-notice-detail"><span>指导时间：</span><strong>' + escapeHtml(notice.guidance_time || '--') + '</strong></p><p class="ak-gss-notice-detail"><span>指导周期：</span><strong>' + escapeHtml(guidancePeriod(notice)) + '</strong></p>' + (updateError ? '<p class="ak-gss-notice-error">公告更新失败：' + escapeHtml(updateError) + '</p>' : '') + '</div><span class="ak-gss-notice-state ' + (updateError ? 'is-error' : '') + '">' + (updateError ? '更新失败' : (notice.fresh ? '已缓存' : '待更新')) + '</span></section>';
     }
 
     function renderSourceSetting(data, loading) {

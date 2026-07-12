@@ -27,7 +27,7 @@
 .ak-gss-notice.is-error::before { background: #df7180; }
 .ak-gss-notice-content { min-width: 0; }
 .ak-gss-eyebrow { display: block; margin-bottom: 6px; color: #76cfee; font-size: 12px; font-weight: 700; }
-.ak-gss-notice h2 { margin: 0; color: var(--text-primary); font-size: 19px; font-weight: 700; line-height: 1.3; }
+.ak-gss-notice h2 { margin: 0; color: var(--text-primary); font-size: 25px; font-weight: 700; line-height: 1.3; }
 .ak-gss-notice p { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; }
 .ak-gss-notice-detail { display: flex; justify-content: center; gap: 8px; color: var(--text-secondary); font-size: 15px !important; line-height: 1.5; }
 .ak-gss-notice-detail span { color: #76cfee; font-weight: 700; white-space: nowrap; }

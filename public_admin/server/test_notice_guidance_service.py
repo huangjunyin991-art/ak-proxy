@@ -25,6 +25,8 @@ SCREENSHOT_NOTICE_HTML = """
 <p>多出的AK按注册时间的先后顺序依次售出</p>
 """
 
+COLLAPSED_NOTICE_HTML = "全球AK玩家：2026年7月10日9：00am -7月10日20：00 pm（开曼群岛时间，GMT-5）将进行第19次指导销售本次指导销售规则为：2024年9月26日-2024年9月27日之间注册的账户指导销售后："
+
 
 class FakeProvider:
     def __init__(self, pages):
@@ -136,6 +138,18 @@ def test_extract_guided_sale_window_supports_notice_markup_from_detail_page():
     assert info["target_line"] == "2024年9月23日-2024年9月25日之间注册的账户"
     assert info["start_date_key"] == 20240923
     assert info["end_date_key"] == 20240925
+
+
+def test_extract_guided_sale_window_uses_the_final_date_pair_when_notice_is_collapsed():
+    service = NoticeGuidanceService(provider=FakeProvider({}), page_interval_seconds=0.0)
+    info = service.extract_guided_sale_window(
+        {"Id": "604", "Title": "【AK第19次指导销售公告】", "Text": COLLAPSED_NOTICE_HTML}
+    )
+
+    assert info is not None
+    assert info["target_line"] == "2024年9月26日-2024年9月27日之间注册的账户"
+    assert info["start_date_key"] == 20240926
+    assert info["end_date_key"] == 20240927
 
 
 def test_analyze_notice_payload_returns_disabled_for_non_guided_sale_notice():
