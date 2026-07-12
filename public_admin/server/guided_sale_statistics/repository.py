@@ -200,6 +200,21 @@ class GuidedSaleStatisticsRepository:
                     "CREATE INDEX IF NOT EXISTS idx_guided_sale_presence_seen "
                     "ON guided_sale_statistics_presence(account_username, last_seen_at)"
                 )
+                await conn.execute(
+                    """
+                    UPDATE guided_sale_statistics_jobs j
+                    SET offline_since = NULL, next_attempt_at = NOW(), updated_at = NOW()
+                    WHERE j.state = 'pending'
+                      AND j.offline_since IS NOT NULL
+                      AND j.next_attempt_at > NOW()
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM guided_sale_statistics_presence_state ps
+                          WHERE ps.account_username = j.target_account
+                            AND ps.offline_since IS NOT NULL
+                      )
+                    """
+                )
             self._ready = True
 
     async def list_scope_accounts(self, owner_scope: str, is_super_admin: bool) -> list[dict[str, Any]]:
