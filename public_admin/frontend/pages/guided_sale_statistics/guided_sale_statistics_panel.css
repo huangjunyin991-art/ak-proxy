@@ -45,6 +45,7 @@
 .ak-gss-notice-error { color: #f2a4ae !important; }
 .ak-gss-notice-state { position: absolute; top: 15px; right: 15px; display: inline-flex; align-items: center; min-height: 24px; border: 1px solid rgba(85,216,160,.38); border-radius: 999px; color: #86e4b5; background: rgba(85,216,160,.1); padding: 0 9px; font-size: 12px; white-space: nowrap; }
 .ak-gss-notice-state.is-error { border-color: rgba(223,113,128,.42); color: #f2a4ae; background: rgba(223,113,128,.1); }
+.ak-gss-notice.is-ready .ak-gss-notice-state { display: none; }
 .ak-gss-notice.is-syncing .ak-gss-notice-state { border-color: rgba(83,185,231,.38); color: #86d3f3; background: rgba(83,185,231,.1); }
 .ak-gss-notice.is-error .ak-gss-notice-state { border-color: rgba(223,113,128,.42); color: #f2a4ae; background: rgba(223,113,128,.1); }
 .ak-gss-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
