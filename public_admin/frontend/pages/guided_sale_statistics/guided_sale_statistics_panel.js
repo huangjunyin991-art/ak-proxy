@@ -53,18 +53,36 @@
         });
     }
 
+    function startScan() {
+        if (!api) return;
+        state.loading = true;
+        render();
+        api.startScan().then(function(data) {
+            state.data = data || {};
+            state.error = '';
+            toast('子账号扫描任务已创建', 'success');
+        }).catch(function(error) {
+            state.error = error.message || '创建子账号扫描任务失败';
+            toast(state.error, 'error');
+        }).finally(function() {
+            state.loading = false;
+            render();
+            schedule();
+        });
+    }
+
     function saveSource() {
         var input = mount() && mount().querySelector('[data-field="source_account"]');
         var account = String(input && input.value || '').trim().toLowerCase();
         if (!account) {
-            state.error = '请输入公告来源账号';
+            state.error = '请输入全局绑定账号';
             render();
             return;
         }
         state.loading = true;
         render();
         api.saveSource(account).then(function() {
-            toast('公告来源账号已保存', 'success');
+            toast('全局绑定账号已保存', 'success');
             return api.dashboard();
         }).then(function(data) {
             state.data = data || {};
@@ -96,6 +114,7 @@
             if (!button) return;
             var action = button.getAttribute('data-action');
             if (action === 'refresh') triggerRefresh();
+            if (action === 'start-scan') startScan();
             if (action === 'save-source') saveSource();
             if (action === 'save-policy') savePolicy();
         });

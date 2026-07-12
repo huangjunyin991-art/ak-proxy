@@ -108,13 +108,17 @@ def test_dashboard_uses_global_notice_without_exposing_source_to_normal_admin():
     repository = _GlobalDashboardRepository()
     service = GuidedSaleStatisticsService(repository, auth_store=None, system_config=_SystemConfig())
 
-    async def cached_notice():
+    async def cached_notice(force_retry=False):
+        assert force_retry is False
         return _fresh_global_notice()
 
     service._ensure_global_notice = cached_notice
     result = asyncio.run(service.dashboard("operator-a", False))
 
     assert repository.dashboard_source == "system-source"
+    assert repository.discovery is None
+    result = asyncio.run(service.request_scan("operator-a", False))
+
     assert repository.discovery[1] == "10001"
     assert repository.discovery[3] == ["target-a"]
     assert result["source_account"] == ""
@@ -158,7 +162,8 @@ def test_global_refresh_reads_notice_without_checking_source_presence():
         async def get_global_notice(self):
             return dict(self.record)
 
-        async def claim_global_notice_refresh(self, holder):
+        async def claim_global_notice_refresh(self, holder, force_retry=False):
+            assert force_retry is False
             self.record["lease_owner"] = holder
             return dict(self.record)
 
@@ -214,3 +219,89 @@ def test_global_refresh_reads_notice_without_checking_source_presence():
     assert result["refresh_state"] == "ready"
     assert result["sale_count"] == 45
     assert result["notice_cached_at"] is not None
+
+
+def test_load_auth_allows_one_attempt_with_locally_expired_key():
+    class AuthStore:
+        def __init__(self):
+            self.allow_expired = None
+
+        async def get_ak_auth_state(self, account, allow_expired=False):
+            assert account == "system-source"
+            self.allow_expired = allow_expired
+            return {
+                "userkey": "saved-key",
+                "login_result": {"Data": {"UserID": "source-user"}},
+            }
+
+    auth_store = AuthStore()
+    service = GuidedSaleStatisticsService(repository=None, auth_store=auth_store, system_config=_SystemConfig())
+
+    auth = asyncio.run(service._load_auth("system-source"))
+
+    assert auth_store.allow_expired is True
+    assert auth == {"account": "system-source", "key": "saved-key", "user_id": "source-user"}
+
+
+def test_valid_cached_key_calls_notice_without_login_refresh():
+    class Repository:
+        pass
+
+    service = GuidedSaleStatisticsService(Repository(), auth_store=None, system_config=_SystemConfig())
+    calls = []
+
+    async def gated_post(client, identity, endpoint, data):
+        calls.append((identity, endpoint, dict(data)))
+        return {"Data": {"List": []}}
+
+    async def refresh_auth(*args, **kwargs):
+        raise AssertionError("a usable cached key must be tried before Login")
+
+    service._gated_post = gated_post
+    service._refresh_auth = refresh_auth
+    payload, auth = asyncio.run(service._call_with_one_refresh(
+        None,
+        "system-source",
+        {"account": "system-source", "key": "saved-key", "user_id": "source-user"},
+        endpoint="Notice_List",
+        data={"p": "1"},
+        refresh_attempted=False,
+        mark_refresh_attempted=lambda: None,
+    ))
+
+    assert payload == {"Data": {"List": []}}
+    assert auth["key"] == "saved-key"
+    assert calls == [("source-user", "Notice_List", {"p": "1", "key": "saved-key", "UserID": "source-user"})]
+
+
+def test_refresh_auth_prefers_existing_user_password_store():
+    class Repository:
+        async def get_account_password(self, account):
+            raise AssertionError("legacy password fallback should not be queried")
+
+    class AuthStore:
+        def __init__(self):
+            self.saved = None
+
+        async def get_user_password(self, account):
+            assert account == "system-source"
+            return "stored-password"
+
+        async def save_ak_auth_state(self, account, **kwargs):
+            self.saved = (account, kwargs)
+
+    auth_store = AuthStore()
+    service = GuidedSaleStatisticsService(Repository(), auth_store=auth_store, system_config=_SystemConfig())
+    sent = []
+
+    async def gated_post(client, identity, endpoint, data):
+        sent.append((identity, endpoint, dict(data)))
+        return {"Data": {"UserID": "source-user", "UserKey": "new-key"}}
+
+    service._gated_post = gated_post
+    auth = asyncio.run(service._refresh_auth(None, "system-source", {"user_id": "old-user"}))
+
+    assert auth == {"account": "system-source", "key": "new-key", "user_id": "source-user"}
+    assert sent[0][1] == "Login"
+    assert sent[0][2]["password"] == "stored-password"
+    assert auth_store.saved[0] == "system-source"

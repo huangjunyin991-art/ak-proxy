@@ -41,7 +41,8 @@
 
     window.AKGuidedSaleStatisticsApi = {
         dashboard: function() { return get('/dashboard'); },
-        refresh: function() { return post('/start', {}); },
+        refresh: function() { return post('/refresh', {}); },
+        startScan: function() { return post('/start', {}); },
         saveSource: function(sourceAccount) { return post('/source', { source_account: sourceAccount || '' }); },
         savePolicy: function(days) { return post('/policy', { cache_retention_days: days }); }
     };

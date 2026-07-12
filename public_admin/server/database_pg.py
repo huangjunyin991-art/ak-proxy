@@ -1395,8 +1395,9 @@ async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = N
         await _sync_account_id_spec(conn, _USER_STATS_ACCOUNT_ID_SPEC, username)
 
 
-async def get_ak_auth_state(username: str) -> Optional[Dict]:
-    return await load_ak_auth_state(username, check_expiry=True)
+async def get_ak_auth_state(username: str, allow_expired: bool = False) -> Optional[Dict]:
+    """Optionally retain a locally expired key for one upstream authentication attempt."""
+    return await load_ak_auth_state(username, check_expiry=not bool(allow_expired))
 
 
 async def ensure_account_identity(username: str) -> Dict[str, Any]:

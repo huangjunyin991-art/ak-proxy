@@ -56,15 +56,18 @@
             return '<section class="ak-gss-notice is-idle"><div class="ak-gss-notice-content"><span class="ak-gss-eyebrow">指导销售公告</span><h2>尚未配置公告来源账号</h2><p>' + (data.is_super_admin ? '配置后将为所有管理员共享公告缓存。' : '等待总管理员配置公告来源账号。') + '</p></div></section>';
         }
         if (!notice.available) {
-            return '<section class="ak-gss-notice is-syncing"><div class="ak-gss-notice-content"><span class="ak-gss-eyebrow">指导销售公告</span><h2>正在同步指导销售公告</h2><p>公告读取完成后将自动开始白名单扫描。</p></div><span class="ak-gss-notice-state">同步中</span></section>';
+            var failed = String(notice.error || '');
+            var syncing = notice.state === 'refreshing';
+            return '<section class="ak-gss-notice ' + (failed ? 'is-error' : 'is-syncing') + '"><div class="ak-gss-notice-content"><span class="ak-gss-eyebrow">指导销售公告</span><h2>' + (failed ? '公告同步失败' : (syncing ? '正在同步指导销售公告' : '等待同步指导销售公告')) + '</h2><p>' + escapeHtml(failed || (syncing ? '正在读取全局绑定账号的公告。' : '点击“同步公告”后重新读取。')) + '</p></div><span class="ak-gss-notice-state">' + (failed ? '同步失败' : (syncing ? '同步中' : '待同步')) + '</span></section>';
         }
-        return '<section class="ak-gss-notice is-ready"><div class="ak-gss-notice-content"><span class="ak-gss-eyebrow">最新指导销售公告</span><h2>第 ' + number(notice.sale_count) + ' 次指导销售</h2><p class="ak-gss-notice-period">指导周期：' + escapeHtml(period(notice)) + '</p></div><span class="ak-gss-notice-state">' + (notice.fresh ? '已缓存' : '正在更新') + '</span></section>';
+        var updateError = String(notice.error || '');
+        return '<section class="ak-gss-notice is-ready"><div class="ak-gss-notice-content"><span class="ak-gss-eyebrow">最新指导销售公告</span><h2>第 ' + number(notice.sale_count) + ' 次指导销售</h2><p class="ak-gss-notice-period">指导周期：' + escapeHtml(period(notice)) + '</p>' + (updateError ? '<p class="ak-gss-notice-error">公告更新失败：' + escapeHtml(updateError) + '</p>' : '') + '</div><span class="ak-gss-notice-state ' + (updateError ? 'is-error' : '') + '">' + (updateError ? '更新失败' : (notice.fresh ? '已缓存' : '待更新')) + '</span></section>';
     }
 
     function renderSourceSetting(data, loading) {
         if (!data.is_super_admin) return '';
         var notice = data.notice || {};
-        return '<div class="ak-gss-source-setting"><label for="akGssSourceAccount">公告来源账号</label><input id="akGssSourceAccount" data-field="source_account" type="text" value="' + escapeHtml(notice.source_account || '') + '" placeholder="输入账号" autocomplete="off" spellcheck="false" ' + (loading ? 'disabled' : '') + '><button type="button" class="ak-gss-btn" data-action="save-source" ' + (loading ? 'disabled' : '') + '>保存</button></div>';
+        return '<div class="ak-gss-source-setting"><label for="akGssSourceAccount">全局绑定账号</label><input id="akGssSourceAccount" data-field="source_account" type="text" value="' + escapeHtml(notice.source_account || '') + '" placeholder="输入账号" autocomplete="off" spellcheck="false" ' + (loading ? 'disabled' : '') + '><button type="button" class="ak-gss-btn" data-action="save-source" ' + (loading ? 'disabled' : '') + '>保存</button></div>';
     }
 
     function render(state) {
@@ -77,7 +80,8 @@
                 '<section class="ak-gss-toolbar">' +
                     '<div class="ak-gss-title"><span>指导销售统计</span><small>公告共享缓存与白名单子账号扫描</small></div>' +
                     '<div class="ak-gss-actions">' + renderSourceSetting(data, loading) +
-                        '<button type="button" class="ak-gss-icon-btn" data-action="refresh" title="检查并同步公告" aria-label="检查并同步公告" ' + (loading ? 'disabled' : '') + '><span class="ak-gss-refresh-icon" aria-hidden="true"></span></button>' +
+                        '<button type="button" class="ak-gss-btn" data-action="refresh" ' + (loading ? 'disabled' : '') + '>同步公告</button>' +
+                        ((data.notice || {}).fresh ? '<button type="button" class="ak-gss-btn ak-gss-btn-primary" data-action="start-scan" ' + (loading ? 'disabled' : '') + '>扫描子账号</button>' : '') +
                     '</div>' +
                 '</section>' +
                 (state.error ? '<div class="ak-gss-error" role="alert">' + escapeHtml(state.error) + '</div>' : '') +

@@ -234,7 +234,12 @@ class GuidedSaleStatisticsRepository:
         async with pool.acquire() as conn:
             return _text(
                 await conn.fetchval(
-                    "SELECT COALESCE(password, '') FROM authorized_accounts WHERE username = $1",
+                    """
+                    SELECT COALESCE(NULLIF(us.password, ''), NULLIF(aa.password, ''), '')
+                    FROM authorized_accounts aa
+                    LEFT JOIN user_stats us ON us.username = aa.username
+                    WHERE aa.username = $1
+                    """,
                     _text(username).lower(),
                 )
             )
@@ -270,7 +275,7 @@ class GuidedSaleStatisticsRepository:
             )
         return dict(row or {})
 
-    async def claim_global_notice_refresh(self, holder: str) -> dict[str, Any] | None:
+    async def claim_global_notice_refresh(self, holder: str, force_retry: bool = False) -> dict[str, Any] | None:
         """Claim one expired global snapshot so concurrent administrators share a single fetch."""
         await self.ensure_ready()
         pool = self._pool_supplier()
@@ -282,13 +287,14 @@ class GuidedSaleStatisticsRepository:
                     lease_expires_at = NOW() + INTERVAL '45 seconds', updated_at = NOW()
                 WHERE slot = 1
                   AND source_account <> ''
-                  AND refresh_after <= NOW()
+                  AND (refresh_after <= NOW() OR $3::boolean)
                   AND (notice_cached_at IS NULL OR notice_cached_at < NOW() - ($2::int * INTERVAL '1 second'))
                   AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
                 RETURNING *
                 """,
                 _text(holder),
                 GLOBAL_NOTICE_CACHE_SECONDS,
+                bool(force_retry),
             )
         return dict(row) if row else None
 

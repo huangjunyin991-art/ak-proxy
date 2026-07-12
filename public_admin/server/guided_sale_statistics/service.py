@@ -100,16 +100,28 @@ class GuidedSaleStatisticsService:
         return self._serialize_global_notice(record, include_source=True)
 
     async def request_scan(self, owner_scope: str, is_super_admin: bool, source_account: str = "") -> dict[str, Any]:
-        """Retained for older clients; dashboard loading now creates the scan automatically."""
-        return await self.dashboard(owner_scope, is_super_admin)
+        """Create this administrator's scan only after an explicit command."""
+        return await self.dashboard(owner_scope, is_super_admin, start_scan=True)
 
-    async def dashboard(self, owner_scope: str, is_super_admin: bool, source_account: str = "") -> dict[str, Any]:
+    async def refresh_notice(self, owner_scope: str, is_super_admin: bool) -> dict[str, Any]:
+        """Retry an expired or failed announcement fetch without creating scan jobs."""
+        return await self.dashboard(owner_scope, is_super_admin, force_notice_retry=True)
+
+    async def dashboard(
+        self,
+        owner_scope: str,
+        is_super_admin: bool,
+        source_account: str = "",
+        *,
+        start_scan: bool = False,
+        force_notice_retry: bool = False,
+    ) -> dict[str, Any]:
         policy = await self.get_policy()
         accounts = await self.repository.list_scope_accounts(owner_scope, is_super_admin)
-        global_notice = await self._ensure_global_notice()
+        global_notice = await self._ensure_global_notice(force_retry=force_notice_retry)
         source = trim_string(global_notice.get("source_account")).lower()
         fresh_notice = self._global_notice_is_fresh(global_notice)
-        if fresh_notice:
+        if fresh_notice and start_scan:
             await self._ensure_owner_scan(owner_scope, source, global_notice, accounts, policy["cache_retention_days"])
         data = await self.repository.dashboard(owner_scope, source, policy["cache_retention_days"]) if source else {
             "run": None, "jobs": [], "rows": []
@@ -135,12 +147,12 @@ class GuidedSaleStatisticsService:
             },
         }
 
-    async def _ensure_global_notice(self) -> dict[str, Any]:
+    async def _ensure_global_notice(self, force_retry: bool = False) -> dict[str, Any]:
         current = await self.repository.get_global_notice()
         if self._global_notice_is_fresh(current):
             return current
         holder = "notice-refresh-" + uuid.uuid4().hex
-        claimed = await self.repository.claim_global_notice_refresh(holder)
+        claimed = await self.repository.claim_global_notice_refresh(holder, force_retry=force_retry)
         if claimed is None:
             return await self.repository.get_global_notice()
         source_account = trim_string(claimed.get("source_account")).lower()
@@ -232,7 +244,25 @@ class GuidedSaleStatisticsService:
             "end_date_label": trim_string(record.get("end_date_label")),
             "cached_at": self._serialize_time(cached_at),
             "source_account": trim_string(record.get("source_account")) if include_source else "",
+            "error": self._notice_error_message(trim_string(record.get("last_error"))),
         }
+
+    @staticmethod
+    def _notice_error_message(error: str) -> str:
+        text = trim_string(error).lower()
+        if not text:
+            return ""
+        if "no saved password" in text:
+            return "全局绑定账号缺少可用登录凭据"
+        if "no longer active" in text:
+            return "全局绑定账号已失效"
+        if "no complete guided sale notice" in text:
+            return "未找到可解析的指导销售公告"
+        if "timeout" in text:
+            return "上游公告请求超时"
+        if "auth" in text or "key" in text or "login" in text:
+            return "全局绑定账号认证失败"
+        return "公告同步失败，请稍后重试"
 
     async def handle_presence_event(self, event: str, username: str, connection_id: str) -> None:
         account = trim_string(username).lower()
@@ -354,7 +384,10 @@ class GuidedSaleStatisticsService:
         return True, offline_since, 0
 
     async def _load_auth(self, account: str) -> dict[str, str]:
-        state = await self.auth_store.get_ak_auth_state(account)
+        try:
+            state = await self.auth_store.get_ak_auth_state(account, allow_expired=True)
+        except TypeError:
+            state = await self.auth_store.get_ak_auth_state(account)
         if not isinstance(state, Mapping):
             return {"account": account, "key": "", "user_id": ""}
         payload = state.get("login_result") if isinstance(state.get("login_result"), Mapping) else {}
@@ -391,7 +424,12 @@ class GuidedSaleStatisticsService:
             return await self._gated_post(client, auth["user_id"] or account, endpoint, request_data), auth
 
     async def _refresh_auth(self, client, account: str, current: Mapping[str, str]) -> dict[str, str]:
-        password = await self.repository.get_account_password(account)
+        password = ""
+        get_user_password = getattr(self.auth_store, "get_user_password", None)
+        if callable(get_user_password):
+            password = trim_string(await get_user_password(account))
+        if not password:
+            password = await self.repository.get_account_password(account)
         if not password:
             raise RuntimeError("no saved password available for one-time credential refresh")
         payload = await self._gated_post(

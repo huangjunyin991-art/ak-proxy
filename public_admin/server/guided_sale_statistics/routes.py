@@ -51,6 +51,13 @@ def create_guided_sale_statistics_router(
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
 
+    @router.post("/refresh")
+    async def refresh_notice(request: Request):
+        owner_scope, is_super_admin, error_response = await identity(request)
+        if error_response is not None:
+            return error_response
+        return await service.refresh_notice(owner_scope, is_super_admin)
+
     @router.post("/source")
     async def save_source(request: Request):
         owner_scope, is_super_admin, error_response = await identity(request)

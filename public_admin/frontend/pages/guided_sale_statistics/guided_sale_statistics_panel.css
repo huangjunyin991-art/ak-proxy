@@ -10,27 +10,31 @@
 .ak-gss-source-setting input, .ak-gss-policy input { height: 36px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); background: var(--bg-primary); padding: 0 10px; outline: 0; font: inherit; font-size: 13px; }
 .ak-gss-source-setting input { width: 180px; }
 .ak-gss-source-setting input:focus, .ak-gss-policy input:focus { border-color: #53b9e7; box-shadow: 0 0 0 3px rgba(83,185,231,.13); }
-.ak-gss-btn, .ak-gss-icon-btn { height: 36px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); background: var(--bg-primary); cursor: pointer; font: inherit; font-size: 13px; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.ak-gss-btn { height: 36px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); background: var(--bg-primary); cursor: pointer; font: inherit; font-size: 13px; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
 .ak-gss-btn { padding: 0 12px; }
-.ak-gss-btn:hover, .ak-gss-icon-btn:hover { border-color: #53b9e7; background: rgba(83,185,231,.09); }
-.ak-gss-btn:active, .ak-gss-icon-btn:active { transform: translateY(1px); }
-.ak-gss-btn:disabled, .ak-gss-icon-btn:disabled { cursor: not-allowed; opacity: .5; }
-.ak-gss-icon-btn { width: 36px; padding: 0; display: grid; place-items: center; }
-.ak-gss-refresh-icon { width: 13px; height: 13px; display: block; border: 2px solid currentColor; border-left-color: transparent; border-radius: 50%; position: relative; }
-.ak-gss-refresh-icon::after { content: ''; position: absolute; right: -3px; top: -3px; width: 5px; height: 5px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; }
+.ak-gss-btn:hover { border-color: #53b9e7; background: rgba(83,185,231,.09); }
+.ak-gss-btn:active { transform: translateY(1px); }
+.ak-gss-btn:disabled { cursor: not-allowed; opacity: .5; }
+.ak-gss-btn-primary { border-color: #239fc8; color: #e9faff; background: #167fa6; }
+.ak-gss-btn-primary:hover { border-color: #47c7ef; background: #1b90ba; }
 .ak-gss-error { border: 1px solid #d95c69; border-radius: 6px; background: rgba(217,92,105,.1); color: #f4a8b0; padding: 9px 11px; font-size: 13px; }
 .ak-gss-notice { position: relative; min-height: 122px; display: grid; place-items: center; overflow: hidden; border-color: #245f76; background: rgba(20,44,55,.54); padding: 20px 64px; text-align: center; }
 .ak-gss-notice::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: #4cc6e9; }
 .ak-gss-notice.is-idle { border-color: #796135; background: rgba(65,52,28,.28); }
 .ak-gss-notice.is-idle::before { background: #d5a95c; }
 .ak-gss-notice.is-syncing { border-color: #356479; }
+.ak-gss-notice.is-error { border-color: #98515b; background: rgba(83, 33, 40, .38); }
+.ak-gss-notice.is-error::before { background: #df7180; }
 .ak-gss-notice-content { min-width: 0; }
 .ak-gss-eyebrow { display: block; margin-bottom: 6px; color: #76cfee; font-size: 12px; font-weight: 700; }
 .ak-gss-notice h2 { margin: 0; color: var(--text-primary); font-size: 25px; font-weight: 700; line-height: 1.3; }
 .ak-gss-notice p { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; }
 .ak-gss-notice-period { color: #c9e8f4 !important; font-size: 15px !important; }
+.ak-gss-notice-error { color: #f2a4ae !important; }
 .ak-gss-notice-state { position: absolute; top: 15px; right: 15px; display: inline-flex; align-items: center; min-height: 24px; border: 1px solid rgba(85,216,160,.38); border-radius: 999px; color: #86e4b5; background: rgba(85,216,160,.1); padding: 0 9px; font-size: 12px; white-space: nowrap; }
+.ak-gss-notice-state.is-error { border-color: rgba(223,113,128,.42); color: #f2a4ae; background: rgba(223,113,128,.1); }
 .ak-gss-notice.is-syncing .ak-gss-notice-state { border-color: rgba(83,185,231,.38); color: #86d3f3; background: rgba(83,185,231,.1); }
+.ak-gss-notice.is-error .ak-gss-notice-state { border-color: rgba(223,113,128,.42); color: #f2a4ae; background: rgba(223,113,128,.1); }
 .ak-gss-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .ak-gss-metrics > div { min-height: 74px; display: grid; align-content: space-between; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-secondary); padding: 11px 12px; }
 .ak-gss-metrics span { color: var(--text-secondary); font-size: 12px; }
