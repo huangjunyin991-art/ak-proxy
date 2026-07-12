@@ -40,8 +40,24 @@
     function renderRows(rows) {
         var list = Array.isArray(rows) ? rows : [];
         if (!list.length) return '<tr><td colspan="3" class="ak-gss-empty">暂无已匹配的子账号</td></tr>';
-        return list.map(function(row) {
-            return '<tr><td>' + escapeHtml(row.target_account) + '</td><td><strong>' + escapeHtml(row.child_account) + '</strong></td><td>' + escapeHtml(row.create_time || '--') + '</td></tr>';
+        var groups = {};
+        list.forEach(function(row) {
+            var account = String(row.target_account || '');
+            if (!account) return;
+            if (!groups[account]) groups[account] = [];
+            groups[account].push(row);
+        });
+        return Object.keys(groups).sort().map(function(account) {
+            var children = groups[account];
+            var accounts = children.map(function(row) {
+                return '<span>' + escapeHtml(row.child_account) + '</span>';
+            }).join('');
+            var dates = children.map(function(row) {
+                return '<span>' + escapeHtml(row.create_time || '--') + '</span>';
+            }).join('');
+            return '<tr><td><strong>' + escapeHtml(account) + '</strong></td>' +
+                '<td><div class="ak-gss-row-stack ak-gss-child-account">' + accounts + '</div></td>' +
+                '<td><div class="ak-gss-row-stack ak-gss-child-time">' + dates + '</div></td></tr>';
         }).join('');
     }
 
