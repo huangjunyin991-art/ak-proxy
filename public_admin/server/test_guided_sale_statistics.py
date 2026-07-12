@@ -51,6 +51,116 @@ def test_page_filter_keeps_window_matches_and_stops_after_older_page():
     assert reached_before_start is True
 
 
+def test_statistics_reuses_completed_notice_cache_before_online_wait():
+    class Repository:
+        def __init__(self):
+            self.user_ids = []
+            self.commits = []
+
+        async def get_scoped_account(self, owner_scope, is_super_admin, account):
+            assert (owner_scope, is_super_admin, account) == ("operator-a", False, "target-a")
+            return {"username": account}
+
+        async def set_job_user_id(self, job_id, user_id):
+            self.user_ids.append((job_id, user_id))
+
+        async def commit_page(self, job_id, rows, next_page, completed):
+            self.commits.append((job_id, list(rows), next_page, completed))
+
+        async def is_account_online(self, account):
+            raise AssertionError("cache reuse must not wait for the account to go offline")
+
+    class AuthStore:
+        async def get_ak_auth_state(self, account, allow_expired=False):
+            assert (account, allow_expired) == ("target-a", True)
+            return {"userkey": "cached-key", "login_result": {"UserData": {"Id": "target-user"}}}
+
+    class NoticeCache:
+        async def get_completed_scan_for_user(self, user_id, notice_id, start_date_key, end_date_key):
+            assert (user_id, notice_id, start_date_key, end_date_key) == ("target-user", "notice-19", 20240926, 20240927)
+            return {
+                "rows": [{"account": "child-a", "createTime": "2024年9月26日"}],
+                "pages_scanned": 2,
+            }
+
+    repository = Repository()
+    service = GuidedSaleStatisticsService(
+        repository, auth_store=AuthStore(), system_config=_SystemConfig(), notice_cache_repository=NoticeCache()
+    )
+    asyncio.run(service._process_job({
+        "id": 7, "owner_scope": "operator-a", "target_account": "target-a", "target_user_id": "",
+        "notice_id": "notice-19", "start_date_key": 20240926, "end_date_key": 20240927, "next_page": 1,
+    }))
+
+    assert repository.user_ids == [(7, "target-user")]
+    assert repository.commits == [(7, [{"account": "child-a", "createTime": "2024年9月26日"}], 3, True)]
+
+
+def test_completed_statistics_scan_writes_to_shared_notice_cache():
+    class Repository:
+        async def get_job_rows(self, job_id):
+            assert job_id == 7
+            return [{"account": "child-a", "createTime": "2024年9月26日"}]
+
+    class NoticeCache:
+        def __init__(self):
+            self.saved = None
+
+        async def save_completed_scan(self, scope, result):
+            self.saved = (dict(scope), dict(result))
+
+    notice_cache = NoticeCache()
+    service = GuidedSaleStatisticsService(
+        Repository(), auth_store=None, system_config=_SystemConfig(), notice_cache_repository=notice_cache
+    )
+    asyncio.run(service._save_shared_completed_scan(
+        {
+            "target_account": "target-a", "notice_id": "notice-19", "title": "指导销售公告",
+            "target_line": "2024年9月26日-2024年9月27日之间注册的账户",
+            "start_date_key": 20240926, "end_date_key": 20240927,
+            "start_date_label": "2024年9月26日", "end_date_label": "2024年9月27日",
+        },
+        7,
+        {"account": "target-a", "key": "cached-key", "user_id": "target-user"},
+        2,
+        [{"MemberNo": "child-a"}],
+        False,
+    ))
+
+    assert notice_cache.saved is not None
+    scope, result = notice_cache.saved
+    assert scope["viewer_user_id"] == "target-user"
+    assert scope["notice_id"] == "notice-19"
+    assert result["accounts"] == ["child-a"]
+    assert result["stop_reason"] == "page_not_full"
+
+
+def test_statistics_defers_when_shared_cache_preparation_fails():
+    class Repository:
+        def __init__(self):
+            self.deferred = []
+
+        async def get_scoped_account(self, owner_scope, is_super_admin, account):
+            return {"username": account}
+
+        async def defer_job(self, job_id, seconds, *, offline_since=None, error=""):
+            self.deferred.append((job_id, seconds, offline_since, error))
+
+    class AuthStore:
+        async def get_ak_auth_state(self, account, allow_expired=False):
+            raise RuntimeError("local auth state unavailable")
+
+    repository = Repository()
+    service = GuidedSaleStatisticsService(repository, auth_store=AuthStore(), system_config=_SystemConfig())
+    offline_since = datetime.now() - timedelta(minutes=8)
+    asyncio.run(service._process_job({
+        "id": 8, "owner_scope": "operator-a", "target_account": "target-a",
+        "offline_since": offline_since,
+    }))
+
+    assert repository.deferred == [(8, 300, offline_since, "local auth state unavailable")]
+
+
 class _SystemConfig:
     async def get(self, key, default):
         return default

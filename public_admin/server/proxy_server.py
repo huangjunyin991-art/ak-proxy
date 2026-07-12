@@ -699,6 +699,7 @@ except Exception as e:
 
 try:
     from .notice_guidance import create_notice_guidance_router
+    from .notice_guidance.repository import NoticeGuidanceCacheRepository
     from .notice_guidance.subaccount_pause import (
         DEFAULT_MANUAL_MY_SUBACCOUNT_PAUSE_SECONDS,
         NOTICE_GUIDANCE_INTERNAL_HEADER,
@@ -707,6 +708,7 @@ try:
     _NOTICE_GUIDANCE_IMPORT_ERROR = None
 except Exception as e:
     create_notice_guidance_router = None
+    NoticeGuidanceCacheRepository = None
     DEFAULT_MANUAL_MY_SUBACCOUNT_PAUSE_SECONDS = 60.0
     NOTICE_GUIDANCE_INTERNAL_HEADER = "x-ak-notice-guidance"
     notice_guidance_my_subaccount_pause_coordinator = None
@@ -6829,6 +6831,7 @@ if (
             auth_store=db,
             system_config=db.system_config,
             logger=logger,
+            notice_cache_repository=(NoticeGuidanceCacheRepository(db._get_pool) if NoticeGuidanceCacheRepository else None),
         )
         online_manager.add_presence_listener(guided_sale_statistics_service.handle_presence_event)
         app.include_router(create_guided_sale_statistics_router(

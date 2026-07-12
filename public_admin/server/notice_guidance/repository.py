@@ -99,6 +99,44 @@ class NoticeGuidanceCacheRepository:
             )
         if not row:
             return None
+        return self._decode_scan_row(row)
+
+    async def get_completed_scan_for_user(
+        self, viewer_user_id: str, notice_id: str, start_date_key: int, end_date_key: int
+    ) -> dict[str, Any] | None:
+        """Find an account's completed result without coupling reuse to a rotated key."""
+        user_id = _trim_string(viewer_user_id)
+        notice = _trim_string(notice_id)
+        start = max(0, int(start_date_key or 0))
+        end = max(0, int(end_date_key or 0))
+        if not user_id or not notice or not start or not end:
+            return None
+        await self.ensure_ready()
+        await self._maybe_cleanup_expired()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT accounts_json, rows_json, pages_scanned, stop_reason, completed_at
+                FROM notice_guided_sale_account_cache
+                WHERE viewer_user_id = $1
+                  AND notice_id = $2
+                  AND start_date_key = $3
+                  AND end_date_key = $4
+                  AND completed_at >= NOW() - ($5::int * INTERVAL '1 day')
+                ORDER BY completed_at DESC
+                LIMIT 1
+                """,
+                user_id,
+                notice,
+                start,
+                end,
+                self._retention_days,
+            )
+        return self._decode_scan_row(row) if row else None
+
+    @staticmethod
+    def _decode_scan_row(row: Mapping[str, Any]) -> dict[str, Any]:
         accounts = [
             _trim_string(account)
             for account in _load_json_array(row["accounts_json"])

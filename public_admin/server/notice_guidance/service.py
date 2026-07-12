@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import re
 from html.parser import HTMLParser
 from typing import Any
 
 from .provider import DEFAULT_PAGE_SIZE, NoticeGuidanceProvider
 from .repository import NoticeGuidanceCacheRepository
+from .cache_scope import build_guided_sale_cache_scope
 from .subaccount_pause import (
     NoticeGuidanceMySubaccountPauseCoordinator,
     notice_guidance_my_subaccount_pause_coordinator,
@@ -263,27 +263,7 @@ class NoticeGuidanceService:
 
     @staticmethod
     def build_cache_scope(info: dict[str, Any], auth: dict[str, str]) -> dict[str, Any]:
-        notice_id = trim_string(info.get("notice_id"))
-        if notice_id:
-            notice_key = f"id:{notice_id}"
-        else:
-            fallback = "\x00".join([
-                trim_string(info.get("title")),
-                trim_string(info.get("target_line")),
-                trim_string(info.get("start_date_label")),
-                trim_string(info.get("end_date_label")),
-            ])
-            notice_key = "fallback:" + hashlib.sha256(fallback.encode("utf-8")).hexdigest()
-        return {
-            "viewer_user_id": trim_string(auth.get("user_id")),
-            "auth_key_fingerprint": hashlib.sha256(
-                trim_string(auth.get("key")).encode("utf-8")
-            ).hexdigest(),
-            "notice_key": notice_key,
-            "notice_id": notice_id,
-            "start_date_key": int(info.get("start_date_key") or 0),
-            "end_date_key": int(info.get("end_date_key") or 0),
-        }
+        return build_guided_sale_cache_scope(info, auth)
 
     async def _load_cached_scan(self, cache_scope: dict[str, Any]) -> dict[str, Any] | None:
         if self.cache_repository is None:

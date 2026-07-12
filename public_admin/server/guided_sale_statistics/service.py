@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from ..notice_guidance.provider import DEFAULT_PAGE_SIZE, NoticeGuidanceProvider, make_v
 from ..notice_guidance.service import parse_date_key, trim_string
+from ..notice_guidance.cache_scope import build_guided_sale_cache_scope
 from .parser import extract_auth_fields, find_latest_guided_sale, is_auth_error
 from .repository import (
     DEFAULT_CACHE_RETENTION_DAYS,
@@ -31,11 +32,15 @@ class RpcSlotBusy(RuntimeError):
 class GuidedSaleStatisticsService:
     """Owns guided-sale jobs; API calls are serialized and resumable by page."""
 
-    def __init__(self, repository: GuidedSaleStatisticsRepository, auth_store, system_config, logger=None) -> None:
+    def __init__(
+        self, repository: GuidedSaleStatisticsRepository, auth_store, system_config, logger=None,
+        notice_cache_repository=None,
+    ) -> None:
         self.repository = repository
         self.auth_store = auth_store
         self.system_config = system_config
         self.logger = logger
+        self.notice_cache_repository = notice_cache_repository
         self.provider = NoticeGuidanceProvider()
         self.instance_id = "guided-sale-" + uuid.uuid4().hex
         self._task: asyncio.Task | None = None
@@ -339,13 +344,32 @@ class GuidedSaleStatisticsService:
         if await self.repository.get_scoped_account(owner_scope, is_super_admin, target_account) is None:
             await self.repository.cancel_job(job_id, "target account no longer in whitelist scope")
             return
+        try:
+            auth = await self._load_auth(target_account)
+            target_user_id = auth["user_id"] or trim_string(job.get("target_user_id"))
+            cached = await self._load_shared_completed_scan(job, target_user_id)
+            if cached is not None:
+                await self.repository.set_job_user_id(job_id, target_user_id)
+                await self.repository.commit_page(
+                    job_id,
+                    cached["rows"],
+                    max(1, int(job.get("next_page") or 1), int(cached.get("pages_scanned") or 0) + 1),
+                    completed=True,
+                )
+                self._wake.set()
+                return
+        except Exception as exc:
+            await self.repository.defer_job(
+                job_id, RETRY_SECONDS, offline_since=job.get("offline_since"), error=str(exc)
+            )
+            self._log("shared cache preparation failed account=%s error=%s", target_account, str(exc)[:300])
+            return
         ready, offline_since, delay = await self._offline_window_ready(target_account, job.get("offline_since"))
         if not ready:
             await self.repository.defer_job(job_id, delay, offline_since=offline_since)
             return
         try:
             async with self.provider.build_client() as client:
-                auth = await self._load_auth(target_account)
                 page = max(1, int(job.get("next_page") or 1))
                 payload, auth = await self._call_with_one_refresh(
                     client,
@@ -365,12 +389,72 @@ class GuidedSaleStatisticsService:
             )
             completed = not result["rows"] or len(result["rows"]) < DEFAULT_PAGE_SIZE or reached_before_start
             await self.repository.commit_page(job_id, matches, page + 1, completed)
+            if completed:
+                await self._save_shared_completed_scan(job, job_id, auth, page, result["rows"], reached_before_start)
             self._wake.set()
         except RpcSlotBusy:
             await self.repository.defer_job(job_id, 5, offline_since=offline_since)
         except Exception as exc:
             await self.repository.defer_job(job_id, RETRY_SECONDS, offline_since=offline_since, error=str(exc))
             self._log("subaccount scan failed account=%s error=%s", target_account, str(exc)[:300])
+
+    async def _load_shared_completed_scan(
+        self, job: Mapping[str, Any], target_user_id: str
+    ) -> dict[str, Any] | None:
+        repository = self.notice_cache_repository
+        notice_id = trim_string(job.get("notice_id"))
+        if repository is None or not target_user_id or not notice_id:
+            return None
+        try:
+            return await repository.get_completed_scan_for_user(
+                target_user_id,
+                notice_id,
+                int(job.get("start_date_key") or 0),
+                int(job.get("end_date_key") or 0),
+            )
+        except Exception as exc:
+            self._log("shared cache lookup failed account=%s error=%s", job.get("target_account"), str(exc)[:300])
+            return None
+
+    async def _save_shared_completed_scan(
+        self,
+        job: Mapping[str, Any],
+        job_id: int,
+        auth: Mapping[str, str],
+        page: int,
+        page_rows: list[Mapping[str, Any]],
+        reached_before_start: bool,
+    ) -> None:
+        repository = self.notice_cache_repository
+        if repository is None or not trim_string(auth.get("user_id")) or not trim_string(auth.get("key")):
+            return
+        info = {
+            "notice_id": trim_string(job.get("notice_id")),
+            "title": trim_string(job.get("title")),
+            "target_line": trim_string(job.get("target_line")),
+            "start_date_key": int(job.get("start_date_key") or 0),
+            "end_date_key": int(job.get("end_date_key") or 0),
+            "start_date_label": trim_string(job.get("start_date_label")),
+            "end_date_label": trim_string(job.get("end_date_label")),
+        }
+        if not info["notice_id"]:
+            return
+        try:
+            rows = await self.repository.get_job_rows(job_id)
+            stop_reason = "page_empty" if not page_rows else (
+                "reached_before_start" if reached_before_start else "page_not_full"
+            )
+            await repository.save_completed_scan(
+                build_guided_sale_cache_scope(info, auth),
+                {
+                    "accounts": [trim_string(row.get("account")) for row in rows],
+                    "rows": rows,
+                    "pages_scanned": page,
+                    "stop_reason": stop_reason,
+                },
+            )
+        except Exception as exc:
+            self._log("shared cache write failed account=%s error=%s", job.get("target_account"), str(exc)[:300])
 
     async def _offline_window_ready(
         self, account: str, offline_since: datetime | None

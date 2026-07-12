@@ -749,6 +749,24 @@ class GuidedSaleStatisticsRepository:
                     int(job_id),
                 )
 
+    async def get_job_rows(self, job_id: int) -> list[dict[str, str]]:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT child_account, create_time
+                FROM guided_sale_statistics_rows
+                WHERE job_id = $1
+                ORDER BY child_account
+                """,
+                int(job_id),
+            )
+        return [
+            {"account": _text(row["child_account"]), "createTime": _text(row["create_time"])}
+            for row in rows
+        ]
+
     async def is_account_online(self, username: str) -> bool:
         await self.ensure_ready()
         pool = self._pool_supplier()
