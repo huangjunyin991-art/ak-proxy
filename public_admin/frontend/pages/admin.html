@@ -12000,20 +12000,18 @@
             
             try {
                 // 同时请求远程使用日志和本地操作日志
-                const [remoteRes] = await Promise.all([
-                    fetch(`${API_BASE}/admin/api/license/logs?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
-                        headers: getLicenseHeaders()
-                    }).catch(() => null)
-                ]);
+                const auditRes = await fetch(`${API_BASE}/admin/api/license/logs?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
+                    headers: getLicenseHeaders()
+                }).catch(() => null);
                 
                 let allRows = [];
                 let total = 0;
                 
                 // 远程日志
-                if (remoteRes && remoteRes.ok) {
-                    const remoteData = await remoteRes.json();
-                    if (!remoteData.error && remoteData.data) {
-                        const items = remoteData.data.items || remoteData.data || [];
+                if (auditRes && auditRes.ok) {
+                    const auditData = await auditRes.json();
+                    if (!auditData.error && auditData.data) {
+                        const items = auditData.data.items || auditData.data || [];
                         if (Array.isArray(items)) {
                             allRows = items.map(r => ({
                                 time: r.timestamp || r.created_at || '',
@@ -12022,7 +12020,7 @@
                                 detail: r.details || r.message || r.machine_id || '',
                                 operator: r.client_ip || r.ip || '-'
                             }));
-                            total = remoteData.data.total || items.length;
+                            total = auditData.data.total || items.length;
                         }
                     }
                 }
