@@ -11,8 +11,9 @@ WorkingDirectory=/home/ubuntu/ak-proxy
 # Put NOTIFY_CENTER_INTERNAL_SECRET in /etc/ak-proxy.env
 EnvironmentFile=-/etc/ak-proxy.env
 
-# venv + run entrypoint
-ExecStart=/home/ubuntu/ak-proxy/venv/bin/python -m public_admin.server.proxy_server
+# Generate missing deployment secrets, then run the server with the generated values.
+# Existing values are preserved; an explicitly empty signing key fails closed.
+ExecStart=/home/ubuntu/ak-proxy/venv/bin/python /home/ubuntu/ak-proxy/deploy/systemd/ak_proxy_bootstrap.py
 Restart=always
 RestartSec=2
 
