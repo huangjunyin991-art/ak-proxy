@@ -6,7 +6,10 @@ from datetime import datetime, timedelta
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from public_admin.plugins.license_center.server.offline_authorization import OfflineAuthorizationSigner
+from public_admin.plugins.license_center.server.offline_authorization import (
+    PRIVATE_KEY_ENV,
+    OfflineAuthorizationSigner,
+)
 from public_admin.plugins.license_center.server.products import AUTO_SELL_PRODUCT_ID, DEFAULT_PRODUCT_ID, get_product
 from public_admin.plugins.license_center.server.service import LicenseCenterService
 
@@ -58,6 +61,39 @@ def test_offline_authorization_signature_binds_machine_and_expiry():
     assert decoded["product_id"] == AUTO_SELL_PRODUCT_ID
     assert decoded["machine_id"] == "machine-a"
     assert decoded["expires_at"] == "2026-07-15T17:00:00Z"
+
+
+def test_offline_authorization_generates_missing_deployment_key_once(tmp_path, monkeypatch):
+    env_file = tmp_path / "ak-proxy.env"
+    monkeypatch.setenv("AK_PROXY_ENV_FILE", str(env_file))
+    monkeypatch.delenv(PRIVATE_KEY_ENV, raising=False)
+
+    first = OfflineAuthorizationSigner.from_env()
+    first_public_key = first.public_key()
+    first_contents = env_file.read_text(encoding="utf-8")
+
+    monkeypatch.delenv(PRIVATE_KEY_ENV, raising=False)
+    second = OfflineAuthorizationSigner.from_env()
+
+    assert second.public_key() == first_public_key
+    assert env_file.read_text(encoding="utf-8") == first_contents
+    assert first_contents.count(f"{PRIVATE_KEY_ENV}=") == 1
+
+
+def test_offline_authorization_keeps_an_explicitly_empty_deployment_key(tmp_path, monkeypatch):
+    env_file = tmp_path / "ak-proxy.env"
+    env_file.write_text(f"{PRIVATE_KEY_ENV}=\n", encoding="utf-8")
+    monkeypatch.setenv("AK_PROXY_ENV_FILE", str(env_file))
+    monkeypatch.delenv(PRIVATE_KEY_ENV, raising=False)
+
+    signer = OfflineAuthorizationSigner.from_env()
+
+    try:
+        signer.public_key()
+    except RuntimeError as exc:
+        assert "explicitly empty" in str(exc)
+    else:
+        raise AssertionError("an explicitly empty deployment key must not be regenerated")
 
 
 def test_auto_sell_authorization_reuses_the_same_bound_activation_code():

@@ -23,4 +23,3 @@ sudo systemctl restart ak-proxy
 ## Notes
 - `EnvironmentFile=-/etc/ak-proxy.env` is optional; service still starts without it.
 - If `NOTIFY_CENTER_INTERNAL_SECRET` is missing, token verification for `/admin/api/ak_auth/switch_by_token` will fail.
-- The service generates missing deployment secrets, including the `ak_auto_sell` Ed25519 signing private key, into `/etc/ak-proxy.env` before startup. Existing values are never overwritten; an explicitly empty signing key causes startup to fail.

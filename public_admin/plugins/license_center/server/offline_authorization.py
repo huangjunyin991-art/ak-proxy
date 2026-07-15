@@ -5,13 +5,17 @@ import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
+
+from public_admin.deploy.env.ensure_env import EnvFile, ensure_env
 
 
 PRIVATE_KEY_ENV = "LICENSE_AUTO_SELL_SIGNING_PRIVATE_KEY"
 PUBLIC_KEY_ENV = "LICENSE_AUTO_SELL_SIGNING_PUBLIC_KEY"
 KEY_ID_ENV = "LICENSE_AUTO_SELL_SIGNING_KEY_ID"
 DEFAULT_KEY_ID = "ak-auto-sell-v1"
+DEFAULT_ENV_FILE = "/etc/ak-proxy.env"
 
 
 def _b64url_encode(value: bytes) -> str:
@@ -32,20 +36,60 @@ def _raw_public_key(public_key) -> bytes:
     )
 
 
+def _unquote_env_value(value: str) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        return text[1:-1]
+    return text
+
+
+def ensure_auto_sell_signing_private_key() -> str:
+    """Generate the deployment signing key once, without replacing an existing value."""
+    configured = str(os.environ.get(PRIVATE_KEY_ENV) or "").strip()
+    if configured:
+        return configured
+    if PRIVATE_KEY_ENV in os.environ:
+        raise RuntimeError(f"{PRIVATE_KEY_ENV} is explicitly empty")
+
+    env_file = Path(os.environ.get("AK_PROXY_ENV_FILE") or DEFAULT_ENV_FILE)
+    saved_env = EnvFile(str(env_file))
+    if saved_env.has(PRIVATE_KEY_ENV) and not _unquote_env_value(saved_env.get(PRIVATE_KEY_ENV)):
+        raise RuntimeError(f"{PRIVATE_KEY_ENV} is explicitly empty")
+    ensure_env(str(env_file), only_keys={PRIVATE_KEY_ENV})
+    persisted = _unquote_env_value(EnvFile(str(env_file)).get(PRIVATE_KEY_ENV))
+    if not persisted:
+        raise RuntimeError(f"missing {PRIVATE_KEY_ENV} after deployment initialization")
+    os.environ[PRIVATE_KEY_ENV] = persisted
+    return persisted
+
+
 class OfflineAuthorizationSigner:
     """Issues compact Ed25519 credentials for the auto-sell client to verify offline."""
 
-    def __init__(self, private_key_b64: str = "", public_key_b64: str = "", key_id: str = "") -> None:
+    def __init__(
+        self,
+        private_key_b64: str = "",
+        public_key_b64: str = "",
+        key_id: str = "",
+        configuration_error: str = "",
+    ) -> None:
         self._private_key_b64 = str(private_key_b64 or "").strip()
         self._public_key_b64 = str(public_key_b64 or "").strip()
         self.key_id = str(key_id or DEFAULT_KEY_ID).strip() or DEFAULT_KEY_ID
+        self._configuration_error = str(configuration_error or "").strip()
 
     @classmethod
     def from_env(cls) -> "OfflineAuthorizationSigner":
+        configuration_error = ""
+        try:
+            ensure_auto_sell_signing_private_key()
+        except Exception as exc:
+            configuration_error = str(exc or "offline authorization deployment initialization failed")
         return cls(
             private_key_b64=os.environ.get(PRIVATE_KEY_ENV, ""),
             public_key_b64=os.environ.get(PUBLIC_KEY_ENV, ""),
             key_id=os.environ.get(KEY_ID_ENV, ""),
+            configuration_error=configuration_error,
         )
 
     def public_key(self) -> str:
@@ -85,6 +129,8 @@ class OfflineAuthorizationSigner:
         return signing_input + "." + _b64url_encode(signature), payload
 
     def _load_keys(self):
+        if self._configuration_error:
+            raise RuntimeError(self._configuration_error)
         if not self._private_key_b64:
             raise RuntimeError(f"missing {PRIVATE_KEY_ENV}")
         try:

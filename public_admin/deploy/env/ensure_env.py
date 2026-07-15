@@ -251,7 +251,11 @@ VARS: list[tuple[str, callable, str]] = [
 # Core logic
 # ---------------------------------------------------------------------------
 
-def ensure_env(env_path: str, dry_run: bool = False) -> None:
+def ensure_env(
+    env_path: str,
+    dry_run: bool = False,
+    only_keys: set[str] | None = None,
+) -> None:
     env = EnvFile(env_path)
 
     os.makedirs(os.path.dirname(env_path), exist_ok=True)
@@ -264,6 +268,8 @@ def ensure_env(env_path: str, dry_run: bool = False) -> None:
     added: list[tuple[str, str, str]] = []
 
     for key, gen, category in VARS:
+        if only_keys is not None and key not in only_keys:
+            continue
         if env.has(key):
             continue
 
