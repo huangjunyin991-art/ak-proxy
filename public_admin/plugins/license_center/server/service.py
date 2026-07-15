@@ -493,7 +493,7 @@ class LicenseCenterService:
         return await self._verify_or_activate(data, ip_address, activate=False)
 
     async def authorize_offline(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
-        """Bind or revalidate a persistent auto-sell key, then issue an 8-hour local credential."""
+        """Activate once per machine, then reissue a short-lived offline credential on demand."""
         product = self.get_product(data.get('product_id'), default='')
         if product is None or product.product_id != AUTO_SELL_PRODUCT_ID:
             return {'error': True, 'success': False, 'message': '该接口仅支持 AK 自动挂卖系统', 'error_code': 'PRODUCT_INVALID'}
@@ -508,7 +508,26 @@ class LicenseCenterService:
         payload['product_id'] = product.product_id
         payload['license_key'] = license_key
         payload['machine_id'] = machine_id
-        verified = await self._verify_or_activate(payload, ip_address, activate=True)
+
+        # Load the signing key before changing activation state.  A deployment
+        # configuration problem must never bind a device without a credential.
+        try:
+            authorization_public_key = self.offline_authorization_signer.public_key()
+        except RuntimeError as exc:
+            message = str(exc)
+            await self.repository.add_verification_log(self._log_payload(
+                payload, ip_address, 'offline_authorize', 'failed', message
+            ))
+            return {
+                'error': True,
+                'success': False,
+                'message': '本地授权签发服务未配置',
+                'error_code': 'OFFLINE_AUTHORIZATION_UNAVAILABLE',
+            }
+
+        bound_device = await self.repository.get_license_device(license_key, machine_id)
+        activation_performed = bound_device is None
+        verified = await self._verify_or_activate(payload, ip_address, activate=activation_performed)
         if verified.get('error'):
             return verified
         try:
@@ -533,10 +552,13 @@ class LicenseCenterService:
         data_result = dict(verified.get('data') or {})
         data_result.update({
             'authorization_code': authorization_code,
+            'authorization_public_key': authorization_public_key,
+            'authorization_algorithm': 'Ed25519',
             'authorization_key_id': authorization['kid'],
             'authorization_issued_at': authorization['issued_at'],
             'authorization_expires_at': authorization['expires_at'],
             'authorization_ttl_seconds': product.offline_authorization_ttl_seconds,
+            'authorization_activation_performed': activation_performed,
         })
         await self.repository.add_verification_log(self._log_payload(
             payload, ip_address, 'offline_authorize', 'success', '本地授权签发成功'

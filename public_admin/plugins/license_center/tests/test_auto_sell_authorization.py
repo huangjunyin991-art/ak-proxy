@@ -102,6 +102,10 @@ def test_auto_sell_authorization_reuses_the_same_bound_activation_code():
 
         def __init__(self):
             self.logs = []
+            self.bound_device = None
+
+        async def get_license_device(self, license_key, machine_id):
+            return self.bound_device
 
         async def add_verification_log(self, payload):
             self.logs.append(dict(payload))
@@ -112,6 +116,12 @@ def test_auto_sell_authorization_reuses_the_same_bound_activation_code():
 
     async def verify_or_activate(data, ip_address, activate):
         calls.append((dict(data), ip_address, activate))
+        if activate:
+            repository.bound_device = {
+                'license_key': data['license_key'],
+                'machine_id': data['machine_id'],
+                'status': 'active',
+            }
         return {
             "error": False,
             "success": True,
@@ -130,15 +140,62 @@ def test_auto_sell_authorization_reuses_the_same_bound_activation_code():
     assert result["success"] is True
     assert result["data"]["authorization_ttl_seconds"] == 8 * 60 * 60
     assert result["data"]["authorization_code"].count(".") == 2
+    assert result["data"]["authorization_public_key"] == service.offline_authorization_signer.public_key()
+    assert result["data"]["authorization_algorithm"] == "Ed25519"
+    assert result["data"]["authorization_key_id"] == "test-key"
+    assert result["data"]["authorization_issued_at"].endswith("Z")
+    assert result["data"]["authorization_expires_at"].endswith("Z")
+    assert result["data"]["authorization_activation_performed"] is True
     assert renewed["success"] is True
     assert renewed["data"]["authorization_code"] != result["data"]["authorization_code"]
+    assert renewed["data"]["authorization_activation_performed"] is False
     assert calls == [({
         "product_id": AUTO_SELL_PRODUCT_ID,
         "license_key": "ABCDE-ABCDE-ABCDE-ABCDE",
         "machine_id": "machine-a",
-    }, "203.0.113.10", True)] * 2
+    }, "203.0.113.10", True), ({
+        "product_id": AUTO_SELL_PRODUCT_ID,
+        "license_key": "ABCDE-ABCDE-ABCDE-ABCDE",
+        "machine_id": "machine-a",
+    }, "203.0.113.10", False)]
     assert repository.logs[-1]["action"] == "offline_authorize"
     assert repository.logs[-1]["result"] == "success"
+
+
+def test_auto_sell_authorization_does_not_activate_when_signing_is_unavailable():
+    class Repository:
+        pool_supplier = staticmethod(lambda: None)
+
+        def __init__(self):
+            self.logs = []
+
+        async def add_verification_log(self, payload):
+            self.logs.append(dict(payload))
+
+    class UnavailableSigner:
+        def public_key(self):
+            raise RuntimeError("missing signing key")
+
+    repository = Repository()
+    service = LicenseCenterService(repository, offline_authorization_signer=UnavailableSigner())
+    verify_calls = []
+
+    async def verify_or_activate(data, ip_address, activate):
+        verify_calls.append((data, ip_address, activate))
+        raise AssertionError("activation must not run before signing preflight succeeds")
+
+    service._verify_or_activate = verify_or_activate
+    result = asyncio.run(service.authorize_offline({
+        "product_id": AUTO_SELL_PRODUCT_ID,
+        "license_key": "ABCDE-ABCDE-ABCDE-ABCDE",
+        "machine_id": "machine-a",
+    }))
+
+    assert result["success"] is False
+    assert result["error_code"] == "OFFLINE_AUTHORIZATION_UNAVAILABLE"
+    assert verify_calls == []
+    assert repository.logs[-1]["action"] == "offline_authorize"
+    assert repository.logs[-1]["result"] == "failed"
 
 
 def test_time_based_license_expires_after_activated_usage_window():
