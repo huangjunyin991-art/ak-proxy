@@ -2,6 +2,8 @@ import json
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from .products import list_products as list_registered_products
+
 
 class LicenseCenterRepository:
     def __init__(self, pool_supplier: Callable[[], object]):
@@ -136,18 +138,17 @@ class LicenseCenterRepository:
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_logs_created ON license_center_verification_logs(created_at DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_blacklist_target ON license_center_blacklist(target_type, target_value, active)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_credentials_machine ON license_center_credentials(machine_id)')
-            await conn.execute('''
-                INSERT INTO license_center_products(product_id, name, description, current_version)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT(product_id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    description = EXCLUDED.description,
-                    updated_at = NOW()
-            ''', 'ak_admin_panel', 'AK智能后台管理系统', 'AK智能后台管理系统', '4.0.0')
-            await conn.execute('''
-                DELETE FROM license_center_products
-                WHERE product_id <> $1
-            ''', 'ak_admin_panel')
+            for product in list_registered_products():
+                await conn.execute('''
+                    INSERT INTO license_center_products(product_id, name, description, current_version, enabled)
+                    VALUES ($1, $2, $3, $4, TRUE)
+                    ON CONFLICT(product_id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        description = EXCLUDED.description,
+                        current_version = EXCLUDED.current_version,
+                        enabled = TRUE,
+                        updated_at = NOW()
+                ''', product.product_id, product.name, product.description, product.current_version)
 
     async def create_license(self, row: Dict[str, Any]) -> Dict[str, Any]:
         pool = self._pool()
@@ -472,7 +473,11 @@ class LicenseCenterRepository:
     async def list_products(self) -> List[Dict[str, Any]]:
         pool = self._pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch('SELECT * FROM license_center_products WHERE product_id = $1 ORDER BY created_at DESC', 'ak_admin_panel')
+            rows = await conn.fetch('''
+                SELECT * FROM license_center_products
+                WHERE enabled = TRUE
+                ORDER BY created_at ASC, product_id ASC
+            ''')
             return [dict(r) for r in rows]
 
     async def get_latest_release(self, product_id: str, channel: str = 'stable') -> Optional[Dict[str, Any]]:

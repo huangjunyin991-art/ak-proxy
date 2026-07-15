@@ -156,6 +156,19 @@ def _generate_vapid_keypair() -> tuple[str, str]:
     return public_b64url, private_b64url
 
 
+def _generate_auto_sell_signing_private_key() -> str:
+    """Generate a raw Ed25519 private key for offline auto-sell authorization."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    private_bytes = Ed25519PrivateKey.generate().private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return base64.urlsafe_b64encode(private_bytes).rstrip(b"=").decode("ascii")
+
+
 # ---------------------------------------------------------------------------
 # Variable definitions
 # ---------------------------------------------------------------------------
@@ -177,6 +190,11 @@ VARS: list[tuple[str, callable, str]] = [
     (
         "IM_AI_SECRET_KEY",
         lambda: generate_secret(32),
+        CATEGORY_SECRET,
+    ),
+    (
+        "LICENSE_AUTO_SELL_SIGNING_PRIVATE_KEY",
+        _generate_auto_sell_signing_private_key,
         CATEGORY_SECRET,
     ),
     # Notify Center

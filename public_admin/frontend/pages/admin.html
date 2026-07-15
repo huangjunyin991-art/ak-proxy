@@ -6313,6 +6313,7 @@
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
                     <select id="licProductId" class="license-create-native-select" onchange="onProductTypeChange()">
                         <option value="ak_admin_panel">AK智能后台管理系统 (ak_admin_panel)</option>
+                        <option value="ak_auto_sell">AK自动挂卖系统 (ak_auto_sell)</option>
                     </select>
                     <div class="license-create-select" id="licProductIdSelect">
                         <button type="button" class="license-create-select-trigger" onclick="toggleCreateLicenseSelectMenu('licProductIdSelect', event)">
@@ -11324,6 +11325,18 @@
         let licenseSortDir = 0; // 0=不排序, 1=升序, -1=降序
         let licenseBillingFilter = '';
         let licenseStatusFilter = '';
+        let licenseProducts = [
+            {
+                product_id: 'ak_admin_panel',
+                name: 'AK智能后台管理系统',
+                billing_modes: ['unlimited', 'per_use', 'time_based']
+            },
+            {
+                product_id: 'ak_auto_sell',
+                name: 'AK自动挂卖系统',
+                billing_modes: ['unlimited', 'time_based']
+            }
+        ];
         
         // 获取带Token的请求头
         function getLicenseHeaders() {
@@ -11337,6 +11350,51 @@
             return {
                 'Authorization': `Bearer ${sessionStorage.getItem('admin_token') || ''}`
             };
+        }
+
+        function getLicenseProduct(productId) {
+            return licenseProducts.find(item => item.product_id === productId) || null;
+        }
+
+        function licenseProductLabel(productId) {
+            const product = getLicenseProduct(productId);
+            return product ? `${product.name || product.product_id} (${product.product_id})` : (productId || '-');
+        }
+
+        function setLicenseProducts(items) {
+            const normalized = (Array.isArray(items) ? items : []).filter(item =>
+                item && typeof item.product_id === 'string' && item.product_id
+            );
+            if (!normalized.length) return;
+            licenseProducts = normalized;
+            const select = document.getElementById('licProductId');
+            if (!select) return;
+            const previous = select.value;
+            select.innerHTML = '';
+            licenseProducts.forEach(product => {
+                const option = document.createElement('option');
+                option.value = product.product_id;
+                option.textContent = `${product.name || product.product_id} (${product.product_id})`;
+                select.appendChild(option);
+            });
+            select.value = licenseProducts.some(product => product.product_id === previous)
+                ? previous
+                : licenseProducts[0].product_id;
+        }
+
+        async function loadLicenseProducts() {
+            try {
+                const response = await fetch(`${API_BASE}/admin/api/license/products`, {
+                    headers: getLicenseHeaders()
+                });
+                if (!checkTokenValid(response)) return;
+                const payload = await readLicenseJsonResponse(response);
+                if (!payload.error && payload.data && Array.isArray(payload.data.items)) {
+                    setLicenseProducts(payload.data.items);
+                }
+            } catch (error) {
+                console.warn('加载激活码产品失败，使用本地产品列表', error);
+            }
         }
 
         function parseLicenseJsonText(raw, status, contentType) {
@@ -11738,7 +11796,7 @@
                         <td style="font-family: monospace; font-size: 12px;">
                             <span style="cursor: pointer;" onclick="copyToClipboard(${jsArg(licenseKey)})" title="点击复制">${escapeHtml(licenseKey)}</span>
                         </td>
-                        <td>${escapeHtml(license.product_id || '-')}</td>
+                        <td>${escapeHtml(licenseProductLabel(license.product_id || ''))}</td>
                         <td>${renderLicenseMachineCell(machineId)}</td>
                         <td>${billingText}</td>
                         <td>${remainingText}</td>
@@ -12020,7 +12078,7 @@
         }
         
         // 显示创建激活码弹窗
-        function showCreateLicenseModal() {
+        async function showCreateLicenseModal() {
             document.getElementById('createLicenseModal').style.display = 'flex';
             document.getElementById('licBatchCount').value = 1;
             document.getElementById('createLicenseMsg').style.display = 'none';
@@ -12028,6 +12086,7 @@
             document.getElementById('createLicenseBtn').disabled = false;
             document.getElementById('createLicenseBtn').textContent = '创建';
             closeCreateLicenseSelectMenus();
+            await loadLicenseProducts();
             syncCreateLicenseSelect('licProductId');
             // 初始化产品类型和计费模式
             onProductTypeChange();
@@ -12138,14 +12197,26 @@
         function onProductTypeChange() {
             const billingModeSelect = document.getElementById('licBillingMode');
             const previousMode = billingModeSelect.value;
+            const product = getLicenseProduct(document.getElementById('licProductId').value);
+            const allowedModes = product && Array.isArray(product.billing_modes)
+                ? product.billing_modes
+                : ['unlimited', 'time_based'];
+            const billingLabels = {
+                unlimited: '无限制 (unlimited)',
+                per_use: '按次数 (per_use)',
+                time_based: '按时间 (time_based)'
+            };
             
             // 清空现有选项
             billingModeSelect.innerHTML = '';
             
-            billingModeSelect.innerHTML = `
-                <option value="unlimited">无限制 (unlimited)</option>
-                <option value="time_based">按时间 (time_based)</option>
-            `;
+            allowedModes.forEach(mode => {
+                if (!billingLabels[mode]) return;
+                const option = document.createElement('option');
+                option.value = mode;
+                option.textContent = billingLabels[mode];
+                billingModeSelect.appendChild(option);
+            });
             if (previousMode && Array.from(billingModeSelect.options).some(option => option.value === previousMode)) {
                 billingModeSelect.value = previousMode;
             }
@@ -12306,7 +12377,7 @@
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">激活码</td>
                             <td style="font-family: monospace; padding: 8px 0;">${escapeHtml(license.license_key || '-')}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">产品</td>
-                            <td style="padding: 8px 0;">${escapeHtml(license.product_id || '-')}</td></tr>
+                            <td style="padding: 8px 0;">${escapeHtml(licenseProductLabel(license.product_id || ''))}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">计费模式</td>
                             <td style="padding: 8px 0;">${billingText}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">剩余</td>

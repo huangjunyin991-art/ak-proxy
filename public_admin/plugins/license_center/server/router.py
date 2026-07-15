@@ -274,6 +274,17 @@ def create_license_center_router(
             return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.verify(data, ip_address=client_ip(request))
 
+    @router.post('/api/v1/offline-authorization')
+    async def client_offline_authorization(request: Request):
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
+        return await service.authorize_offline(data, ip_address=client_ip(request))
+
+    @router.get('/api/v1/offline-authorization/public-key')
+    async def client_offline_authorization_public_key():
+        return service.offline_authorization_public_key()
+
     @router.post('/api/v1/consume')
     async def client_consume(request: Request):
         data = await read_json(request)

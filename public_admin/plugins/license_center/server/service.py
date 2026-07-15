@@ -15,11 +15,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .credential_guard import LicenseCredentialGuard
+from .offline_authorization import OfflineAuthorizationSigner
+from .products import AUTO_SELL_PRODUCT_ID, DEFAULT_PRODUCT_ID, get_product, list_products as list_registered_products
 from .repository import LicenseCenterRepository
 
 
 PUBLIC_LICENSE_SERVER_URL = 'https://ak2025.vip'
-DEFAULT_PRODUCT_ID = 'ak_admin_panel'
 PASSWORD_HASH_ITERATIONS = max(50000, min(200000, int(os.environ.get('LICENSE_PASSWORD_HASH_ITERATIONS', '100000') or '100000')))
 PASSWORD_HASH_WORKERS = max(1, int(os.environ.get('LICENSE_PASSWORD_HASH_WORKERS', '2') or '2'))
 TOTP_INTERVAL_SECONDS = 30
@@ -39,9 +40,10 @@ _PASSWORD_HASH_EXECUTOR = ThreadPoolExecutor(
 
 
 class LicenseCenterService:
-    def __init__(self, repository: LicenseCenterRepository):
+    def __init__(self, repository: LicenseCenterRepository, offline_authorization_signer=None):
         self.repository = repository
         self.credential_guard = LicenseCredentialGuard(repository.pool_supplier)
+        self.offline_authorization_signer = offline_authorization_signer or OfflineAuthorizationSigner.from_env()
 
     async def ensure_schema(self) -> None:
         await self.repository.ensure_schema()
@@ -102,7 +104,11 @@ class LicenseCenterService:
         return 'unlimited'
 
     def normalize_product_id(self, value: str) -> str:
-        return DEFAULT_PRODUCT_ID
+        product = get_product(value, default=DEFAULT_PRODUCT_ID)
+        return product.product_id if product is not None else ''
+
+    def get_product(self, value: str, *, default: str = DEFAULT_PRODUCT_ID):
+        return get_product(value, default=default)
 
     def public_url(self, value: str) -> str:
         url = str(value or '').strip()
@@ -327,7 +333,12 @@ class LicenseCenterService:
 
     async def create_license(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
         product_id = self.normalize_product_id(data.get('product_id'))
+        product = self.get_product(product_id, default='')
+        if product is None:
+            return {'error': True, 'success': False, 'message': '不支持的产品类型', 'error_code': 'PRODUCT_INVALID'}
         billing_mode = self.normalize_billing_mode(data.get('billing_mode'))
+        if billing_mode not in product.billing_modes:
+            return {'error': True, 'success': False, 'message': '该产品不支持此计费模式', 'error_code': 'BILLING_MODE_INVALID'}
         expiry_days = max(1, int(data.get('expiry_days') or 365))
         max_devices = max(1, int(data.get('max_devices') or 1))
         license_key = str(data.get('license_key') or '').strip().upper()
@@ -390,12 +401,22 @@ class LicenseCenterService:
         key = str(data.get('license_key') or '').strip().upper()
         if not key:
             return {'error': True, 'success': False, 'message': '缺少激活码'}
+        existing = await self.repository.get_license(key)
+        if not existing:
+            return {'error': True, 'success': False, 'message': '激活码不存在'}
+        product = self.get_product(existing.get('product_id'), default='')
+        if product is None:
+            return {'error': True, 'success': False, 'message': '激活码产品配置无效', 'error_code': 'PRODUCT_INVALID'}
         fields = {}
-        for name in ('product_id', 'max_devices', 'max_uses', 'remaining_uses', 'usage_time', 'status'):
+        for name in ('max_devices', 'max_uses', 'remaining_uses', 'usage_time', 'status'):
             if name in data:
                 fields[name] = data[name]
+        if 'product_id' in data and self.normalize_product_id(data.get('product_id')) != product.product_id:
+            return {'error': True, 'success': False, 'message': '已创建的激活码不能更换产品类型', 'error_code': 'PRODUCT_CHANGE_FORBIDDEN'}
         if 'billing_mode' in data:
             fields['billing_mode'] = self.normalize_billing_mode(data.get('billing_mode'))
+            if fields['billing_mode'] not in product.billing_modes:
+                return {'error': True, 'success': False, 'message': '该产品不支持此计费模式', 'error_code': 'BILLING_MODE_INVALID'}
         if 'expiry_days' in data:
             fields['expiry_date'] = datetime.now() + timedelta(days=max(1, int(data.get('expiry_days') or 1)))
         row = await self.repository.update_license(key, fields)
@@ -408,7 +429,16 @@ class LicenseCenterService:
         return {'error': False, 'success': True, 'data': await self.repository.statistics()}
 
     async def products(self) -> Dict[str, Any]:
-        return {'error': False, 'success': True, 'data': {'items': await self.repository.list_products()}}
+        persisted = {
+            str(item.get('product_id') or ''): item
+            for item in await self.repository.list_products()
+        }
+        items = []
+        for product in list_registered_products():
+            item = dict(persisted.get(product.product_id) or {})
+            item.update(product.to_public_dict())
+            items.append(item)
+        return {'error': False, 'success': True, 'data': {'items': items}}
 
     async def health(self) -> Dict[str, Any]:
         return {'error': False, 'success': True, 'message': '授权中心正常', 'data': {'mode': 'local', 'server_url': PUBLIC_LICENSE_SERVER_URL, 'product_id': DEFAULT_PRODUCT_ID}}
@@ -461,6 +491,84 @@ class LicenseCenterService:
 
     async def verify(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         return await self._verify_or_activate(data, ip_address, activate=False)
+
+    async def authorize_offline(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
+        """Bind or revalidate a persistent auto-sell key, then issue an 8-hour local credential."""
+        product = self.get_product(data.get('product_id'), default='')
+        if product is None or product.product_id != AUTO_SELL_PRODUCT_ID:
+            return {'error': True, 'success': False, 'message': '该接口仅支持 AK 自动挂卖系统', 'error_code': 'PRODUCT_INVALID'}
+        license_key = str(data.get('license_key') or data.get('activation_code') or '').strip().upper()
+        machine_id = str(data.get('machine_id') or '').strip()
+        if not license_key:
+            return {'error': True, 'success': False, 'message': '缺少激活码', 'error_code': 'LICENSE_REQUIRED'}
+        if not machine_id:
+            return {'error': True, 'success': False, 'message': '缺少机器标识', 'error_code': 'MACHINE_ID_REQUIRED'}
+
+        payload = dict(data)
+        payload['product_id'] = product.product_id
+        payload['license_key'] = license_key
+        payload['machine_id'] = machine_id
+        verified = await self._verify_or_activate(payload, ip_address, activate=True)
+        if verified.get('error'):
+            return verified
+        try:
+            authorization_code, authorization = self.offline_authorization_signer.issue(
+                product_id=product.product_id,
+                license_key=license_key,
+                machine_id=machine_id,
+                ttl_seconds=product.offline_authorization_ttl_seconds,
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+            await self.repository.add_verification_log(self._log_payload(
+                payload, ip_address, 'offline_authorize', 'failed', message
+            ))
+            return {
+                'error': True,
+                'success': False,
+                'message': '本地授权签发服务未配置',
+                'error_code': 'OFFLINE_AUTHORIZATION_UNAVAILABLE',
+            }
+
+        data_result = dict(verified.get('data') or {})
+        data_result.update({
+            'authorization_code': authorization_code,
+            'authorization_key_id': authorization['kid'],
+            'authorization_issued_at': authorization['issued_at'],
+            'authorization_expires_at': authorization['expires_at'],
+            'authorization_ttl_seconds': product.offline_authorization_ttl_seconds,
+        })
+        await self.repository.add_verification_log(self._log_payload(
+            payload, ip_address, 'offline_authorize', 'success', '本地授权签发成功'
+        ))
+        return {
+            'error': False,
+            'success': True,
+            'message': '本地授权签发成功',
+            'data': data_result,
+        }
+
+    def offline_authorization_public_key(self) -> Dict[str, Any]:
+        try:
+            public_key = self.offline_authorization_signer.public_key()
+        except RuntimeError:
+            return {
+                'error': True,
+                'success': False,
+                'message': '本地授权签发服务未配置',
+                'error_code': 'OFFLINE_AUTHORIZATION_UNAVAILABLE',
+            }
+        return {
+            'error': False,
+            'success': True,
+            'data': {
+                'product_id': AUTO_SELL_PRODUCT_ID,
+                'algorithm': 'Ed25519',
+                'key_id': self.offline_authorization_signer.key_id,
+                'public_key': public_key,
+                'authorization_ttl_seconds': get_product(AUTO_SELL_PRODUCT_ID).offline_authorization_ttl_seconds,
+            },
+        }
 
     async def consume(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         verify_result = await self._verify_or_activate(data, ip_address, activate=False)
@@ -718,6 +826,8 @@ class LicenseCenterService:
 
     async def check_update(self, product_id: str, current_version: str, channel: str = 'stable') -> Dict[str, Any]:
         product_id = self.normalize_product_id(product_id)
+        if not product_id:
+            return {'error': True, 'success': False, 'message': '不支持的产品类型', 'error_code': 'PRODUCT_INVALID'}
         release = await self.repository.get_latest_release(product_id, channel or 'stable')
         if not release:
             return {'error': False, 'success': True, 'data': {'has_update': False, 'server_url': PUBLIC_LICENSE_SERVER_URL}}
@@ -732,11 +842,14 @@ class LicenseCenterService:
         version = str(data.get('version') or '').strip()
         if not version:
             return {'error': True, 'success': False, 'message': '版本号不能为空'}
+        product_id = self.normalize_product_id(data.get('product_id'))
+        if not product_id:
+            return {'error': True, 'success': False, 'message': '不支持的产品类型', 'error_code': 'PRODUCT_INVALID'}
         update_type = str(data.get('update_type') or 'recommended').strip().lower()
         is_mandatory = bool(data.get('is_mandatory')) or update_type == 'mandatory'
         can_skip = False if is_mandatory else bool(data.get('can_skip', True))
         release = await self.repository.upsert_release({
-            'product_id': self.normalize_product_id(data.get('product_id')),
+            'product_id': product_id,
             'version': version,
             'channel': str(data.get('channel') or 'stable').strip() or 'stable',
             'update_type': update_type,
@@ -754,8 +867,11 @@ class LicenseCenterService:
         return {'error': False, 'success': True, 'message': '更新发布已保存', 'data': self.format_update(release)}
 
     async def list_releases(self, product_id: str = '', channel: str = '', limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        normalized_product_id = self.normalize_product_id(product_id) if product_id else ''
+        if product_id and not normalized_product_id:
+            return {'error': True, 'success': False, 'message': '不支持的产品类型', 'error_code': 'PRODUCT_INVALID'}
         result = await self.repository.list_releases(
-            product_id=self.normalize_product_id(product_id) if product_id else '',
+            product_id=normalized_product_id,
             channel=str(channel or '').strip(),
             limit=max(1, min(int(limit or 50), 200)),
             offset=max(0, int(offset or 0)),
@@ -769,6 +885,10 @@ class LicenseCenterService:
         account_name = str(data.get('account_name') or '').strip()
         client_version = str(data.get('client_version') or '').strip()
         action = 'activate' if activate else 'verify'
+        if not product_id:
+            result = {'error': True, 'success': False, 'message': '不支持的产品类型', 'error_code': 'PRODUCT_INVALID'}
+            await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
+            return result
         if not license_key and machine_id:
             found = await self.repository.find_license_by_machine(machine_id, product_id)
             if found:
@@ -871,6 +991,9 @@ class LicenseCenterService:
             remaining = row.get('remaining_uses')
             if remaining is not None and int(remaining) <= 0:
                 return {'error': True, 'success': False, 'message': '使用次数已用完', 'error_code': 'LICENSE_EXPIRED', 'data': {'expired': True}}
+        if row.get('billing_mode') == 'time_based' and row.get('activated_at') and int(row.get('usage_time') or 0) > 0:
+            if self.remaining_minutes(row.get('activated_at'), row.get('usage_time'), row.get('expiry_date')) <= 0:
+                return {'error': True, 'success': False, 'message': '使用时长已到期', 'error_code': 'LICENSE_EXPIRED', 'data': {'expired': True}}
         return None
 
     def format_license(self, row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -879,7 +1002,6 @@ class LicenseCenterService:
         result = dict(row)
         mode = self.normalize_billing_mode(result.get('billing_mode'))
         result['billing_mode'] = mode
-        result['valid'] = result.get('status') == 'active'
         if mode == 'time_based':
             result['remaining_time'] = self.remaining_minutes(result.get('activated_at'), result.get('usage_time'), result.get('expiry_date'))
         elif mode == 'per_use':
@@ -887,6 +1009,7 @@ class LicenseCenterService:
         else:
             result['remaining_time'] = None
             result['remaining_uses'] = None
+        result['valid'] = result.get('status') == 'active' and self.validate_license_time_and_count(result) is None
         result['expiry_date'] = result.get('expiry_date')
         result['is_unlimited'] = mode == 'unlimited'
         return result
@@ -919,7 +1042,7 @@ class LicenseCenterService:
             'file_size': release.get('file_size') or 0,
             'file_hash': release.get('file_hash') or '',
             'server_url': PUBLIC_LICENSE_SERVER_URL,
-            'product_id': DEFAULT_PRODUCT_ID,
+            'product_id': release.get('product_id') or DEFAULT_PRODUCT_ID,
             'update_info': {
                 'download_url': download_url,
                 'file_size': release.get('file_size') or 0,
