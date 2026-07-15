@@ -97,7 +97,7 @@ def create_account_identity_admin_router(
                 dry_run=bool((payload or {}).get("dry_run", False)),
                 limit_per_spec=(payload or {}).get("limit_per_spec"),
             )
-            if not result.get("started"):
+            if not result.get("started") and not result.get("success"):
                 return JSONResponse(status_code=409, content=result)
             return result
         except Exception as exc:

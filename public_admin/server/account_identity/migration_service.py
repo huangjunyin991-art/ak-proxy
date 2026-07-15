@@ -76,28 +76,66 @@ class AccountIdentityMigrationService:
         phase_key: str = "",
         limit_per_spec: int = 0,
         dry_run: bool = True,
+        spec_keys: set[tuple[str, str, str]] | None = None,
         conn=None,
     ) -> list[dict[str, Any]]:
+        phases = self._select_phases(phase_key, spec_keys=spec_keys)
         if conn is not None:
-            return await self._backfill_phase_account_ids(conn, self._select_phases(phase_key), limit_per_spec, dry_run)
+            return await self._backfill_phase_account_ids(conn, phases, limit_per_spec, dry_run)
         pool = self._pool_supplier()
         async with pool.acquire() as owned_conn:
             async with owned_conn.transaction():
                 return await self._backfill_phase_account_ids(
                     owned_conn,
-                    self._select_phases(phase_key),
+                    phases,
                     limit_per_spec,
                     dry_run,
                 )
 
-    def _select_phases(self, phase_key: str) -> tuple[AccountIDPhase, ...]:
+    async def find_pending_backfill_specs(self, phase_key: str = "", conn=None) -> list[dict[str, Any]]:
+        phases = self._select_phases(phase_key)
+        if conn is not None:
+            return await self._find_pending_backfill_specs(conn, phases)
+        pool = self._pool_supplier()
+        async with pool.acquire() as owned_conn:
+            return await self._find_pending_backfill_specs(owned_conn, phases)
+
+    def _select_phases(
+        self,
+        phase_key: str,
+        spec_keys: set[tuple[str, str, str]] | None = None,
+    ) -> tuple[AccountIDPhase, ...]:
         normalized = _normalize_phase_key(phase_key)
         if not normalized:
-            return ACCOUNT_ID_PHASES
-        phase = PHASE_BY_KEY.get(normalized)
-        if not phase:
-            raise ValueError(f"unknown account id migration phase: {phase_key}")
-        return (phase,)
+            selected = ACCOUNT_ID_PHASES
+        else:
+            phase = PHASE_BY_KEY.get(normalized)
+            if not phase:
+                raise ValueError(f"unknown account id migration phase: {phase_key}")
+            selected = (phase,)
+        if spec_keys is None:
+            return selected
+        normalized_keys = {
+            (str(table_name), str(username_column), str(account_id_column))
+            for table_name, username_column, account_id_column in spec_keys
+        }
+        filtered: list[AccountIDPhase] = []
+        for phase in selected:
+            specs = tuple(
+                spec
+                for spec in phase.specs
+                if (spec.table_name, spec.username_column, spec.account_id_column) in normalized_keys
+            )
+            if specs:
+                filtered.append(
+                    AccountIDPhase(
+                        key=phase.key,
+                        title=phase.title,
+                        description=phase.description,
+                        specs=specs,
+                    )
+                )
+        return tuple(filtered)
 
     async def _ensure_phase_columns(self, conn, phases: tuple[AccountIDPhase, ...]) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -213,11 +251,14 @@ class AccountIdentityMigrationService:
                         }
                     )
                     continue
-                matched_rows = await self._count_backfill_matches(conn, spec, normalized_limit)
-                updated_rows = 0
-                status = "dry_run" if dry_run else "updated"
-                if not dry_run and matched_rows > 0:
+                if dry_run:
+                    matched_rows = await self._count_backfill_matches(conn, spec, normalized_limit)
+                    updated_rows = 0
+                    status = "dry_run"
+                else:
                     updated_rows = await self._run_backfill_update(conn, spec, normalized_limit)
+                    matched_rows = updated_rows
+                    status = "updated"
                 results.append(
                     {
                         "phase": phase.key,
@@ -234,25 +275,58 @@ class AccountIdentityMigrationService:
                 )
         return results
 
+    async def _find_pending_backfill_specs(
+        self,
+        conn,
+        phases: tuple[AccountIDPhase, ...],
+    ) -> list[dict[str, Any]]:
+        pending: list[dict[str, Any]] = []
+        for phase in phases:
+            for spec in phase.specs:
+                if not await self._table_exists(conn, spec.table_name):
+                    continue
+                if not await self._column_exists(conn, spec.table_name, spec.account_id_column):
+                    continue
+                if not await self._has_backfill_match(conn, spec):
+                    continue
+                pending.append(
+                    {
+                        "phase": phase.key,
+                        "table_name": spec.table_name,
+                        "username_column": spec.username_column,
+                        "account_id_column": spec.account_id_column,
+                        "description": spec.description,
+                    }
+                )
+        return pending
+
     async def _count_backfill_matches(self, conn, spec: AccountIDColumnSpec, limit_per_spec: int) -> int:
         cte_sql = self._build_backfill_match_cte_sql(spec, limit_per_spec)
         row = await conn.fetchrow(f"{cte_sql} SELECT COUNT(*) AS matched_rows FROM matched")
         return int(row["matched_rows"] or 0)
 
+    async def _has_backfill_match(self, conn, spec: AccountIDColumnSpec) -> bool:
+        cte_sql = self._build_backfill_match_cte_sql(spec, limit_per_spec=1)
+        return bool(await conn.fetchval(f"{cte_sql} SELECT EXISTS(SELECT 1 FROM matched)"))
+
     async def _run_backfill_update(self, conn, spec: AccountIDColumnSpec, limit_per_spec: int) -> int:
         table_sql = _quote_identifier(spec.table_name)
         account_id_sql = _quote_identifier(spec.account_id_column)
         cte_sql = self._build_backfill_match_cte_sql(spec, limit_per_spec)
-        status = await conn.execute(
+        row = await conn.fetchrow(
             f"""
             {cte_sql}
-            UPDATE {table_sql} AS target
-            SET {account_id_sql} = matched.account_id
-            FROM matched
-            WHERE target.ctid = matched.row_ctid
+            , updated AS (
+                UPDATE {table_sql} AS target
+                SET {account_id_sql} = matched.account_id
+                FROM matched
+                WHERE target.ctid = matched.row_ctid
+                RETURNING 1
+            )
+            SELECT COUNT(*) AS updated_rows FROM updated
             """
         )
-        return int(str(status).split()[-1])
+        return int(row["updated_rows"] or 0)
 
     def _build_backfill_match_cte_sql(self, spec: AccountIDColumnSpec, limit_per_spec: int) -> str:
         table_sql = _quote_identifier(spec.table_name)
@@ -301,4 +375,3 @@ class AccountIdentityMigrationService:
             "description": spec.description,
             "status": status,
         }
-

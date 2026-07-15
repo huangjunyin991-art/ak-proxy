@@ -12,6 +12,7 @@ from .repository import AccountIdentityAdminRepository
 
 ACCOUNT_IDENTITY_SYNC_POLICY_KEY = "account_identity_sync_policy"
 _ALL_PHASE_KEYS = tuple(phase.key for phase in ACCOUNT_ID_PHASES)
+_PHASE_STATS_CACHE_SECONDS = 300.0
 
 
 def build_default_sync_policy() -> dict[str, Any]:
@@ -81,6 +82,7 @@ class AccountIdentityAdminService:
         system_config,
         ensure_columns: Callable[..., Any],
         collect_stats: Callable[..., Any],
+        find_pending: Callable[..., Any],
         backfill: Callable[..., Any],
         get_plan: Callable[[], list[dict[str, Any]]],
         logger=None,
@@ -89,10 +91,15 @@ class AccountIdentityAdminService:
         self._system_config = system_config
         self._ensure_columns = ensure_columns
         self._collect_stats = collect_stats
+        self._find_pending = find_pending
         self._backfill = backfill
         self._get_plan = get_plan
         self._logger = logger
         self._run_lock = asyncio.Lock()
+        self._ready_lock = asyncio.Lock()
+        self._schema_lock = asyncio.Lock()
+        self._repository_ready = False
+        self._schema_initialized = False
         self._active_task: asyncio.Task | None = None
         self._current_run: dict[str, Any] | None = None
         self._phase_stats_cache: dict[str, Any] = {"expires_at": 0.0, "items": []}
@@ -102,7 +109,22 @@ class AccountIdentityAdminService:
         self._scheduler = scheduler
 
     async def ensure_ready(self) -> None:
-        await self.repository.ensure_tables()
+        if self._repository_ready:
+            return
+        async with self._ready_lock:
+            if self._repository_ready:
+                return
+            await self.repository.ensure_tables()
+            self._repository_ready = True
+
+    async def initialize_schema(self) -> list[dict[str, Any]]:
+        async with self._schema_lock:
+            if self._schema_initialized:
+                return []
+            await self.ensure_ready()
+            results = await self._ensure_columns(phase_key="")
+            self._schema_initialized = True
+            return results
 
     async def get_policy(self) -> dict[str, Any]:
         try:
@@ -163,7 +185,7 @@ class AccountIdentityAdminService:
         dry_run: bool = False,
         limit_per_spec: int | None = None,
     ) -> dict[str, Any]:
-        await self.ensure_ready()
+        await self.initialize_schema()
         async with self._run_lock:
             if self._active_task is not None and not self._active_task.done():
                 return {
@@ -174,6 +196,32 @@ class AccountIdentityAdminService:
                 }
             normalized_phase_key = self._normalize_phase_key(phase_key)
             normalized_limit = max(0, int(limit_per_spec if limit_per_spec is not None else (await self.get_policy()).get("limit_per_spec", 0)))
+            pending_specs = await self._find_pending(phase_key=normalized_phase_key)
+            if not pending_specs:
+                return {
+                    "success": True,
+                    "started": False,
+                    "skipped": True,
+                    "message": "暂无待同步的账号数据",
+                    "current_run": None,
+                }
+            pending_spec_keys = {
+                (
+                    str(item.get("table_name") or ""),
+                    str(item.get("username_column") or ""),
+                    str(item.get("account_id_column") or ""),
+                )
+                for item in pending_specs
+                if isinstance(item, dict)
+            }
+            if not pending_spec_keys:
+                return {
+                    "success": True,
+                    "started": False,
+                    "skipped": True,
+                    "message": "暂无待同步的账号数据",
+                    "current_run": None,
+                }
             run_id = await self.repository.create_sync_run(
                 trigger_mode=str(trigger_mode or "manual"),
                 triggered_by=str(triggered_by or ""),
@@ -203,6 +251,8 @@ class AccountIdentityAdminService:
                     phase_key=normalized_phase_key,
                     dry_run=bool(dry_run),
                     limit_per_spec=normalized_limit,
+                    pending_specs=pending_specs,
+                    pending_spec_keys=pending_spec_keys,
                 ),
                 name=f"account-identity-sync-{run_id}",
             )
@@ -237,6 +287,8 @@ class AccountIdentityAdminService:
         phase_key: str,
         dry_run: bool,
         limit_per_spec: int,
+        pending_specs: list[dict[str, Any]],
+        pending_spec_keys: set[tuple[str, str, str]],
     ) -> None:
         summary: dict[str, Any] = {
             "phase_key": phase_key or "all",
@@ -245,31 +297,19 @@ class AccountIdentityAdminService:
             "trigger_mode": str(trigger_mode or "manual"),
             "triggered_by": str(triggered_by or ""),
             "plan": self._get_plan(),
+            "pending_specs": copy.deepcopy(pending_specs),
         }
         final_status = "succeeded"
         error_message = ""
         try:
-            self._touch_current_run(stage="ensuring_columns", summary=summary)
-            ensure_results = await self._ensure_columns(phase_key=phase_key)
-            summary["ensure_results"] = ensure_results
-
-            self._touch_current_run(stage="collecting_before_stats", summary=summary)
-            before_stats = await self._collect_stats(phase_key=phase_key)
-            summary["before_stats"] = before_stats
-
             self._touch_current_run(stage="backfilling", summary=summary)
             backfill_results = await self._backfill(
                 phase_key=phase_key,
                 limit_per_spec=limit_per_spec,
                 dry_run=dry_run,
+                spec_keys=pending_spec_keys,
             )
             summary["backfill_results"] = backfill_results
-
-            if dry_run:
-                summary["after_stats"] = before_stats
-            else:
-                self._touch_current_run(stage="collecting_after_stats", summary=summary)
-                summary["after_stats"] = await self._collect_stats(phase_key=phase_key)
         except Exception as exc:
             final_status = "failed"
             error_message = str(exc or "")[:2000]
@@ -318,7 +358,7 @@ class AccountIdentityAdminService:
                 "fill_ratio": fill_ratio,
             })
         self._phase_stats_cache = {
-            "expires_at": now + 20.0,
+            "expires_at": now + _PHASE_STATS_CACHE_SECONDS,
             "items": rows,
         }
         return copy.deepcopy(rows)

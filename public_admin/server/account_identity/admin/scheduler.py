@@ -26,6 +26,7 @@ class AccountIdentitySyncScheduler:
         self._last_tick_at: datetime | None = None
         self._last_auto_trigger_at: datetime | None = None
         self._last_auto_run_day = ""
+        self._last_auto_check_day = ""
         if hasattr(service, "attach_scheduler"):
             service.attach_scheduler(self)
 
@@ -54,6 +55,7 @@ class AccountIdentitySyncScheduler:
             "last_tick_at": _serialize_time(self._last_tick_at),
             "last_auto_trigger_at": _serialize_time(self._last_auto_trigger_at),
             "last_auto_run_day": self._last_auto_run_day,
+            "last_auto_check_day": self._last_auto_check_day,
             "current_run": current_run,
         }
 
@@ -87,7 +89,7 @@ class AccountIdentitySyncScheduler:
             return
         target_today, trigger_deadline = window
         today_key = now.strftime("%Y-%m-%d")
-        if now < target_today or now > trigger_deadline or self._last_auto_run_day == today_key:
+        if now < target_today or now > trigger_deadline or self._last_auto_check_day == today_key:
             return
         result = await self._service.start_sync(
             triggered_by="system:auto",
@@ -96,6 +98,9 @@ class AccountIdentitySyncScheduler:
             dry_run=False,
             limit_per_spec=int(policy.get("limit_per_spec") or 0),
         )
+        if result.get("success") is False:
+            return
+        self._last_auto_check_day = today_key
         if result.get("started"):
             self._last_auto_trigger_at = now
             self._last_auto_run_day = today_key
@@ -104,10 +109,14 @@ class AccountIdentitySyncScheduler:
                     "[AccountIdentitySyncScheduler] auto sync started daily_time=%s",
                     policy.get("daily_time"),
                 )
+        elif self._logger is not None:
+            self._logger.info(
+                "[AccountIdentitySyncScheduler] auto sync skipped: no pending account migration rows",
+            )
 
     async def _refresh_persisted_auto_run_state(self, now: datetime) -> None:
         today_key = now.strftime("%Y-%m-%d")
-        if self._last_auto_run_day == today_key and self._last_auto_trigger_at is not None:
+        if self._last_auto_check_day == today_key:
             return
         if not hasattr(self._service, "get_latest_auto_sync_run_for_day"):
             return
@@ -121,6 +130,7 @@ class AccountIdentitySyncScheduler:
             return
         self._last_auto_trigger_at = started_at
         self._last_auto_run_day = today_key
+        self._last_auto_check_day = today_key
 
 
 def _serialize_time(value: Any) -> str:

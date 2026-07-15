@@ -6852,6 +6852,7 @@ if create_account_identity_admin_router is not None and AccountIdentityAdminServ
             system_config=db.system_config,
             ensure_columns=db.ensure_account_id_migration_columns,
             collect_stats=db.collect_account_id_migration_stats,
+            find_pending=db.find_pending_account_id_migration,
             backfill=db.backfill_account_id_migration,
             get_plan=db.get_account_id_migration_plan,
             logger=logger,
@@ -7038,7 +7039,7 @@ async def admin_startup():
 
     if account_identity_admin_service is not None:
         try:
-            await account_identity_admin_service.ensure_ready()
+            await account_identity_admin_service.initialize_schema()
             if account_identity_sync_scheduler is not None:
                 account_identity_sync_scheduler.start()
             logger.info("[AccountIdentityAdmin] account migration module initialized")

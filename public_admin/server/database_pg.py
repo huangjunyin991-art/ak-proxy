@@ -1428,15 +1428,21 @@ async def collect_account_id_migration_stats(phase_key: str = '') -> List[Dict[s
     return await _account_identity_migration_service.collect_phase_stats(phase_key=phase_key)
 
 
+async def find_pending_account_id_migration(phase_key: str = '') -> List[Dict[str, Any]]:
+    return await _account_identity_migration_service.find_pending_backfill_specs(phase_key=phase_key)
+
+
 async def backfill_account_id_migration(
     phase_key: str = '',
     limit_per_spec: int = 0,
     dry_run: bool = True,
+    spec_keys: Optional[set[tuple[str, str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     return await _account_identity_migration_service.backfill_phase_account_ids(
         phase_key=phase_key,
         limit_per_spec=limit_per_spec,
         dry_run=dry_run,
+        spec_keys=spec_keys,
     )
 
 
