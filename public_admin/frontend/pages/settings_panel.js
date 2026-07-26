@@ -603,28 +603,46 @@
             return { text: `${latency}ms`, color: '#ffa502' };
         }
 
-        function formatLbExitIp(ex, healthColor) {
-            if (ex.exit_ip) {
-                return { text: ex.exit_ip, color: healthColor, title: ex.exit_ip, badge: '' };
-            }
-            if (ex.ip_detecting) {
+        function formatLbSourceProbe(ex) {
+            const sourceUrl = ex.source_probe_url || 'https://www.akapi1.com/RPC/';
+            if (ex.type === 'direct') {
                 return {
-                    text: '检测中...',
+                    text: '直连保底',
                     color: '#00d4ff',
-                    title: '出口IP检测中',
-                    badge: `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#001018;background:rgba(0,212,255,0.85);font-weight:bold;">检测中</span>`
+                    title: `直连出口不参与源站探测；业务源站为 ${sourceUrl}`,
+                    badge: ''
                 };
             }
-            if (ex.ip_detect_checked_at || ex.ip_detect_failures > 0) {
-                const err = ex.ip_detect_last_error ? ` | ${ex.ip_detect_last_error}` : '';
+            if (ex.source_probe_ready) {
+                const status = ex.source_probe_status_code ? `HTTP ${ex.source_probe_status_code}` : '已验证';
+                const checked = ex.source_probe_checked_at ? ` | 检查时间 ${ex.source_probe_checked_at}` : '';
                 return {
-                    text: '检测失败',
-                    color: '#ff4757',
-                    title: `上次检测: ${ex.ip_detect_checked_at || '-'}${err}`,
-                    badge: `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#fff;background:rgba(255,71,87,0.85);font-weight:bold;">失败${ex.ip_detect_failures ? '×' + ex.ip_detect_failures : ''}</span>`
+                    text: `可达 ${status}`,
+                    color: '#00ff88',
+                    title: `源站 ${sourceUrl}${checked}`,
+                    badge: ''
                 };
             }
-            return { text: '未检测', color: 'var(--text-secondary)', title: '暂未开始出口IP检测', badge: '' };
+            if (ex.source_probing) {
+                return {
+                    text: '检查中...',
+                    color: '#00d4ff',
+                    title: `正在检查源站 ${sourceUrl}`,
+                    badge: `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#001018;background:rgba(0,212,255,0.85);font-weight:bold;">检查中</span>`
+                };
+            }
+            if (ex.source_probe_checked_at || ex.source_probe_failures > 0) {
+                const err = ex.source_probe_last_error ? ` | ${ex.source_probe_last_error}` : '';
+                const failures = Number(ex.source_probe_failures || 0);
+                const failureLabel = failures >= 3 ? '失败≥3' : `失败×${failures}`;
+                return {
+                    text: '不可达',
+                    color: '#ff4757',
+                    title: `源站 ${sourceUrl} | 上次检查 ${ex.source_probe_checked_at || '-'}${err}`,
+                    badge: `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#fff;background:rgba(255,71,87,0.85);font-weight:bold;">${failureLabel}</span>`
+                };
+            }
+            return { text: '待检查', color: 'var(--text-secondary)', title: `暂未检查源站 ${sourceUrl}`, badge: '' };
         }
 
         function getLbExitIndex(ex, fallbackIndex) {
@@ -794,8 +812,7 @@
                 const isDirect = ex.type === 'direct';
                 const exitIndex = getLbExitIndex(ex, i);
                 const healthColor = ex.healthy ? '#00ff88' : '#ff4757';
-                const healthText = ex.healthy ? '在线' : '离线';
-                const healthBg = ex.healthy ? 'rgba(0,255,136,0.1)' : 'rgba(255,71,87,0.1)';
+                const healthText = ex.healthy ? '端口在线' : '端口离线';
                 const borderColor = ex.healthy ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)';
 
                 // 登录冷却进度条
@@ -825,7 +842,14 @@
                 }
 
                 const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${exitIndex}`;
-                const exitIpMeta = formatLbExitIp(ex, healthColor);
+                const sourceProbeMeta = formatLbSourceProbe(ex);
+                const sourceProbeBg = sourceProbeMeta.color === '#00ff88'
+                    ? 'rgba(0,255,136,0.1)'
+                    : sourceProbeMeta.color === '#00d4ff'
+                        ? 'rgba(0,212,255,0.1)'
+                        : sourceProbeMeta.color === '#ff4757'
+                            ? 'rgba(255,71,87,0.1)'
+                            : 'var(--bg-secondary)';
                 const latencyMeta = formatLbLatency(ex);
                 const latencyErr = ex.latency_probe_error ? ` | ${ex.latency_probe_error}` : '';
                 const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}${latencyErr}` : '暂未开始延迟测速';
@@ -847,9 +871,9 @@
                         </div>
                     </div>
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
-                        <div style="background:${healthBg};border-radius:6px;padding:6px 8px;flex:3;min-width:0;overflow:hidden;">
-                            <div style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;">出口IP${exitIpMeta.badge}</div>
-                            <div style="font-size:12px;font-weight:bold;color:${exitIpMeta.color};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(exitIpMeta.title)}">${escapeHtml(exitIpMeta.text)}</div>
+                        <div style="background:${sourceProbeBg};border-radius:6px;padding:6px 8px;flex:3;min-width:0;overflow:hidden;">
+                            <div style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;">源站${sourceProbeMeta.badge}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${sourceProbeMeta.color};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(sourceProbeMeta.title)}">${escapeHtml(sourceProbeMeta.text)}</div>
                         </div>
                         <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">并发</div>
@@ -887,11 +911,11 @@
 
         async function lbDetectIPs() {
             try {
-                showToast('正在检测出口IP...', 'info');
+                showToast('正在检查源站连通性...', 'info');
                 const res = await fetch(`${API_BASE}/api/dispatcher/detect_ips`, {method: 'POST'});
                 const data = await res.json();
                 if (data.success) {
-                    showToast('IP检测完成');
+                    showToast('源站连通性检查完成');
                     loadLbStatus();
                 } else {
                     showToast(data.message || '检测失败', 'error');

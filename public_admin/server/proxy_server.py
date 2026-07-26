@@ -3986,16 +3986,15 @@ async def api_dispatcher_remove(request: Request):
 
 async def api_dispatcher_detect_ips(request: Request):
 
-    """手动触发所有出口的IP检测"""
+    """Compatibility route: manually refresh source reachability for all exits."""
 
     _, error_response = await _require_admin_token(request, super_admin_only=True)
     if error_response is not None:
         return error_response
 
-    await dispatcher.detect_all_ips()
+    await dispatcher.probe_all_sources()
 
-    return {"success": True, "message": "IP检测完成", **dispatcher.get_status()}
-
+    return {"success": True, "message": "源站连通性检查完成", **dispatcher.get_status()}
 
 
 @app.post("/api/dispatcher/probe_latency")

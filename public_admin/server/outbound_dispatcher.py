@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-出口IP调度器模块
+出口调度器模块
 管理多个出站通道（直连 + sing-box SOCKS5隧道），实现负载均衡。
 
 核心设计:
@@ -8,7 +8,7 @@
 - 均匀分配: 使用最少活跃连接数(least-connections)调度，保证每个IP同时使用人数接近
 - Login限流: 每个出口IP限制 MAX_LOGIN_PER_MIN 次/分钟，超出轮换
 - 403/429告警: 上游返回风控状态码时记录WARNING日志并统计
-- 健康检查: 定期检测隧道存活，自动剔除/恢复
+- 源站探测: 定期验证出口到业务源站的连通性，自动剔除/恢复
 - 降级保底: 所有隧道故障时 fallback 直连
 """
 
@@ -27,6 +27,7 @@ import httpx
 from .rpc_timeout_policy import resolve_connect_timeout
 from .runtime_hygiene import RuntimeHygienePolicy
 from .security.upstream_http import resolve_upstream_tls_verify
+from .source_reachability import SourceReachabilityProbe
 
 try:
     from .dispatcher_policy import (
@@ -72,10 +73,11 @@ class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'core_type', 'local_port', 'group_id', 'group_name', 'source_url',
                  'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
-                 'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
+                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
-                 '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures', '_ip_detect_failures',
-                 'ip_detect_checked_at', 'ip_detect_last_error', 'ip_detect_ready',
+                 '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures',
+                 'source_probe_ready', 'source_probing', 'source_probe_checked_at', 'source_probe_failures',
+                 'source_probe_last_error', 'source_probe_status_code', '_source_probe_next_at',
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
                  '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason')
@@ -98,8 +100,7 @@ class OutboundExit:
         self.warn_403 = 0       # 403次数
         self.warn_429 = 0       # 429次数
         self.active = 0         # 当前正在处理的并发请求数
-        self.exit_ip = ""       # 检测到的出口IP
-        self.ip_detecting = False
+        self.exit_ip = ""       # 兼容告警/详情字段；不再作为自动调度探测结果
         self._login_timestamps = deque()
         self._error_logs: list[dict] = []  # [{time, msg}] 最多保留50条
         self._req_timestamps = deque()  # 最近60秒请求时间戳
@@ -109,10 +110,13 @@ class OutboundExit:
         self._frozen_until: float = 0    # 403后冻结截止时间戳
         self._frozen_reason: str = ""
         self._connect_failures: int = 0
-        self._ip_detect_failures: int = 0  # 连续IP检测失败次数（用于剔除死节点）
-        self.ip_detect_checked_at: str = ""
-        self.ip_detect_last_error: str = ""
-        self.ip_detect_ready: bool = proxy_url is None
+        self.source_probe_ready: bool = proxy_url is None
+        self.source_probing: bool = False
+        self.source_probe_checked_at: str = ""
+        self.source_probe_failures: int = 0
+        self.source_probe_last_error: str = ""
+        self.source_probe_status_code: Optional[int] = None
+        self._source_probe_next_at: float = 0.0
         self.latency_ms: Optional[int] = None
         self.latency_checked_at: str = ""
         self.latency_probe_failures: int = 0
@@ -134,7 +138,7 @@ class OutboundExit:
 
     @property
     def is_dispatch_ready(self) -> bool:
-        return self.is_direct or (self.healthy and self.ip_detect_ready)
+        return self.is_direct or (self.healthy and self.source_probe_ready)
 
     @property
     def is_frozen(self) -> bool:
@@ -386,13 +390,15 @@ class OutboundExit:
 
 
 class OutboundDispatcher:
-    """出口IP调度器（异常安全，保证服务不中断）"""
+    """出口调度器（异常安全，保证服务不中断）"""
 
     MAX_LOGIN_PER_MIN = 10
     LOGIN_403_FREEZE_SECONDS = 60
-    INITIAL_IP_DETECT_DELAY_SECONDS = 30
-    IP_DETECT_INTERVAL_SECONDS = 60 * 60
-    FAILED_IP_DETECT_INTERVAL_SECONDS = 5 * 60
+    INITIAL_SOURCE_PROBE_DELAY_SECONDS = 30
+    SOURCE_PROBE_INTERVAL_SECONDS = 60 * 60
+    FAILED_SOURCE_PROBE_TICK_SECONDS = 60
+    SOURCE_PROBE_BATCH_CONCURRENCY = 12
+    SOURCE_PROBE_FAILURE_BACKOFF_SECONDS = (5 * 60, 15 * 60, 60 * 60)
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
@@ -428,12 +434,12 @@ class OutboundDispatcher:
         self._direct_critical_timestamps = deque()
         self._health_task: Optional[asyncio.Task] = None
         self._latency_probe_task: Optional[asyncio.Task] = None
-        self._initial_ip_detect_task: Optional[asyncio.Task] = None
-        self._periodic_ip_detect_task: Optional[asyncio.Task] = None
-        self._failed_ip_detect_task: Optional[asyncio.Task] = None
-        self._pending_ip_detect_task: Optional[asyncio.Task] = None
+        self._initial_source_probe_task: Optional[asyncio.Task] = None
+        self._periodic_source_probe_task: Optional[asyncio.Task] = None
+        self._failed_source_probe_task: Optional[asyncio.Task] = None
+        self._pending_source_probe_task: Optional[asyncio.Task] = None
         self._started = False
-        self._ip_detect_run_lock = asyncio.Lock()
+        self._source_probe_run_lock = asyncio.Lock()
         self._rr_counter: int = 0
         self._wide_spread_rr_counter: int = 0
         self._wide_spread_group_rr_counter: int = 0
@@ -444,6 +450,7 @@ class OutboundDispatcher:
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
         self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
         self.rate_limiter = PerSecondRateLimiter() if PerSecondRateLimiter is not None else None
+        self.source_probe = SourceReachabilityProbe()
         self.latency_strategy = LatencyAwareStrategy(
             self.policy_config.latency_tier_tolerance_ms
         ) if self.policy_config is not None and LatencyAwareStrategy is not None else None
@@ -531,18 +538,18 @@ class OutboundDispatcher:
         self._latency_probe_task = self._safe_create_task(self._latency_probe_loop(), "latency_probe_loop")
         logger.info("[Dispatcher] 延迟测速任务已启动")
 
-    def _ensure_ip_detect_started(self):
+    def _ensure_source_probe_started(self):
         if not self._started:
             return
-        if self._initial_ip_detect_task is None or self._initial_ip_detect_task.done():
-            self._initial_ip_detect_task = self._safe_create_task(self._initial_ip_detect(), "initial_ip_detect")
-            logger.info("[Dispatcher] 初始IP检测任务已启动")
-        if self._periodic_ip_detect_task is None or self._periodic_ip_detect_task.done():
-            self._periodic_ip_detect_task = self._safe_create_task(self._periodic_ip_detect_loop(), "periodic_ip_detect")
-            logger.info("[Dispatcher] 周期IP检测任务已启动")
-        if self._failed_ip_detect_task is None or self._failed_ip_detect_task.done():
-            self._failed_ip_detect_task = self._safe_create_task(self._failed_ip_detect_loop(), "failed_ip_detect")
-            logger.info("[Dispatcher] 失败节点IP快检任务已启动")
+        if self._initial_source_probe_task is None or self._initial_source_probe_task.done():
+            self._initial_source_probe_task = self._safe_create_task(self._initial_source_probe(), "initial_source_probe")
+            logger.info("[Dispatcher] 初始源站连通性检查任务已启动")
+        if self._periodic_source_probe_task is None or self._periodic_source_probe_task.done():
+            self._periodic_source_probe_task = self._safe_create_task(self._periodic_source_probe_loop(), "periodic_source_probe")
+            logger.info("[Dispatcher] 周期源站连通性检查任务已启动")
+        if self._failed_source_probe_task is None or self._failed_source_probe_task.done():
+            self._failed_source_probe_task = self._safe_create_task(self._failed_source_probe_loop(), "failed_source_probe")
+            logger.info("[Dispatcher] 不可用节点源站复检任务已启动")
 
     # ===== 启停 =====
 
@@ -553,7 +560,7 @@ class OutboundDispatcher:
         self._started = True
         self._ensure_health_check_started()
         self._ensure_latency_probe_started()
-        self._ensure_ip_detect_started()
+        self._ensure_source_probe_started()
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
 
     async def stop(self):
@@ -571,28 +578,28 @@ class OutboundDispatcher:
                 await self._latency_probe_task
             except asyncio.CancelledError:
                 pass
-        if self._initial_ip_detect_task:
-            self._initial_ip_detect_task.cancel()
+        if self._initial_source_probe_task:
+            self._initial_source_probe_task.cancel()
             try:
-                await self._initial_ip_detect_task
+                await self._initial_source_probe_task
             except asyncio.CancelledError:
                 pass
-        if self._periodic_ip_detect_task:
-            self._periodic_ip_detect_task.cancel()
+        if self._periodic_source_probe_task:
+            self._periodic_source_probe_task.cancel()
             try:
-                await self._periodic_ip_detect_task
+                await self._periodic_source_probe_task
             except asyncio.CancelledError:
                 pass
-        if self._failed_ip_detect_task:
-            self._failed_ip_detect_task.cancel()
+        if self._failed_source_probe_task:
+            self._failed_source_probe_task.cancel()
             try:
-                await self._failed_ip_detect_task
+                await self._failed_source_probe_task
             except asyncio.CancelledError:
                 pass
-        if self._pending_ip_detect_task:
-            self._pending_ip_detect_task.cancel()
+        if self._pending_source_probe_task:
+            self._pending_source_probe_task.cancel()
             try:
-                await self._pending_ip_detect_task
+                await self._pending_source_probe_task
             except asyncio.CancelledError:
                 pass
         # 关闭所有出口的持久 client
@@ -600,42 +607,42 @@ class OutboundDispatcher:
             await ex.close_client()
         logger.info("[Dispatcher] 调度器已停止，所有连接已关闭")
 
-    async def _initial_ip_detect(self):
-        """启动后延迟30秒执行一次全量IP检测（等待_restore_dispatcher_exits完成且sing-box预热）"""
-        await asyncio.sleep(self.INITIAL_IP_DETECT_DELAY_SECONDS)
+    async def _initial_source_probe(self):
+        """Allow proxy cores to warm up, then check the actual business source."""
+        await asyncio.sleep(self.INITIAL_SOURCE_PROBE_DELAY_SECONDS)
         if not self._started:
             return
         try:
-            await self.detect_all_ips()
+            await self.probe_all_sources()
         except Exception as e:
-            logger.warning(f"[Dispatcher] 初始IP检测异常: {e}")
+            logger.warning(f"[Dispatcher] 初始源站连通性检查异常: {e}")
 
-    async def _periodic_ip_detect_loop(self):
-        """每小时执行一次全量IP检测，失败状态可自动恢复，不依赖人工触发。"""
+    async def _periodic_source_probe_loop(self):
+        """Revalidate available exits against the real source once per hour."""
         while True:
-            logger.info(f"[Dispatcher] 下次周期IP检测将在 {self.IP_DETECT_INTERVAL_SECONDS / 3600:.1f} 小时后执行")
-            await asyncio.sleep(self.IP_DETECT_INTERVAL_SECONDS)
+            logger.info(f"[Dispatcher] 下次周期源站检查将在 {self.SOURCE_PROBE_INTERVAL_SECONDS / 3600:.1f} 小时后执行")
+            await asyncio.sleep(self.SOURCE_PROBE_INTERVAL_SECONDS)
             if not self._started:
                 return
-            logger.info("[Dispatcher] 周期IP检测开始...")
+            logger.info("[Dispatcher] 周期源站连通性检查开始...")
             try:
-                await self.detect_all_ips()
-                logger.info("[Dispatcher] 周期IP检测完成")
+                await self.probe_all_sources()
+                logger.info("[Dispatcher] 周期源站连通性检查完成")
             except Exception as e:
-                logger.warning(f"[Dispatcher] 周期IP检测异常: {e}")
+                logger.warning(f"[Dispatcher] 周期源站连通性检查异常: {e}")
 
-    async def _failed_ip_detect_loop(self):
-        """仅对检测失败的节点做快速重试，帮助节点尽快恢复。"""
+    async def _failed_source_probe_loop(self):
+        """Retry unavailable exits with per-exit backoff, without flooding the source."""
         while True:
-            await asyncio.sleep(self.FAILED_IP_DETECT_INTERVAL_SECONDS)
+            await asyncio.sleep(self.FAILED_SOURCE_PROBE_TICK_SECONDS)
             if not self._started:
                 return
             try:
-                recovered = await self.detect_failed_ips()
+                recovered = await self.probe_failed_sources()
                 if recovered > 0:
-                    logger.info(f"[Dispatcher] 失败节点IP快检恢复 {recovered} 个出口")
+                    logger.info(f"[Dispatcher] 源站复检恢复 {recovered} 个出口")
             except Exception as e:
-                logger.warning(f"[Dispatcher] 失败节点IP快检异常: {e}")
+                logger.warning(f"[Dispatcher] 源站复检异常: {e}")
 
     # ===== 内部工具 =====
 
@@ -1434,161 +1441,119 @@ class OutboundDispatcher:
             pass
 
     async def _check_single_exit(self, idx: int, ex: OutboundExit):
-        """检查单个出口是否可用：本地TCP端口探测 → healthy；异步后台更新公网IP"""
+        """Check the local SOCKS listener and schedule a source probe after recovery."""
         was_healthy = ex.healthy
         reachable = await self._probe_socks5_port(ex)
         if reachable:
             ex.healthy = True
             ex._ever_healthy = True
-            if not ex.is_direct and not ex.ip_detect_ready and not ex.ip_detecting and (not was_healthy or not ex.ip_detect_checked_at):
-                self._schedule_single_exit_ip_detect(ex)
+            if not ex.is_direct and not ex.source_probe_ready and not ex.source_probing and not was_healthy:
+                self._schedule_single_exit_source_probe(ex)
             if not was_healthy:
                 logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
-            pass  # IP检测由定时任务负责（每日凌晨4点），不在健康检查中触发
+            pass  # Source checks are scheduled separately to avoid per-health-check traffic.
         else:
             if not ex.is_direct:  # 直连出口永远不标记为离线
                 ex.healthy = False
-                ex.ip_detect_ready = False
+                ex.source_probe_ready = False
+                ex._source_probe_next_at = 0.0
                 if was_healthy and ex._ever_healthy and self._started:
                     logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
 
-    def _schedule_single_exit_ip_detect(self, ex: OutboundExit) -> None:
-        if ex.is_direct or ex.ip_detect_ready or ex.ip_detecting or not ex.healthy:
+    def _schedule_single_exit_source_probe(self, ex: OutboundExit) -> None:
+        if ex.is_direct or ex.source_probe_ready or ex.source_probing or not ex.healthy:
             return
-        if self._pending_ip_detect_task is not None and not self._pending_ip_detect_task.done():
+        if self._pending_source_probe_task is not None and not self._pending_source_probe_task.done():
             return
 
         async def _run():
             try:
-                # Health checks can discover many new ports together. Debounce them into one batch
-                # so every port does not serialize behind the same IP-detection lock.
+                # Health checks can recover many ports together; coalesce them before probing.
                 await asyncio.sleep(0.2)
                 if self._started:
-                    await self.detect_failed_ips()
+                    await self.probe_failed_sources(force_due=True)
             except Exception as e:
-                logger.warning(f"[Dispatcher] pending IP detect failed: {e}")
+                logger.warning(f"[Dispatcher] pending source probe failed: {e}")
 
-        self._pending_ip_detect_task = self._safe_create_task(_run(), "pending_ip_detect_batch")
+        self._pending_source_probe_task = self._safe_create_task(_run(), "pending_source_probe_batch")
 
-    IP_SERVICES = (
-        "https://api4.ipify.org",
-        "https://api.ip.sb/ip",
-        "https://ipv4.icanhazip.com",
-    )
-    IP_DETECT_TOTAL_TIMEOUT = 4.0
-    IP_DETECT_CONNECT_TIMEOUT = 2.0
-
-    async def _detect_exit_ip(self, ex: OutboundExit) -> bool:
-        """通过外部服务检测出口的公网IP（复用持久连接），返回 True 表示本次探测成功"""
-        checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ex.ip_detect_checked_at = checked_at
+    async def _probe_source_exit(self, ex: OutboundExit) -> bool:
+        """Check whether an exit can reach the configured business source."""
+        ex.source_probing = True
+        ex.source_probe_checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             client = await ex.get_client()
+            result = await self.source_probe.probe(client)
         except Exception as e:
-            ex.ip_detect_last_error = str(e)
-            ex.ip_detect_ready = False
-            return False
-        last_error = ""
-        tasks = [
-            asyncio.create_task(
-                client.get(
-                    svc,
-                    timeout=httpx.Timeout(self.IP_DETECT_TOTAL_TIMEOUT, connect=self.IP_DETECT_CONNECT_TIMEOUT),
-                )
-            )
-            for svc in self.IP_SERVICES
-        ]
-        try:
-            for task in asyncio.as_completed(tasks):
-                try:
-                    resp = await task
-                except Exception as e:
-                    last_error = str(e)
-                    continue
-                if resp.status_code == 200:
-                    text = resp.text.strip()
-                    # httpbin 返回 JSON {"origin": "x.x.x.x"}
-                    if text.startswith("{"):
-                        import json as _json
-                        text = _json.loads(text).get("origin", "").split(",")[0].strip()
-                    ip = text.strip()
-                    if ip:
-                        if ip != ex.exit_ip:
-                            logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
-                            ex.exit_ip = ip
-                        ex._ip_detect_failures = 0  # 连通成功，重置失败计数
-                        ex.ip_detect_last_error = ""
-                        ex.ip_detect_ready = True
-                        return True  # 连通即成功，不管 IP 是否变化
-                else:
-                    last_error = f"HTTP {resp.status_code}"
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-        ex.ip_detect_ready = False
-        # 所有服务均失败
-        ex.ip_detect_last_error = last_error or "所有IP检测服务均失败"
-        if not ex.is_direct:
-            ex._ip_detect_failures += 1
-            if ex._ip_detect_failures >= 3 and ex._ever_healthy:
-                logger.warning(f"[Dispatcher] 出口 {ex.name} 连续{ex._ip_detect_failures}次IP检测失败，标记下线")
-        return False
+            result = None
+            error = str(e).strip() or e.__class__.__name__
 
-    async def _probe_ip_batch(self, exits_snapshot: list[OutboundExit]) -> list:
-        sem = asyncio.Semaphore(40)
+        try:
+            if result is not None and result.reachable:
+                was_ready = ex.source_probe_ready
+                ex.source_probe_ready = True
+                ex.source_probe_failures = 0
+                ex.source_probe_last_error = ""
+                ex.source_probe_status_code = result.status_code
+                ex._source_probe_next_at = time.time() + self.SOURCE_PROBE_INTERVAL_SECONDS
+                if not was_ready:
+                    status = f"HTTP {result.status_code}" if result.status_code else "network success"
+                    logger.info(f"[Dispatcher] 源站连通恢复: {ex.name} ({status})")
+                return True
+
+            ex.source_probe_ready = False
+            ex.source_probe_status_code = result.status_code if result is not None else None
+            ex.source_probe_last_error = result.error if result is not None else error
+            ex.source_probe_failures = min(3, ex.source_probe_failures + 1)
+            retry_seconds = self.SOURCE_PROBE_FAILURE_BACKOFF_SECONDS[ex.source_probe_failures - 1]
+            ex._source_probe_next_at = time.time() + retry_seconds
+            if ex.source_probe_failures == 3 and ex._ever_healthy:
+                logger.warning(
+                    f"[Dispatcher] 出口 {ex.name} 源站不可达，后续每 {retry_seconds // 60} 分钟复检: "
+                    f"{ex.source_probe_last_error}"
+                )
+            return False
+        finally:
+            ex.source_probing = False
+
+    async def _probe_source_batch(self, exits_snapshot: list[OutboundExit]) -> list[bool]:
+        sem = asyncio.Semaphore(self.SOURCE_PROBE_BATCH_CONCURRENCY)
 
         async def _probe(ex: OutboundExit) -> bool:
             async with sem:
-                ex.ip_detecting = True
-                try:
-                    return await self._detect_exit_ip(ex)
-                finally:
-                    ex.ip_detecting = False
+                return await self._probe_source_exit(ex)
 
         if not exits_snapshot:
             return []
-        return await asyncio.gather(*[_probe(ex) for ex in exits_snapshot], return_exceptions=True)
+        results = await asyncio.gather(*[_probe(ex) for ex in exits_snapshot], return_exceptions=True)
+        return [bool(result) if isinstance(result, bool) else False for result in results]
 
-    async def detect_all_ips(self):
-        """Run a full IP detection pass and only mark exits offline after two failed rounds."""
-        async with self._ip_detect_run_lock:
-            exits_snapshot = list(self.exits)
+    async def probe_all_sources(self) -> int:
+        """Probe every locally reachable SOCKS exit against the business source."""
+        async with self._source_probe_run_lock:
+            exits_snapshot = [ex for ex in self.exits if not ex.is_direct and ex.healthy]
+            results = await self._probe_source_batch(exits_snapshot)
+            return sum(1 for result in results if result)
 
-            # First round: probe every exit concurrently so the UI can update incrementally.
-            results = await self._probe_ip_batch(exits_snapshot)
-
-            failed = [
-                ex for ex, result in zip(exits_snapshot, results)
-                if not (isinstance(result, bool) and result)
-            ]
-            if not failed:
-                return
-
-            logger.info(f"[Dispatcher] IP detect round 1: {len(failed)} exits failed, retrying in 5s")
-            await asyncio.sleep(5)
-
-            # Second round: only retry the exits that failed in round one.
-            retry_results = await self._probe_ip_batch(failed)
-            for ex, result in zip(failed, retry_results):
-                if not (isinstance(result, bool) and result) and not ex.is_direct:
-                    ex.ip_detect_ready = False
-                    logger.warning(f"[Dispatcher] Dead exit: {ex.name} failed both IP detection rounds")
-
-    async def detect_failed_ips(self) -> int:
-        """Only re-probe exits with recent IP detection failures; return recovered count."""
-        async with self._ip_detect_run_lock:
+    async def probe_failed_sources(self, force_due: bool = False) -> int:
+        """Probe only currently unavailable exits whose retry deadline has elapsed."""
+        async with self._source_probe_run_lock:
+            now = time.time()
             failed_exits = [
                 ex for ex in self.exits
-                if not ex.is_direct and (not ex.ip_detect_ready or ex._ip_detect_failures > 0 or bool(ex.ip_detect_last_error))
+                if not ex.is_direct
+                and ex.healthy
+                and not ex.source_probe_ready
+                and (force_due or ex._source_probe_next_at <= now)
             ]
             if not failed_exits:
                 return 0
+            results = await self._probe_source_batch(failed_exits)
+            return sum(1 for result in results if result)
 
-            results = await self._probe_ip_batch(failed_exits)
-            return sum(1 for result in results if isinstance(result, bool) and result)
+    async def detect_all_ips(self) -> int:
+        """Compatibility alias for callers of the former IP detection endpoint."""
+        return await self.probe_all_sources()
 
     async def _latency_probe_loop(self):
         await asyncio.sleep(self.policy_config.initial_probe_delay_seconds)
@@ -1647,11 +1612,13 @@ class OutboundDispatcher:
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
                     "dispatch_ready": ex.is_dispatch_ready,
-                    "exit_ip": ex.exit_ip,
-                    "ip_detecting": ex.ip_detecting,
-                    "ip_detect_checked_at": ex.ip_detect_checked_at,
-                    "ip_detect_failures": ex._ip_detect_failures,
-                    "ip_detect_last_error": ex.ip_detect_last_error,
+                    "source_probe_ready": ex.source_probe_ready,
+                    "source_probing": ex.source_probing,
+                    "source_probe_checked_at": ex.source_probe_checked_at,
+                    "source_probe_failures": ex.source_probe_failures,
+                    "source_probe_last_error": ex.source_probe_last_error,
+                    "source_probe_status_code": ex.source_probe_status_code,
+                    "source_probe_url": self.source_probe.probe_url,
                     "active": ex.active,
                     "total_requests": ex.total,
                     "login_requests": ex.login_count,

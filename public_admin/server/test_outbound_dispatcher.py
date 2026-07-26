@@ -3,8 +3,9 @@ import httpx
 import asyncio
 import time
 
-from .outbound_dispatcher import OutboundDispatcher, RpcUpstreamNonJsonError
+from .outbound_dispatcher import OutboundDispatcher, OutboundExit, RpcUpstreamNonJsonError
 from .dispatcher_policy.latency_probe import LatencyProbeService
+from .source_reachability import SourceProbeResult
 
 
 def _saturate_regular_direct(dispatcher: OutboundDispatcher) -> None:
@@ -15,7 +16,7 @@ def _saturate_regular_direct(dispatcher: OutboundDispatcher) -> None:
 
 def _add_ready_socks5(dispatcher: OutboundDispatcher, name: str, port: int, **kwargs) -> int:
     idx = dispatcher.add_socks5(name, port, **kwargs)
-    dispatcher.exits[idx].ip_detect_ready = True
+    dispatcher.exits[idx].source_probe_ready = True
     return idx
 
 
@@ -50,7 +51,7 @@ def test_direct_exhaustion_overflows_to_non_frozen_tunnel_instead_of_rejecting()
     assert picked is tunnel
 
 
-def test_api_selection_skips_tunnel_until_ip_detect_ready():
+def test_api_selection_skips_tunnel_until_source_probe_succeeds():
     dispatcher = OutboundDispatcher()
     dispatcher.add_socks5("pending-ip-detect", 10001)
 
@@ -58,7 +59,7 @@ def test_api_selection_skips_tunnel_until_ip_detect_ready():
 
     assert picked.is_direct
 
-    dispatcher.exits[1].ip_detect_ready = True
+    dispatcher.exits[1].source_probe_ready = True
 
     picked = dispatcher.pick_api_exit("ACE_Sell_Son")
 
@@ -244,7 +245,7 @@ def test_wide_spread_fallback_ignores_dedicated_fast_pool_size():
 
 
 @pytest.mark.anyio
-async def test_start_starts_initial_and_periodic_ip_detect_tasks(monkeypatch):
+async def test_start_starts_initial_and_periodic_source_probe_tasks(monkeypatch):
     dispatcher = OutboundDispatcher()
     created = []
 
@@ -266,41 +267,43 @@ async def test_start_starts_initial_and_periodic_ip_detect_tasks(monkeypatch):
 
     await dispatcher.start()
 
-    assert created == ["initial_ip_detect", "periodic_ip_detect", "failed_ip_detect"]
-    assert dispatcher._initial_ip_detect_task is not None
-    assert dispatcher._periodic_ip_detect_task is not None
-    assert dispatcher._failed_ip_detect_task is not None
+    assert created == ["initial_source_probe", "periodic_source_probe", "failed_source_probe"]
+    assert dispatcher._initial_source_probe_task is not None
+    assert dispatcher._periodic_source_probe_task is not None
+    assert dispatcher._failed_source_probe_task is not None
 
 
 @pytest.mark.anyio
-async def test_detect_failed_ips_only_probes_failed_exits(monkeypatch):
+async def test_probe_failed_sources_only_probes_due_unavailable_exits(monkeypatch):
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "healthy", 10001)
     _add_ready_socks5(dispatcher, "failed-a", 10002)
     _add_ready_socks5(dispatcher, "failed-b", 10003)
-    dispatcher.exits[1].ip_detect_ready = False
-    dispatcher.exits[2]._ip_detect_failures = 2
-    dispatcher.exits[3].ip_detect_last_error = "timeout"
+    dispatcher.exits[1].source_probe_ready = False
+    dispatcher.exits[2].source_probe_ready = False
+    dispatcher.exits[2].source_probe_failures = 2
+    dispatcher.exits[3].source_probe_ready = False
+    dispatcher.exits[3].source_probe_last_error = "timeout"
     probed = []
 
     async def fake_probe(exits_snapshot):
         probed.extend(ex.name for ex in exits_snapshot)
         return [True, False, False]
 
-    monkeypatch.setattr(dispatcher, "_probe_ip_batch", fake_probe)
+    monkeypatch.setattr(dispatcher, "_probe_source_batch", fake_probe)
 
-    recovered = await dispatcher.detect_failed_ips()
+    recovered = await dispatcher.probe_failed_sources()
 
     assert probed == ["healthy", "failed-a", "failed-b"]
     assert recovered == 1
 
 
-def test_health_check_ip_detect_requests_are_batched(monkeypatch):
+def test_health_check_source_probe_requests_are_batched(monkeypatch):
     dispatcher = OutboundDispatcher()
     first = _add_ready_socks5(dispatcher, "first", 10001)
     second = _add_ready_socks5(dispatcher, "second", 10002)
-    dispatcher.exits[first].ip_detect_ready = False
-    dispatcher.exits[second].ip_detect_ready = False
+    dispatcher.exits[first].source_probe_ready = False
+    dispatcher.exits[second].source_probe_ready = False
     scheduled = []
 
     class PendingTask:
@@ -314,10 +317,58 @@ def test_health_check_ip_detect_requests_are_batched(monkeypatch):
 
     monkeypatch.setattr(dispatcher, "_safe_create_task", fake_create_task)
 
-    dispatcher._schedule_single_exit_ip_detect(dispatcher.exits[first])
-    dispatcher._schedule_single_exit_ip_detect(dispatcher.exits[second])
+    dispatcher._schedule_single_exit_source_probe(dispatcher.exits[first])
+    dispatcher._schedule_single_exit_source_probe(dispatcher.exits[second])
 
-    assert scheduled == ["pending_ip_detect_batch"]
+    assert scheduled == ["pending_source_probe_batch"]
+
+
+@pytest.mark.anyio
+async def test_source_probe_403_enables_dispatch_and_resets_failures(monkeypatch):
+    class Probe:
+        async def probe(self, client):
+            return SourceProbeResult(True, 403, "", 12)
+
+    async def fake_get_client(self):
+        return object()
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("recovering", 10001)
+    ex = dispatcher.exits[idx]
+    ex.source_probe_failures = 3
+    ex.source_probe_last_error = "timeout"
+    ex.healthy = True
+
+    assert await dispatcher._probe_source_exit(ex) is True
+    assert ex.source_probe_ready is True
+    assert ex.source_probe_failures == 0
+    assert ex.source_probe_last_error == ""
+    assert ex.source_probe_status_code == 403
+
+
+@pytest.mark.anyio
+async def test_source_probe_429_remains_unavailable_with_capped_failures(monkeypatch):
+    class Probe:
+        async def probe(self, client):
+            return SourceProbeResult(False, 429, "HTTP 429", 12)
+
+    async def fake_get_client(self):
+        return object()
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("limited", 10001)
+    ex = dispatcher.exits[idx]
+    ex.source_probe_failures = 3
+    ex.healthy = True
+
+    assert await dispatcher._probe_source_exit(ex) is False
+    assert ex.source_probe_ready is False
+    assert ex.source_probe_failures == 3
+    assert ex.source_probe_last_error == "HTTP 429"
 
 
 @pytest.mark.anyio
