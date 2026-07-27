@@ -60,6 +60,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import uvicorn
 
+from .subscription_groups import (
+    build_group_node_views,
+    decorate_subscription_groups,
+    group_nodes_by_identity,
+    subscription_node_identity,
+    summarize_subscription_nodes,
+)
+
 
 
 # 修复Windows控制台中文乱码
@@ -391,23 +399,7 @@ def _save_dispatcher_exits_snapshot(nodes: list[dict[str, Any]], base_port: int)
 
 
 def _subscription_node_identity(node: dict[str, Any]) -> str:
-    """Return a stable, one-way identity for one subscription node.
-
-    The digest deliberately includes the upstream configuration so a changed
-    node cannot inherit the old route's reachability result.  Only the digest
-    is handed to the dispatcher; credentials are never exposed in its status.
-    """
-    raw = node.get("raw") if isinstance(node.get("raw"), dict) else {}
-    payload = {
-        "group_id": str(node.get("group_id") or "").strip(),
-        "core_type": str(node.get("core_type") or "").strip().lower(),
-        "type": str(node.get("type") or raw.get("type") or "").strip().lower(),
-        "server": str(node.get("server") or "").strip().lower(),
-        "port": node.get("port"),
-        "raw": raw,
-    }
-    serialized = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return subscription_node_identity(node)
 
 
 def _build_dispatcher_exit_specs(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, Any]]:
@@ -4523,17 +4515,17 @@ async def api_dispatcher_apply_sub(request: Request):
 
     if nodes_saved:
         try:
-            unique_servers = {node.get("server") for node in nodes_to_add if node.get("server")}
+            node_summary = summarize_subscription_nodes(nodes_to_add)
             await db.create_subscription_group(
                 group_id=group_id,
                 name=group_name,
                 source_type=source_type,
                 source_url=source_url,
-                total_servers=len(unique_servers),
+                total_servers=node_summary["total"],
                 created_by='admin',
                 notes=''
             )
-            logger.info(f"[SubGroup] 订阅组记录已新增: {group_name} {len(unique_servers)} 台服务器")
+            logger.info(f"[SubGroup] 订阅组记录已新增: {group_name} {node_summary['total']} 个独立节点")
         except Exception as e:
             logger.warning(f"[SubGroup] 新增订阅组记录失败: {e}")
 
@@ -10967,10 +10959,52 @@ async def admin_get_subscription_groups(request: Request):
         sub_name = get_token_sub_name(token)
         created_by = None if role == ROLE_SUPER_ADMIN else sub_name
         groups = await db.get_subscription_groups(created_by)
-        return {"success": True, "groups": groups}
+        from . import singbox_manager as sbm
+
+        nodes = sbm.load_saved_nodes()
+        node_items = [item for item in nodes if isinstance(item, dict)] if isinstance(nodes, list) else []
+        runtime_status = dispatcher.get_status()
+        exits = runtime_status.get("exits", []) if isinstance(runtime_status, dict) else []
+        projected_groups = decorate_subscription_groups(groups, node_items, exits)
+
+        count_updates = [
+            db.update_subscription_group_servers(
+                str(projected.get("id") or ""),
+                int(projected.get("total_servers") or 0),
+                int(projected.get("active_servers") or 0),
+            )
+            for original, projected in zip(groups, projected_groups)
+            if (
+                int(original.get("total_servers") or 0) != int(projected.get("total_servers") or 0)
+                or int(original.get("active_servers") or 0) != int(projected.get("active_servers") or 0)
+            )
+        ]
+        if count_updates:
+            await asyncio.gather(*count_updates)
+        return {"success": True, "groups": projected_groups}
     except Exception as e:
         logger.error(f"[SubGroup] 获取订阅组列表失败: {e}")
         return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.get("/admin/api/subscription_groups/{group_id}/nodes")
+async def admin_get_subscription_group_nodes(group_id: str, request: Request):
+    """Return credential-free logical nodes with current runtime availability."""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        from . import singbox_manager as sbm
+
+        nodes = sbm.load_saved_nodes()
+        node_items = [item for item in nodes if isinstance(item, dict)] if isinstance(nodes, list) else []
+        runtime_status = dispatcher.get_status()
+        exits = runtime_status.get("exits", []) if isinstance(runtime_status, dict) else []
+        logical_nodes = build_group_node_views(node_items, exits, group_id)
+        return {"success": True, "nodes": logical_nodes}
+    except Exception as e:
+        logger.error(f"[SubGroup] 获取独立节点列表失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}", "nodes": []}
 
 
 @app.patch("/admin/api/subscription_groups/{group_id}/notes")
@@ -11098,15 +11132,60 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
             nodes[idx]['enabled'] = enabled
         sbm.save_nodes(nodes)
         group_nodes = [n for n in nodes if isinstance(n, dict) and n.get('group_id') == group_id]
-        unique_servers = set(n.get('server') for n in group_nodes if n.get('server'))
-        enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True) and n.get('server'))
-        await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
+        node_summary = summarize_subscription_nodes(group_nodes)
+        await db.update_subscription_group_servers(group_id, node_summary["total"], node_summary["active"])
         await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
         action = "enabled" if enabled else "disabled"
         return {"success": True, "message": f"{action} {server} nodes: {len(matching)}"}
         # Legacy sing-box-only path removed after dual-core sync.
     except Exception as e:
         logger.error(f"[SubGroup] 按IP切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
+
+
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_node")
+async def admin_toggle_subscription_node(group_id: str, request: Request):
+    """Toggle one logical node identity without affecting other routes on the same host."""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    data = await request.json()
+    node_identity = str(data.get("node_identity") or "").strip().lower()
+    enabled = bool(data.get("enabled", True))
+    if not re.fullmatch(r"[0-9a-f]{64}", node_identity):
+        return {"success": False, "message": "节点身份无效"}
+    try:
+        from . import singbox_manager as sbm
+
+        nodes = sbm.load_saved_nodes()
+        if not isinstance(nodes, list):
+            nodes = []
+        matching = group_nodes_by_identity(nodes, group_id).get(node_identity, [])
+        if not matching:
+            return {"success": False, "message": "未找到该独立节点"}
+        for node in matching:
+            node["enabled"] = enabled
+
+        apply_result = await _apply_subscription_runtime_nodes(
+            nodes,
+            _get_dispatcher_saved_base_port(),
+            allow_empty_generation=True,
+        )
+        if not apply_result.get("success"):
+            return {"success": False, "message": f"切换失败: {apply_result.get('message') or '候选节点未就绪'}"}
+
+        group_nodes = [
+            node for node in nodes
+            if isinstance(node, dict) and str(node.get("group_id") or "") == str(group_id)
+        ]
+        node_summary = summarize_subscription_nodes(group_nodes)
+        await db.update_subscription_group_servers(group_id, node_summary["total"], node_summary["active"])
+        _SINGBOX_STATUS_CACHE.invalidate()
+        _DISPATCHER_STATUS_SERVICE.invalidate_meta()
+        action = "启用" if enabled else "禁用"
+        return {"success": True, "message": f"节点已{action}"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 按节点身份切换状态失败: {e}")
         return {"success": False, "message": f"操作失败: {str(e)}"}
 
 
@@ -11126,14 +11205,20 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
             return {"success": False, "message": "该组暂无服务器"}
         for idx in group_indices:
             nodes[idx]['enabled'] = enabled
-        sbm.save_nodes(nodes)
+        apply_result = await _apply_subscription_runtime_nodes(
+            nodes,
+            _get_dispatcher_saved_base_port(),
+            allow_empty_generation=True,
+        )
+        if not apply_result.get("success"):
+            return {"success": False, "message": f"切换失败: {apply_result.get('message') or '候选节点未就绪'}"}
         group_node_list = [nodes[i] for i in group_indices if isinstance(nodes[i], dict)]
-        unique_servers = set(n.get('server') for n in group_node_list if n.get('server'))
-        active_count = len(unique_servers) if enabled else 0
-        await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
-        await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+        node_summary = summarize_subscription_nodes(group_node_list)
+        await db.update_subscription_group_servers(group_id, node_summary["total"], node_summary["active"])
+        _SINGBOX_STATUS_CACHE.invalidate()
+        _DISPATCHER_STATUS_SERVICE.invalidate_meta()
         action = "enabled" if enabled else "disabled"
-        return {"success": True, "message": f"{action} servers: {len(unique_servers)}"}
+        return {"success": True, "message": f"{action} nodes: {node_summary['total']}"}
     except Exception as e:
         logger.error(f"[SubGroup] 批量切换服务器状态失败: {e}")
         return {"success": False, "message": f"操作失败: {str(e)}"}
@@ -11156,8 +11241,9 @@ async def admin_toggle_server(group_id: str, request: Request):
             node_idx = group_indices[server_index]
             nodes[node_idx]['enabled'] = enabled
             sbm.save_nodes(nodes)
-            active_count = sum(1 for i in group_indices if nodes[i].get('enabled', True))
-            await db.update_subscription_group_servers(group_id, len(group_indices), active_count)
+            group_node_list = [nodes[i] for i in group_indices if isinstance(nodes[i], dict)]
+            node_summary = summarize_subscription_nodes(group_node_list)
+            await db.update_subscription_group_servers(group_id, node_summary["total"], node_summary["active"])
             await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
             action = "enabled" if enabled else "disabled"
             return {"success": True, "message": f"server {action}"}

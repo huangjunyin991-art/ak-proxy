@@ -1751,6 +1751,7 @@ class OutboundDispatcher:
                     "group_id": ex.group_id,
                     "group_name": ex.group_name,
                     "source_url": ex.source_url,
+                    "node_identity": ex.node_identity,
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
                     "dispatch_ready": ex.is_dispatch_ready,

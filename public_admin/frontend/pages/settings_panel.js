@@ -817,8 +817,8 @@
                         <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;">
                             <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${healthColor};"></span>
                             <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
-                            <button onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" title="查看节点日志" aria-label="查看节点日志" style="width:28px;height:28px;padding:0;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.32);border-radius:7px;color:var(--accent);cursor:pointer;font-size:15px;font-weight:bold;line-height:1;">i</button>
-                            ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" title="删除节点" aria-label="删除节点" style="width:28px;height:28px;padding:0;background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-radius:7px;color:#ff4757;cursor:pointer;font-size:18px;line-height:1;">&times;</button>` : ''}
+                            <button onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" title="查看节点日志" aria-label="查看节点日志" style="width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.26);border-radius:8px;color:#65ddff;cursor:pointer;font-size:17px;font-weight:700;line-height:1;box-shadow:inset 0 1px rgba(255,255,255,0.04);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;" onmouseenter="this.style.background='rgba(0,212,255,0.16)';this.style.borderColor='rgba(0,212,255,0.6)';this.style.color='#b8f5ff';this.style.transform='translateY(-1px)'" onmouseleave="this.style.background='rgba(0,212,255,0.05)';this.style.borderColor='rgba(0,212,255,0.26)';this.style.color='#65ddff';this.style.transform='translateY(0)'">&#9432;</button>
+                            ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" title="删除节点" aria-label="删除节点" style="width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,71,87,0.045);border:1px solid rgba(255,71,87,0.24);border-radius:8px;color:#ff8995;cursor:pointer;font-size:20px;font-weight:400;line-height:1;box-shadow:inset 0 1px rgba(255,255,255,0.035);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;" onmouseenter="this.style.background='rgba(255,71,87,0.14)';this.style.borderColor='rgba(255,91,105,0.58)';this.style.color='#ffbec5';this.style.transform='translateY(-1px)'" onmouseleave="this.style.background='rgba(255,71,87,0.045)';this.style.borderColor='rgba(255,71,87,0.24)';this.style.color='#ff8995';this.style.transform='translateY(0)'">&times;</button>` : ''}
                         </div>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:8px;">
@@ -1388,6 +1388,22 @@
                 const sourceLabel = group.source_type === 'url' ? '订阅链接' : group.source_type === 'json' ? 'JSON' : '文本';
                 const activeServers = Number(group.active_servers || 0);
                 const totalServers = Number(group.total_servers || 0);
+                const availableNodes = Number(group.available_nodes || 0);
+                const availabilityTotal = Number(group.availability_total || 0);
+                const pendingNodes = Number(group.pending_nodes || 0);
+                const availabilityRatio = Number(group.availability_ratio || 0);
+                const availabilityClass = availabilityTotal === 0
+                    ? 'muted'
+                    : pendingNodes === availabilityTotal
+                        ? 'pending'
+                        : availabilityRatio >= 80
+                            ? 'good'
+                            : availabilityRatio > 0
+                                ? 'warn'
+                                : 'bad';
+                const availabilityText = availabilityTotal > 0
+                    ? `可用率 ${availabilityRatio.toFixed(availabilityRatio % 1 === 0 ? 0 : 1)}% · ${availableNodes}/${availabilityTotal}`
+                    : '可用率 --';
 
                 const notesHtml = group.notes ? `
                     <div class="sub-group-note">${escapeHtml(group.notes)}</div>
@@ -1403,6 +1419,7 @@
                                     <div class="sub-group-meta">
                                         <span class="sub-group-pill">导入 ${escapeHtml(importTime)}</span>
                                         <span class="sub-group-pill good">启用 ${activeServers}/${totalServers}</span>
+                                        <span class="sub-group-pill ${availabilityClass}">${escapeHtml(availabilityText)}</span>
                                         <span class="sub-group-pill">${escapeHtml(sourceLabel)}</span>
                                     </div>
                                     ${notesHtml}
@@ -1443,44 +1460,52 @@
             if (!container) return;
 
             try {
-                const res = await fetch(`${API_BASE}/admin/api/nodes`, { headers: getHeaders() });
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${encodeURIComponent(groupId)}/nodes`, { headers: getHeaders() });
                 const data = await res.json();
-                const nodes = (data.nodes || []).filter(n => n && typeof n === 'object' && n.group_id === groupId);
+                if (!data.success) throw new Error(data.message || '节点状态获取失败');
+                const stateOrder = { available: 0, pending: 1, unavailable: 2, unsupported: 3, disabled: 4 };
+                const nodes = (data.nodes || [])
+                    .filter(n => n && typeof n === 'object')
+                    .sort((a, b) => {
+                        const byState = (stateOrder[a.availability_state] ?? 9) - (stateOrder[b.availability_state] ?? 9);
+                        if (byState !== 0) return byState;
+                        return String(a.name || a.server || '').localeCompare(String(b.name || b.server || ''), 'zh-CN');
+                    });
 
                 if (nodes.length === 0) {
                     container.innerHTML = '<div class="sub-groups-empty">该组暂无服务器</div>';
                     return;
                 }
 
-                const uniqueServers = new Map();
-                nodes.forEach(node => {
-                    const s = node.server;
-                    if (!uniqueServers.has(s)) {
-                        uniqueServers.set(s, { representative: node, allNodes: [node] });
-                    } else {
-                        uniqueServers.get(s).allNodes.push(node);
-                    }
-                });
-
-                const serversHtml = Array.from(uniqueServers.entries()).map(([server, { representative, allNodes }], idx) => {
-                    const enabled = allNodes.every(n => n.enabled !== false);
-                    const node = representative;
-                    const nodeCountTag = allNodes.length > 1 ? ` · 同服务器 ${allNodes.length} 条节点` : '';
-                    const rowClass = enabled ? 'sub-group-server-row' : 'sub-group-server-row is-disabled';
-                    const stateText = enabled ? '启用' : '禁用';
+                const stateLabels = {
+                    available: '可用',
+                    pending: '检测中',
+                    unavailable: '不可用',
+                    unsupported: '不支持',
+                    disabled: '已禁用'
+                };
+                const serversHtml = nodes.map((node, idx) => {
+                    const enabled = node.enabled !== false;
+                    const state = stateLabels[node.availability_state] ? node.availability_state : 'pending';
+                    const rowClass = `sub-group-server-row state-${state}${enabled ? '' : ' is-disabled'}`;
+                    const stateText = stateLabels[state];
                     const groupIdArg = jsArg(groupId);
-                    const serverArg = jsArg(server);
+                    const identityArg = jsArg(node.node_identity || '');
+                    const endpoint = node.port ? `${node.server || ''}:${node.port}` : (node.server || '');
+                    const stateTitle = state === 'unsupported' && node.core_unsupported_reason
+                        ? node.core_unsupported_reason
+                        : stateText;
 
                     return `
                         <div class="${rowClass}">
-                            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleServerByIP(${groupIdArg}, ${serverArg}, this.checked)" style="cursor: pointer; accent-color: var(--accent-green);">
+                            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSubscriptionNode(${groupIdArg}, ${identityArg}, this.checked)" aria-label="${enabled ? '禁用' : '启用'}节点" style="cursor: pointer; accent-color: var(--accent-green);">
                             <div style="min-width:0;">
                                 <div class="sub-group-server-name" title="${escapeSubGroupAttr(node.name || node.display_name || `服务器${idx + 1}`)}">${escapeHtml(node.name || node.display_name || `服务器${idx + 1}`)}</div>
-                                <div class="sub-group-server-meta" title="${escapeSubGroupAttr(node.server || '')}">
-                                    ${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} · ${escapeHtml(node.server || '')}${escapeHtml(nodeCountTag)}
+                                <div class="sub-group-server-meta" title="${escapeSubGroupAttr(endpoint)}">
+                                    ${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} · ${escapeHtml(endpoint)}
                                 </div>
                             </div>
-                            <span class="sub-group-server-state">${stateText}</span>
+                            <span class="sub-group-server-state" title="${escapeSubGroupAttr(stateTitle)}">${stateText}</span>
                         </div>
                     `;
                 }).join('');
@@ -1500,12 +1525,12 @@
             }
         }
 
-        async function toggleServerByIP(groupId, server, enabled) {
+        async function toggleSubscriptionNode(groupId, nodeIdentity, enabled) {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_by_ip`, {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${encodeURIComponent(groupId)}/toggle_node`, {
                     method: 'POST',
                     headers: { ...getHeaders(), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ server, enabled })
+                    body: JSON.stringify({ node_identity: nodeIdentity, enabled })
                 });
                 const data = await res.json();
                 if (data.success) {
@@ -1670,7 +1695,7 @@
             lbShowErrorLogs,
             loadSubscriptionGroups,
             toggleSubscriptionGroup,
-            toggleServerByIP,
+            toggleSubscriptionNode,
             toggleAllServers,
             editSubscriptionGroupName,
             editSubscriptionGroupNotes,
@@ -1712,7 +1737,7 @@
             lbShowErrorLogs,
             loadSubscriptionGroups,
             toggleSubscriptionGroup,
-            toggleServerByIP,
+            toggleSubscriptionNode,
             toggleAllServers,
             editSubscriptionGroupName,
             editSubscriptionGroupNotes,

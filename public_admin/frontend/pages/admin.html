@@ -2097,6 +2097,25 @@
             background: rgba(0, 255, 136, 0.08);
         }
 
+        .sub-group-pill.warn {
+            color: #ffd166;
+            border-color: rgba(255, 209, 102, 0.24);
+            background: rgba(255, 209, 102, 0.08);
+        }
+
+        .sub-group-pill.bad {
+            color: #ff8995;
+            border-color: rgba(255, 71, 87, 0.24);
+            background: rgba(255, 71, 87, 0.08);
+        }
+
+        .sub-group-pill.pending,
+        .sub-group-pill.muted {
+            color: #9da8c4;
+            border-color: rgba(157, 168, 196, 0.2);
+            background: rgba(157, 168, 196, 0.07);
+        }
+
         .sub-group-note {
             margin-top: 8px;
             padding: 7px 9px;
@@ -2169,6 +2188,15 @@
             background: rgba(107, 114, 128, 0.08);
         }
 
+        .sub-group-server-row.state-unavailable {
+            border-color: rgba(255, 71, 87, 0.14);
+        }
+
+        .sub-group-server-row.state-pending,
+        .sub-group-server-row.state-unsupported {
+            border-color: rgba(255, 209, 102, 0.14);
+        }
+
         .sub-group-server-name {
             min-width: 0;
             color: var(--text-primary);
@@ -2201,6 +2229,17 @@
         .sub-group-server-row.is-disabled .sub-group-server-state {
             color: var(--text-secondary);
             background: rgba(136, 146, 176, 0.1);
+        }
+
+        .sub-group-server-row.state-pending .sub-group-server-state,
+        .sub-group-server-row.state-unsupported .sub-group-server-state {
+            color: #ffd166;
+            background: rgba(255, 209, 102, 0.09);
+        }
+
+        .sub-group-server-row.state-unavailable .sub-group-server-state {
+            color: #ff8995;
+            background: rgba(255, 71, 87, 0.09);
         }
 
         .sub-group-input,
