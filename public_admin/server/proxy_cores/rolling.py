@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import time
 import uuid
@@ -15,8 +16,10 @@ from .runtime import RUNTIME_ROOT, config_dir, ensure_core_dirs
 
 
 PORT_BANK_OFFSET = 20_000
+PORT_BANK_COUNT = 3
 DRAIN_SECONDS = max(0.0, float(os.environ.get("AK_PROXY_CORE_DRAIN_SECONDS", "30")))
 _STATE_PATH = RUNTIME_ROOT / "active_port_generations.json"
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
 @dataclass
@@ -70,30 +73,91 @@ def _write_state(data: dict[str, Any]) -> None:
     atomic_write_text(_STATE_PATH, json.dumps(data, ensure_ascii=True, sort_keys=True))
 
 
-def active_base_port(core_type: str, default: int) -> int:
+def active_port_generation(core_type: str, default: int) -> tuple[int, int]:
     data = _read_state()
+    generation = data.get(core_type) or {}
     try:
-        port = int((data.get(core_type) or {}).get("base_port") or default)
+        port = int(generation.get("base_port") or default)
     except (TypeError, ValueError):
-        return int(default)
-    return port if 1 <= port <= 65_535 else int(default)
+        port = int(default)
+    if not 1 <= port <= 65_535:
+        port = int(default)
+    try:
+        port_count = max(0, int(generation.get("port_count") or 0))
+    except (TypeError, ValueError):
+        port_count = 0
+    return port, port_count
 
 
-def candidate_base_port(core_type: str, default: int) -> int:
-    """Alternate between two non-overlapping port banks for each core."""
+def active_base_port(core_type: str, default: int) -> int:
+    return active_port_generation(core_type, default)[0]
+
+
+def _ranges_overlap(first_base: int, first_count: int, second_base: int, second_count: int) -> bool:
+    if first_count <= 0 or second_count <= 0:
+        return False
+    first_end = first_base + first_count - 1
+    second_end = second_base + second_count - 1
+    return first_base <= second_end and second_base <= first_end
+
+
+def _port_range_is_available(base_port: int, port_count: int) -> bool:
+    sockets: list[socket.socket] = []
+    try:
+        for port in range(int(base_port), int(base_port) + max(0, int(port_count))):
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.bind(("127.0.0.1", port))
+            sockets.append(listener)
+        return True
+    except OSError:
+        return False
+    finally:
+        for listener in sockets:
+            listener.close()
+
+
+def candidate_base_port(
+    core_type: str,
+    default: int,
+    required_ports: int = 1,
+    reserved_ranges: tuple[tuple[int, int], ...] = (),
+) -> int:
+    """Choose a free port bank without touching the active generation."""
     default = int(default)
-    active = active_base_port(core_type, default)
-    alternate = default + PORT_BANK_OFFSET
-    if alternate > 65_535:
-        alternate = default - PORT_BANK_OFFSET
-    if alternate <= 0:
-        raise ValueError(f"no valid alternate port bank for {core_type}: {default}")
-    return alternate if active == default else default
+    required_ports = max(0, int(required_ports or 0))
+    if required_ports == 0:
+        return default
+
+    active_base, active_count = active_port_generation(core_type, default)
+    banks = [default + index * PORT_BANK_OFFSET for index in range(PORT_BANK_COUNT)]
+    banks = [base for base in banks if 1 <= base and base + required_ports - 1 <= 65_535]
+    if active_base in banks:
+        active_index = banks.index(active_base)
+        banks = banks[active_index + 1:] + banks[:active_index]
+
+    blocked_ranges = list(reserved_ranges)
+    blocked_ranges.append((active_base, max(1, active_count)))
+    for base in banks:
+        if any(
+            _ranges_overlap(base, required_ports, blocked_base, blocked_count)
+            for blocked_base, blocked_count in blocked_ranges
+        ):
+            continue
+        if _port_range_is_available(base, required_ports):
+            return base
+
+    raise RuntimeError(
+        f"{core_type} 无可用本地端口段（需要连续 {required_ports} 个端口）"
+    )
 
 
-def mark_active_base_port(core_type: str, base_port: int) -> None:
+def mark_active_base_port(core_type: str, base_port: int, port_count: int = 0) -> None:
     data = _read_state()
-    data[core_type] = {"base_port": int(base_port), "updated_at": int(time.time())}
+    data[core_type] = {
+        "base_port": int(base_port),
+        "port_count": max(0, int(port_count or 0)),
+        "updated_at": int(time.time()),
+    }
     _write_state(data)
 
 
@@ -144,6 +208,12 @@ def wait_for_tcp_listener(port: int, timeout_seconds: float = 3.0) -> bool:
         except OSError:
             time.sleep(0.1)
     return False
+
+
+def clean_process_output(value: str, max_chars: int = 1200) -> str:
+    text = _ANSI_ESCAPE_RE.sub("", str(value or ""))
+    text = " ".join(text.replace("\x00", " ").split())
+    return text[-max(1, int(max_chars)):]
 
 
 def promote_staged_config(stage: StagedCore) -> None:

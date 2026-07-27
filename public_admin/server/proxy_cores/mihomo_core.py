@@ -19,6 +19,7 @@ from .runtime import binary_status, config_dir, ensure_binary_async, ensure_core
 from .rolling import (
     StagedCore,
     atomic_write_text,
+    clean_process_output,
     generation_config_path,
     promote_staged_config,
     restore_previous_config,
@@ -367,7 +368,10 @@ def _stage_nodes_sync(nodes: list[dict[str, Any]], base_port: int, binary: str |
     time.sleep(0.4)
     if proc.poll() is not None:
         tail = candidate_log.read_bytes()[-2000:].decode("utf-8", "replace") if candidate_log.exists() else ""
-        raise RuntimeError(f"mihomo candidate exited during start: {tail.strip()}")
+        clean_tail = clean_process_output(tail)
+        if "address already in use" in clean_tail.lower():
+            raise RuntimeError(f"mihomo 候选端口段已被占用（起始端口 {base_port}）")
+        raise RuntimeError(f"mihomo 候选实例启动失败：{clean_tail or '未返回错误信息'}")
     probe_port = int(nodes[0].get("local_port") or base_port)
     if not wait_for_tcp_listener(probe_port):
         stop_process(proc.pid)

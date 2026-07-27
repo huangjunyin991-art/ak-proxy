@@ -145,6 +145,8 @@ async def test_runtime_publish_failure_restores_saved_nodes_and_group_record(mon
     )
 
     assert result["success"] is False
+    assert result["generation_preserved"] is True
+    assert result["previous_nodes_count"] == len(old_nodes)
     assert callbacks == ["delete", "restore"]
     assert saved_generations[-1] == old_nodes
     assert not (tmp_path / "dispatcher_exits.json").exists()

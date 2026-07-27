@@ -83,13 +83,31 @@ async def apply_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = sing
 async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port: int,
                               mihomo_base_port: int, activation_callback: ActivationCallback | None,
                               allow_empty: bool) -> dict[str, Any]:
-    candidate_singbox_base = candidate_base_port(SINGBOX_CORE, singbox_base_port)
-    candidate_mihomo_base = candidate_base_port(MIHOMO_CORE, mihomo_base_port)
     candidate_input = []
     for node in nodes:
         item = deepcopy(node)
         item.pop("local_port", None)
         candidate_input.append(item)
+
+    candidate_buckets = split_nodes_by_core(candidate_input)
+    singbox_count = len(candidate_buckets[SINGBOX_CORE])
+    mihomo_count = len(candidate_buckets[MIHOMO_CORE])
+    candidate_singbox_base = candidate_base_port(
+        SINGBOX_CORE,
+        singbox_base_port,
+        singbox_count,
+    )
+    singbox_reservation = (
+        ((candidate_singbox_base, singbox_count),)
+        if singbox_count
+        else ()
+    )
+    candidate_mihomo_base = candidate_base_port(
+        MIHOMO_CORE,
+        mihomo_base_port,
+        mihomo_count,
+        reserved_ranges=singbox_reservation,
+    )
     runtime_nodes = build_runtime_nodes(
         candidate_input,
         singbox_base_port=candidate_singbox_base,
@@ -159,7 +177,7 @@ async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port:
     for core_type, stage in stages:
         try:
             if stage.nodes_count:
-                mark_active_base_port(core_type, stage.base_port)
+                mark_active_base_port(core_type, stage.base_port, stage.nodes_count)
             else:
                 clear_active_base_port(core_type)
         except Exception as exc:

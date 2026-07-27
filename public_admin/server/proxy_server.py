@@ -506,7 +506,12 @@ async def _apply_subscription_runtime_nodes(
         activation_callback=activate,
         allow_empty=allow_empty_generation,
     )
-    return {**result, **activation}
+    return {
+        **result,
+        **activation,
+        "generation_preserved": not bool(result.get("success")),
+        "previous_nodes_count": len(old_nodes) if isinstance(old_nodes, list) else 0,
+    }
 
 
 async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = False, reload_singbox: bool = True) -> dict[str, Any]:
@@ -4344,7 +4349,10 @@ async def api_dispatcher_apply_sub(request: Request):
     selected_servers = data.get("selected_servers", [])  # [{server, name}] (旧格式，兼容保留)
     selected_node_indices = data.get("selected_node_indices")  # [int] 按节点索引选择（新格式）
 
-    base_port = int(data.get("base_port", 10001))
+    try:
+        base_port = int(data.get("base_port") or _get_dispatcher_saved_base_port())
+    except (TypeError, ValueError):
+        base_port = _get_dispatcher_saved_base_port()
 
     # text 输入框误粘 URL 时自动识别
     if not url and text and (text.startswith("http://") or text.startswith("https://")):
@@ -4505,10 +4513,19 @@ async def api_dispatcher_apply_sub(request: Request):
             "cores": reload_result.get("cores", {}),
             "unsupported_count": len(reload_result.get("unsupported_nodes", [])),
             "pending_download": bool(reload_result.get("pending_download")),
+            "generation_preserved": bool(reload_result.get("generation_preserved")),
+            "previous_nodes_count": int(reload_result.get("previous_nodes_count") or 0),
         }
     except Exception as e:
         logger.error(f"[SingBox] 订阅分组应用失败: {e}")
-        apply_result = {"success": False, "message": str(e), "config_path": "", "nodes_count": 0}
+        apply_result = {
+            "success": False,
+            "message": str(e),
+            "config_path": "",
+            "nodes_count": 0,
+            "generation_preserved": True,
+            "previous_nodes_count": len(saved_nodes),
+        }
 
     if nodes_saved:
         logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
@@ -4529,6 +4546,8 @@ async def api_dispatcher_apply_sub(request: Request):
         except Exception as e:
             logger.warning(f"[SubGroup] 新增订阅组记录失败: {e}")
 
+    applied_nodes_count = len(nodes_to_add) if apply_result["success"] else 0
+
     return {
 
         "success": apply_result["success"],
@@ -4537,7 +4556,15 @@ async def api_dispatcher_apply_sub(request: Request):
 
         "singbox_reload": apply_result["success"],
 
-        "nodes_count": len(nodes_to_add),
+        "nodes_count": applied_nodes_count,
+
+        "applied_nodes_count": applied_nodes_count,
+
+        "attempted_nodes_count": len(nodes_to_add),
+
+        "generation_preserved": bool(apply_result.get("generation_preserved")),
+
+        "previous_nodes_count": int(apply_result.get("previous_nodes_count") or 0),
 
         "exits_added": added_exits,
 

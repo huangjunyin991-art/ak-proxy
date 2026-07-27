@@ -959,10 +959,10 @@
                         </div>
                         <div id="lbSubResult" style="display:none;"></div>
                     </div>
-                    <div style="display:flex;gap:10px;padding:14px 22px 18px;border-top:1px solid var(--border);flex-shrink:0;align-items:center;">
+                    <div style="display:flex;gap:10px;padding:14px 22px 18px;border-top:1px solid var(--border);flex-shrink:0;align-items:center;flex-wrap:wrap;">
+                        <span id="lbSubAddMsg" style="display:none;flex:0 0 100%;font-size:12px;color:var(--text-secondary);line-height:1.55;"></span>
                         <button onclick="closeLbSubModal()" class="btn" style="padding:10px 20px;background:var(--bg-secondary);color:var(--text-secondary);border-radius:8px;font-size:14px;">取消</button>
-                        <button id="lbSubActionBtn" onclick="lbSubAction()" class="btn btn-primary" style="flex:1;padding:10px 0;border-radius:8px;font-size:15px;font-weight:bold;">🔍 解析订阅</button>
-                        <span id="lbSubAddMsg" style="font-size:12px;color:var(--text-secondary);"></span>
+                        <button id="lbSubActionBtn" onclick="lbSubAction()" class="btn btn-primary" style="flex:1;min-width:0;padding:10px 12px;border-radius:8px;font-size:15px;font-weight:bold;white-space:nowrap;">🔍 解析订阅</button>
                     </div>
                 </div>
             `;
@@ -1027,6 +1027,27 @@
                 `<span style="background:var(--bg-secondary);padding:2px 8px;border-radius:10px;font-size:11px;">${escapeHtml(info.label || code)} ×${Number(info.count || 0)}</span>`
             ).join(' ');
 
+            const protocolLabels = {
+                hysteria2: 'Hysteria2',
+                hy2: 'Hysteria2',
+                vless: 'VLESS',
+                vmess: 'VMess',
+                shadowsocks: 'Shadowsocks',
+                ss: 'Shadowsocks',
+                trojan: 'Trojan',
+                tuic: 'TUIC',
+                anytls: 'AnyTLS'
+            };
+            const protocolCounts = {};
+            (data.nodes || []).forEach(node => {
+                const rawType = String(node.type || 'unknown').toLowerCase();
+                const label = protocolLabels[rawType] || rawType.toUpperCase();
+                protocolCounts[label] = Number(protocolCounts[label] || 0) + 1;
+            });
+            const protocolHtml = Object.entries(protocolCounts).map(([label, count]) =>
+                `<span style="padding:2px 7px;border-radius:5px;background:rgba(0,201,183,.1);color:var(--text-primary);font-size:11px;">${escapeHtml(label)} ${Number(count)}</span>`
+            ).join('');
+
             const nodesHtml = (data.nodes || []).map((node, ni) => {
                 const label = node.name || `${node.region_label || ''}节点${ni+1}`;
                 return `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;">
@@ -1041,19 +1062,15 @@
             el.innerHTML = `
                 <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;margin-bottom:8px;">
                     ${routeHtml}
-                    <div style="font-size:13px;margin-bottom:6px;">✅ 格式: <strong style="color:var(--accent);">${escapeHtml(data.format || '-')}</strong> |
-                        节点: <strong>${Number(data.total_nodes || 0)}</strong> |
-                        唯一服务器: <strong style="color:var(--accent-green);">${Number(data.unique_servers || 0)}</strong></div>
+                    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:7px;font-size:13px;">
+                        <span>节点 <strong style="color:var(--accent);">${Number((data.nodes || []).length)}</strong></span>
+                        ${protocolHtml}
+                    </div>
                     <div style="display:flex;gap:4px;flex-wrap:wrap;">${regionHtml}</div>
                 </div>
                 <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">勾选要添加的节点（共 ${(data.nodes||[]).length} 个）：</div>
                 <div style="max-height:220px;overflow-y:auto;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;">
                     ${nodesHtml}
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;">
-                    <label style="font-size:12px;color:var(--text-secondary);">起始端口:</label>
-                    <input type="number" id="lbSubBasePort" value="10001" min="1024" max="65000" style="width:80px;padding:4px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:12px;">
-                    <span style="font-size:11px;color:var(--text-secondary);">点击下方按钮一键应用</span>
                 </div>
             `;
         }
@@ -1061,9 +1078,12 @@
         async function lbBatchAddFromSub() {
             const checks = document.querySelectorAll('.lb-sub-node:checked');
             if (checks.length === 0) { showToast('请至少选择一个节点', 'error'); return; }
-            const basePort = parseInt(document.getElementById('lbSubBasePort').value) || 10001;
             const msgEl = document.getElementById('lbSubAddMsg');
-            msgEl.textContent = '正在应用: 生成配置 → 重载sing-box → 注册出口...';
+            const actionBtn = document.getElementById('lbSubActionBtn');
+            msgEl.style.display = 'block';
+            msgEl.textContent = '正在启动候选代理核心并切换节点...';
+            actionBtn.disabled = true;
+            actionBtn.textContent = '正在应用...';
 
             // 收集选中的节点索引
             const selected_node_indices = [];
@@ -1076,7 +1096,7 @@
             const text = document.getElementById('lbSubText')?.value?.trim() || '';
             const group_name = document.getElementById('lbSubGroupName')?.value?.trim() || '';
             const parsed = window._lbSubParsedResult;
-            const payload = { url, text, group_name, selected_node_indices, base_port: basePort };
+            const payload = { url, text, group_name, selected_node_indices };
             if (parsed && Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
                 payload.url = String(parsed.url || url || '');
                 payload.parsed_nodes = parsed.nodes;
@@ -1091,18 +1111,29 @@
                 });
                 const data = await res.json();
                 if (data.success) {
-                    const sbIcon = data.singbox_reload ? '✅' : '⚠️';
-                    msgEl.innerHTML = `${sbIcon} 完成! ${Number(data.nodes_count || 0)}个节点已应用, sing-box: ${escapeHtml(data.message || '')}`;
+                    msgEl.innerHTML = `<span style="color:var(--accent-green);">${Number(data.applied_nodes_count ?? data.nodes_count ?? 0)} 个节点已生效</span>`;
                     showToast(`热重载成功: ${data.nodes_count}个出口已生效`);
                     closeLbSubModal();
                     await loadSubscriptionGroups();
                 } else {
-                    msgEl.innerHTML = `<span style="color:#ffa502;">⚠️ ${escapeHtml(data.message || '')}</span><br>节点已注册到dispatcher(${Number(data.nodes_count || 0)}个), sing-box需手动重载`;
-                    showToast(data.message || '部分失败', 'error');
+                    const attempted = Number(data.attempted_nodes_count || checks.length || 0);
+                    const previousCount = Number(data.previous_nodes_count || 0);
+                    const preserved = data.generation_preserved === true && previousCount > 0;
+                    const title = preserved
+                        ? `应用失败，原有 ${previousCount} 个节点保持运行`
+                        : `应用失败，本次 ${attempted} 个节点未生效`;
+                    msgEl.innerHTML = `<span style="color:#ffb84d;font-weight:700;">${escapeHtml(title)}</span>` +
+                        `<span style="display:block;margin-top:3px;color:var(--text-secondary);overflow-wrap:anywhere;">${escapeHtml(data.message || '候选代理核心未能启动')}</span>`;
+                    actionBtn.disabled = false;
+                    actionBtn.textContent = '重新应用选中节点';
+                    showToast(title, 'error');
                 }
                 loadLbStatus();
             } catch (e) {
-                msgEl.textContent = `请求失败: ${e.message}`;
+                msgEl.innerHTML = `<span style="color:#ffb84d;font-weight:700;">请求状态未知，请刷新订阅组确认</span>` +
+                    `<span style="display:block;margin-top:3px;color:var(--text-secondary);overflow-wrap:anywhere;">${escapeHtml(e.message || '')}</span>`;
+                actionBtn.disabled = false;
+                actionBtn.textContent = '重新应用选中节点';
                 showToast('请求失败: ' + e.message, 'error');
             }
         }

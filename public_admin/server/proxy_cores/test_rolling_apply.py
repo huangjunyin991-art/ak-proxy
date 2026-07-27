@@ -38,7 +38,11 @@ async def test_rollover_activates_only_after_both_candidates_are_ready(monkeypat
     monkeypatch.setattr(manager.mihomo_core, "promote_stage", lambda stage: events.append(("promote", stage.core_type)))
     monkeypatch.setattr(manager.singbox_core, "retire_stage_previous", lambda stage: events.append(("retire", stage.core_type)))
     monkeypatch.setattr(manager.mihomo_core, "retire_stage_previous", lambda stage: events.append(("retire", stage.core_type)))
-    monkeypatch.setattr(manager, "candidate_base_port", lambda core, default: 30001 if core == SINGBOX_CORE else 31001)
+    monkeypatch.setattr(
+        manager,
+        "candidate_base_port",
+        lambda core, default, required_ports=1, reserved_ranges=(): 30001 if core == SINGBOX_CORE else 31001,
+    )
     monkeypatch.setattr(manager, "mark_active_base_port", lambda *args: None)
     monkeypatch.setattr(manager, "clear_active_base_port", lambda *args: None)
     monkeypatch.setattr(manager, "DRAIN_SECONDS", 0)
@@ -81,7 +85,11 @@ async def test_rollover_discards_ready_candidate_when_other_core_fails(monkeypat
     monkeypatch.setattr(manager.singbox_core, "stage_nodes", stage_singbox)
     monkeypatch.setattr(manager.mihomo_core, "stage_nodes", stage_mihomo)
     monkeypatch.setattr(manager.singbox_core, "discard_stage", lambda stage: events.append(("discard", stage.core_type)))
-    monkeypatch.setattr(manager, "candidate_base_port", lambda core, default: 30001 if core == SINGBOX_CORE else 31001)
+    monkeypatch.setattr(
+        manager,
+        "candidate_base_port",
+        lambda core, default, required_ports=1, reserved_ranges=(): 30001 if core == SINGBOX_CORE else 31001,
+    )
 
     activated = False
 
@@ -122,7 +130,11 @@ async def test_rollover_allows_intentional_empty_generation(monkeypatch):
     monkeypatch.setattr(manager.mihomo_core, "promote_stage", lambda stage: events.append(("promote", stage.core_type)))
     monkeypatch.setattr(manager.singbox_core, "retire_stage_previous", lambda stage: None)
     monkeypatch.setattr(manager.mihomo_core, "retire_stage_previous", lambda stage: None)
-    monkeypatch.setattr(manager, "candidate_base_port", lambda core, default: 30001 if core == SINGBOX_CORE else 31001)
+    monkeypatch.setattr(
+        manager,
+        "candidate_base_port",
+        lambda core, default, required_ports=1, reserved_ranges=(): 30001 if core == SINGBOX_CORE else 31001,
+    )
     monkeypatch.setattr(manager, "mark_active_base_port", lambda *args: None)
     monkeypatch.setattr(manager, "clear_active_base_port", lambda *args: None)
     monkeypatch.setattr(manager, "DRAIN_SECONDS", 0)
