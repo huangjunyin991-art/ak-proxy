@@ -6,6 +6,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from ..hysteria2_compatibility import certificate_fingerprint
 from .shadowsocks import is_mihomo_supported_plugin, plugin_name
 
 
@@ -94,7 +95,19 @@ def classify_node(node: dict[str, Any]) -> dict[str, Any]:
             "reason": f"unsupported_shadowsocks_plugin:{plugin}",
         }
 
-    if proto in {"anytls", "hysteria2", "hy2", "tuic", "vmess"}:
+    if proto in {"hysteria2", "hy2"}:
+        fingerprint = certificate_fingerprint(raw)
+        if not fingerprint.configured:
+            return {"core_type": SINGBOX_CORE, "supported": True, "reason": ""}
+        if not fingerprint.valid:
+            return {
+                "core_type": UNSUPPORTED_CORE,
+                "supported": False,
+                "reason": "invalid_hysteria2_certificate_fingerprint",
+            }
+        return {"core_type": MIHOMO_CORE, "supported": True, "reason": ""}
+
+    if proto in {"anytls", "tuic", "vmess"}:
         return {"core_type": SINGBOX_CORE, "supported": True, "reason": ""}
 
     if proto == "trojan":

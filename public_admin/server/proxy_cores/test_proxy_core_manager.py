@@ -115,6 +115,46 @@ def test_vless_xhttp_opts_without_network_uses_mihomo():
     assert result["supported"] is True
 
 
+def test_hysteria2_with_certificate_fingerprint_uses_mihomo():
+    result = classify_node({
+        "name": "Pinned HY2",
+        "type": "hysteria2",
+        "server": "hy2.example.com",
+        "port": 443,
+        "raw": {"type": "hysteria2", "certificate_fingerprint": "ab" * 32},
+    })
+
+    assert result == {"core_type": "mihomo", "supported": True, "reason": ""}
+
+
+def test_hysteria2_without_certificate_fingerprint_stays_on_singbox():
+    result = classify_node({
+        "name": "Regular HY2",
+        "type": "hysteria2",
+        "server": "hy2.example.com",
+        "port": 443,
+        "raw": {"type": "hysteria2"},
+    })
+
+    assert result == {"core_type": "singbox", "supported": True, "reason": ""}
+
+
+def test_hysteria2_with_invalid_certificate_fingerprint_is_isolated():
+    result = classify_node({
+        "name": "Invalid pinned HY2",
+        "type": "hysteria2",
+        "server": "hy2.example.com",
+        "port": 443,
+        "raw": {"type": "hysteria2", "pinSHA256": "not-a-sha256"},
+    })
+
+    assert result == {
+        "core_type": "unsupported",
+        "supported": False,
+        "reason": "invalid_hysteria2_certificate_fingerprint",
+    }
+
+
 def test_shadow_tls_shadowsocks_uses_mihomo():
     result = classify_node({
         "name": "ShadowTLS SS",

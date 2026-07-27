@@ -13,6 +13,21 @@ import urllib.parse
 from typing import Optional
 
 try:
+    from .hysteria2_compatibility import (
+        normalize_bandwidth as _normalize_hysteria2_bandwidth_value,
+        normalize_hop_interval as _normalize_hysteria2_hop_interval_value,
+        normalize_raw as _normalize_hysteria2_raw_value,
+        normalize_server_ports as _normalize_hysteria2_server_ports_value,
+    )
+except Exception:
+    from public_admin.server.hysteria2_compatibility import (
+        normalize_bandwidth as _normalize_hysteria2_bandwidth_value,
+        normalize_hop_interval as _normalize_hysteria2_hop_interval_value,
+        normalize_raw as _normalize_hysteria2_raw_value,
+        normalize_server_ports as _normalize_hysteria2_server_ports_value,
+    )
+
+try:
     from .security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
 except Exception:
     from public_admin.server.security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
@@ -120,79 +135,19 @@ def _split_host_port(value: str) -> tuple[str, int]:
 
 
 def _normalize_hysteria2_server_ports(value) -> list[str]:
-    if value is None or value == '':
-        return []
-    values = value if isinstance(value, (list, tuple)) else str(value).split(',')
-    normalized = []
-    for item in values:
-        port_range = str(item or '').strip()
-        if not port_range:
-            continue
-        if re.fullmatch(r'\d+\s*-\s*\d+', port_range):
-            port_range = re.sub(r'\s*-\s*', ':', port_range)
-        normalized.append(port_range)
-    return normalized
+    return _normalize_hysteria2_server_ports_value(value)
 
 
 def _normalize_hysteria2_hop_interval(value) -> str:
-    text = str(value or '').strip()
-    if not text:
-        return ''
-    if re.fullmatch(r'\d+(?:\.\d+)?', text):
-        return f'{text}s'
-    return text
+    return _normalize_hysteria2_hop_interval_value(value)
 
 
 def _normalize_hysteria2_bandwidth(value):
-    if value is None or value == '':
-        return None
-    if isinstance(value, (int, float)):
-        return int(value)
-    match = re.search(r'-?\d+(?:\.\d+)?', str(value))
-    return int(float(match.group(0))) if match else None
+    return _normalize_hysteria2_bandwidth_value(value)
 
 
 def _normalize_hysteria2_raw(raw: dict) -> dict:
-    normalized = dict(raw)
-    server_ports = _normalize_hysteria2_server_ports(
-        normalized.get('server_ports') or normalized.get('server-ports')
-        or normalized.get('ports') or normalized.get('mport')
-    )
-    if server_ports:
-        normalized['server_ports'] = server_ports
-
-    hop_interval = _normalize_hysteria2_hop_interval(
-        normalized.get('hop_interval') or normalized.get('hop-interval')
-    )
-    if hop_interval:
-        normalized['hop_interval'] = hop_interval
-
-    obfs = normalized.get('obfs')
-    if not isinstance(obfs, dict):
-        obfs_type = str(obfs or '').strip()
-        obfs_password = str(
-            normalized.get('obfs_password') or normalized.get('obfs-password') or ''
-        )
-        normalized['obfs'] = {
-            'type': obfs_type,
-            'password': obfs_password,
-        } if obfs_type else {}
-
-    for target, aliases in (
-        ('up_mbps', ('up_mbps', 'up')),
-        ('down_mbps', ('down_mbps', 'down')),
-    ):
-        value = next((normalized.get(alias) for alias in aliases if normalized.get(alias) is not None), None)
-        bandwidth = _normalize_hysteria2_bandwidth(value)
-        if bandwidth is not None:
-            normalized[target] = bandwidth
-
-    normalized['sni'] = normalized.get('sni') or normalized.get('servername') or normalized.get('server_name') or ''
-    normalized['insecure'] = normalized.get(
-        'insecure',
-        normalized.get('skip-cert-verify', normalized.get('skip_cert_verify', False)),
-    )
-    return normalized
+    return _normalize_hysteria2_raw_value(raw)
 
 
 def _singbox_raw_fields(outbound: dict) -> dict:
@@ -370,6 +325,8 @@ def _parse_clash_yaml(text: str) -> list[dict]:
             'hop-interval', 'hop_interval', 'obfs',
             'obfs-password', 'obfs_password',
             'up', 'down', 'up_mbps', 'down_mbps',
+            'upmbps', 'downmbps', 'certificate_fingerprint',
+            'pinSHA256', 'pin_sha256', 'pin-sha256', 'fingerprint',
         )}
         if proto == 'tuic':
             raw['sni'] = raw.get('sni') or raw.get('servername') or server
@@ -567,13 +524,31 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                 if any(k in name for k in SKIP_KEYWORDS):
                     continue
                 region_code, region_label = detect_region(name)
-                server_ports = _normalize_hysteria2_server_ports(
-                    params.get('mport') or params.get('ports') or params.get('server_ports')
-                )
                 obfs_type = str(params.get('obfs') or '').strip()
                 obfs_password = str(
                     params.get('obfs-password') or params.get('obfs_password') or ''
                 )
+                raw = _normalize_hysteria2_raw({
+                    'type': 'hysteria2',
+                    'password': password,
+                    'sni': params.get('sni', ''),
+                    'insecure': str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
+                    'mport': params.get('mport') or params.get('ports') or params.get('server_ports'),
+                    'hop_interval': params.get('hop-interval') or params.get('hop_interval'),
+                    'obfs': {
+                        'type': obfs_type,
+                        'password': obfs_password,
+                    } if obfs_type else {},
+                    'up_mbps': params.get('up_mbps') or params.get('upmbps') or params.get('up'),
+                    'down_mbps': params.get('down_mbps') or params.get('downmbps') or params.get('down'),
+                    'alpn': params.get('alpn', ''),
+                    'pinSHA256': (
+                        params.get('pinSHA256')
+                        or params.get('pin_sha256')
+                        or params.get('pin-sha256')
+                        or params.get('fingerprint')
+                    ),
+                })
                 nodes.append({
                     'name': name or f'Hysteria2-{server}',
                     'type': 'hysteria2',
@@ -581,19 +556,7 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                     'port': int(port),
                     'region_code': region_code,
                     'region_label': region_label,
-                    'raw': {
-                        'password': password,
-                        'sni': params.get('sni', ''),
-                        'insecure': str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
-                        'server_ports': server_ports,
-                        'hop_interval': _normalize_hysteria2_hop_interval(
-                            params.get('hop-interval') or params.get('hop_interval')
-                        ),
-                        'obfs': {
-                            'type': obfs_type,
-                            'password': obfs_password,
-                        } if obfs_type else {},
-                    },
+                    'raw': raw,
                 })
             except Exception as e:
                 logger.debug(f"[SubParser] Hysteria2解析失败: {e}")
@@ -822,6 +785,14 @@ def _parse_json_nodes(text: str) -> list[dict]:
                         'obfs_password': item.get('obfs_password') or item.get('obfs-password') or '',
                         'up_mbps': item.get('up_mbps', item.get('up', '')),
                         'down_mbps': item.get('down_mbps', item.get('down', '')),
+                        'alpn': item.get('alpn', ''),
+                        'certificate_fingerprint': (
+                            item.get('certificate_fingerprint')
+                            or item.get('pinSHA256')
+                            or item.get('pin_sha256')
+                            or item.get('pin-sha256')
+                            or item.get('fingerprint')
+                        ),
                     })
             elif proto == 'tuic':
                 raw = {

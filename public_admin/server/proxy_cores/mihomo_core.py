@@ -15,6 +15,12 @@ from typing import Any
 
 import yaml
 
+from ..hysteria2_compatibility import (
+    certificate_fingerprint,
+    mihomo_hop_interval,
+    mihomo_server_ports,
+    normalize_raw as normalize_hysteria2_raw,
+)
 from .runtime import binary_status, config_dir, ensure_binary_async, ensure_core_dirs, log_dir, resolve_binary
 from .rolling import (
     CandidateStageError,
@@ -225,12 +231,56 @@ def _make_shadowsocks_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     return proxy
 
 
+def _make_hysteria2_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
+    raw = normalize_hysteria2_raw(_raw(node))
+    fingerprint = certificate_fingerprint(raw)
+    if not fingerprint.valid:
+        raise ValueError("mihomo Hysteria2 requires a valid certificate fingerprint")
+
+    proxy: dict[str, Any] = {
+        "name": f"proxy-out-{index}",
+        "type": "hysteria2",
+        "server": str(node.get("server") or ""),
+        "port": int(node.get("port") or 0),
+        "password": str(raw.get("password") or ""),
+        "udp": True,
+        "fingerprint": fingerprint.value,
+    }
+    server_ports = mihomo_server_ports(raw.get("server_ports"))
+    if server_ports:
+        proxy["ports"] = server_ports
+    hop_interval = mihomo_hop_interval(raw.get("hop_interval"))
+    if hop_interval:
+        proxy["hop-interval"] = hop_interval
+    if raw.get("sni"):
+        proxy["sni"] = str(raw["sni"])
+    if _truthy(raw.get("insecure")):
+        proxy["skip-cert-verify"] = True
+
+    obfs = raw.get("obfs") if isinstance(raw.get("obfs"), dict) else {}
+    if obfs.get("type"):
+        proxy["obfs"] = str(obfs["type"])
+    if obfs.get("password"):
+        proxy["obfs-password"] = str(obfs["password"])
+
+    for source, target in (("up_mbps", "up"), ("down_mbps", "down")):
+        bandwidth = raw.get(source)
+        if bandwidth is not None:
+            proxy[target] = f"{bandwidth} Mbps"
+
+    alpn = _normalize_alpn(raw.get("alpn")) or ["h3"]
+    proxy["alpn"] = alpn
+    return proxy
+
+
 def _make_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     proto = str((_raw(node).get("type") or node.get("type") or "")).lower()
     if proto == "vless":
         return _make_vless_proxy(node, index)
     if proto in {"ss", "shadowsocks"}:
         return _make_shadowsocks_proxy(node, index)
+    if proto in {"hysteria2", "hy2"}:
+        return _make_hysteria2_proxy(node, index)
     raise ValueError(f"mihomo unsupported protocol: {proto or 'unknown'}")
 
 

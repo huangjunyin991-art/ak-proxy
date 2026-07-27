@@ -174,3 +174,60 @@ def test_mihomo_parses_inline_sip003_plugin_options():
         "password": "shadow-secret",
         "version": 3,
     }
+
+
+def test_mihomo_hysteria2_maps_pinning_and_transport_options():
+    config = generate_config([{
+        "name": "Pinned HY2",
+        "type": "hysteria2",
+        "server": "hy2.example.com",
+        "port": 443,
+        "local_port": 12002,
+        "raw": {
+            "type": "hysteria2",
+            "password": "secret",
+            "sni": "legacy.example.com",
+            "certificate_fingerprint": "AB:" * 31 + "AB",
+            "server_ports": ["60000:65530"],
+            "hop_interval": "30s",
+            "obfs": {"type": "salamander", "password": "mask"},
+            "up_mbps": 100,
+            "down_mbps": 200,
+        },
+    }], base_port=12002)
+
+    assert config["listeners"][0]["port"] == 12002
+    assert config["proxies"][0] == {
+        "name": "proxy-out-0",
+        "type": "hysteria2",
+        "server": "hy2.example.com",
+        "port": 443,
+        "password": "secret",
+        "udp": True,
+        "fingerprint": "ab" * 32,
+        "ports": "60000-65530",
+        "hop-interval": "30",
+        "sni": "legacy.example.com",
+        "obfs": "salamander",
+        "obfs-password": "mask",
+        "up": "100 Mbps",
+        "down": "200 Mbps",
+        "alpn": ["h3"],
+    }
+
+
+def test_mihomo_hysteria2_preserves_explicit_insecure_setting():
+    config = generate_config([{
+        "name": "Explicit insecure HY2",
+        "type": "hy2",
+        "server": "hy2.example.com",
+        "port": 443,
+        "raw": {
+            "type": "hy2",
+            "password": "secret",
+            "pinSHA256": "ab" * 32,
+            "insecure": True,
+        },
+    }])
+
+    assert config["proxies"][0]["skip-cert-verify"] is True
