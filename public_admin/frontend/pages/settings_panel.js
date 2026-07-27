@@ -1416,7 +1416,6 @@
 
             const html = subscriptionGroups.map(group => {
                 const isExpanded = expandedGroups.has(group.id);
-                const caret = isExpanded ? '⌄' : '›';
                 const importTime = group.import_time ? new Date(group.import_time).toLocaleString('zh-CN', {
                     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                 }) : '未知';
@@ -1454,9 +1453,15 @@
 
                 return `
                     <div class="sub-group-card">
-                        <div class="sub-group-head" onclick="toggleSubscriptionGroup(${groupIdArg})">
+                        <div class="sub-group-head${isExpanded ? ' is-expanded' : ''}"
+                             role="button"
+                             tabindex="0"
+                             aria-expanded="${isExpanded ? 'true' : 'false'}"
+                             aria-controls="subGroupServers_${escapeSubGroupAttr(group.id || '')}"
+                             onclick="toggleSubscriptionGroup(${groupIdArg})"
+                             onkeydown="handleSubscriptionGroupHeaderKeydown(event, ${groupIdArg})">
                             <div class="sub-group-main">
-                                <span class="sub-group-caret">${caret}</span>
+                                <span class="sub-group-caret" aria-hidden="true"></span>
                                 <div class="sub-group-info">
                                     <div class="sub-group-title" title="${escapeSubGroupAttr(group.name || '')}">${escapeHtml(group.name || '')}</div>
                                     <div class="sub-group-meta">
@@ -1496,6 +1501,13 @@
                 loadGroupServers(groupId);
             }
             renderSubscriptionGroups();
+        }
+
+        function handleSubscriptionGroupHeaderKeydown(event, groupId) {
+            if (!event || event.target !== event.currentTarget) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            toggleSubscriptionGroup(groupId);
         }
 
         async function loadGroupServers(groupId) {
@@ -1738,6 +1750,7 @@
             lbShowErrorLogs,
             loadSubscriptionGroups,
             toggleSubscriptionGroup,
+            handleSubscriptionGroupHeaderKeydown,
             toggleSubscriptionNode,
             toggleAllServers,
             editSubscriptionGroupName,
@@ -1780,6 +1793,7 @@
             lbShowErrorLogs,
             loadSubscriptionGroups,
             toggleSubscriptionGroup,
+            handleSubscriptionGroupHeaderKeydown,
             toggleSubscriptionNode,
             toggleAllServers,
             editSubscriptionGroupName,

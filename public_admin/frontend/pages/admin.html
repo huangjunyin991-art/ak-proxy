@@ -2134,6 +2134,16 @@
             align-items: center;
             padding: 12px 14px;
             cursor: pointer;
+            outline: none;
+            transition: background-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .sub-group-head:hover {
+            background: rgba(0, 212, 255, 0.035);
+        }
+
+        .sub-group-head:focus-visible {
+            box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.48);
         }
 
         .sub-group-main {
@@ -2150,12 +2160,30 @@
             width: 22px;
             height: 22px;
             flex: 0 0 22px;
-            border: 1px solid rgba(0, 212, 255, 0.22);
-            border-radius: 6px;
             color: var(--accent);
-            background: rgba(0, 212, 255, 0.08);
-            font-size: 12px;
-            line-height: 1;
+            border-radius: 50%;
+            background: transparent;
+            transition: color 160ms ease, background-color 160ms ease;
+        }
+
+        .sub-group-caret::before {
+            content: '';
+            width: 7px;
+            height: 7px;
+            border-right: 1.5px solid currentColor;
+            border-bottom: 1.5px solid currentColor;
+            transform: rotate(-45deg);
+            transition: transform 180ms ease;
+        }
+
+        .sub-group-head:hover .sub-group-caret,
+        .sub-group-head:focus-visible .sub-group-caret {
+            color: #74e9ff;
+            background: rgba(0, 212, 255, 0.09);
+        }
+
+        .sub-group-head.is-expanded .sub-group-caret::before {
+            transform: rotate(45deg);
         }
 
         .sub-group-info {
