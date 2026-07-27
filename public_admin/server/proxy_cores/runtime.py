@@ -37,6 +37,47 @@ _download_status: dict[str, dict[str, Any]] = {}
 
 DOWNLOAD_PROGRESS_LOG_STEP_PERCENT = float(os.environ.get("AK_PROXY_CORE_DOWNLOAD_LOG_STEP_PERCENT", "10"))
 DOWNLOAD_PROGRESS_LOG_STEP_BYTES = int(os.environ.get("AK_PROXY_CORE_DOWNLOAD_LOG_STEP_BYTES", str(8 * 1024 * 1024)))
+MIN_PROXY_CORE_NOFILE = 4096
+PROXY_CORE_NOFILE_HEADROOM = 256
+
+
+def _load_resource_module() -> Any | None:
+    try:
+        import resource
+    except ImportError:
+        return None
+    return resource
+
+
+def ensure_file_descriptor_capacity(listener_count: int) -> dict[str, int | bool]:
+    """Raise the soft limit inherited by staged proxy-core children."""
+    listener_count = max(0, int(listener_count or 0))
+    resource = _load_resource_module()
+    if resource is None:
+        return {"supported": False, "soft": 0, "hard": 0, "required": 0}
+
+    required = listener_count + PROXY_CORE_NOFILE_HEADROOM if listener_count else 0
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if not listener_count:
+        return {"supported": True, "soft": soft, "hard": hard, "required": 0}
+    unlimited = hard == resource.RLIM_INFINITY
+    target = max(MIN_PROXY_CORE_NOFILE, required)
+    raised_soft = target if unlimited else min(target, hard)
+    if soft < raised_soft:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (raised_soft, hard))
+            soft = raised_soft
+            logger.info("[ProxyCore] raised file descriptor soft limit to %s", soft)
+        except (OSError, ValueError) as exc:
+            logger.warning("[ProxyCore] could not raise file descriptor soft limit: %s", exc)
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+
+    if soft < required:
+        hard_text = "unlimited" if hard == resource.RLIM_INFINITY else str(hard)
+        raise RuntimeError(
+            f"代理核心文件描述符上限不足（当前软上限 {soft}，硬上限 {hard_text}，至少需要 {required}）"
+        )
+    return {"supported": True, "soft": soft, "hard": hard, "required": required}
 
 
 def core_dir(core_type: str) -> Path:

@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable
 from .classifier import MIHOMO_CORE, SINGBOX_CORE, UNSUPPORTED_CORE, prepare_nodes
 from . import mihomo_core, singbox_core
 from .rolling import DRAIN_SECONDS, candidate_base_port, clear_active_base_port, mark_active_base_port
-from .runtime import ensure_binary_async
+from .runtime import ensure_binary_async, ensure_file_descriptor_capacity
 
 
 logger = logging.getLogger("TransparentProxy")
@@ -92,6 +92,7 @@ async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port:
     candidate_buckets = split_nodes_by_core(candidate_input)
     singbox_count = len(candidate_buckets[SINGBOX_CORE])
     mihomo_count = len(candidate_buckets[MIHOMO_CORE])
+    ensure_file_descriptor_capacity(max(singbox_count, mihomo_count))
     candidate_singbox_base = candidate_base_port(
         SINGBOX_CORE,
         singbox_base_port,
