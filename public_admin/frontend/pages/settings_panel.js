@@ -647,8 +647,8 @@
             return {rank: 1, latency: Number.POSITIVE_INFINITY};
         }
 
-        function isLbExitTemporarilyDisabled(ex) {
-            return !!(ex && (ex.frozen || ex.temporarily_disabled || ex.disabled || ex.enabled === false || ex.healthy === false));
+        function isLbExitDisplayAvailable(ex) {
+            return Boolean(ex && ex.dispatch_ready) && !ex.frozen;
         }
 
         function sortLbExitsForDisplay(exits) {
@@ -656,9 +656,9 @@
                 const aDirect = a.ex && a.ex.type === 'direct';
                 const bDirect = b.ex && b.ex.type === 'direct';
                 if (aDirect !== bDirect) return aDirect ? -1 : 1;
-                const aDisabled = isLbExitTemporarilyDisabled(a.ex);
-                const bDisabled = isLbExitTemporarilyDisabled(b.ex);
-                if (aDisabled !== bDisabled) return aDisabled ? 1 : -1;
+                const aAvailable = isLbExitDisplayAvailable(a.ex);
+                const bAvailable = isLbExitDisplayAvailable(b.ex);
+                if (aAvailable !== bAvailable) return aAvailable ? -1 : 1;
                 const aLatency = getLbExitLatencySortMeta(a.ex);
                 const bLatency = getLbExitLatencySortMeta(b.ex);
                 if (aLatency.rank !== bLatency.rank) return aLatency.rank - bLatency.rank;
@@ -769,7 +769,7 @@
             const cardItems = displayExits.map((ex, i) => {
                 const isDirect = ex.type === 'direct';
                 const exitIndex = getLbExitIndex(ex, i);
-                const nodeAvailable = Boolean(ex.dispatch_ready) && !ex.frozen;
+                const nodeAvailable = isLbExitDisplayAvailable(ex);
                 const healthColor = nodeAvailable ? '#00ff88' : '#ff4757';
                 const healthText = nodeAvailable ? '可用' : '不可用';
                 const borderColor = nodeAvailable ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)';
