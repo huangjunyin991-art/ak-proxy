@@ -19,6 +19,7 @@ import logging
 import json
 import inspect
 from collections import deque
+from dataclasses import replace
 from datetime import datetime
 from typing import Optional
 
@@ -27,7 +28,11 @@ import httpx
 from .rpc_timeout_policy import resolve_connect_timeout
 from .runtime_hygiene import RuntimeHygienePolicy
 from .security.upstream_http import resolve_upstream_tls_verify
-from .source_reachability import SourceReachabilityProbe
+from .source_reachability import (
+    SourceProbePolicy,
+    SourceReachabilityProbe,
+    source_probe_policy_for_protocol,
+)
 
 try:
     from .dispatcher_policy import (
@@ -71,7 +76,7 @@ class LoginUpstreamStatusRetryError(RuntimeError):
 
 class OutboundExit:
     """单个出口通道"""
-    __slots__ = ('name', 'proxy_url', 'core_type', 'local_port', 'group_id', 'group_name', 'source_url',
+    __slots__ = ('name', 'proxy_url', 'core_type', 'node_type', 'local_port', 'group_id', 'group_name', 'source_url',
                  'node_identity',
                  'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
@@ -85,9 +90,10 @@ class OutboundExit:
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
-                 source_url: str = "", node_identity: str = ""):
+                 source_url: str = "", node_identity: str = "", node_type: str = ""):
         self.name = name
         self.core_type = core_type or ("direct" if proxy_url is None else "singbox")
+        self.node_type = str(node_type or "").strip().lower()
         self.local_port = int(local_port or 0)
         self.group_id = str(group_id or "").strip()
         self.group_name = str(group_name or "").strip()
@@ -401,6 +407,9 @@ class OutboundDispatcher:
     FAILED_SOURCE_PROBE_TICK_SECONDS = 60
     SOURCE_PROBE_BATCH_CONCURRENCY = 12
     SOURCE_PROBE_HARD_TIMEOUT_SECONDS = 15
+    QUIC_SOURCE_PROBE_BATCH_CONCURRENCY = 3
+    QUIC_SOURCE_PROBE_HARD_TIMEOUT_SECONDS = 25
+    QUIC_SOURCE_PROBE_RETRY_DELAY_SECONDS = 0.5
     SOURCE_PROBE_FAILURE_BACKOFF_SECONDS = (5 * 60, 15 * 60, 60 * 60)
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
@@ -475,7 +484,8 @@ class OutboundDispatcher:
     # ===== 配置 =====
 
     def add_socks5(self, name: str, port: int, core_type: str = "singbox", group_id: str = "",
-                   group_name: str = "", source_url: str = "", node_identity: str = "") -> int:
+                   group_name: str = "", source_url: str = "", node_identity: str = "",
+                   node_type: str = "") -> int:
         """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
         self.exits.append(OutboundExit(
@@ -483,6 +493,7 @@ class OutboundDispatcher:
             proxy_url,
             self.client_policy,
             core_type=core_type,
+            node_type=node_type,
             local_port=port,
             group_id=group_id,
             group_name=group_name,
@@ -511,6 +522,7 @@ class OutboundDispatcher:
                 f"socks5://127.0.0.1:{port}",
                 self.client_policy,
                 core_type=str(item.get("core_type") or "singbox"),
+                node_type=str(item.get("node_type") or ""),
                 local_port=port,
                 group_id=str(item.get("group_id") or ""),
                 group_name=str(item.get("group_name") or ""),
@@ -614,6 +626,7 @@ class OutboundDispatcher:
                 group_name=item.get("group_name") or "",
                 source_url=item.get("source_url") or "",
                 node_identity=item.get("node_identity") or "",
+                node_type=item.get("node_type") or "",
             )
         logger.info(f"[Dispatcher] 共 {len(self.exits)} 个出口 (1直连 + {len(self.exits)-1}隧道)")
 
@@ -1620,29 +1633,65 @@ class OutboundDispatcher:
 
         self._pending_source_probe_task = self._safe_create_task(_run(), "pending_source_probe_batch")
 
-    async def _request_source_probe(self, ex: OutboundExit):
-        client = await ex.get_client()
-        return await self.source_probe.probe(client)
+    def _source_probe_policy(self, ex: OutboundExit) -> SourceProbePolicy:
+        policy = source_probe_policy_for_protocol(ex.node_type)
+        if policy.pool == "quic":
+            return replace(
+                policy,
+                batch_concurrency=self.QUIC_SOURCE_PROBE_BATCH_CONCURRENCY,
+                hard_timeout_seconds=self.QUIC_SOURCE_PROBE_HARD_TIMEOUT_SECONDS,
+                retry_delay_seconds=self.QUIC_SOURCE_PROBE_RETRY_DELAY_SECONDS,
+            )
+        return replace(
+            policy,
+            batch_concurrency=self.SOURCE_PROBE_BATCH_CONCURRENCY,
+            hard_timeout_seconds=self.SOURCE_PROBE_HARD_TIMEOUT_SECONDS,
+        )
 
-    async def _probe_source_exit(self, ex: OutboundExit) -> bool:
+    async def _request_source_probe(self, ex: OutboundExit, policy: SourceProbePolicy):
+        client = await ex.get_client()
+        return await self.source_probe.probe(
+            client,
+            timeout_seconds=policy.request_timeout_seconds,
+            connect_timeout_seconds=policy.connect_timeout_seconds,
+        )
+
+    async def _probe_source_exit(self, ex: OutboundExit, policy: SourceProbePolicy | None = None) -> bool:
         """Check whether an exit can reach the configured business source."""
+        policy = policy or self._source_probe_policy(ex)
         ex.source_probing = True
         ex.source_probe_checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            try:
-                result = await asyncio.wait_for(
-                    self._request_source_probe(ex),
-                    timeout=self.SOURCE_PROBE_HARD_TIMEOUT_SECONDS,
-                )
-                error = ""
-            except asyncio.CancelledError:
-                raise
-            except asyncio.TimeoutError:
-                result = None
-                error = f"源站探测超时（{self.SOURCE_PROBE_HARD_TIMEOUT_SECONDS} 秒）"
-            except Exception as e:
-                result = None
-                error = str(e).strip() or e.__class__.__name__
+            result = None
+            error = ""
+            for attempt in range(1, policy.max_attempts + 1):
+                try:
+                    result = await asyncio.wait_for(
+                        self._request_source_probe(ex, policy),
+                        timeout=policy.hard_timeout_seconds,
+                    )
+                    error = ""
+                except asyncio.CancelledError:
+                    raise
+                except asyncio.TimeoutError:
+                    result = None
+                    error = f"源站探测超时（{policy.hard_timeout_seconds} 秒）"
+                except Exception as e:
+                    result = None
+                    error = str(e).strip() or e.__class__.__name__
+
+                reachable = bool(result is not None and result.reachable)
+                status_code = result.status_code if result is not None else None
+                if not policy.should_retry(
+                    reachable=reachable,
+                    status_code=status_code,
+                    attempt=attempt,
+                ):
+                    break
+                if not ex.source_probe_ready and ex.active == 0:
+                    await ex.close_client("source_probe_retry")
+                if policy.retry_delay_seconds > 0:
+                    await asyncio.sleep(policy.retry_delay_seconds)
 
             if result is not None and result.reachable:
                 was_ready = ex.source_probe_ready
@@ -1672,11 +1721,16 @@ class OutboundDispatcher:
             ex.source_probing = False
 
     async def _probe_source_batch(self, exits_snapshot: list[OutboundExit]) -> list[bool]:
-        sem = asyncio.Semaphore(self.SOURCE_PROBE_BATCH_CONCURRENCY)
+        policies = {id(ex): self._source_probe_policy(ex) for ex in exits_snapshot}
+        semaphores = {
+            policy.pool: asyncio.Semaphore(policy.batch_concurrency)
+            for policy in policies.values()
+        }
 
         async def _probe(ex: OutboundExit) -> bool:
-            async with sem:
-                return await self._probe_source_exit(ex)
+            policy = policies[id(ex)]
+            async with semaphores[policy.pool]:
+                return await self._probe_source_exit(ex, policy)
 
         if not exits_snapshot:
             return []
@@ -1760,6 +1814,7 @@ class OutboundDispatcher:
                     "name": ex.name,
                     "type": "direct" if ex.is_direct else "socks5",
                     "core_type": ex.core_type,
+                    "node_type": ex.node_type,
                     "local_port": ex.local_port,
                     "group_id": ex.group_id,
                     "group_name": ex.group_name,

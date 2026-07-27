@@ -45,3 +45,18 @@ async def test_probe_reports_transport_failure_without_status_code():
     assert result.reachable is False
     assert result.status_code is None
     assert result.error
+
+
+@pytest.mark.anyio
+async def test_probe_accepts_protocol_policy_timeout_overrides():
+    client = FakeClient(httpx.Response(403))
+
+    await SourceReachabilityProbe().probe(
+        client,
+        timeout_seconds=22,
+        connect_timeout_seconds=10,
+    )
+
+    timeout = client.calls[0][1]["timeout"]
+    assert timeout.read == 22
+    assert timeout.connect == 10

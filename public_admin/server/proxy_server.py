@@ -415,6 +415,7 @@ def _build_dispatcher_exit_specs(nodes: list[dict[str, Any]], base_port: int) ->
             "name": node.get("display_name") or node.get("name") or f"node_{i}",
             "port": port,
             "core_type": str(node.get("core_type") or "singbox"),
+            "node_type": str(node.get("type") or "").strip().lower(),
             "group_id": node.get("group_id", ""),
             "group_name": node.get("group_name", ""),
             "source_url": node.get("source_url", ""),

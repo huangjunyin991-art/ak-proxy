@@ -26,12 +26,14 @@ def test_replacing_tunnel_generation_keeps_direct_and_returns_old_exits():
     old_exit = dispatcher.exits[old_index]
 
     retired = dispatcher.replace_socks5_exits([
-        {"name": "new-a", "port": 30001, "core_type": "singbox"},
+        {"name": "new-a", "port": 30001, "core_type": "singbox", "node_type": "hysteria2"},
         {"name": "new-b", "port": 30002, "core_type": "singbox"},
     ])
 
     assert dispatcher.exits[0].is_direct is True
     assert [item.name for item in dispatcher.exits[1:]] == ["new-a", "new-b"]
+    assert dispatcher.exits[1].node_type == "hysteria2"
+    assert dispatcher.get_status()["exits"][1]["node_type"] == "hysteria2"
     assert retired == [old_exit]
 
 
@@ -393,7 +395,7 @@ def test_health_check_source_probe_requests_are_batched(monkeypatch):
 @pytest.mark.anyio
 async def test_source_probe_403_enables_dispatch_and_resets_failures(monkeypatch):
     class Probe:
-        async def probe(self, client):
+        async def probe(self, client, **kwargs):
             return SourceProbeResult(True, 403, "", 12)
 
     async def fake_get_client(self):
@@ -418,7 +420,7 @@ async def test_source_probe_403_enables_dispatch_and_resets_failures(monkeypatch
 @pytest.mark.anyio
 async def test_source_probe_429_remains_unavailable_with_capped_failures(monkeypatch):
     class Probe:
-        async def probe(self, client):
+        async def probe(self, client, **kwargs):
             return SourceProbeResult(False, 429, "HTTP 429", 12)
 
     async def fake_get_client(self):
@@ -443,7 +445,7 @@ async def test_source_probe_cancellation_always_clears_probing_state(monkeypatch
     started = asyncio.Event()
 
     class Probe:
-        async def probe(self, client):
+        async def probe(self, client, **kwargs):
             started.set()
             await asyncio.Event().wait()
 
@@ -468,7 +470,7 @@ async def test_source_probe_cancellation_always_clears_probing_state(monkeypatch
 @pytest.mark.anyio
 async def test_source_probe_hard_timeout_becomes_retryable_failure(monkeypatch):
     class Probe:
-        async def probe(self, client):
+        async def probe(self, client, **kwargs):
             await asyncio.Event().wait()
 
     async def fake_get_client(self):
@@ -485,6 +487,128 @@ async def test_source_probe_hard_timeout_becomes_retryable_failure(monkeypatch):
     assert ex.source_probing is False
     assert ex.source_probe_failures == 1
     assert ex.source_probe_last_error == "源站探测超时（0.01 秒）"
+
+
+@pytest.mark.anyio
+async def test_quic_source_probe_retries_transport_failure_and_recovers(monkeypatch):
+    calls = []
+    closed = []
+
+    class Probe:
+        async def probe(self, client, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return SourceProbeResult(False, None, "QUIC handshake timeout", 22000)
+            return SourceProbeResult(True, 403, "", 20)
+
+    async def fake_get_client(self):
+        return object()
+
+    async def fake_close_client(self, reason="closed"):
+        closed.append(reason)
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    monkeypatch.setattr(OutboundExit, "close_client", fake_close_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.QUIC_SOURCE_PROBE_RETRY_DELAY_SECONDS = 0
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("hy2", 10001, node_type="hysteria2")
+    ex = dispatcher.exits[idx]
+
+    assert await dispatcher._probe_source_exit(ex) is True
+    assert len(calls) == 2
+    assert calls[0]["timeout_seconds"] == 22
+    assert calls[0]["connect_timeout_seconds"] == 10
+    assert closed == ["source_probe_retry"]
+    assert ex.source_probe_ready is True
+    assert ex.source_probe_failures == 0
+    assert ex.source_probe_last_error == ""
+
+
+@pytest.mark.anyio
+async def test_quic_revalidation_does_not_close_available_exit_client(monkeypatch):
+    calls = 0
+    closed = []
+
+    class Probe:
+        async def probe(self, client, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return SourceProbeResult(False, None, "temporary QUIC error", 20)
+            return SourceProbeResult(True, 403, "", 20)
+
+    async def fake_get_client(self):
+        return object()
+
+    async def fake_close_client(self, reason="closed"):
+        closed.append(reason)
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    monkeypatch.setattr(OutboundExit, "close_client", fake_close_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.QUIC_SOURCE_PROBE_RETRY_DELAY_SECONDS = 0
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("hy2", 10001, node_type="hysteria2")
+    ex = dispatcher.exits[idx]
+    ex.source_probe_ready = True
+
+    assert await dispatcher._probe_source_exit(ex) is True
+    assert calls == 2
+    assert closed == []
+
+
+@pytest.mark.anyio
+async def test_quic_source_probe_does_not_retry_http_failure(monkeypatch):
+    calls = 0
+
+    class Probe:
+        async def probe(self, client, **kwargs):
+            nonlocal calls
+            calls += 1
+            return SourceProbeResult(False, 429, "HTTP 429", 12)
+
+    async def fake_get_client(self):
+        return object()
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.QUIC_SOURCE_PROBE_RETRY_DELAY_SECONDS = 0
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("hy2", 10001, node_type="hysteria2")
+
+    assert await dispatcher._probe_source_exit(dispatcher.exits[idx]) is False
+    assert calls == 1
+
+
+@pytest.mark.anyio
+async def test_source_probe_batch_applies_separate_protocol_concurrency(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    dispatcher.SOURCE_PROBE_BATCH_CONCURRENCY = 2
+    dispatcher.QUIC_SOURCE_PROBE_BATCH_CONCURRENCY = 1
+    exits = [
+        OutboundExit(f"tcp-{index}", f"socks5://127.0.0.1:{10000 + index}", node_type="vless")
+        for index in range(4)
+    ] + [
+        OutboundExit(f"quic-{index}", f"socks5://127.0.0.1:{11000 + index}", node_type="hysteria2")
+        for index in range(3)
+    ]
+    active = {"default": 0, "quic": 0}
+    maximum = {"default": 0, "quic": 0}
+
+    async def fake_probe(ex, policy=None):
+        active[policy.pool] += 1
+        maximum[policy.pool] = max(maximum[policy.pool], active[policy.pool])
+        await asyncio.sleep(0.01)
+        active[policy.pool] -= 1
+        return True
+
+    monkeypatch.setattr(dispatcher, "_probe_source_exit", fake_probe)
+
+    results = await dispatcher._probe_source_batch(exits)
+
+    assert all(results)
+    assert maximum == {"default": 2, "quic": 1}
 
 
 @pytest.mark.anyio

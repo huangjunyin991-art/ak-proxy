@@ -37,8 +37,20 @@ class SourceReachabilityProbe:
             min(self.timeout_seconds, float(connect_timeout_seconds or 5.0)),
         )
 
-    async def probe(self, client: httpx.AsyncClient) -> SourceProbeResult:
+    async def probe(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        timeout_seconds: float | None = None,
+        connect_timeout_seconds: float | None = None,
+    ) -> SourceProbeResult:
         started_at = time.perf_counter()
+        request_timeout = self._bounded_timeout(timeout_seconds, self.timeout_seconds)
+        connect_timeout = self._bounded_connect_timeout(
+            connect_timeout_seconds,
+            request_timeout,
+            self.connect_timeout_seconds,
+        )
         try:
             response = await client.get(
                 self.probe_url,
@@ -49,8 +61,8 @@ class SourceReachabilityProbe:
                 },
                 follow_redirects=True,
                 timeout=httpx.Timeout(
-                    self.timeout_seconds,
-                    connect=self.connect_timeout_seconds,
+                    request_timeout,
+                    connect=connect_timeout,
                 ),
             )
         except Exception as exc:
@@ -87,6 +99,14 @@ class SourceReachabilityProbe:
     @staticmethod
     def _elapsed_ms(started_at: float) -> int:
         return max(0, int((time.perf_counter() - started_at) * 1000))
+
+    @staticmethod
+    def _bounded_timeout(value: float | None, fallback: float) -> float:
+        return max(3.0, min(float(value or fallback), 30.0))
+
+    @staticmethod
+    def _bounded_connect_timeout(value: float | None, request_timeout: float, fallback: float) -> float:
+        return max(1.0, min(request_timeout, float(value or fallback)))
 
     @staticmethod
     def _error_text(exc: Exception) -> str:

@@ -63,6 +63,12 @@ def test_subscription_node_summary_deduplicates_only_identical_routes():
     assert summarize_subscription_nodes(nodes) == {"total": 3, "active": 2}
 
 
+def test_dispatcher_exit_spec_keeps_node_protocol_for_probe_policy():
+    specs = proxy_server._build_dispatcher_exit_specs([_node()], 10001)
+
+    assert specs[0]["node_type"] == "vless"
+
+
 def test_group_availability_uses_logical_node_identity():
     available = _node(port=443)
     unavailable = _node(port=8443)

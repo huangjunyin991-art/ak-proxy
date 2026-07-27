@@ -6,6 +6,7 @@ LIGHT_EXIT_FIELDS = {
     "name",
     "type",
     "core_type",
+    "node_type",
     "local_port",
     "proxy",
     "healthy",
