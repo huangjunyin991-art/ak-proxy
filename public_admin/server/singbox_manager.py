@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from .proxy_cores.rolling import atomic_write_text
+from .proxy_cores.singbox_compatibility import normalize_singbox_outbound
 
 logger = logging.getLogger("TransparentProxy")
 
@@ -332,7 +333,7 @@ def generate_config(nodes: list[dict], base_port: int = 10001) -> dict:
         })
 
         # Outbound: VPN protocol
-        outbounds.append(_make_outbound(node, out_tag))
+        outbounds.append(normalize_singbox_outbound(_make_outbound(node, out_tag)))
 
         # Route: inbound → outbound
         route_rules.append({
