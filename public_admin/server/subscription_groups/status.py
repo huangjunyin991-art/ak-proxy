@@ -33,10 +33,13 @@ def _availability_state(
     if not runtime_exits:
         return "pending"
     if any(
-        item.get("source_probing")
-        or (
-            not item.get("source_probe_checked_at")
-            and not item.get("source_probe_failures")
+        item.get("healthy", True)
+        and (
+            item.get("source_probing")
+            or (
+                not item.get("source_probe_checked_at")
+                and not item.get("source_probe_failures")
+            )
         )
         for item in runtime_exits
     ):

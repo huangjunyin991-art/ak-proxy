@@ -400,6 +400,7 @@ class OutboundDispatcher:
     SOURCE_PROBE_INTERVAL_SECONDS = 60 * 60
     FAILED_SOURCE_PROBE_TICK_SECONDS = 60
     SOURCE_PROBE_BATCH_CONCURRENCY = 12
+    SOURCE_PROBE_HARD_TIMEOUT_SECONDS = 15
     SOURCE_PROBE_FAILURE_BACKOFF_SECONDS = (5 * 60, 15 * 60, 60 * 60)
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
@@ -1619,18 +1620,30 @@ class OutboundDispatcher:
 
         self._pending_source_probe_task = self._safe_create_task(_run(), "pending_source_probe_batch")
 
+    async def _request_source_probe(self, ex: OutboundExit):
+        client = await ex.get_client()
+        return await self.source_probe.probe(client)
+
     async def _probe_source_exit(self, ex: OutboundExit) -> bool:
         """Check whether an exit can reach the configured business source."""
         ex.source_probing = True
         ex.source_probe_checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            client = await ex.get_client()
-            result = await self.source_probe.probe(client)
-        except Exception as e:
-            result = None
-            error = str(e).strip() or e.__class__.__name__
+            try:
+                result = await asyncio.wait_for(
+                    self._request_source_probe(ex),
+                    timeout=self.SOURCE_PROBE_HARD_TIMEOUT_SECONDS,
+                )
+                error = ""
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                result = None
+                error = f"源站探测超时（{self.SOURCE_PROBE_HARD_TIMEOUT_SECONDS} 秒）"
+            except Exception as e:
+                result = None
+                error = str(e).strip() or e.__class__.__name__
 
-        try:
             if result is not None and result.reachable:
                 was_ready = ex.source_probe_ready
                 ex.source_probe_ready = True

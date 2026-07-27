@@ -67,6 +67,7 @@ def test_group_availability_uses_logical_node_identity():
     available = _node(port=443)
     unavailable = _node(port=8443)
     pending = _node(port=9443)
+    locally_unhealthy = _node(port=12443)
     disabled = _node(port=10443, enabled=False)
     unsupported = _node(port=11443, core_supported=False, core_unsupported_reason="unsupported protocol")
     exits = [
@@ -87,12 +88,20 @@ def test_group_availability_uses_logical_node_identity():
             "node_identity": subscription_node_identity(pending),
             "dispatch_ready": False,
             "frozen": False,
+            "healthy": True,
             "source_probing": True,
+        },
+        {
+            "node_identity": subscription_node_identity(locally_unhealthy),
+            "dispatch_ready": False,
+            "frozen": False,
+            "healthy": False,
+            "source_probing": False,
         },
     ]
 
     views = build_group_node_views(
-        [available, unavailable, pending, disabled, unsupported],
+        [available, unavailable, pending, locally_unhealthy, disabled, unsupported],
         exits,
         "group-a",
     )
@@ -102,22 +111,23 @@ def test_group_availability_uses_logical_node_identity():
         443: "available",
         8443: "unavailable",
         9443: "pending",
+        12443: "unavailable",
         10443: "disabled",
         11443: "unsupported",
     }
 
     groups = decorate_subscription_groups(
         [{"id": "group-a", "total_servers": 99, "active_servers": 99}],
-        [available, unavailable, pending, disabled, unsupported],
+        [available, unavailable, pending, locally_unhealthy, disabled, unsupported],
         exits,
     )
-    assert groups[0]["total_servers"] == 5
-    assert groups[0]["active_servers"] == 4
+    assert groups[0]["total_servers"] == 6
+    assert groups[0]["active_servers"] == 5
     assert groups[0]["available_nodes"] == 1
-    assert groups[0]["unavailable_nodes"] == 2
+    assert groups[0]["unavailable_nodes"] == 3
     assert groups[0]["pending_nodes"] == 1
-    assert groups[0]["availability_total"] == 4
-    assert groups[0]["availability_ratio"] == 25.0
+    assert groups[0]["availability_total"] == 5
+    assert groups[0]["availability_ratio"] == 20.0
 
 
 class _JsonRequest:

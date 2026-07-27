@@ -439,6 +439,55 @@ async def test_source_probe_429_remains_unavailable_with_capped_failures(monkeyp
 
 
 @pytest.mark.anyio
+async def test_source_probe_cancellation_always_clears_probing_state(monkeypatch):
+    started = asyncio.Event()
+
+    class Probe:
+        async def probe(self, client):
+            started.set()
+            await asyncio.Event().wait()
+
+    async def fake_get_client(self):
+        return object()
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("cancelled", 10001)
+    ex = dispatcher.exits[idx]
+
+    task = asyncio.create_task(dispatcher._probe_source_exit(ex))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert ex.source_probing is False
+
+
+@pytest.mark.anyio
+async def test_source_probe_hard_timeout_becomes_retryable_failure(monkeypatch):
+    class Probe:
+        async def probe(self, client):
+            await asyncio.Event().wait()
+
+    async def fake_get_client(self):
+        return object()
+
+    monkeypatch.setattr(OutboundExit, "get_client", fake_get_client)
+    dispatcher = OutboundDispatcher()
+    dispatcher.SOURCE_PROBE_HARD_TIMEOUT_SECONDS = 0.01
+    dispatcher.source_probe = Probe()
+    idx = dispatcher.add_socks5("timed-out", 10001)
+    ex = dispatcher.exits[idx]
+
+    assert await dispatcher._probe_source_exit(ex) is False
+    assert ex.source_probing is False
+    assert ex.source_probe_failures == 1
+    assert ex.source_probe_last_error == "源站探测超时（0.01 秒）"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("anyio_backend", ["asyncio"])
 async def test_latency_probe_uses_first_successful_endpoint_without_waiting_for_slow_fallbacks():
     class Client:
