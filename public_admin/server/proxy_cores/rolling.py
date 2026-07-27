@@ -25,13 +25,30 @@ PORT_POOL_END = 65_535
 DRAIN_SECONDS = max(0.0, float(os.environ.get("AK_PROXY_CORE_DRAIN_SECONDS", "30")))
 _STATE_PATH = RUNTIME_ROOT / "active_port_generations.json"
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
-_PROC_TCP_PATHS = (Path("/proc/net/tcp"), Path("/proc/net/tcp6"))
+_PROC_SOCKET_TABLES = (
+    (Path("/proc/net/tcp"), "tcp"),
+    (Path("/proc/net/tcp6"), "tcp"),
+    (Path("/proc/net/udp"), "udp"),
+    (Path("/proc/net/udp6"), "udp"),
+)
 _TCP_LISTEN_STATE = "0A"
 _FILE_DESCRIPTOR_ERROR_MARKERS = (
     "too many open files",
     "file descriptor limit",
     "errno 24",
 )
+_PORT_CONFLICT_ERROR_MARKERS = (
+    "address already in use",
+    "addr already in use",
+    "eaddrinuse",
+    "only one usage of each socket address",
+)
+
+
+class CandidateStageError(RuntimeError):
+    def __init__(self, failure_kind: str, message: str):
+        super().__init__(message)
+        self.failure_kind = str(failure_kind or "startup")
 
 
 @dataclass
@@ -113,14 +130,14 @@ def _ranges_overlap(first_base: int, first_count: int, second_base: int, second_
     return first_base <= second_end and second_base <= first_end
 
 
-def _read_linux_listening_ports() -> set[int] | None:
-    """Return one snapshot of TCP listeners without consuming descriptors."""
+def _read_linux_bound_ports() -> set[int] | None:
+    """Return TCP listeners and all bound UDP ports without opening sockets."""
     if not sys.platform.startswith("linux"):
         return None
 
     found_table = False
     ports: set[int] = set()
-    for path in _PROC_TCP_PATHS:
+    for path, protocol in _PROC_SOCKET_TABLES:
         try:
             lines = path.read_text(encoding="ascii").splitlines()
         except FileNotFoundError:
@@ -130,7 +147,9 @@ def _read_linux_listening_ports() -> set[int] | None:
         found_table = True
         for line in lines[1:]:
             columns = line.split()
-            if len(columns) < 4 or columns[3].upper() != _TCP_LISTEN_STATE:
+            if len(columns) < 4:
+                continue
+            if protocol == "tcp" and columns[3].upper() != _TCP_LISTEN_STATE:
                 continue
             try:
                 ports.add(int(columns[1].rsplit(":", 1)[1], 16))
@@ -141,27 +160,38 @@ def _read_linux_listening_ports() -> set[int] | None:
 
 def _probe_port_range_sequentially(base_port: int, port_count: int) -> bool:
     """Portable fallback that never keeps more than one socket open."""
+    endpoints = ((socket.AF_INET, "127.0.0.1"),)
+    if socket.has_ipv6:
+        endpoints += ((socket.AF_INET6, "::1"),)
     for port in range(int(base_port), int(base_port) + max(0, int(port_count))):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-                listener.bind(("127.0.0.1", port))
-        except OSError as exc:
-            if exc.errno in {errno.EADDRINUSE, errno.EACCES}:
-                return False
-            if exc.errno in {errno.EMFILE, errno.ENFILE}:
-                raise RuntimeError("代理核心文件描述符不足，无法检查候选端口") from exc
-            raise RuntimeError(f"候选端口 {port} 检查失败：{exc}") from exc
+        for family, host in endpoints:
+            for socket_type in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+                try:
+                    with socket.socket(family, socket_type) as listener:
+                        listener.bind((host, port))
+                except OSError as exc:
+                    if family == socket.AF_INET6 and exc.errno in {
+                        errno.EAFNOSUPPORT,
+                        errno.EPROTONOSUPPORT,
+                        errno.EADDRNOTAVAIL,
+                    }:
+                        continue
+                    if exc.errno in {errno.EADDRINUSE, errno.EACCES}:
+                        return False
+                    if exc.errno in {errno.EMFILE, errno.ENFILE}:
+                        raise RuntimeError("代理核心文件描述符不足，无法检查候选端口") from exc
+                    raise RuntimeError(f"候选端口 {port} 检查失败：{exc}") from exc
     return True
 
 
 def _port_range_is_available(base_port: int, port_count: int) -> bool:
-    listening_ports = _read_linux_listening_ports()
-    if listening_ports is None:
-        return _probe_port_range_sequentially(base_port, port_count)
-    return not any(
-        port in listening_ports
+    bound_ports = _read_linux_bound_ports()
+    if bound_ports is not None and any(
+        port in bound_ports
         for port in range(int(base_port), int(base_port) + max(0, int(port_count)))
-    )
+    ):
+        return False
+    return _probe_port_range_sequentially(base_port, port_count)
 
 
 def candidate_base_port(
@@ -281,11 +311,25 @@ def clean_process_output(value: str, max_chars: int = 1200) -> str:
 def candidate_start_failure_message(core_type: str, output: str, base_port: int) -> str:
     cleaned = clean_process_output(output)
     lowered = cleaned.lower()
-    if "address already in use" in lowered:
+    if any(marker in lowered for marker in _PORT_CONFLICT_ERROR_MARKERS):
         return f"{core_type} 候选端口段已被占用（起始端口 {base_port}）"
     if any(marker in lowered for marker in _FILE_DESCRIPTOR_ERROR_MARKERS):
         return f"{core_type} 文件描述符上限不足，无法启动当前数量的节点"
     return f"{core_type} 候选实例启动失败：{cleaned or '未返回错误信息'}"
+
+
+def candidate_start_failure(core_type: str, output: str, base_port: int) -> CandidateStageError:
+    lowered = clean_process_output(output).lower()
+    if any(marker in lowered for marker in _PORT_CONFLICT_ERROR_MARKERS):
+        failure_kind = "port_conflict"
+    elif any(marker in lowered for marker in _FILE_DESCRIPTOR_ERROR_MARKERS):
+        failure_kind = "fd_limit"
+    else:
+        failure_kind = "startup"
+    return CandidateStageError(
+        failure_kind,
+        candidate_start_failure_message(core_type, output, base_port),
+    )
 
 
 def promote_staged_config(stage: StagedCore) -> None:

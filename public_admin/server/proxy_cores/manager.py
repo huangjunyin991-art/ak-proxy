@@ -19,6 +19,7 @@ from .runtime import ensure_binary_async, ensure_file_descriptor_capacity
 logger = logging.getLogger("TransparentProxy")
 ActivationCallback = Callable[[list[dict[str, Any]]], Awaitable[None] | None]
 _TRANSITION_LOCK = asyncio.Lock()
+_MAX_PORT_CONFLICT_ATTEMPTS = 5
 
 
 def split_nodes_by_core(nodes: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -61,6 +62,58 @@ def build_runtime_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = si
     return runtime_nodes
 
 
+async def _stage_core_with_port_retry(
+    core_type: str,
+    core: Any,
+    nodes: list[dict[str, Any]],
+    default_base_port: int,
+    *,
+    reserved_ranges: tuple[tuple[int, int], ...] = (),
+) -> tuple[dict[str, Any], list[dict[str, Any]], tuple[tuple[int, int], ...]]:
+    """Stage one core and move to a fresh bank only for a confirmed bind race."""
+    attempted_ranges: list[tuple[int, int]] = []
+    assigned_nodes = assign_ports(nodes, default_base_port)
+    for attempt in range(1, _MAX_PORT_CONFLICT_ATTEMPTS + 1):
+        blocked_ranges = reserved_ranges + tuple(attempted_ranges)
+        try:
+            base_port = candidate_base_port(
+                core_type,
+                default_base_port,
+                len(nodes),
+                reserved_ranges=blocked_ranges,
+            )
+        except Exception as exc:
+            return (
+                {
+                    "success": False,
+                    "failure_kind": "port_selection",
+                    "message": str(exc),
+                    "nodes_count": len(nodes),
+                },
+                assigned_nodes,
+                tuple(attempted_ranges),
+            )
+
+        assigned_nodes = assign_ports(nodes, base_port)
+        result = dict(await core.stage_nodes(assigned_nodes, base_port))
+        result["candidate_attempts"] = attempt
+        result["candidate_base_port"] = base_port
+        if nodes:
+            attempted_ranges.append((base_port, len(nodes)))
+        if result.get("success") or result.get("failure_kind") != "port_conflict":
+            return result, assigned_nodes, tuple(attempted_ranges)
+        if attempt < _MAX_PORT_CONFLICT_ATTEMPTS:
+            logger.warning(
+                "[ProxyCore] %s candidate range starting at %s was claimed during startup; retrying (%s/%s)",
+                core_type,
+                base_port,
+                attempt + 1,
+                _MAX_PORT_CONFLICT_ATTEMPTS,
+            )
+
+    return result, assigned_nodes, tuple(attempted_ranges)
+
+
 async def apply_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = singbox_core.SINGBOX_BASE_PORT,
                       mihomo_base_port: int = mihomo_core.MIHOMO_BASE_PORT,
                       activation_callback: ActivationCallback | None = None,
@@ -93,34 +146,25 @@ async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port:
     singbox_count = len(candidate_buckets[SINGBOX_CORE])
     mihomo_count = len(candidate_buckets[MIHOMO_CORE])
     ensure_file_descriptor_capacity(max(singbox_count, mihomo_count))
-    candidate_singbox_base = candidate_base_port(
+    singbox_result, singbox_nodes, singbox_ranges = await _stage_core_with_port_retry(
         SINGBOX_CORE,
+        singbox_core,
+        candidate_buckets[SINGBOX_CORE],
         singbox_base_port,
-        singbox_count,
     )
-    singbox_reservation = (
-        ((candidate_singbox_base, singbox_count),)
-        if singbox_count
-        else ()
-    )
-    candidate_mihomo_base = candidate_base_port(
+    mihomo_result, mihomo_nodes, _ = await _stage_core_with_port_retry(
         MIHOMO_CORE,
+        mihomo_core,
+        candidate_buckets[MIHOMO_CORE],
         mihomo_base_port,
-        mihomo_count,
-        reserved_ranges=singbox_reservation,
+        reserved_ranges=singbox_ranges,
     )
-    runtime_nodes = build_runtime_nodes(
-        candidate_input,
-        singbox_base_port=candidate_singbox_base,
-        mihomo_base_port=candidate_mihomo_base,
-    )
-    singbox_nodes = [node for node in runtime_nodes if node.get("core_type") == SINGBOX_CORE and node.get("core_supported")]
-    mihomo_nodes = [node for node in runtime_nodes if node.get("core_type") == MIHOMO_CORE and node.get("core_supported")]
-    unsupported_nodes = [node for node in runtime_nodes if node.get("core_type") == UNSUPPORTED_CORE or not node.get("core_supported")]
+    unsupported_nodes = candidate_buckets[UNSUPPORTED_CORE]
+    runtime_nodes = singbox_nodes + mihomo_nodes + unsupported_nodes
 
     results: dict[str, Any] = {
-        SINGBOX_CORE: await singbox_core.stage_nodes(singbox_nodes, candidate_singbox_base),
-        MIHOMO_CORE: await mihomo_core.stage_nodes(mihomo_nodes, candidate_mihomo_base),
+        SINGBOX_CORE: singbox_result,
+        MIHOMO_CORE: mihomo_result,
     }
     stages = []
     for core_type in (SINGBOX_CORE, MIHOMO_CORE):

@@ -1,5 +1,6 @@
 import errno
 import json
+import socket
 
 import pytest
 
@@ -63,21 +64,25 @@ def test_candidate_port_bank_handles_478_existing_and_528_new_nodes(monkeypatch,
     assert rolling.candidate_base_port("singbox", 10001, 528) == 10511
 
 
-def test_linux_port_snapshot_checks_large_range_without_opening_sockets(monkeypatch):
-    monkeypatch.setattr(rolling, "_read_linux_listening_ports", lambda: {10001, 20000})
+def test_linux_port_snapshot_rejects_conflicts_and_kernel_verifies_free_range(monkeypatch):
+    probes = []
+    monkeypatch.setattr(rolling, "_read_linux_bound_ports", lambda: {10001, 20000})
     monkeypatch.setattr(
-        rolling.socket,
-        "socket",
-        lambda *args, **kwargs: pytest.fail("Linux snapshot must not open probe sockets"),
+        rolling,
+        "_probe_port_range_sequentially",
+        lambda base_port, port_count: probes.append((base_port, port_count)) or True,
     )
 
     assert rolling._port_range_is_available(10511, 528) is True
     assert rolling._port_range_is_available(19800, 528) is False
+    assert probes == [(10511, 528)]
 
 
-def test_linux_port_snapshot_parses_ipv4_and_ipv6_listeners(monkeypatch, tmp_path):
+def test_linux_port_snapshot_parses_tcp_and_udp_for_ipv4_and_ipv6(monkeypatch, tmp_path):
     tcp4 = tmp_path / "tcp"
     tcp6 = tmp_path / "tcp6"
+    udp4 = tmp_path / "udp"
+    udp6 = tmp_path / "udp6"
     tcp4.write_text(
         "sl local_address rem_address st\n"
         "0: 0100007F:2711 00000000:0000 0A\n"
@@ -89,14 +94,37 @@ def test_linux_port_snapshot_parses_ipv4_and_ipv6_listeners(monkeypatch, tmp_pat
         "0: 00000000000000000000000000000000:2AF9 00000000000000000000000000000000:0000 0A\n",
         encoding="ascii",
     )
+    udp4.write_text(
+        "sl local_address rem_address st\n"
+        "0: 0100007F:2EE1 00000000:0000 07\n",
+        encoding="ascii",
+    )
+    udp6.write_text(
+        "sl local_address rem_address st\n"
+        "0: 00000000000000000000000000000000:32C9 00000000000000000000000000000000:0000 01\n",
+        encoding="ascii",
+    )
     monkeypatch.setattr(rolling.sys, "platform", "linux")
-    monkeypatch.setattr(rolling, "_PROC_TCP_PATHS", (tcp4, tcp6))
+    monkeypatch.setattr(
+        rolling,
+        "_PROC_SOCKET_TABLES",
+        ((tcp4, "tcp"), (tcp6, "tcp"), (udp4, "udp"), (udp6, "udp")),
+    )
 
-    assert rolling._read_linux_listening_ports() == {10001, 11001}
+    assert rolling._read_linux_bound_ports() == {10001, 11001, 12001, 13001}
+
+
+def test_kernel_probe_detects_udp_port_claimed_after_snapshot(monkeypatch):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied:
+        occupied.bind(("127.0.0.1", 0))
+        port = occupied.getsockname()[1]
+        monkeypatch.setattr(rolling, "_read_linux_bound_ports", lambda: set())
+
+        assert rolling._port_range_is_available(port, 1) is False
 
 
 def test_port_probe_does_not_hide_file_descriptor_exhaustion(monkeypatch):
-    monkeypatch.setattr(rolling, "_read_linux_listening_ports", lambda: None)
+    monkeypatch.setattr(rolling, "_read_linux_bound_ports", lambda: None)
 
     def exhausted_socket(*args, **kwargs):
         raise OSError(errno.EMFILE, "Too many open files")
@@ -131,3 +159,14 @@ def test_candidate_start_error_distinguishes_descriptor_limit():
     )
 
     assert message == "sing-box 文件描述符上限不足，无法启动当前数量的节点"
+
+
+def test_candidate_start_error_exposes_retryable_port_conflict_kind():
+    failure = rolling.candidate_start_failure(
+        "sing-box",
+        "FATAL listen udp 127.0.0.1:50001: bind: address already in use",
+        50001,
+    )
+
+    assert failure.failure_kind == "port_conflict"
+    assert str(failure) == "sing-box 候选端口段已被占用（起始端口 50001）"

@@ -17,9 +17,10 @@ import yaml
 
 from .runtime import binary_status, config_dir, ensure_binary_async, ensure_core_dirs, log_dir, resolve_binary
 from .rolling import (
+    CandidateStageError,
     StagedCore,
     atomic_write_text,
-    candidate_start_failure_message,
+    candidate_start_failure,
     generation_config_path,
     promote_staged_config,
     restore_previous_config,
@@ -390,15 +391,22 @@ def _stage_nodes_sync(nodes: list[dict[str, Any]], base_port: int, binary: str |
                 start_new_session=True,
             )
     except OSError as exc:
-        raise RuntimeError(candidate_start_failure_message("mihomo", str(exc), base_port)) from exc
+        raise candidate_start_failure("mihomo", str(exc), base_port) from exc
     time.sleep(0.4)
     if proc.poll() is not None:
         tail = candidate_log.read_bytes()[-2000:].decode("utf-8", "replace") if candidate_log.exists() else ""
-        raise RuntimeError(candidate_start_failure_message("mihomo", tail, base_port))
+        raise candidate_start_failure("mihomo", tail, base_port)
     probe_port = int(nodes[0].get("local_port") or base_port)
     if not wait_for_tcp_listener(probe_port):
         stop_process(proc.pid)
-        raise RuntimeError(f"mihomo candidate listener not ready on 127.0.0.1:{probe_port}")
+        tail = candidate_log.read_bytes()[-2000:].decode("utf-8", "replace") if candidate_log.exists() else ""
+        failure = candidate_start_failure("mihomo", tail, base_port)
+        if failure.failure_kind == "port_conflict":
+            raise failure
+        raise CandidateStageError(
+            "readiness",
+            f"mihomo candidate listener not ready on 127.0.0.1:{probe_port}",
+        )
     stage.candidate_pid = proc.pid
     return stage
 
@@ -411,6 +419,7 @@ async def stage_nodes(nodes: list[dict[str, Any]], base_port: int) -> dict[str, 
         if not binary.get("available"):
             return {
                 "success": False,
+                "failure_kind": "binary_missing",
                 "pending_download": bool(binary.get("downloading")),
                 "message": "mihomo binary missing, download started",
                 "nodes_count": len(nodes),
@@ -426,7 +435,12 @@ async def stage_nodes(nodes: list[dict[str, Any]], base_port: int) -> dict[str, 
         }
     except Exception as exc:
         logger.warning("[Mihomo] candidate stage failed: %s", exc)
-        return {"success": False, "message": str(exc), "nodes_count": len(nodes)}
+        return {
+            "success": False,
+            "failure_kind": getattr(exc, "failure_kind", "startup"),
+            "message": str(exc),
+            "nodes_count": len(nodes),
+        }
 
 
 def promote_stage(stage: StagedCore) -> None:
