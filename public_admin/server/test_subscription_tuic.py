@@ -33,3 +33,15 @@ def test_tuic_node_builds_a_singbox_outbound_and_is_supported():
     assert outbound["zero_rtt_handshake"] is True
     assert outbound["tls"]["server_name"] == "cdn.example.com"
     assert outbound["tls"]["alpn"] == ["h3", "h2"]
+
+
+def test_json_shadowsocks_keeps_plugin_options_for_core_routing():
+    result = parse_subscription_text(
+        '{"nodes":[{"name":"ShadowTLS","type":"ss","server":"ss.example.com",'
+        '"port":443,"cipher":"2022-blake3-aes-256-gcm","password":"ss-secret",'
+        '"plugin":"shadow-tls","plugin_opts":"host=www.microsoft.com;password=st-secret;version=3"}]}'
+    )
+    node = result["nodes"][0]
+
+    assert node["raw"]["plugin-opts"] == "host=www.microsoft.com;password=st-secret;version=3"
+    assert classify_node(node)["core_type"] == "mihomo"

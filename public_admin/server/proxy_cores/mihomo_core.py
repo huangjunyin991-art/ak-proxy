@@ -26,6 +26,7 @@ from .rolling import (
     stop_process,
     wait_for_tcp_listener,
 )
+from .shadowsocks import normalize_shadowsocks
 
 logger = logging.getLogger("TransparentProxy")
 
@@ -203,10 +204,32 @@ def _make_vless_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     return proxy
 
 
+def _make_shadowsocks_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
+    spec = normalize_shadowsocks(node)
+    proxy: dict[str, Any] = {
+        "name": f"proxy-out-{index}",
+        "type": "ss",
+        "server": spec.server,
+        "port": spec.port,
+        "cipher": spec.cipher,
+        "password": spec.password,
+        "udp": spec.udp,
+    }
+    if spec.plugin:
+        proxy["plugin"] = spec.plugin
+    if spec.plugin_options:
+        proxy["plugin-opts"] = spec.plugin_options
+    if spec.client_fingerprint:
+        proxy["client-fingerprint"] = spec.client_fingerprint
+    return proxy
+
+
 def _make_proxy(node: dict[str, Any], index: int) -> dict[str, Any]:
     proto = str((_raw(node).get("type") or node.get("type") or "")).lower()
     if proto == "vless":
         return _make_vless_proxy(node, index)
+    if proto in {"ss", "shadowsocks"}:
+        return _make_shadowsocks_proxy(node, index)
     raise ValueError(f"mihomo unsupported protocol: {proto or 'unknown'}")
 
 

@@ -843,6 +843,7 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'cipher': item.get('cipher') or item.get('method') or 'aes-128-gcm',
                     'password': item.get('password', ''),
                     'plugin': item.get('plugin', ''),
+                    'plugin-opts': item.get('plugin-opts', item.get('plugin_opts', {})),
                 }
 
         if proto in ('hysteria2', 'hy2'):

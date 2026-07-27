@@ -6,6 +6,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from .shadowsocks import is_mihomo_supported_plugin, plugin_name
+
 
 SINGBOX_CORE = "singbox"
 MIHOMO_CORE = "mihomo"
@@ -80,7 +82,19 @@ def classify_node(node: dict[str, Any]) -> dict[str, Any]:
             "reason": "invalid_port",
         }
 
-    if proto in {"anytls", "hysteria2", "hy2", "tuic", "vmess", "ss", "shadowsocks"}:
+    if proto in {"ss", "shadowsocks"}:
+        plugin = plugin_name(node)
+        if not plugin:
+            return {"core_type": SINGBOX_CORE, "supported": True, "reason": ""}
+        if is_mihomo_supported_plugin(plugin):
+            return {"core_type": MIHOMO_CORE, "supported": True, "reason": ""}
+        return {
+            "core_type": UNSUPPORTED_CORE,
+            "supported": False,
+            "reason": f"unsupported_shadowsocks_plugin:{plugin}",
+        }
+
+    if proto in {"anytls", "hysteria2", "hy2", "tuic", "vmess"}:
         return {"core_type": SINGBOX_CORE, "supported": True, "reason": ""}
 
     if proto == "trojan":

@@ -115,6 +115,46 @@ def test_vless_xhttp_opts_without_network_uses_mihomo():
     assert result["supported"] is True
 
 
+def test_shadow_tls_shadowsocks_uses_mihomo():
+    result = classify_node({
+        "name": "ShadowTLS SS",
+        "type": "shadowsocks",
+        "server": "ss.example.com",
+        "port": 443,
+        "raw": {"type": "shadowsocks"},
+        "outbound_config": {
+            "type": "shadowsocks",
+            "server": "ss.example.com",
+            "server_port": 443,
+            "method": "2022-blake3-aes-256-gcm",
+            "password": "secret",
+            "plugin": "shadow-tls",
+            "plugin_opts": "host=www.microsoft.com;password=shadow-secret;version=3",
+        },
+    })
+
+    assert result == {"core_type": "mihomo", "supported": True, "reason": ""}
+
+
+def test_unknown_shadowsocks_plugin_is_isolated():
+    result = classify_node({
+        "name": "Unknown plugin",
+        "type": "ss",
+        "server": "ss.example.com",
+        "port": 443,
+        "raw": {
+            "type": "ss",
+            "cipher": "aes-128-gcm",
+            "password": "secret",
+            "plugin": "private-plugin",
+        },
+    })
+
+    assert result["core_type"] == "unsupported"
+    assert result["supported"] is False
+    assert result["reason"] == "unsupported_shadowsocks_plugin:private-plugin"
+
+
 def test_singbox_systemd_config_match_requires_generated_config():
     original = singbox_core._systemd_exec_start
     try:
