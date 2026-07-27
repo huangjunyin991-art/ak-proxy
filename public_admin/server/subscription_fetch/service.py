@@ -32,6 +32,18 @@ def _node_count(parsed: dict[str, Any]) -> int:
         return 0
 
 
+def _configuration_fidelity(parsed: dict[str, Any]) -> int:
+    """Rank equally sized feeds by how much native proxy config they preserve."""
+    nodes = parsed.get("nodes")
+    if not isinstance(nodes, list):
+        return 0
+    return sum(
+        1
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("outbound_config"), dict)
+    )
+
+
 def fetch_best_subscription_response(
     url: str,
     timeout: int,
@@ -81,17 +93,22 @@ def fetch_best_subscription_response(
             "label": profile.label,
             "success": True,
             "node_count": count,
+            "configuration_fidelity": _configuration_fidelity(parsed),
         })
         candidates.append((profile, raw_text, parsed))
 
     if not candidates:
         raise SubscriptionFetchError("all subscription client profiles failed")
 
-    # Prefer the response with the most parsed nodes. Stable profile priority
-    # makes equal-size results deterministic and easy to troubleshoot.
+    # Prefer the most nodes, then the representation that preserves native
+    # outbound configuration. Stable profile priority resolves exact ties.
     selected_profile, selected_raw, selected_parsed = max(
         candidates,
-        key=lambda item: (_node_count(item[2]), -item[0].priority),
+        key=lambda item: (
+            _node_count(item[2]),
+            _configuration_fidelity(item[2]),
+            -item[0].priority,
+        ),
     )
     return SubscriptionFetchSelection(
         profile=selected_profile,

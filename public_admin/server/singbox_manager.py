@@ -236,6 +236,22 @@ def _make_outbound(node: dict, tag: str) -> dict:
             "password": raw.get("password", ""),
             "tls": tls,
         }
+        server_ports = raw.get("server_ports")
+        if isinstance(server_ports, (list, tuple)) and server_ports:
+            ob["server_ports"] = [str(value) for value in server_ports if str(value).strip()]
+        hop_interval = str(raw.get("hop_interval") or "").strip()
+        if hop_interval:
+            ob["hop_interval"] = hop_interval
+        obfs = raw.get("obfs")
+        if isinstance(obfs, dict) and obfs.get("type"):
+            ob["obfs"] = {
+                key: value
+                for key, value in obfs.items()
+                if key in {"type", "password"} and value not in (None, "")
+            }
+        for field in ("up_mbps", "down_mbps"):
+            if raw.get(field) is not None:
+                ob[field] = int(raw[field])
         return ob
 
     elif proto == "tuic":

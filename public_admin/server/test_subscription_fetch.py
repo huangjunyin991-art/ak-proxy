@@ -1,3 +1,5 @@
+import json
+
 from public_admin.server import sub_parser
 from public_admin.server.subscription_fetch.profiles import SUBSCRIPTION_FETCH_PROFILES
 
@@ -34,6 +36,46 @@ def test_subscription_fetches_all_profiles_and_keeps_largest_result(monkeypatch)
     assert {item["profile"] for item in result["fetch_attempts"]} == {
         profile.identifier for profile in SUBSCRIPTION_FETCH_PROFILES
     }
+
+
+def test_subscription_prefers_native_config_when_node_counts_match(monkeypatch):
+    native_config = json.dumps({
+        "outbounds": [
+            {
+                "type": "hysteria2",
+                "tag": "HY2",
+                "server": "hy2.example.com",
+                "server_port": 20000,
+                "server_ports": ["20000:40000"],
+                "hop_interval": "30s",
+                "password": "secret",
+                "obfs": {"type": "salamander", "password": "mask"},
+                "tls": {"enabled": True, "server_name": "hy2.example.com"},
+            },
+            {
+                "type": "vless",
+                "tag": "VLESS",
+                "server": "vless.example.com",
+                "server_port": 443,
+                "uuid": "00000000-0000-0000-0000-000000000000",
+                "tls": {"enabled": True, "server_name": "vless.example.com"},
+            },
+        ],
+    })
+
+    def fake_fetch_text(url: str, timeout: int, user_agent: str) -> str:
+        if user_agent == "sing-box 1.10.0":
+            return native_config
+        return _vless_links(2)
+
+    monkeypatch.setattr(sub_parser, "_fetch_subscription_text", fake_fetch_text)
+
+    result = sub_parser.fetch_subscription("https://subscription.example.com/token")
+
+    assert result["total_nodes"] == 2
+    assert result["format"] == "singbox_json"
+    assert result["fetch_profile"] == "sing_box"
+    assert all("outbound_config" in node for node in result["nodes"])
 
 
 def test_subscription_log_target_excludes_the_subscription_token():

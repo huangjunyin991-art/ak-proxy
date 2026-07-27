@@ -58,6 +58,11 @@ REGION_RULES = [
 # 跳过的节点名称关键词
 SKIP_KEYWORDS = ['剩余', '套餐', '到期', '流量', '过期', '官网', '续费', '客服', '超时']
 
+SINGBOX_PROXY_TYPES = {
+    'anytls', 'vless', 'hysteria2', 'hy2', 'tuic',
+    'vmess', 'trojan', 'shadowsocks', 'ss',
+}
+
 
 def detect_region(name: str) -> tuple[str, str]:
     """根据节点名称识别地区，返回 (code, label)"""
@@ -112,6 +117,136 @@ def _split_host_port(value: str) -> tuple[str, int]:
         return parsed.hostname, parsed.port
     server, port = value.rsplit(':', 1)
     return server.strip('[]'), int(port)
+
+
+def _normalize_hysteria2_server_ports(value) -> list[str]:
+    if value is None or value == '':
+        return []
+    values = value if isinstance(value, (list, tuple)) else str(value).split(',')
+    normalized = []
+    for item in values:
+        port_range = str(item or '').strip()
+        if not port_range:
+            continue
+        if re.fullmatch(r'\d+\s*-\s*\d+', port_range):
+            port_range = re.sub(r'\s*-\s*', ':', port_range)
+        normalized.append(port_range)
+    return normalized
+
+
+def _normalize_hysteria2_hop_interval(value) -> str:
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    if re.fullmatch(r'\d+(?:\.\d+)?', text):
+        return f'{text}s'
+    return text
+
+
+def _normalize_hysteria2_bandwidth(value):
+    if value is None or value == '':
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    match = re.search(r'-?\d+(?:\.\d+)?', str(value))
+    return int(float(match.group(0))) if match else None
+
+
+def _normalize_hysteria2_raw(raw: dict) -> dict:
+    normalized = dict(raw)
+    server_ports = _normalize_hysteria2_server_ports(
+        normalized.get('server_ports') or normalized.get('server-ports')
+        or normalized.get('ports') or normalized.get('mport')
+    )
+    if server_ports:
+        normalized['server_ports'] = server_ports
+
+    hop_interval = _normalize_hysteria2_hop_interval(
+        normalized.get('hop_interval') or normalized.get('hop-interval')
+    )
+    if hop_interval:
+        normalized['hop_interval'] = hop_interval
+
+    obfs = normalized.get('obfs')
+    if not isinstance(obfs, dict):
+        obfs_type = str(obfs or '').strip()
+        obfs_password = str(
+            normalized.get('obfs_password') or normalized.get('obfs-password') or ''
+        )
+        normalized['obfs'] = {
+            'type': obfs_type,
+            'password': obfs_password,
+        } if obfs_type else {}
+
+    for target, aliases in (
+        ('up_mbps', ('up_mbps', 'up')),
+        ('down_mbps', ('down_mbps', 'down')),
+    ):
+        value = next((normalized.get(alias) for alias in aliases if normalized.get(alias) is not None), None)
+        bandwidth = _normalize_hysteria2_bandwidth(value)
+        if bandwidth is not None:
+            normalized[target] = bandwidth
+
+    normalized['sni'] = normalized.get('sni') or normalized.get('servername') or normalized.get('server_name') or ''
+    normalized['insecure'] = normalized.get(
+        'insecure',
+        normalized.get('skip-cert-verify', normalized.get('skip_cert_verify', False)),
+    )
+    return normalized
+
+
+def _singbox_raw_fields(outbound: dict) -> dict:
+    proto = str(outbound.get('type') or '').strip().lower()
+    raw = {'type': proto}
+    transport = outbound.get('transport')
+    if isinstance(transport, dict) and transport.get('type'):
+        raw['network'] = transport['type']
+    tls = outbound.get('tls')
+    if isinstance(tls, dict):
+        if isinstance(tls.get('reality'), dict) and tls['reality'].get('enabled'):
+            raw['security'] = 'reality'
+        elif tls.get('enabled'):
+            raw['security'] = 'tls'
+        raw['sni'] = tls.get('server_name', '')
+        raw['insecure'] = bool(tls.get('insecure', False))
+    return raw
+
+
+def _parse_singbox_outbounds(outbounds) -> list[dict]:
+    if not isinstance(outbounds, list):
+        return []
+
+    nodes = []
+    for outbound in outbounds:
+        if not isinstance(outbound, dict):
+            continue
+        proto = str(outbound.get('type') or '').strip().lower()
+        if proto not in SINGBOX_PROXY_TYPES:
+            continue
+        name = str(outbound.get('tag') or '')
+        if any(keyword in name for keyword in SKIP_KEYWORDS):
+            continue
+        server = str(outbound.get('server') or '').strip()
+        port = outbound.get('server_port', 0)
+        if not server or not port:
+            continue
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            continue
+
+        region_code, region_label = detect_region(name)
+        nodes.append({
+            'name': name or f'{proto.upper()}-{server}',
+            'type': proto,
+            'server': server,
+            'port': port,
+            'region_code': region_code,
+            'region_label': region_label,
+            'raw': _singbox_raw_fields(outbound),
+            'outbound_config': dict(outbound),
+        })
+    return nodes
 
 
 def _parse_xhttp_extra(value) -> dict:
@@ -231,12 +366,18 @@ def _parse_clash_yaml(text: str) -> list[dict]:
             'congestion_control', 'congestion-controller',
             'udp_relay_mode', 'udp-relay-mode', 'zero_rtt_handshake',
             'zero-rtt-handshake', 'heartbeat',
+            'ports', 'mport', 'server_ports', 'server-ports',
+            'hop-interval', 'hop_interval', 'obfs',
+            'obfs-password', 'obfs_password',
+            'up', 'down', 'up_mbps', 'down_mbps',
         )}
         if proto == 'tuic':
             raw['sni'] = raw.get('sni') or raw.get('servername') or server
             raw['congestion_control'] = raw.get('congestion_control') or raw.get('congestion-controller') or ''
             raw['udp_relay_mode'] = raw.get('udp_relay_mode') or raw.get('udp-relay-mode') or ''
             raw['zero_rtt_handshake'] = raw.get('zero_rtt_handshake') or raw.get('zero-rtt-handshake') or ''
+        elif proto in ('hysteria2', 'hy2'):
+            raw = _normalize_hysteria2_raw(raw)
         xhttp_opts = raw.get('xhttp-opts') or raw.get('xhttp_opts') or {}
         if isinstance(xhttp_opts, dict):
             xhttp_opts = dict(xhttp_opts)
@@ -426,6 +567,13 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                 if any(k in name for k in SKIP_KEYWORDS):
                     continue
                 region_code, region_label = detect_region(name)
+                server_ports = _normalize_hysteria2_server_ports(
+                    params.get('mport') or params.get('ports') or params.get('server_ports')
+                )
+                obfs_type = str(params.get('obfs') or '').strip()
+                obfs_password = str(
+                    params.get('obfs-password') or params.get('obfs_password') or ''
+                )
                 nodes.append({
                     'name': name or f'Hysteria2-{server}',
                     'type': 'hysteria2',
@@ -437,6 +585,14 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                         'password': password,
                         'sni': params.get('sni', ''),
                         'insecure': str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
+                        'server_ports': server_ports,
+                        'hop_interval': _normalize_hysteria2_hop_interval(
+                            params.get('hop-interval') or params.get('hop_interval')
+                        ),
+                        'obfs': {
+                            'type': obfs_type,
+                            'password': obfs_password,
+                        } if obfs_type else {},
                     },
                 })
             except Exception as e:
@@ -577,6 +733,8 @@ def _parse_json_nodes(text: str) -> list[dict]:
         return []
 
     if isinstance(data, dict):
+        if isinstance(data.get('outbounds'), list):
+            return _parse_singbox_outbounds(data['outbounds'])
         items = data.get('nodes', [])
         if not items and isinstance(data.get('proxies'), list):
             return _parse_clash_yaml(text)
@@ -651,6 +809,20 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'sni': item.get('sni', server),
                     'insecure': str(item.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
                 }
+                if proto in ('hysteria2', 'hy2'):
+                    raw.update({
+                        'server_ports': _normalize_hysteria2_server_ports(
+                            item.get('server_ports') or item.get('server-ports')
+                            or item.get('ports') or item.get('mport')
+                        ),
+                        'hop_interval': _normalize_hysteria2_hop_interval(
+                            item.get('hop_interval') or item.get('hop-interval')
+                        ),
+                        'obfs': item.get('obfs', {}),
+                        'obfs_password': item.get('obfs_password') or item.get('obfs-password') or '',
+                        'up_mbps': item.get('up_mbps', item.get('up', '')),
+                        'down_mbps': item.get('down_mbps', item.get('down', '')),
+                    })
             elif proto == 'tuic':
                 raw = {
                     'type': 'tuic',
@@ -673,7 +845,10 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'plugin': item.get('plugin', ''),
                 }
 
-        nodes.append({
+        if proto in ('hysteria2', 'hy2'):
+            raw = _normalize_hysteria2_raw(raw)
+
+        node = {
             'name': name or f'{proto.upper()}-{server}',
             'type': proto,
             'server': server,
@@ -681,7 +856,10 @@ def _parse_json_nodes(text: str) -> list[dict]:
             'region_code': region_code,
             'region_label': region_label,
             'raw': raw,
-        })
+        }
+        if isinstance(item.get('outbound_config'), dict):
+            node['outbound_config'] = dict(item['outbound_config'])
+        nodes.append(node)
 
     return nodes
 
@@ -703,7 +881,7 @@ def parse_subscription_text(text: str) -> dict:
     text = text.strip()
 
     nodes = _parse_json_nodes(text)
-    fmt = "json_nodes"
+    fmt = "singbox_json" if nodes and 'outbound_config' in nodes[0] else "json_nodes"
 
     # 尝试base64解码
     if not nodes:
