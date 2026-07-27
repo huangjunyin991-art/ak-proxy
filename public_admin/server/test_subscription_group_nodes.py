@@ -136,6 +136,78 @@ def test_group_availability_uses_logical_node_identity():
     assert groups[0]["availability_ratio"] == 20.0
 
 
+def test_group_availability_falls_back_to_group_and_local_port():
+    node = _node(local_port=30001)
+    exits = [{
+        "node_identity": "stale-runtime-identity",
+        "group_id": "group-a",
+        "local_port": 30001,
+        "dispatch_ready": True,
+        "frozen": False,
+    }]
+
+    views = build_group_node_views([node], exits, "group-a")
+
+    assert views[0]["availability_state"] == "available"
+
+
+@pytest.mark.parametrize("local_port", [None, 0, "invalid"])
+def test_group_availability_fallback_requires_valid_local_port(local_port):
+    node = _node(local_port=local_port)
+    exits = [{
+        "node_identity": "stale-runtime-identity",
+        "group_id": "group-a",
+        "local_port": 30001,
+        "dispatch_ready": True,
+        "frozen": False,
+    }]
+
+    views = build_group_node_views([node], exits, "group-a")
+
+    assert views[0]["availability_state"] == "pending"
+
+
+def test_group_availability_fallback_does_not_cross_groups():
+    node = _node(group_id="group-a", local_port=30001)
+    exits = [{
+        "node_identity": "stale-runtime-identity",
+        "group_id": "group-b",
+        "local_port": 30001,
+        "dispatch_ready": True,
+        "frozen": False,
+    }]
+
+    views = build_group_node_views([node], exits, "group-a")
+
+    assert views[0]["availability_state"] == "pending"
+
+
+def test_group_availability_prefers_identity_over_locator_fallback():
+    node = _node(local_port=30001)
+    identity = subscription_node_identity(node)
+    exits = [
+        {
+            "node_identity": identity,
+            "group_id": "group-a",
+            "local_port": 39999,
+            "dispatch_ready": False,
+            "source_probe_checked_at": "2026-07-28T10:00:00Z",
+            "source_probe_failures": 1,
+        },
+        {
+            "node_identity": "stale-runtime-identity",
+            "group_id": "group-a",
+            "local_port": 30001,
+            "dispatch_ready": True,
+            "frozen": False,
+        },
+    ]
+
+    views = build_group_node_views([node], exits, "group-a")
+
+    assert views[0]["availability_state"] == "unavailable"
+
+
 class _JsonRequest:
     def __init__(self, payload):
         self._payload = payload

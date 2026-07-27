@@ -176,10 +176,12 @@
             stopLbRefresh();
             stopRemoteVoiceRefresh();
             stopProxyPoolRefresh();
+            resetSubscriptionGroupStatusSync(false);
         }
 
         function startSettingsPanelRefresh() {
             if (!shouldRunAdminPanelPoll('settings')) return;
+            resetSubscriptionGroupStatusSync(true);
             startSettingsPollingOwner();
             loadSubAdminStatus({ refreshSettingModules: false });
             startSubAdminStatusRefresh();
@@ -302,6 +304,7 @@
                     lbData = data;
                     renderLbStatus(data);
                     renderProxyCoreStatus(data);
+                    syncSubscriptionGroupStatus(data);
                     return;
                 }
                 const forceMeta = options.forceMeta !== false || !lbMetaData;
@@ -315,6 +318,7 @@
                 lbData = data;
                 renderLbStatus(data);
                 renderProxyCoreStatus(data);
+                syncSubscriptionGroupStatus(data);
             } catch (e) {
                 try {
                     lbLightApiAvailable = false;
@@ -323,6 +327,7 @@
                     lbData = data;
                     renderLbStatus(data);
                     renderProxyCoreStatus(data);
+                    syncSubscriptionGroupStatus(data);
                 } catch (fallbackError) {
                     console.error('加载负载均衡状态失败', fallbackError);
                 }
@@ -341,6 +346,7 @@
                 const data = mergeLbStatusData(light, lbMetaData);
                 lbData = data;
                 renderLbStatus(data);
+                syncSubscriptionGroupStatus(data);
             } catch (e) {
                 loadLbStatus();
             }
@@ -1375,6 +1381,56 @@
         // ===== 订阅组管理 =====
         let subscriptionGroups = [];
         let expandedGroups = new Set();
+        let subscriptionGroupsRefreshPromise = null;
+        let subscriptionGroupsRefreshQueued = false;
+        let subscriptionGroupsLoaded = false;
+        let subscriptionGroupStatusSyncActive = false;
+        let subscriptionGroupProbeSignature = null;
+
+        function resetSubscriptionGroupStatusSync(active) {
+            subscriptionGroupStatusSyncActive = Boolean(active);
+            subscriptionGroupProbeSignature = null;
+            subscriptionGroupsLoaded = false;
+            if (!subscriptionGroupStatusSyncActive) {
+                subscriptionGroupsRefreshQueued = false;
+            }
+        }
+
+        function getSubscriptionExitProbeState(exitItem) {
+            if (exitItem.dispatch_ready && !exitItem.frozen) return 'available';
+            const failures = Number(exitItem.source_probe_failures || 0);
+            if (exitItem.healthy !== false && (
+                exitItem.source_probing ||
+                (!exitItem.source_probe_checked_at && failures === 0)
+            )) return 'pending';
+            return 'unavailable';
+        }
+
+        function buildSubscriptionGroupProbeSignature(data) {
+            const exits = Array.isArray(data && data.exits) ? data.exits : [];
+            return exits
+                .filter(exitItem => exitItem && exitItem.type !== 'direct')
+                .map((exitItem, position) => {
+                    const index = Number.isFinite(Number(exitItem.index)) ? Number(exitItem.index) : position;
+                    const localPort = Number(exitItem.local_port || 0);
+                    return `${index}:${localPort}:${getSubscriptionExitProbeState(exitItem)}`;
+                })
+                .sort()
+                .join('|');
+        }
+
+        function syncSubscriptionGroupStatus(data) {
+            if (!subscriptionGroupStatusSyncActive) return;
+            const nextSignature = buildSubscriptionGroupProbeSignature(data);
+            if (subscriptionGroupProbeSignature === null) {
+                subscriptionGroupProbeSignature = nextSignature;
+                if (subscriptionGroupsLoaded || subscriptionGroupsRefreshPromise) loadSubscriptionGroups();
+                return;
+            }
+            if (nextSignature === subscriptionGroupProbeSignature) return;
+            subscriptionGroupProbeSignature = nextSignature;
+            if (subscriptionGroupsLoaded || subscriptionGroupsRefreshPromise) loadSubscriptionGroups();
+        }
 
         function escapeSubGroupAttr(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -1386,19 +1442,33 @@
             }[ch]));
         }
 
-        async function loadSubscriptionGroups() {
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/subscription_groups`, {
-                    headers: getHeaders()
-                });
-                const data = await res.json();
-                if (data.success) {
-                    subscriptionGroups = data.groups || [];
-                    renderSubscriptionGroups();
+        function loadSubscriptionGroups() {
+            subscriptionGroupsRefreshQueued = true;
+            if (subscriptionGroupsRefreshPromise) return subscriptionGroupsRefreshPromise;
+
+            subscriptionGroupsRefreshPromise = (async () => {
+                try {
+                    while (subscriptionGroupsRefreshQueued) {
+                        subscriptionGroupsRefreshQueued = false;
+                        try {
+                            const res = await fetch(`${API_BASE}/admin/api/subscription_groups`, {
+                                headers: getHeaders()
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                subscriptionGroups = data.groups || [];
+                                subscriptionGroupsLoaded = true;
+                                renderSubscriptionGroups();
+                            }
+                        } catch (e) {
+                            console.error('加载订阅组失败', e);
+                        }
+                    }
+                } finally {
+                    subscriptionGroupsRefreshPromise = null;
                 }
-            } catch (e) {
-                console.error('加载订阅组失败', e);
-            }
+            })();
+            return subscriptionGroupsRefreshPromise;
         }
 
         function renderSubscriptionGroups() {

@@ -19,6 +19,51 @@ def _exits_by_identity(exits: Iterable[dict[str, Any]]) -> dict[str, list[dict[s
     return dict(grouped)
 
 
+def _runtime_locator(item: dict[str, Any]) -> tuple[str, int] | None:
+    group_id = str(item.get("group_id") or "").strip()
+    try:
+        local_port = int(item.get("local_port") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not group_id or local_port <= 0:
+        return None
+    return group_id, local_port
+
+
+def _exits_by_locator(
+    exits: Iterable[dict[str, Any]],
+) -> dict[tuple[str, int], list[dict[str, Any]]]:
+    grouped: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for exit_item in exits:
+        if not isinstance(exit_item, dict):
+            continue
+        locator = _runtime_locator(exit_item)
+        if locator is not None:
+            grouped[locator].append(exit_item)
+    return dict(grouped)
+
+
+def _fallback_runtime_exits(
+    duplicates: list[dict[str, Any]],
+    runtime_by_locator: dict[tuple[str, int], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for node in duplicates:
+        if node.get("enabled", True) is False:
+            continue
+        locator = _runtime_locator(node)
+        if locator is None:
+            continue
+        for exit_item in runtime_by_locator.get(locator, []):
+            marker = id(exit_item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            matches.append(exit_item)
+    return matches
+
+
 def _availability_state(
     duplicates: list[dict[str, Any]],
     runtime_exits: list[dict[str, Any]],
@@ -52,10 +97,15 @@ def build_group_node_views(
     exits: Iterable[dict[str, Any]],
     group_id: str,
 ) -> list[dict[str, Any]]:
-    runtime_by_identity = _exits_by_identity(exits)
+    runtime_items = [item for item in exits if isinstance(item, dict)]
+    runtime_by_identity = _exits_by_identity(runtime_items)
+    runtime_by_locator = _exits_by_locator(runtime_items)
     views = []
     for identity, duplicates in group_nodes_by_identity(nodes, group_id).items():
         representative = duplicates[0]
+        runtime_exits = runtime_by_identity.get(identity, [])
+        if not runtime_exits:
+            runtime_exits = _fallback_runtime_exits(duplicates, runtime_by_locator)
         enabled = any(node.get("enabled", True) is not False for node in duplicates)
         supported = any(
             node.get("core_supported", True) is not False
@@ -72,7 +122,7 @@ def build_group_node_views(
             "core_supported": supported,
             "core_unsupported_reason": str(representative.get("core_unsupported_reason") or "").strip(),
             "duplicate_count": len(duplicates),
-            "availability_state": _availability_state(duplicates, runtime_by_identity.get(identity, [])),
+            "availability_state": _availability_state(duplicates, runtime_exits),
         })
     return views
 
