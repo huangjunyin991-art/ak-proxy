@@ -72,6 +72,21 @@ def test_replacing_unverified_node_schedules_immediate_source_probe(monkeypatch)
     assert scheduled == ["new"]
 
 
+def test_subscription_fetch_candidates_are_ready_and_group_diverse():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "group-one-a", 10001, group_id="group-one")
+    _add_ready_socks5(dispatcher, "group-one-b", 10002, group_id="group-one")
+    _add_ready_socks5(dispatcher, "group-two", 10003, group_id="group-two")
+    frozen_index = _add_ready_socks5(dispatcher, "frozen", 10004, group_id="group-three")
+    dispatcher.exits[frozen_index].freeze(60, "test")
+
+    candidates = dispatcher.get_subscription_fetch_tunnel_candidates()
+
+    assert len(candidates) == 2
+    assert {item["name"] for item in candidates} == {"group-one-a", "group-two"}
+    assert all(item["proxy_url"].startswith("socks5://127.0.0.1:") for item in candidates)
+
+
 def test_critical_rpc_can_use_emergency_direct_after_regular_direct_bucket_is_full():
     dispatcher = OutboundDispatcher()
     _saturate_regular_direct(dispatcher)

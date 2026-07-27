@@ -18,9 +18,15 @@ except Exception:
     from public_admin.server.security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
 
 try:
-    from .subscription_fetch import fetch_best_subscription_response
+    from .subscription_fetch import (
+        fetch_subscription_text_via_tunnel,
+        fetch_subscription_with_tunnel_fallback,
+    )
 except Exception:
-    from public_admin.server.subscription_fetch import fetch_best_subscription_response
+    from public_admin.server.subscription_fetch import (
+        fetch_subscription_text_via_tunnel,
+        fetch_subscription_with_tunnel_fallback,
+    )
 
 logger = logging.getLogger("TransparentProxy")
 
@@ -805,7 +811,16 @@ def _fetch_subscription_text(url: str, timeout: int, user_agent: str) -> str:
     return response.text.strip()
 
 
-def fetch_subscription(url: str, timeout: int = 15) -> dict:
+def _fetch_subscription_text_via_tunnel(
+    url: str,
+    timeout: int,
+    user_agent: str,
+    proxy_url: str,
+) -> str:
+    return fetch_subscription_text_via_tunnel(url, timeout, user_agent, proxy_url)
+
+
+def fetch_subscription(url: str, timeout: int = 15, tunnel_candidates=None) -> dict:
     """
     从URL获取并解析订阅
 
@@ -814,12 +829,15 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
         出错时返回 {"error": "..."}
     """
     try:
-        selection = fetch_best_subscription_response(
+        routed_selection = fetch_subscription_with_tunnel_fallback(
             url,
             timeout,
-            _fetch_subscription_text,
-            parse_subscription_text,
+            parse_subscription=parse_subscription_text,
+            direct_fetch_text=_fetch_subscription_text,
+            tunnel_fetch_text=_fetch_subscription_text_via_tunnel,
+            tunnel_routes=tunnel_candidates,
         )
+        selection = routed_selection.selection
         raw = selection.raw_text
         response_kind = _detect_subscription_response_kind(raw)
         result = selection.parsed
@@ -827,6 +845,9 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
         result["fetch_profile"] = selection.profile.identifier
         result["fetch_profile_label"] = selection.profile.label
         result["fetch_attempts"] = selection.attempts
+        result["fetch_route"] = routed_selection.route
+        result["fetch_tunnel_fallback_attempted"] = routed_selection.tunnel_fallback_attempted
+        result["fetch_tunnel_attempt_count"] = routed_selection.tunnel_attempt_count
         if result.get("total_nodes", 0) == 0:
             logger.warning(
                 f"[SubParser] 订阅解析结果为空: source={_subscription_log_target(url)} raw_length={len(raw)} "

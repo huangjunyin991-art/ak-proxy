@@ -1329,6 +1329,49 @@ class OutboundDispatcher:
             logger.error(f"[Dispatcher] API调度异常，降级直连: {e}")
             return self._safe_direct()
 
+    def get_subscription_fetch_tunnel_candidates(self, max_candidates: int = 2) -> list[dict[str, str]]:
+        """Return a small, group-diverse snapshot for subscription fallback.
+
+        Subscription retrieval is not an AK RPC request and must not use the
+        normal RPC fallback chain, which could silently route it back to the
+        data-center IP that the provider has already rejected.
+        """
+        try:
+            limit = max(0, min(int(max_candidates or 0), 3))
+            if limit == 0:
+                return []
+            ordered = self._order_wide_spread_pool(
+                self._filter_latency_failed_pool(self._get_healthy_tunnels())
+            )
+            selected: list[int] = []
+            selected_groups: set[str] = set()
+            for index in ordered:
+                group_key = self._wide_spread_group_key(index)
+                if group_key in selected_groups:
+                    continue
+                selected.append(index)
+                selected_groups.add(group_key)
+                if len(selected) >= limit:
+                    break
+            if len(selected) < limit:
+                for index in ordered:
+                    if index in selected:
+                        continue
+                    selected.append(index)
+                    if len(selected) >= limit:
+                        break
+            return [
+                {
+                    "name": self.exits[index].name,
+                    "proxy_url": str(self.exits[index].proxy_url or ""),
+                }
+                for index in selected
+                if self.exits[index].proxy_url
+            ]
+        except Exception as exc:
+            logger.warning(f"[Dispatcher] subscription tunnel selection failed: {exc}")
+            return []
+
     # ===== 请求转发（异常安全 + 状态码告警） =====
 
     async def forward(self, exit_obj: OutboundExit, method: str, url: str,

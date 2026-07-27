@@ -939,6 +939,7 @@
                         <div style="margin-bottom:10px;">
                             <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅链接 (自动获取并解析)</label>
                             <input type="text" id="lbSubUrl" placeholder="https://example.com/sub?token=xxx" style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">
+                            <div style="margin-top:5px;color:var(--text-secondary);font-size:11px;">直连受限时会自动通过现有可用节点隧道重试</div>
                         </div>
                         <div style="margin-bottom:10px;">
                             <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅组名称</label>
@@ -960,6 +961,7 @@
             `;
             document.body.appendChild(modal);
             window._lbSubStep = 'parse'; // 当前步骤
+            window._lbSubParsedResult = null;
         }
 
         function closeLbSubModal() {
@@ -975,8 +977,9 @@
                 if (!url && !text) { showToast('请输入订阅链接或内容', 'error'); return; }
                 const resultEl = document.getElementById('lbSubResult');
                 const btn = document.getElementById('lbSubActionBtn');
+                window._lbSubParsedResult = null;
                 resultEl.style.display = 'block';
-                resultEl.innerHTML = '<div style="color:var(--accent);padding:10px;text-align:center;">⏳ 正在解析订阅...</div>';
+                resultEl.innerHTML = '<div style="color:var(--accent);padding:10px;text-align:center;">⏳ 正在获取并解析订阅...</div>';
                 btn.disabled = true;
                 btn.textContent = '解析中...';
                 try {
@@ -991,6 +994,7 @@
                         btn.textContent = '🔍 重新解析';
                         return;
                     }
+                    window._lbSubParsedResult = data;
                     renderSubResult(data, resultEl);
                     // 切换到第二步
                     window._lbSubStep = 'apply';
@@ -1009,6 +1013,9 @@
         }
 
         function renderSubResult(data, el) {
+            const routeHtml = data.fetch_route === 'node_tunnel'
+                ? '<span style="display:inline-block;margin:0 0 7px;padding:3px 8px;border-radius:5px;background:rgba(0,201,183,.13);border:1px solid rgba(0,201,183,.28);color:var(--accent);font-size:11px;">已通过节点隧道获取</span>'
+                : '';
             const regionHtml = Object.entries(data.regions || {}).map(([code, info]) =>
                 `<span style="background:var(--bg-secondary);padding:2px 8px;border-radius:10px;font-size:11px;">${escapeHtml(info.label || code)} ×${Number(info.count || 0)}</span>`
             ).join(' ');
@@ -1026,6 +1033,7 @@
 
             el.innerHTML = `
                 <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;margin-bottom:8px;">
+                    ${routeHtml}
                     <div style="font-size:13px;margin-bottom:6px;">✅ 格式: <strong style="color:var(--accent);">${escapeHtml(data.format || '-')}</strong> |
                         节点: <strong>${Number(data.total_nodes || 0)}</strong> |
                         唯一服务器: <strong style="color:var(--accent-green);">${Number(data.unique_servers || 0)}</strong></div>
@@ -1060,11 +1068,19 @@
             const url = document.getElementById('lbSubUrl')?.value?.trim() || '';
             const text = document.getElementById('lbSubText')?.value?.trim() || '';
             const group_name = document.getElementById('lbSubGroupName')?.value?.trim() || '';
+            const parsed = window._lbSubParsedResult;
+            const payload = { url, text, group_name, selected_node_indices, base_port: basePort };
+            if (parsed && Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
+                payload.url = String(parsed.url || url || '');
+                payload.parsed_nodes = parsed.nodes;
+                payload.parsed_servers = parsed.servers || {};
+                payload.parsed_format = String(parsed.format || 'direct');
+            }
 
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/apply_sub`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, text, group_name, selected_node_indices, base_port: basePort })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (data.success) {

@@ -4257,7 +4257,8 @@ async def api_dispatcher_parse_sub(request: Request, response: Response):
 
     try:
         if url:
-            result = await run_blocking(fetch_subscription, url)
+            tunnel_candidates = dispatcher.get_subscription_fetch_tunnel_candidates()
+            result = await run_blocking(fetch_subscription, url, 15, tunnel_candidates)
         elif text:
             result = parse_subscription_text(text)
         elif json_config:
@@ -4342,6 +4343,9 @@ async def api_dispatcher_apply_sub(request: Request):
     text = data.get("text", "").strip()
     
     nodes = data.get("nodes")  # 直接传入的节点列表（来自JSON解析）
+    parsed_nodes = data.get("parsed_nodes")
+    parsed_servers = data.get("parsed_servers")
+    parsed_format = str(data.get("parsed_format") or "direct")
     
     servers_dict = data.get("servers")  # 服务器分组
 
@@ -4356,9 +4360,20 @@ async def api_dispatcher_apply_sub(request: Request):
 
     # 1) 解析订阅或使用已解析的节点
 
-    if url:
+    if isinstance(parsed_nodes, list) and isinstance(parsed_servers, dict):
 
-        parsed = await run_blocking(fetch_subscription, url)
+        # Reuse the just-parsed result so applying selected nodes never causes
+        # a second subscription request that can be blocked independently.
+        parsed = {
+            "nodes": parsed_nodes,
+            "servers": parsed_servers,
+            "format": parsed_format,
+        }
+
+    elif url:
+
+        tunnel_candidates = dispatcher.get_subscription_fetch_tunnel_candidates()
+        parsed = await run_blocking(fetch_subscription, url, 15, tunnel_candidates)
 
     elif text:
 
