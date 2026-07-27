@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -15,6 +16,15 @@ from typing import Any
 import yaml
 
 from .runtime import binary_status, config_dir, ensure_binary_async, ensure_core_dirs, log_dir, resolve_binary
+from .rolling import (
+    StagedCore,
+    atomic_write_text,
+    generation_config_path,
+    promote_staged_config,
+    restore_previous_config,
+    stop_process,
+    wait_for_tcp_listener,
+)
 
 logger = logging.getLogger("TransparentProxy")
 
@@ -230,11 +240,11 @@ def generate_config(nodes: list[dict[str, Any]], base_port: int = MIHOMO_BASE_PO
     }
 
 
-def write_config(nodes: list[dict[str, Any]], base_port: int = MIHOMO_BASE_PORT) -> str:
+def write_config(nodes: list[dict[str, Any]], base_port: int = MIHOMO_BASE_PORT, target_path: Path | None = None) -> str:
     ensure_core_dirs(CORE_TYPE)
-    path = config_path()
+    path = target_path or config_path()
     payload = generate_config(nodes, base_port=base_port)
-    path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    atomic_write_text(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     logger.info("[Mihomo] config written to %s (%s nodes)", path, len(nodes))
     return str(path)
 
@@ -316,6 +326,109 @@ def reload_service() -> dict[str, Any]:
     pid_path().write_text(str(proc.pid), encoding="utf-8")
     logger.info("[Mihomo] started managed process pid=%s", proc.pid)
     return {"success": True, "message": "mihomo started", "pid": proc.pid, "config_path": str(path)}
+
+
+def _stage_nodes_sync(nodes: list[dict[str, Any]], base_port: int, binary: str | None) -> StagedCore:
+    active_path = config_path()
+    previous_config = active_path.read_bytes() if active_path.exists() else None
+    stage_path = generation_config_path(CORE_TYPE, ".yaml")
+    write_config(nodes, base_port, target_path=stage_path)
+    stage = StagedCore(
+        core_type=CORE_TYPE,
+        nodes_count=len(nodes),
+        base_port=base_port,
+        staging_config_path=stage_path,
+        active_config_path=active_path,
+        previous_pid=_read_pid(),
+        previous_config=previous_config,
+    )
+    if not nodes:
+        return stage
+    if not binary:
+        raise RuntimeError("mihomo binary missing")
+
+    check = subprocess.run(
+        [binary, "-t", "-f", str(stage_path)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if check.returncode != 0:
+        raise RuntimeError(check.stderr.strip() or check.stdout.strip() or "mihomo config check failed")
+
+    candidate_log = log_dir(CORE_TYPE) / f"mihomo-candidate-{stage_path.stem}.log"
+    with candidate_log.open("ab") as log_file:
+        proc = subprocess.Popen(
+            [binary, "-f", str(stage_path), "-d", str(config_dir(CORE_TYPE))],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    time.sleep(0.4)
+    if proc.poll() is not None:
+        tail = candidate_log.read_bytes()[-2000:].decode("utf-8", "replace") if candidate_log.exists() else ""
+        raise RuntimeError(f"mihomo candidate exited during start: {tail.strip()}")
+    probe_port = int(nodes[0].get("local_port") or base_port)
+    if not wait_for_tcp_listener(probe_port):
+        stop_process(proc.pid)
+        raise RuntimeError(f"mihomo candidate listener not ready on 127.0.0.1:{probe_port}")
+    stage.candidate_pid = proc.pid
+    return stage
+
+
+async def stage_nodes(nodes: list[dict[str, Any]], base_port: int) -> dict[str, Any]:
+    ensure_core_dirs(CORE_TYPE)
+    binary_path: str | None = None
+    if nodes:
+        binary = await ensure_binary_async(CORE_TYPE, MIHOMO_BIN_NAME)
+        if not binary.get("available"):
+            return {
+                "success": False,
+                "pending_download": bool(binary.get("downloading")),
+                "message": "mihomo binary missing, download started",
+                "nodes_count": len(nodes),
+            }
+        binary_path = str(binary.get("path") or "")
+    try:
+        stage = await asyncio.to_thread(_stage_nodes_sync, nodes, base_port, binary_path)
+        return {
+            "success": True,
+            "message": "mihomo candidate ready" if nodes else "mihomo empty generation ready",
+            "nodes_count": len(nodes),
+            "stage": stage,
+        }
+    except Exception as exc:
+        logger.warning("[Mihomo] candidate stage failed: %s", exc)
+        return {"success": False, "message": str(exc), "nodes_count": len(nodes)}
+
+
+def promote_stage(stage: StagedCore) -> None:
+    promote_staged_config(stage)
+    if stage.candidate_pid:
+        pid_path().write_text(str(stage.candidate_pid), encoding="utf-8")
+    else:
+        try:
+            pid_path().unlink()
+        except FileNotFoundError:
+            pass
+
+
+def discard_stage(stage: StagedCore) -> None:
+    if stage.candidate_pid:
+        stop_process(stage.candidate_pid)
+    restore_previous_config(stage)
+    if stage.previous_pid:
+        pid_path().write_text(str(stage.previous_pid), encoding="utf-8")
+    else:
+        try:
+            pid_path().unlink()
+        except FileNotFoundError:
+            pass
+
+
+def retire_stage_previous(stage: StagedCore) -> None:
+    if stage.previous_pid and stage.previous_pid != stage.candidate_pid:
+        stop_process(stage.previous_pid)
 
 
 async def apply_nodes(nodes: list[dict[str, Any]], base_port: int = MIHOMO_BASE_PORT) -> dict[str, Any]:

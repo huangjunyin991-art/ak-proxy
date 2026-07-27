@@ -20,6 +20,21 @@ def _add_ready_socks5(dispatcher: OutboundDispatcher, name: str, port: int, **kw
     return idx
 
 
+def test_replacing_tunnel_generation_keeps_direct_and_returns_old_exits():
+    dispatcher = OutboundDispatcher()
+    old_index = _add_ready_socks5(dispatcher, "old", 10001)
+    old_exit = dispatcher.exits[old_index]
+
+    retired = dispatcher.replace_socks5_exits([
+        {"name": "new-a", "port": 30001, "core_type": "singbox"},
+        {"name": "new-b", "port": 30002, "core_type": "singbox"},
+    ])
+
+    assert dispatcher.exits[0].is_direct is True
+    assert [item.name for item in dispatcher.exits[1:]] == ["new-a", "new-b"]
+    assert retired == [old_exit]
+
+
 def test_critical_rpc_can_use_emergency_direct_after_regular_direct_bucket_is_full():
     dispatcher = OutboundDispatcher()
     _saturate_regular_direct(dispatcher)

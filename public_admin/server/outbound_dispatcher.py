@@ -490,6 +490,57 @@ class OutboundDispatcher:
         self._ensure_health_check_started()
         return idx
 
+    def replace_socks5_exits(self, socks_list: list[dict]) -> list[OutboundExit]:
+        """Atomically publish a new tunnel generation while keeping direct intact."""
+        new_exits = []
+        for item in socks_list:
+            port = int(item["port"])
+            new_exits.append(OutboundExit(
+                str(item["name"]),
+                f"socks5://127.0.0.1:{port}",
+                self.client_policy,
+                core_type=str(item.get("core_type") or "singbox"),
+                local_port=port,
+                group_id=str(item.get("group_id") or ""),
+                group_name=str(item.get("group_name") or ""),
+                source_url=str(item.get("source_url") or ""),
+            ))
+
+        direct = self.exits[0] if self.exits else OutboundExit("direct", None, self.client_policy)
+        previous_tunnels = list(self.exits[1:])
+        # A list reference swap is atomic under CPython, so selectors see
+        # either the old complete generation or the new complete generation.
+        self.exits = [direct, *new_exits]
+        self._rr_counter = 0
+        self._wide_spread_rr_counter = 0
+        self._wide_spread_group_rr_counter = 0
+        self._login_group_rr_counter = 0
+        self._ensure_health_check_started()
+        logger.info(
+            "[Dispatcher] atomically switched tunnel generation old=%s new=%s",
+            len(previous_tunnels),
+            len(new_exits),
+        )
+        return previous_tunnels
+
+    def retire_exits_after_drain(self, exits: list[OutboundExit], drain_seconds: float) -> None:
+        if not exits:
+            return
+
+        async def _retire() -> None:
+            if drain_seconds > 0:
+                await asyncio.sleep(drain_seconds)
+            for exit_obj in exits:
+                try:
+                    await exit_obj.close_client()
+                except Exception as exc:
+                    logger.debug("[Dispatcher] retired exit client close failed name=%s error=%s", exit_obj.name, exc)
+
+        try:
+            self._safe_create_task(_retire(), "retire_previous_exit_generation")
+        except RuntimeError:
+            pass
+
     def remove_exit(self, index: int) -> bool:
         """移除指定索引的出口（不允许移除直连#0）"""
         if index <= 0 or index >= len(self.exits):

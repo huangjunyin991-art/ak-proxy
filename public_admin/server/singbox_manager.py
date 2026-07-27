@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .proxy_cores.rolling import atomic_write_text
+
 logger = logging.getLogger("TransparentProxy")
 
 # ===== 路径配置 =====
@@ -114,7 +116,7 @@ def load_saved_nodes() -> list[dict]:
 def save_nodes(nodes: list[dict]):
     """保存节点列表到磁盘"""
     ensure_dir()
-    NODES_FILE.write_text(json.dumps(nodes, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(NODES_FILE, json.dumps(nodes, ensure_ascii=False, indent=2))
     logger.info(f"[SingBox] 保存 {len(nodes)} 个节点到 {NODES_FILE}")
 
 
@@ -301,7 +303,7 @@ def generate_config(nodes: list[dict], base_port: int = 10001) -> dict:
     route_rules = []
 
     for i, node in enumerate(nodes):
-        port = base_port + i
+        port = int(node.get("local_port") or (base_port + i))
         in_tag = f"socks-in-{i}"
         out_tag = f"proxy-out-{i}"
 
@@ -341,14 +343,15 @@ def generate_config(nodes: list[dict], base_port: int = 10001) -> dict:
     return config
 
 
-def write_config(nodes: list[dict], base_port: int = 10001) -> str:
+def write_config(nodes: list[dict], base_port: int = 10001, target_path: Path | None = None) -> str:
     """生成并写入 sing-box 配置文件，返回配置文件路径"""
     ensure_dir()
     config = generate_config(nodes, base_port)
     config_str = json.dumps(config, ensure_ascii=False, indent=2)
-    SINGBOX_CONFIG.write_text(config_str, encoding="utf-8")
-    logger.info(f"[SingBox] 配置已写入 {SINGBOX_CONFIG} ({len(nodes)} 个节点)")
-    return str(SINGBOX_CONFIG)
+    path = target_path or SINGBOX_CONFIG
+    atomic_write_text(path, config_str)
+    logger.info(f"[SingBox] 配置已写入 {path} ({len(nodes)} 个节点)")
+    return str(path)
 
 
 # ===== sing-box 服务控制 =====

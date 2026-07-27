@@ -375,49 +375,110 @@ def _get_dispatcher_saved_base_port(default: int = 10001) -> int:
 
 
 def _save_dispatcher_exits_snapshot(nodes: list[dict[str, Any]], base_port: int) -> None:
+    from .proxy_cores.rolling import atomic_write_text
+
     exits_config = {
         "nodes": nodes,
         "base_port": base_port,
         "timestamp": time.time()
     }
     config_file = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_exits.json")
-    with open(config_file, "w", encoding="utf-8") as f:
-        json.dump(exits_config, f, ensure_ascii=False, indent=2)
+    atomic_write_text(Path(config_file), json.dumps(exits_config, ensure_ascii=False, indent=2))
+
+
+def _build_dispatcher_exit_specs(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, Any]]:
+    from .proxy_cores.manager import build_runtime_nodes
+
+    supported = _get_enabled_subscription_nodes(nodes)
+    has_assigned_ports = bool(supported) and all(int(node.get("local_port") or 0) > 0 for node in supported)
+    runtime_nodes = nodes if has_assigned_ports else build_runtime_nodes(nodes, singbox_base_port=base_port)
+    specs = []
+    for i, node in enumerate(_get_enabled_subscription_nodes(runtime_nodes)):
+        port = int(node.get("local_port") or (base_port + i))
+        specs.append({
+            "name": node.get("display_name") or node.get("name") or f"node_{i}",
+            "port": port,
+            "core_type": str(node.get("core_type") or "singbox"),
+            "group_id": node.get("group_id", ""),
+            "group_name": node.get("group_name", ""),
+            "source_url": node.get("source_url", ""),
+        })
+    return specs
 
 
 def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, Any]]:
-    from .proxy_cores.manager import build_runtime_nodes
+    from .proxy_cores.rolling import DRAIN_SECONDS
 
-    while len(dispatcher.exits) > 1:
-        dispatcher.exits.pop()
+    specs = _build_dispatcher_exit_specs(nodes, base_port)
+    previous_exits = dispatcher.replace_socks5_exits(specs)
+    dispatcher.retire_exits_after_drain(previous_exits, DRAIN_SECONDS)
     added_exits = []
-    runtime_nodes = build_runtime_nodes(nodes, singbox_base_port=base_port)
-    for i, node in enumerate(_get_enabled_subscription_nodes(runtime_nodes)):
-        port = int(node.get("local_port") or (base_port + i))
-        name = node.get("display_name") or node.get("name") or f"node_{i}"
-        core_type = str(node.get("core_type") or "singbox")
-        idx = dispatcher.add_socks5(
-            str(name),
-            port,
-            core_type=core_type,
-            group_id=node.get("group_id", ""),
-            group_name=node.get("group_name", ""),
-            source_url=node.get("source_url", ""),
-        )
+    for idx, spec in enumerate(specs, start=1):
         added_exits.append({
             "index": idx,
-            "name": name,
-            "port": port,
-            "core_type": core_type,
-            "group_id": node.get("group_id", ""),
-            "group_name": node.get("group_name", ""),
+            "name": spec["name"],
+            "port": spec["port"],
+            "core_type": spec["core_type"],
+            "group_id": spec["group_id"],
+            "group_name": spec["group_name"],
         })
     return added_exits
 
 
+async def _apply_subscription_runtime_nodes(nodes: list[dict[str, Any]], base_port: int) -> dict[str, Any]:
+    """Stage cores first, then publish nodes and dispatcher exits as one generation."""
+    from . import singbox_manager as sbm
+    from .proxy_cores import apply_nodes as apply_proxy_core_nodes
+    from .proxy_cores.rolling import DRAIN_SECONDS, atomic_write_bytes
+
+    activation: dict[str, Any] = {"exits_added": []}
+    snapshot_path = Path(PUBLIC_ADMIN_DIR) / "dispatcher_exits.json"
+    old_snapshot = snapshot_path.read_bytes() if snapshot_path.exists() else None
+    old_nodes = sbm.load_saved_nodes()
+
+    async def activate(runtime_nodes: list[dict[str, Any]]) -> None:
+        specs = _build_dispatcher_exit_specs(runtime_nodes, base_port)
+        try:
+            # Persist before publishing the new exits. Every write is atomic;
+            # a failed persistence step leaves the old process generation live.
+            sbm.save_nodes(runtime_nodes)
+            _save_dispatcher_exits_snapshot(runtime_nodes, base_port)
+        except Exception:
+            try:
+                sbm.save_nodes(old_nodes if isinstance(old_nodes, list) else [])
+                if old_snapshot is None:
+                    snapshot_path.unlink(missing_ok=True)
+                else:
+                    atomic_write_bytes(snapshot_path, old_snapshot)
+            except Exception:
+                logger.exception("[Dispatcher] failed to restore persisted generation after activation error")
+            raise
+
+        previous_exits = dispatcher.replace_socks5_exits(specs)
+        dispatcher.retire_exits_after_drain(previous_exits, DRAIN_SECONDS)
+        activation["exits_added"] = [
+            {
+                "index": index,
+                "name": spec["name"],
+                "port": spec["port"],
+                "core_type": spec["core_type"],
+                "group_id": spec["group_id"],
+                "group_name": spec["group_name"],
+            }
+            for index, spec in enumerate(specs, start=1)
+        ]
+
+    result = await apply_proxy_core_nodes(
+        nodes,
+        singbox_base_port=base_port,
+        activation_callback=activate,
+    )
+    return {**result, **activation}
+
+
 async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = False, reload_singbox: bool = True) -> dict[str, Any]:
     from . import singbox_manager as sbm
-    from .proxy_cores import apply_nodes as apply_proxy_core_nodes, prepare_nodes
+    from .proxy_cores import prepare_nodes
 
     groups = await db.get_subscription_groups()
     active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
@@ -432,18 +493,19 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
     if changed or force_rebuild or current_exits != expected_exits:
         base_port = _get_dispatcher_saved_base_port()
         prepared = prepare_nodes(filtered)
-        sbm.save_nodes(prepared)
         if reload_singbox:
-            reload_result = await apply_proxy_core_nodes(prepared, singbox_base_port=base_port)
+            reload_result = await _apply_subscription_runtime_nodes(prepared, base_port)
+            added_exits = reload_result.get("exits_added") if reload_result.get("success") else []
         else:
             reload_result = {"success": True, "message": "skip proxy core reload"}
-        _save_dispatcher_exits_snapshot(prepared, base_port)
-        added_exits = _rebuild_dispatcher_exits_from_nodes(prepared, base_port)
+            sbm.save_nodes(prepared)
+            _save_dispatcher_exits_snapshot(prepared, base_port)
+            added_exits = _rebuild_dispatcher_exits_from_nodes(prepared, base_port)
         if reload_singbox:
             _SINGBOX_STATUS_CACHE.invalidate()
         return {
             "changed": changed,
-            "nodes_count": len(prepared),
+            "nodes_count": len(reload_result.get("runtime_nodes") or prepared),
             "removed_count": len(node_items) - len(filtered),
             "exits_count": len(added_exits),
             "reload_result": reload_result,
@@ -4226,7 +4288,7 @@ async def api_dispatcher_apply_sub(request: Request):
         return error_response
 
     from . import singbox_manager as sbm
-    from .proxy_cores import apply_nodes as apply_proxy_core_nodes, prepare_nodes
+    from .proxy_cores import prepare_nodes
 
     from .sub_parser import fetch_subscription, parse_subscription_text
 
@@ -4381,10 +4443,11 @@ async def api_dispatcher_apply_sub(request: Request):
     enabled_nodes = _get_enabled_subscription_nodes(all_nodes)
 
     nodes_saved = False
+    added_exits = []
     try:
-        sbm.save_nodes(all_nodes)
-        nodes_saved = True
-        reload_result = await apply_proxy_core_nodes(all_nodes, singbox_base_port=base_port)
+        reload_result = await _apply_subscription_runtime_nodes(all_nodes, base_port)
+        nodes_saved = bool(reload_result.get("success"))
+        added_exits = reload_result.get("exits_added") if nodes_saved else []
         apply_result = {
             "success": reload_result["success"],
             "message": reload_result["message"],
@@ -4399,16 +4462,8 @@ async def api_dispatcher_apply_sub(request: Request):
         logger.error(f"[SingBox] 订阅分组应用失败: {e}")
         apply_result = {"success": False, "message": str(e), "config_path": "", "nodes_count": 0}
 
-    added_exits = []
     if nodes_saved:
-        added_exits = _rebuild_dispatcher_exits_from_nodes(all_nodes, base_port)
         logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
-
-        try:
-            _save_dispatcher_exits_snapshot(all_nodes, base_port)
-            logger.info("[Dispatcher] 节点配置已保存")
-        except Exception as e:
-            logger.warning(f"[Dispatcher] 保存节点配置失败: {e}")
 
     if nodes_saved:
         try:

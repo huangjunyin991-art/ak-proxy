@@ -3,13 +3,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+import logging
 from collections import Counter
 from copy import deepcopy
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .classifier import MIHOMO_CORE, SINGBOX_CORE, UNSUPPORTED_CORE, prepare_nodes
 from . import mihomo_core, singbox_core
+from .rolling import DRAIN_SECONDS, candidate_base_port, clear_active_base_port, mark_active_base_port
 from .runtime import ensure_binary_async
+
+
+logger = logging.getLogger("TransparentProxy")
+ActivationCallback = Callable[[list[dict[str, Any]]], Awaitable[None] | None]
+_TRANSITION_LOCK = asyncio.Lock()
 
 
 def split_nodes_by_core(nodes: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -33,7 +42,11 @@ def assign_ports(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, 
     assigned = []
     for index, node in enumerate(nodes):
         item = deepcopy(node)
-        item["local_port"] = int(base_port) + index
+        try:
+            saved_port = int(item.get("local_port") or 0)
+        except (TypeError, ValueError):
+            saved_port = 0
+        item["local_port"] = saved_port if saved_port > 0 else int(base_port) + index
         assigned.append(item)
     return assigned
 
@@ -49,20 +62,109 @@ def build_runtime_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = si
 
 
 async def apply_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = singbox_core.SINGBOX_BASE_PORT,
-                      mihomo_base_port: int = mihomo_core.MIHOMO_BASE_PORT) -> dict[str, Any]:
-    runtime_nodes = build_runtime_nodes(nodes, singbox_base_port=singbox_base_port, mihomo_base_port=mihomo_base_port)
+                      mihomo_base_port: int = mihomo_core.MIHOMO_BASE_PORT,
+                      activation_callback: ActivationCallback | None = None) -> dict[str, Any]:
+    """Stage both cores on alternate ports, then atomically activate callers' exits."""
+    async with _TRANSITION_LOCK:
+        return await _apply_nodes_locked(
+            nodes,
+            singbox_base_port=singbox_base_port,
+            mihomo_base_port=mihomo_base_port,
+            activation_callback=activation_callback,
+        )
+
+
+async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port: int,
+                              mihomo_base_port: int, activation_callback: ActivationCallback | None) -> dict[str, Any]:
+    candidate_singbox_base = candidate_base_port(SINGBOX_CORE, singbox_base_port)
+    candidate_mihomo_base = candidate_base_port(MIHOMO_CORE, mihomo_base_port)
+    candidate_input = []
+    for node in nodes:
+        item = deepcopy(node)
+        item.pop("local_port", None)
+        candidate_input.append(item)
+    runtime_nodes = build_runtime_nodes(
+        candidate_input,
+        singbox_base_port=candidate_singbox_base,
+        mihomo_base_port=candidate_mihomo_base,
+    )
     singbox_nodes = [node for node in runtime_nodes if node.get("core_type") == SINGBOX_CORE and node.get("core_supported")]
     mihomo_nodes = [node for node in runtime_nodes if node.get("core_type") == MIHOMO_CORE and node.get("core_supported")]
     unsupported_nodes = [node for node in runtime_nodes if node.get("core_type") == UNSUPPORTED_CORE or not node.get("core_supported")]
 
     results: dict[str, Any] = {
-        SINGBOX_CORE: await singbox_core.apply_nodes(singbox_nodes, singbox_base_port),
-        MIHOMO_CORE: await mihomo_core.apply_nodes(mihomo_nodes, mihomo_base_port),
+        SINGBOX_CORE: await singbox_core.stage_nodes(singbox_nodes, candidate_singbox_base),
+        MIHOMO_CORE: await mihomo_core.stage_nodes(mihomo_nodes, candidate_mihomo_base),
     }
+    stages = []
+    for core_type in (SINGBOX_CORE, MIHOMO_CORE):
+        result = results[core_type]
+        stage = result.get("stage") if isinstance(result, dict) else None
+        if result.get("success") and stage is not None:
+            stages.append((core_type, stage))
+    public_results = {
+        key: {field: value for field, value in (result or {}).items() if field != "stage"}
+        for key, result in results.items()
+    }
+    if len(stages) != 2:
+        for staged_core_type, staged in reversed(stages):
+            core = singbox_core if staged_core_type == SINGBOX_CORE else mihomo_core
+            await asyncio.to_thread(core.discard_stage, staged)
+        messages = "; ".join(
+            f"{key}: {(value or {}).get('message', '')}" for key, value in results.items()
+        )
+        return {
+            "success": False,
+            "pending_download": any(bool((item or {}).get("pending_download")) for item in results.values()),
+            "message": messages or "proxy core candidate stage failed",
+            "nodes": runtime_nodes,
+            "runtime_nodes": [node for node in runtime_nodes if node.get("core_supported") is True],
+            "unsupported_nodes": unsupported_nodes,
+            "nodes_count": len(singbox_nodes) + len(mihomo_nodes),
+            "core_counts": dict(Counter(str(node.get("core_type") or UNSUPPORTED_CORE) for node in runtime_nodes)),
+            "cores": public_results,
+        }
+
+    try:
+        for core_type, stage in stages:
+            core = singbox_core if core_type == SINGBOX_CORE else mihomo_core
+            await asyncio.to_thread(core.promote_stage, stage)
+        if activation_callback is not None:
+            callback_result = activation_callback(runtime_nodes)
+            if inspect.isawaitable(callback_result):
+                await callback_result
+    except Exception as exc:
+        logger.exception("[ProxyCore] candidate activation failed: %s", exc)
+        for core_type, stage in reversed(stages):
+            core = singbox_core if core_type == SINGBOX_CORE else mihomo_core
+            await asyncio.to_thread(core.discard_stage, stage)
+        return {
+            "success": False,
+            "message": str(exc),
+            "nodes": runtime_nodes,
+            "runtime_nodes": [node for node in runtime_nodes if node.get("core_supported") is True],
+            "unsupported_nodes": unsupported_nodes,
+            "nodes_count": len(singbox_nodes) + len(mihomo_nodes),
+            "core_counts": dict(Counter(str(node.get("core_type") or UNSUPPORTED_CORE) for node in runtime_nodes)),
+            "cores": public_results,
+        }
+
+    for core_type, stage in stages:
+        try:
+            if stage.nodes_count:
+                mark_active_base_port(core_type, stage.base_port)
+            else:
+                clear_active_base_port(core_type)
+        except Exception as exc:
+            # The persisted nodes retain their assigned ports, so losing this
+            # optimization must not turn a completed generation switch into a failure.
+            logger.warning("[ProxyCore] %s active port state save failed: %s", core_type, exc)
+        core = singbox_core if core_type == SINGBOX_CORE else mihomo_core
+        asyncio.create_task(_retire_previous_after_drain(core_type, core, stage))
 
     runnable_count = len(singbox_nodes) + len(mihomo_nodes)
     active_results = [result for key, result in results.items() if result.get("nodes_count", 0)]
-    success = bool(runnable_count) and any(bool(result.get("success")) for result in active_results)
+    success = bool(runnable_count) and all(bool(result.get("success")) for result in active_results)
     pending_download = any(bool(result.get("pending_download")) for result in results.values())
     counters = Counter(str(node.get("core_type") or UNSUPPORTED_CORE) for node in runtime_nodes)
     messages = []
@@ -84,8 +186,17 @@ async def apply_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = sing
         "unsupported_nodes": unsupported_nodes,
         "nodes_count": runnable_count,
         "core_counts": dict(counters),
-        "cores": results,
+        "cores": public_results,
     }
+
+
+async def _retire_previous_after_drain(core_type: str, core: Any, stage: Any) -> None:
+    try:
+        if DRAIN_SECONDS > 0:
+            await asyncio.sleep(DRAIN_SECONDS)
+        await asyncio.to_thread(core.retire_stage_previous, stage)
+    except Exception as exc:
+        logger.warning("[ProxyCore] %s previous generation retirement failed: %s", core_type, exc)
 
 
 async def ensure_required_binaries() -> dict[str, Any]:
