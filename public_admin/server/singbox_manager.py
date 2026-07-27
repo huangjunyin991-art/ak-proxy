@@ -236,6 +236,36 @@ def _make_outbound(node: dict, tag: str) -> dict:
         }
         return ob
 
+    elif proto == "tuic":
+        tls = {"enabled": True}
+        server_name = str(raw.get("sni") or raw.get("servername") or server or "").strip()
+        if server_name:
+            tls["server_name"] = server_name
+        if _truthy(raw.get("insecure")):
+            tls["insecure"] = True
+        alpn = raw.get("alpn")
+        if isinstance(alpn, str):
+            alpn = [value.strip() for value in alpn.split(",") if value.strip()]
+        if isinstance(alpn, list) and alpn:
+            tls["alpn"] = alpn
+
+        ob = {
+            "type": "tuic",
+            "tag": tag,
+            "server": server,
+            "server_port": int(port),
+            "uuid": raw.get("uuid", ""),
+            "password": raw.get("password", ""),
+            "tls": tls,
+        }
+        for key in ("congestion_control", "udp_relay_mode", "heartbeat"):
+            value = str(raw.get(key) or "").strip()
+            if value:
+                ob[key] = value
+        if _truthy(raw.get("zero_rtt_handshake")):
+            ob["zero_rtt_handshake"] = True
+        return ob
+
     elif proto in ("anytls",):
         tls = {"enabled": True}
         if raw.get("sni"):

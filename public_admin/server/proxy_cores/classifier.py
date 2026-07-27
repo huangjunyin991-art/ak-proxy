@@ -80,7 +80,7 @@ def classify_node(node: dict[str, Any]) -> dict[str, Any]:
             "reason": "invalid_port",
         }
 
-    if proto in {"anytls", "hysteria2", "hy2", "vmess", "ss", "shadowsocks"}:
+    if proto in {"anytls", "hysteria2", "hy2", "tuic", "vmess", "ss", "shadowsocks"}:
         return {"core_type": SINGBOX_CORE, "supported": True, "reason": ""}
 
     if proto == "trojan":

@@ -17,9 +17,12 @@ try:
 except Exception:
     from public_admin.server.security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
 
-logger = logging.getLogger("TransparentProxy")
+try:
+    from .subscription_fetch import fetch_best_subscription_response
+except Exception:
+    from public_admin.server.subscription_fetch import fetch_best_subscription_response
 
-SUBSCRIPTION_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+logger = logging.getLogger("TransparentProxy")
 
 # 地区识别规则
 REGION_RULES = [
@@ -81,7 +84,7 @@ def _iter_proxy_lines(text: str):
         if '://' not in line:
             continue
         start = min(
-            (pos for pos in (line.find('anytls://'), line.find('vless://'), line.find('trojan://'), line.find('hysteria2://'), line.find('hy2://'), line.find('ss://'), line.find('vmess://')) if pos >= 0),
+            (pos for pos in (line.find('anytls://'), line.find('vless://'), line.find('trojan://'), line.find('hysteria2://'), line.find('hy2://'), line.find('tuic://'), line.find('ss://'), line.find('vmess://')) if pos >= 0),
             default=-1,
         )
         if start >= 0:
@@ -219,7 +222,15 @@ def _parse_clash_yaml(text: str) -> list[dict]:
             'plugin', 'plugin-opts', 'ws-opts', 'grpc-opts',
             'xhttp-opts', 'xhttp_opts', 'reality-opts', 'reality_opts',
             'alpn', 'host', 'path', 'mode', 'extra', 'encryption',
+            'congestion_control', 'congestion-controller',
+            'udp_relay_mode', 'udp-relay-mode', 'zero_rtt_handshake',
+            'zero-rtt-handshake', 'heartbeat',
         )}
+        if proto == 'tuic':
+            raw['sni'] = raw.get('sni') or raw.get('servername') or server
+            raw['congestion_control'] = raw.get('congestion_control') or raw.get('congestion-controller') or ''
+            raw['udp_relay_mode'] = raw.get('udp_relay_mode') or raw.get('udp-relay-mode') or ''
+            raw['zero_rtt_handshake'] = raw.get('zero_rtt_handshake') or raw.get('zero-rtt-handshake') or ''
         xhttp_opts = raw.get('xhttp-opts') or raw.get('xhttp_opts') or {}
         if isinstance(xhttp_opts, dict):
             xhttp_opts = dict(xhttp_opts)
@@ -429,6 +440,52 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
     return nodes
 
 
+def _parse_tuic_links(text: str) -> list[dict]:
+    """Parse TUIC URI links into the fields accepted by sing-box."""
+    nodes = []
+    for line in _iter_proxy_lines(text):
+        if not line.startswith('tuic://'):
+            continue
+        try:
+            parsed = urllib.parse.urlsplit(line)
+            params = dict(urllib.parse.parse_qsl(parsed.query))
+            uuid = urllib.parse.unquote(parsed.username or params.get('uuid') or '')
+            password = urllib.parse.unquote(parsed.password or params.get('password') or '')
+            server = parsed.hostname or ''
+            port = parsed.port
+            if not uuid or not password or not server or not port:
+                continue
+            name = urllib.parse.unquote(parsed.fragment or '')
+            if any(k in name for k in SKIP_KEYWORDS):
+                continue
+            region_code, region_label = detect_region(name)
+            nodes.append({
+                'name': name or f'TUIC-{server}',
+                'type': 'tuic',
+                'server': server,
+                'port': int(port),
+                'region_code': region_code,
+                'region_label': region_label,
+                'raw': {
+                    'type': 'tuic',
+                    'uuid': uuid,
+                    'password': password,
+                    'sni': params.get('sni', params.get('servername', server)),
+                    'alpn': params.get('alpn', ''),
+                    'insecure': params.get('allow_insecure', params.get('allowInsecure', params.get('insecure', ''))),
+                    'congestion_control': params.get('congestion_control', ''),
+                    'udp_relay_mode': params.get('udp_relay_mode', ''),
+                    'zero_rtt_handshake': params.get('zero_rtt_handshake', ''),
+                    'disable_sni': params.get('disable_sni', ''),
+                    'reduce_rtt': params.get('reduce_rtt', ''),
+                    'heartbeat': params.get('heartbeat', ''),
+                },
+            })
+        except Exception as e:
+            logger.debug(f"[SubParser] TUIC解析失败: {e}")
+    return nodes
+
+
 def _parse_trojan_links(text: str) -> list[dict]:
     nodes = []
     for line in _iter_proxy_lines(text):
@@ -539,6 +596,7 @@ def _parse_json_nodes(text: str) -> list[dict]:
             + _parse_vless_links(raw_text)
             + _parse_trojan_links(raw_text)
             + _parse_hysteria2_links(raw_text)
+            + _parse_tuic_links(raw_text)
             + _parse_ss_links(raw_text)
         )
 
@@ -586,6 +644,21 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'password': item.get('username') or item.get('password') or '',
                     'sni': item.get('sni', server),
                     'insecure': str(item.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
+                }
+            elif proto == 'tuic':
+                raw = {
+                    'type': 'tuic',
+                    'uuid': item.get('uuid') or item.get('username') or '',
+                    'password': item.get('password') or '',
+                    'sni': item.get('sni', item.get('servername', server)),
+                    'alpn': item.get('alpn', ''),
+                    'insecure': item.get('allow_insecure', item.get('allowInsecure', item.get('insecure', ''))),
+                    'congestion_control': item.get('congestion_control', ''),
+                    'udp_relay_mode': item.get('udp_relay_mode', ''),
+                    'zero_rtt_handshake': item.get('zero_rtt_handshake', ''),
+                    'disable_sni': item.get('disable_sni', ''),
+                    'reduce_rtt': item.get('reduce_rtt', ''),
+                    'heartbeat': item.get('heartbeat', ''),
                 }
             elif proto in ('ss', 'shadowsocks'):
                 raw = {
@@ -637,20 +710,18 @@ def parse_subscription_text(text: str) -> dict:
         nodes = _parse_clash_yaml(text)
         fmt = "clash_yaml"
 
-    # 尝试VLESS/Hysteria2/AnyTLS链接
+    # Try all URI protocols together. A mixed subscription commonly includes
+    # VLESS, TUIC and Shadowsocks; stopping after the first protocol loses nodes.
     if not nodes:
         anytls_nodes = _parse_anytls_links(text)
         vless_nodes = _parse_vless_links(text)
         trojan_nodes = _parse_trojan_links(text)
         hy2_nodes = _parse_hysteria2_links(text)
-        if anytls_nodes or vless_nodes or trojan_nodes or hy2_nodes:
-            nodes = anytls_nodes + vless_nodes + trojan_nodes + hy2_nodes
+        tuic_nodes = _parse_tuic_links(text)
+        ss_nodes = _parse_ss_links(text)
+        if anytls_nodes or vless_nodes or trojan_nodes or hy2_nodes or tuic_nodes or ss_nodes:
+            nodes = anytls_nodes + vless_nodes + trojan_nodes + hy2_nodes + tuic_nodes + ss_nodes
             fmt = "proxy_links"
-
-    # 尝试SS/VMess链接
-    if not nodes:
-        nodes = _parse_ss_links(text)
-        fmt = "ss_links"
 
     if not nodes:
         return {"format": "unknown", "total_nodes": 0, "unique_servers": 0,
@@ -693,10 +764,10 @@ def _detect_subscription_response_kind(text: str) -> str:
         return "json"
     if any(stripped.startswith(prefix) for prefix in ("mixed-port:", "port:", "proxies:", "proxy-groups:", "rules:")):
         return "clash_yaml"
-    if any(token in stripped for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+    if any(token in stripped for token in ("anytls://", "vless://", "hysteria2://", "tuic://", "ss://", "vmess://")):
         return "proxy_links"
     decoded = _try_base64_decode(stripped)
-    if decoded and any(token in decoded for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+    if decoded and any(token in decoded for token in ("anytls://", "vless://", "hysteria2://", "tuic://", "ss://", "vmess://")):
         return "base64_proxy_links"
     return "other"
 
@@ -711,7 +782,15 @@ def _empty_subscription_error(response_kind: str) -> str:
     return "订阅内容无法识别，请检查链接返回内容是否为 Clash YAML、Base64 或代理节点链接。"
 
 
-def _fetch_subscription_text(url: str, timeout: int) -> str:
+def _subscription_log_target(url: str) -> str:
+    """Keep subscription tokens out of server logs while retaining diagnostics."""
+    try:
+        return str(urllib.parse.urlsplit(str(url or "")).hostname or "unknown")
+    except Exception:
+        return "unknown"
+
+
+def _fetch_subscription_text(url: str, timeout: int, user_agent: str) -> str:
     gateway = UrlFetchGateway(UrlFetchPolicy(
         timeout_seconds=max(1, int(timeout or 15)),
         max_response_bytes=4 * 1024 * 1024,
@@ -719,7 +798,7 @@ def _fetch_subscription_text(url: str, timeout: int) -> str:
     response = gateway.request_sync(
         url,
         headers={
-            'User-Agent': SUBSCRIPTION_FETCH_USER_AGENT,
+            'User-Agent': user_agent,
             'Accept': '*/*',
         },
     )
@@ -735,14 +814,22 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
         出错时返回 {"error": "..."}
     """
     try:
-        raw = _fetch_subscription_text(url, timeout)
+        selection = fetch_best_subscription_response(
+            url,
+            timeout,
+            _fetch_subscription_text,
+            parse_subscription_text,
+        )
+        raw = selection.raw_text
         response_kind = _detect_subscription_response_kind(raw)
-
-        result = parse_subscription_text(raw)
+        result = selection.parsed
         result["url"] = url
+        result["fetch_profile"] = selection.profile.identifier
+        result["fetch_profile_label"] = selection.profile.label
+        result["fetch_attempts"] = selection.attempts
         if result.get("total_nodes", 0) == 0:
             logger.warning(
-                f"[SubParser] 订阅解析结果为空: url={url} raw_length={len(raw)} "
+                f"[SubParser] 订阅解析结果为空: source={_subscription_log_target(url)} raw_length={len(raw)} "
                 f"response_kind={response_kind} parse_format={result.get('format')} "
                 f"total_nodes={result.get('total_nodes')}"
             )
@@ -752,5 +839,5 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
         return result
 
     except Exception as e:
-        logger.warning(f"[SubParser] 订阅获取失败: {url} -> {e}")
+        logger.warning(f"[SubParser] 订阅获取失败: source={_subscription_log_target(url)} error={e}")
         return {"error": f"订阅获取失败: {str(e)}", "url": url}
