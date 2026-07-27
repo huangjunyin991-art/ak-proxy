@@ -390,6 +390,26 @@ def _save_dispatcher_exits_snapshot(nodes: list[dict[str, Any]], base_port: int)
     atomic_write_text(Path(config_file), json.dumps(exits_config, ensure_ascii=False, indent=2))
 
 
+def _subscription_node_identity(node: dict[str, Any]) -> str:
+    """Return a stable, one-way identity for one subscription node.
+
+    The digest deliberately includes the upstream configuration so a changed
+    node cannot inherit the old route's reachability result.  Only the digest
+    is handed to the dispatcher; credentials are never exposed in its status.
+    """
+    raw = node.get("raw") if isinstance(node.get("raw"), dict) else {}
+    payload = {
+        "group_id": str(node.get("group_id") or "").strip(),
+        "core_type": str(node.get("core_type") or "").strip().lower(),
+        "type": str(node.get("type") or raw.get("type") or "").strip().lower(),
+        "server": str(node.get("server") or "").strip().lower(),
+        "port": node.get("port"),
+        "raw": raw,
+    }
+    serialized = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _build_dispatcher_exit_specs(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, Any]]:
     from .proxy_cores.manager import build_runtime_nodes
 
@@ -406,6 +426,7 @@ def _build_dispatcher_exit_specs(nodes: list[dict[str, Any]], base_port: int) ->
             "group_id": node.get("group_id", ""),
             "group_name": node.get("group_name", ""),
             "source_url": node.get("source_url", ""),
+            "node_identity": _subscription_node_identity(node),
         })
     return specs
 

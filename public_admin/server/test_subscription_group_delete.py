@@ -5,6 +5,26 @@ import pytest
 from public_admin.server import proxy_cores, proxy_server, singbox_manager
 
 
+def test_dispatcher_node_identity_ignores_local_port_but_tracks_upstream_changes():
+    node = {
+        "group_id": "keep",
+        "name": "node-a",
+        "type": "ss",
+        "server": "node.example.com",
+        "port": 8388,
+        "raw": {"type": "ss", "cipher": "aes-128-gcm", "password": "secret"},
+    }
+    moved_port = {**node, "local_port": 30001}
+    changed_upstream = {**node, "raw": {**node["raw"], "password": "new-secret"}}
+
+    original = proxy_server._build_dispatcher_exit_specs([{**node, "local_port": 10001}], 10001)[0]
+    replacement = proxy_server._build_dispatcher_exit_specs([moved_port], 10001)[0]
+    changed = proxy_server._build_dispatcher_exit_specs([changed_upstream], 10001)[0]
+
+    assert original["node_identity"] == replacement["node_identity"]
+    assert original["node_identity"] != changed["node_identity"]
+
+
 @pytest.mark.asyncio
 async def test_delete_group_uses_candidate_nodes_before_deleting_record(monkeypatch):
     target_group = {"id": "remove", "name": "Remove me"}

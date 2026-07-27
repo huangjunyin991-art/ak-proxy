@@ -35,6 +35,43 @@ def test_replacing_tunnel_generation_keeps_direct_and_returns_old_exits():
     assert retired == [old_exit]
 
 
+def test_replacing_matching_node_keeps_verified_source_state():
+    dispatcher = OutboundDispatcher()
+    old_index = _add_ready_socks5(dispatcher, "preserved", 10001, node_identity="node-a")
+    old_exit = dispatcher.exits[old_index]
+    old_exit.source_probe_checked_at = "2026-07-27 23:00:00"
+    old_exit.source_probe_status_code = 403
+    old_exit.latency_ms = 88
+    old_exit.freeze(60, "received 403")
+
+    dispatcher.replace_socks5_exits([
+        {"name": "preserved", "port": 30001, "core_type": "singbox", "node_identity": "node-a"},
+    ])
+
+    replacement = dispatcher.exits[1]
+    assert replacement.local_port == 30001
+    assert replacement.source_probe_ready is True
+    assert replacement.is_dispatch_ready is True
+    assert replacement.source_probe_status_code == 403
+    assert replacement.latency_ms == 88
+    assert replacement.is_frozen is True
+
+
+def test_replacing_unverified_node_schedules_immediate_source_probe(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    dispatcher._started = True
+    scheduled = []
+
+    monkeypatch.setattr(dispatcher, "_ensure_health_check_started", lambda: None)
+    monkeypatch.setattr(dispatcher, "_schedule_single_exit_source_probe", lambda ex: scheduled.append(ex.name))
+
+    dispatcher.replace_socks5_exits([
+        {"name": "new", "port": 30001, "core_type": "singbox", "node_identity": "node-new"},
+    ])
+
+    assert scheduled == ["new"]
+
+
 def test_critical_rpc_can_use_emergency_direct_after_regular_direct_bucket_is_full():
     dispatcher = OutboundDispatcher()
     _saturate_regular_direct(dispatcher)

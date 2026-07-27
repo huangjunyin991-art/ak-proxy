@@ -72,6 +72,7 @@ class LoginUpstreamStatusRetryError(RuntimeError):
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'core_type', 'local_port', 'group_id', 'group_name', 'source_url',
+                 'node_identity',
                  'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
@@ -84,13 +85,14 @@ class OutboundExit:
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
-                 source_url: str = ""):
+                 source_url: str = "", node_identity: str = ""):
         self.name = name
         self.core_type = core_type or ("direct" if proxy_url is None else "singbox")
         self.local_port = int(local_port or 0)
         self.group_id = str(group_id or "").strip()
         self.group_name = str(group_name or "").strip()
         self.source_url = str(source_url or "").strip()
+        self.node_identity = str(node_identity or "").strip()
         self.proxy_url = proxy_url  # None=直连, "socks5://127.0.0.1:port"=隧道
         self.healthy = True   # 默认乐观在线，首次健康检查后修正
         self._ever_healthy = False  # 至少成功过一次健康检查；False 时失败不发 WARNING
@@ -472,7 +474,7 @@ class OutboundDispatcher:
     # ===== 配置 =====
 
     def add_socks5(self, name: str, port: int, core_type: str = "singbox", group_id: str = "",
-                   group_name: str = "", source_url: str = "") -> int:
+                   group_name: str = "", source_url: str = "", node_identity: str = "") -> int:
         """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
         self.exits.append(OutboundExit(
@@ -484,18 +486,26 @@ class OutboundDispatcher:
             group_id=group_id,
             group_name=group_name,
             source_url=source_url,
+            node_identity=node_identity,
         ))
         idx = len(self.exits) - 1
         logger.info(f"[Dispatcher] 添加出口 #{idx}: {name} -> :{port}")
         self._ensure_health_check_started()
+        self._schedule_source_probe_for_unverified_exits([self.exits[idx]])
         return idx
 
     def replace_socks5_exits(self, socks_list: list[dict]) -> list[OutboundExit]:
         """Atomically publish a new tunnel generation while keeping direct intact."""
+        previous_tunnels = list(self.exits[1:])
+        previous_by_identity = {
+            exit_obj.node_identity: exit_obj
+            for exit_obj in previous_tunnels
+            if exit_obj.node_identity
+        }
         new_exits = []
         for item in socks_list:
             port = int(item["port"])
-            new_exits.append(OutboundExit(
+            new_exit = OutboundExit(
                 str(item["name"]),
                 f"socks5://127.0.0.1:{port}",
                 self.client_policy,
@@ -504,10 +514,14 @@ class OutboundDispatcher:
                 group_id=str(item.get("group_id") or ""),
                 group_name=str(item.get("group_name") or ""),
                 source_url=str(item.get("source_url") or ""),
-            ))
+                node_identity=str(item.get("node_identity") or ""),
+            )
+            previous_exit = previous_by_identity.get(new_exit.node_identity)
+            if previous_exit is not None and previous_exit.healthy and previous_exit.source_probe_ready:
+                self._inherit_verified_exit_state(new_exit, previous_exit)
+            new_exits.append(new_exit)
 
         direct = self.exits[0] if self.exits else OutboundExit("direct", None, self.client_policy)
-        previous_tunnels = list(self.exits[1:])
         # A list reference swap is atomic under CPython, so selectors see
         # either the old complete generation or the new complete generation.
         self.exits = [direct, *new_exits]
@@ -516,12 +530,45 @@ class OutboundDispatcher:
         self._wide_spread_group_rr_counter = 0
         self._login_group_rr_counter = 0
         self._ensure_health_check_started()
+        self._schedule_source_probe_for_unverified_exits(new_exits)
         logger.info(
             "[Dispatcher] atomically switched tunnel generation old=%s new=%s",
             len(previous_tunnels),
             len(new_exits),
         )
         return previous_tunnels
+
+    @staticmethod
+    def _inherit_verified_exit_state(target: OutboundExit, previous: OutboundExit) -> None:
+        """Carry route-level state across a port-bank switch for the same node."""
+        target.healthy = True
+        target._ever_healthy = previous._ever_healthy
+        target.source_probe_ready = True
+        target.source_probe_checked_at = previous.source_probe_checked_at
+        target.source_probe_failures = 0
+        target.source_probe_last_error = ""
+        target.source_probe_status_code = previous.source_probe_status_code
+        target._source_probe_next_at = previous._source_probe_next_at
+        target.latency_ms = previous.latency_ms
+        target.latency_checked_at = previous.latency_checked_at
+        target.latency_probe_failures = previous.latency_probe_failures
+        target.latency_probe_error = previous.latency_probe_error
+        target._frozen_until = previous._frozen_until
+        target._frozen_reason = previous._frozen_reason
+
+    def _schedule_source_probe_for_unverified_exits(self, exits: list[OutboundExit]) -> None:
+        """Promptly batch-probe newly published nodes without rechecking preserved ones."""
+        if not self._started:
+            return
+        for exit_obj in exits:
+            if (
+                not exit_obj.is_direct
+                and exit_obj.healthy
+                and not exit_obj.source_probe_ready
+                and not exit_obj.source_probing
+            ):
+                self._schedule_single_exit_source_probe(exit_obj)
+                return
 
     def retire_exits_after_drain(self, exits: list[OutboundExit], drain_seconds: float) -> None:
         if not exits:
@@ -565,6 +612,7 @@ class OutboundDispatcher:
                 group_id=item.get("group_id") or "",
                 group_name=item.get("group_name") or "",
                 source_url=item.get("source_url") or "",
+                node_identity=item.get("node_identity") or "",
             )
         logger.info(f"[Dispatcher] 共 {len(self.exits)} 个出口 (1直连 + {len(self.exits)-1}隧道)")
 
