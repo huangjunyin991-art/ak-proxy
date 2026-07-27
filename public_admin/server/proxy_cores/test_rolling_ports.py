@@ -14,7 +14,7 @@ def test_active_port_generation_persists_base_and_size(monkeypatch, tmp_path):
     assert rolling.active_port_generation("singbox", 10001) == (30001, 46)
     assert json.loads(state_path.read_text(encoding="utf-8"))["singbox"]["port_count"] == 46
     monkeypatch.setattr(rolling, "_port_range_is_available", lambda base_port, port_count: True)
-    assert rolling.candidate_base_port("singbox", 10001, 46) == 50001
+    assert rolling.candidate_base_port("singbox", 10001, 46) == 30079
 
 
 def test_candidate_port_bank_skips_occupied_preferred_range(monkeypatch, tmp_path):
@@ -40,6 +40,18 @@ def test_candidate_port_bank_avoids_other_core_reservation(monkeypatch, tmp_path
     )
 
     assert selected == 51001
+
+
+def test_candidate_port_bank_continues_after_all_legacy_banks_are_busy(monkeypatch, tmp_path):
+    monkeypatch.setattr(rolling, "_STATE_PATH", tmp_path / "state.json")
+    rolling.mark_active_base_port("singbox", 10001, 520)
+    monkeypatch.setattr(
+        rolling,
+        "_port_range_is_available",
+        lambda base_port, port_count: base_port not in {10001, 30001, 50001},
+    )
+
+    assert rolling.candidate_base_port("singbox", 10001, 545) == 10553
 
 
 def test_candidate_port_bank_reports_when_every_range_is_occupied(monkeypatch, tmp_path):

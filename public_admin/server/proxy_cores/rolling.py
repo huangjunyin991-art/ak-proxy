@@ -16,7 +16,10 @@ from .runtime import RUNTIME_ROOT, config_dir, ensure_core_dirs
 
 
 PORT_BANK_OFFSET = 20_000
-PORT_BANK_COUNT = 3
+PORT_BANK_GAP = 32
+PORT_BANK_MIN_STEP = 1_000
+PORT_POOL_START = 10_001
+PORT_POOL_END = 65_535
 DRAIN_SECONDS = max(0.0, float(os.environ.get("AK_PROXY_CORE_DRAIN_SECONDS", "30")))
 _STATE_PATH = RUNTIME_ROOT / "active_port_generations.json"
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
@@ -129,11 +132,25 @@ def candidate_base_port(
         return default
 
     active_base, active_count = active_port_generation(core_type, default)
-    banks = [default + index * PORT_BANK_OFFSET for index in range(PORT_BANK_COUNT)]
-    banks = [base for base in banks if 1 <= base and base + required_ports - 1 <= 65_535]
-    if active_base in banks:
-        active_index = banks.index(active_base)
-        banks = banks[active_index + 1:] + banks[:active_index]
+    preferred_bases = []
+    if active_count > 0:
+        preferred_bases.append(active_base + active_count + PORT_BANK_GAP)
+    preferred_bases.extend((
+        default + PORT_BANK_OFFSET,
+        default + 2 * PORT_BANK_OFFSET,
+        default,
+    ))
+    scan_step = max(PORT_BANK_MIN_STEP, required_ports + PORT_BANK_GAP)
+    preferred_bases.extend(range(PORT_POOL_START, PORT_POOL_END + 1, scan_step))
+    banks = []
+    seen_bases = set()
+    for base in preferred_bases:
+        base = int(base)
+        if base in seen_bases or base < PORT_POOL_START:
+            continue
+        seen_bases.add(base)
+        if base + required_ports - 1 <= PORT_POOL_END:
+            banks.append(base)
 
     blocked_ranges = list(reserved_ranges)
     blocked_ranges.append((active_base, max(1, active_count)))
