@@ -771,7 +771,7 @@
                 const exitIndex = getLbExitIndex(ex, i);
                 const nodeAvailable = Boolean(ex.dispatch_ready) && !ex.frozen;
                 const healthColor = nodeAvailable ? '#00ff88' : '#ff4757';
-                const healthText = nodeAvailable ? '节点可用' : '节点不可用';
+                const healthText = nodeAvailable ? '可用' : '不可用';
                 const borderColor = nodeAvailable ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)';
 
                 // 登录冷却进度条
@@ -807,34 +807,34 @@
                 const exitNameArg = jsArg(ex.name || '');
                 const groupHtml = ex.group_name ? `<div style="display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:rgba(102,126,234,0.14);color:#8ea2ff;font-size:10px;">订阅组 · ${escapeHtml(ex.group_name)}</div>` : '';
 
-                const cardHtml = `<div onclick="lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-                        <div>
-                            <div style="font-size:15px;font-weight:bold;color:var(--text-primary);">${serverLabel}</div>
-                            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${escapeHtml(ex.name || '')}${ex.proxy ? ' | ' + escapeHtml(ex.proxy) : ''}</div>
+                const cardHtml = `<div onclick="lbShowErrorLogs(${exitIndex}, ${exitNameArg})" title="点击查看节点日志" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
+                    <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;margin-bottom:10px;">
+                        <div style="min-width:0;">
+                            <div style="font-size:15px;font-weight:bold;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${serverLabel}</div>
+                            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(ex.name || '')}${ex.proxy ? ' | ' + escapeHtml(ex.proxy) : ''}</div>
                             ${groupHtml}
                         </div>
-                        <div style="display:flex;align-items:center;gap:6px;">
-                            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${healthColor};"></span>
+                        <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;">
+                            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${healthColor};"></span>
                             <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
-                            <button onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="margin-left:4px;background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.35);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">403详情</button>
-                            ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
+                            <button onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" title="查看节点日志" aria-label="查看节点日志" style="width:28px;height:28px;padding:0;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.32);border-radius:7px;color:var(--accent);cursor:pointer;font-size:15px;font-weight:bold;line-height:1;">i</button>
+                            ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" title="删除节点" aria-label="删除节点" style="width:28px;height:28px;padding:0;background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-radius:7px;color:#ff4757;cursor:pointer;font-size:18px;line-height:1;">&times;</button>` : ''}
                         </div>
                     </div>
-                    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
-                        <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
+                    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:8px;">
+                        <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">并发</div>
                             <div style="font-size:15px;font-weight:bold;color:#667eea;">${ex.active}</div>
                         </div>
-                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
+                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">请求</div>
                             <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
                         </div>
-                        <div style="background:rgba(0,212,255,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;" title="${escapeHtml(latencyTitle)}">
+                        <div style="background:rgba(0,212,255,0.08);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;" title="${escapeHtml(latencyTitle)}">
                             <div style="font-size:10px;color:var(--text-secondary);">延迟</div>
                             <div style="font-size:12px;font-weight:bold;color:${latencyMeta.color};">${escapeHtml(latencyMeta.text)}</div>
                         </div>
-                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="event.stopPropagation();lbShowRateLimit(${exitIndex}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
+                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;cursor:pointer;" onclick="event.stopPropagation();lbShowRateLimit(${exitIndex}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
                             <div style="font-size:10px;color:var(--text-secondary);">速率${ex.rate_limit > 0 ? ' ⚡' : ''}</div>
                             <div style="font-size:12px;font-weight:bold;color:${ex.rate_limit > 0 && ex.rpm >= ex.rate_limit * 0.8 ? '#ffa502' : 'var(--accent)'};">${ex.rpm}<span style="font-size:9px;color:var(--text-secondary);">/${ex.rate_limit || '∞'}</span></div>
                         </div>
