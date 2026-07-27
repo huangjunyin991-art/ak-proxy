@@ -63,19 +63,26 @@ def build_runtime_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = si
 
 async def apply_nodes(nodes: list[dict[str, Any]], singbox_base_port: int = singbox_core.SINGBOX_BASE_PORT,
                       mihomo_base_port: int = mihomo_core.MIHOMO_BASE_PORT,
-                      activation_callback: ActivationCallback | None = None) -> dict[str, Any]:
-    """Stage both cores on alternate ports, then atomically activate callers' exits."""
+                      activation_callback: ActivationCallback | None = None,
+                      allow_empty: bool = False) -> dict[str, Any]:
+    """Stage both cores on alternate ports, then atomically activate callers' exits.
+
+    ``allow_empty`` is reserved for an intentional removal of every runnable
+    node, such as deleting the last subscription group.
+    """
     async with _TRANSITION_LOCK:
         return await _apply_nodes_locked(
             nodes,
             singbox_base_port=singbox_base_port,
             mihomo_base_port=mihomo_base_port,
             activation_callback=activation_callback,
+            allow_empty=allow_empty,
         )
 
 
 async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port: int,
-                              mihomo_base_port: int, activation_callback: ActivationCallback | None) -> dict[str, Any]:
+                              mihomo_base_port: int, activation_callback: ActivationCallback | None,
+                              allow_empty: bool) -> dict[str, Any]:
     candidate_singbox_base = candidate_base_port(SINGBOX_CORE, singbox_base_port)
     candidate_mihomo_base = candidate_base_port(MIHOMO_CORE, mihomo_base_port)
     candidate_input = []
@@ -164,7 +171,10 @@ async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port:
 
     runnable_count = len(singbox_nodes) + len(mihomo_nodes)
     active_results = [result for key, result in results.items() if result.get("nodes_count", 0)]
-    success = bool(runnable_count) and all(bool(result.get("success")) for result in active_results)
+    stages_ready = all(bool(result.get("success")) for result in results.values())
+    success = (bool(runnable_count) and all(bool(result.get("success")) for result in active_results)) or (
+        allow_empty and stages_ready
+    )
     pending_download = any(bool(result.get("pending_download")) for result in results.values())
     counters = Counter(str(node.get("core_type") or UNSUPPORTED_CORE) for node in runtime_nodes)
     messages = []

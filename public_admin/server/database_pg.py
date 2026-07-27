@@ -4699,10 +4699,42 @@ async def delete_subscription_group(group_id: str) -> bool:
     pool = _get_pool()
     async with pool.acquire() as conn:
         try:
-            await conn.execute('DELETE FROM subscription_groups WHERE id = $1', group_id)
-            return True
+            result = await conn.execute('DELETE FROM subscription_groups WHERE id = $1', group_id)
+            return result.endswith('1')
         except Exception as e:
             logger.error(f"[DB] 删除订阅组失败: {e}")
+            return False
+
+
+async def restore_subscription_group(group: dict) -> bool:
+    """Restore a deleted subscription group when a runtime cutover rolls back."""
+    pool = _get_pool()
+    group_id = str((group or {}).get('id') or '').strip()
+    if not group_id:
+        return False
+    async with pool.acquire() as conn:
+        try:
+            result = await conn.execute('''
+                INSERT INTO subscription_groups (
+                    id, name, source_type, source_url, import_time,
+                    total_servers, active_servers, created_by, notes
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (id) DO NOTHING
+            ''',
+                group_id,
+                str(group.get('name') or ''),
+                str(group.get('source_type') or 'url'),
+                str(group.get('source_url') or ''),
+                group.get('import_time'),
+                int(group.get('total_servers') or 0),
+                int(group.get('active_servers') or 0),
+                str(group.get('created_by') or 'admin'),
+                str(group.get('notes') or ''),
+            )
+            return result.endswith('1')
+        except Exception as e:
+            logger.error(f"[DB] 恢复订阅组失败: {e}")
             return False
 
 

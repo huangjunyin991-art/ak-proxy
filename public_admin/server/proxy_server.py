@@ -42,7 +42,7 @@ from datetime import datetime, timedelta
 from email.utils import formatdate
 from pathlib import Path
 
-from typing import Any, Iterable, Optional
+from typing import Any, Awaitable, Callable, Iterable, Optional
 
 
 
@@ -362,6 +362,10 @@ _DISPATCHER_STATUS_SERVICE = DispatcherStatusService(
 )
 
 
+# Deletion plans must not be built from the same saved-node generation.
+_SUBSCRIPTION_GROUP_DELETE_LOCK = asyncio.Lock()
+
+
 def _get_dispatcher_saved_base_port(default: int = 10001) -> int:
     config_file = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_exits.json")
     try:
@@ -425,7 +429,13 @@ def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port:
     return added_exits
 
 
-async def _apply_subscription_runtime_nodes(nodes: list[dict[str, Any]], base_port: int) -> dict[str, Any]:
+async def _apply_subscription_runtime_nodes(
+    nodes: list[dict[str, Any]],
+    base_port: int,
+    before_publish: Callable[[], Awaitable[None]] | None = None,
+    rollback_before_publish: Callable[[], Awaitable[None]] | None = None,
+    allow_empty_generation: bool = False,
+) -> dict[str, Any]:
     """Stage cores first, then publish nodes and dispatcher exits as one generation."""
     from . import singbox_manager as sbm
     from .proxy_cores import apply_nodes as apply_proxy_core_nodes
@@ -438,11 +448,16 @@ async def _apply_subscription_runtime_nodes(nodes: list[dict[str, Any]], base_po
 
     async def activate(runtime_nodes: list[dict[str, Any]]) -> None:
         specs = _build_dispatcher_exit_specs(runtime_nodes, base_port)
+        before_publish_completed = False
         try:
             # Persist before publishing the new exits. Every write is atomic;
             # a failed persistence step leaves the old process generation live.
             sbm.save_nodes(runtime_nodes)
             _save_dispatcher_exits_snapshot(runtime_nodes, base_port)
+            if before_publish is not None:
+                await before_publish()
+                before_publish_completed = True
+            previous_exits = dispatcher.replace_socks5_exits(specs)
         except Exception:
             try:
                 sbm.save_nodes(old_nodes if isinstance(old_nodes, list) else [])
@@ -452,9 +467,13 @@ async def _apply_subscription_runtime_nodes(nodes: list[dict[str, Any]], base_po
                     atomic_write_bytes(snapshot_path, old_snapshot)
             except Exception:
                 logger.exception("[Dispatcher] failed to restore persisted generation after activation error")
+            if before_publish_completed and rollback_before_publish is not None:
+                try:
+                    await rollback_before_publish()
+                except Exception:
+                    logger.exception("[Dispatcher] failed to restore external generation state after activation error")
             raise
 
-        previous_exits = dispatcher.replace_socks5_exits(specs)
         dispatcher.retire_exits_after_drain(previous_exits, DRAIN_SECONDS)
         activation["exits_added"] = [
             {
@@ -472,6 +491,7 @@ async def _apply_subscription_runtime_nodes(nodes: list[dict[str, Any]], base_po
         nodes,
         singbox_base_port=base_port,
         activation_callback=activate,
+        allow_empty=allow_empty_generation,
     )
     return {**result, **activation}
 
@@ -10975,12 +10995,49 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
     if error_response is not None:
         return error_response
     try:
-        ok = await db.delete_subscription_group(group_id)
-        if ok:
-            sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
-            removed_count = int(sync_result.get("removed_count") or 0)
+        async with _SUBSCRIPTION_GROUP_DELETE_LOCK:
+            groups = await db.get_subscription_groups()
+            target_group = next(
+                (
+                    group for group in groups
+                    if isinstance(group, dict) and str(group.get("id") or "") == str(group_id)
+                ),
+                None,
+            )
+            if target_group is None:
+                return {"success": False, "message": "订阅组不存在或已删除"}
+
+            from . import singbox_manager as sbm
+
+            saved_nodes = sbm.load_saved_nodes()
+            node_items = [item for item in saved_nodes if isinstance(item, dict)] if isinstance(saved_nodes, list) else []
+            remaining_nodes = [
+                item for item in node_items
+                if str(item.get("group_id") or "") != str(group_id)
+            ]
+            removed_count = len(node_items) - len(remaining_nodes)
+
+            async def delete_group_after_candidate_ready() -> None:
+                if not await db.delete_subscription_group(group_id):
+                    raise RuntimeError("subscription group deletion was not confirmed")
+
+            async def restore_group_after_failed_publish() -> None:
+                if not await db.restore_subscription_group(target_group):
+                    logger.error("[SubGroup] failed to restore subscription group after runtime rollback: %s", group_id)
+
+            result = await _apply_subscription_runtime_nodes(
+                remaining_nodes,
+                _get_dispatcher_saved_base_port(),
+                before_publish=delete_group_after_candidate_ready,
+                rollback_before_publish=restore_group_after_failed_publish,
+                allow_empty_generation=True,
+            )
+            if not result.get("success"):
+                return {"success": False, "message": f"删除失败: {result.get('message') or '候选节点切换失败'}"}
+
+            _SINGBOX_STATUS_CACHE.invalidate()
+            _DISPATCHER_STATUS_SERVICE.invalidate_meta()
             return {"success": True, "message": f"订阅组已删除，已移除{removed_count}个节点"}
-        return {"success": False, "message": "删除失败"}
     except Exception as e:
         logger.error(f"[SubGroup] 删除订阅组失败: {e}")
         return {"success": False, "message": f"删除失败: {str(e)}"}
