@@ -1392,18 +1392,23 @@
                 const availabilityTotal = Number(group.availability_total || 0);
                 const pendingNodes = Number(group.pending_nodes || 0);
                 const availabilityRatio = Number(group.availability_ratio || 0);
+                const formattedAvailabilityRatio = availabilityRatio.toFixed(availabilityRatio % 1 === 0 ? 0 : 1);
                 const availabilityClass = availabilityTotal === 0
                     ? 'muted'
-                    : pendingNodes === availabilityTotal
+                    : pendingNodes > 0
                         ? 'pending'
                         : availabilityRatio >= 80
                             ? 'good'
                             : availabilityRatio > 0
                                 ? 'warn'
                                 : 'bad';
-                const availabilityText = availabilityTotal > 0
-                    ? `可用率 ${availabilityRatio.toFixed(availabilityRatio % 1 === 0 ? 0 : 1)}% · ${availableNodes}/${availabilityTotal}`
-                    : '可用率 --';
+                const availabilityText = availabilityTotal === 0
+                    ? '暂无启用节点'
+                    : pendingNodes === availabilityTotal
+                        ? `检测中 0/${availabilityTotal}`
+                        : pendingNodes > 0
+                            ? `可用率 ${formattedAvailabilityRatio}% · ${availableNodes}/${availabilityTotal} · ${pendingNodes} 检测中`
+                            : `可用率 ${formattedAvailabilityRatio}% · ${availableNodes}/${availabilityTotal}`;
 
                 const notesHtml = group.notes ? `
                     <div class="sub-group-note">${escapeHtml(group.notes)}</div>
