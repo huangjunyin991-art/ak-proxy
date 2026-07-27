@@ -1812,7 +1812,7 @@
         #subAdminSection .subadmin-card-btn,
         #subAdminSection .subadmin-mini-btn,
         #subAdminSection .subadmin-visibility-btn,
-        #loadBalanceSection button {
+        #loadBalanceSection button:not(.lb-node-action) {
             border: 0 !important;
             background: linear-gradient(135deg, var(--accent), var(--accent-green)) !important;
             color: #001018 !important;
@@ -1830,7 +1830,7 @@
         #subAdminSection .subadmin-card-btn:hover,
         #subAdminSection .subadmin-mini-btn:hover,
         #subAdminSection .subadmin-visibility-btn:hover,
-        #loadBalanceSection button:hover {
+        #loadBalanceSection button:not(.lb-node-action):hover {
             filter: brightness(1.04);
             transform: translateY(-1px);
             box-shadow: 0 14px 32px rgba(0, 212, 255, 0.22) !important;
@@ -1841,11 +1841,113 @@
         #meetingAdminMount .meeting-small-btn:disabled,
         #settings button:disabled,
         #subAdminSection button:disabled,
-        #loadBalanceSection button:disabled {
+        #loadBalanceSection button:not(.lb-node-action):disabled {
             opacity: 0.55;
             cursor: not-allowed;
             transform: none;
             filter: none;
+        }
+
+        .lb-node-head-controls {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            white-space: nowrap;
+        }
+
+        .lb-node-health {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .lb-node-health.is-available {
+            color: var(--accent-green);
+        }
+
+        .lb-node-health.is-unavailable {
+            color: var(--accent-red);
+        }
+
+        .lb-node-health-dot {
+            width: 7px;
+            height: 7px;
+            flex: 0 0 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .lb-node-toolbar {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding-left: 9px;
+            border-left: 1px solid rgba(145, 163, 190, 0.18);
+        }
+
+        #loadBalanceSection .lb-node-action {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 30px;
+            height: 30px;
+            min-width: 30px;
+            min-height: 30px;
+            padding: 0 !important;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(145, 163, 190, 0.14) !important;
+            border-radius: 6px !important;
+            background: rgba(255, 255, 255, 0.025) !important;
+            background-image: none !important;
+            color: #8090aa !important;
+            box-shadow: none !important;
+            cursor: pointer;
+            filter: none !important;
+            transform: none !important;
+            transition: color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease !important;
+        }
+
+        #loadBalanceSection .lb-node-action svg {
+            width: 15px;
+            height: 15px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+
+        #loadBalanceSection .lb-node-action.logs:hover {
+            color: #83ddf5 !important;
+            border-color: rgba(0, 212, 255, 0.34) !important;
+            background: rgba(0, 212, 255, 0.08) !important;
+            box-shadow: none !important;
+        }
+
+        #loadBalanceSection .lb-node-action.danger:hover {
+            color: #ff8d99 !important;
+            border-color: rgba(255, 71, 87, 0.38) !important;
+            background: rgba(255, 71, 87, 0.09) !important;
+            box-shadow: none !important;
+        }
+
+        #loadBalanceSection .lb-node-action:focus-visible {
+            outline: 2px solid rgba(0, 212, 255, 0.55);
+            outline-offset: 2px;
+        }
+
+        @media (max-width: 640px) {
+            #loadBalanceSection .lb-node-action {
+                width: 28px;
+                height: 28px;
+                min-width: 28px;
+                min-height: 28px;
+            }
         }
 
         .lb-core-grid {

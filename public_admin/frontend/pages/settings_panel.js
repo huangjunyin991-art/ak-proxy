@@ -770,7 +770,6 @@
                 const isDirect = ex.type === 'direct';
                 const exitIndex = getLbExitIndex(ex, i);
                 const nodeAvailable = isLbExitDisplayAvailable(ex);
-                const healthColor = nodeAvailable ? '#00ff88' : '#ff4757';
                 const healthText = nodeAvailable ? '可用' : '不可用';
                 const borderColor = nodeAvailable ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)';
 
@@ -814,11 +813,19 @@
                             <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(ex.name || '')}${ex.proxy ? ' | ' + escapeHtml(ex.proxy) : ''}</div>
                             ${groupHtml}
                         </div>
-                        <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;">
-                            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${healthColor};"></span>
-                            <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
-                            <button onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" title="查看节点日志" aria-label="查看节点日志" style="width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.26);border-radius:8px;color:#65ddff;cursor:pointer;font-size:17px;font-weight:700;line-height:1;box-shadow:inset 0 1px rgba(255,255,255,0.04);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;" onmouseenter="this.style.background='rgba(0,212,255,0.16)';this.style.borderColor='rgba(0,212,255,0.6)';this.style.color='#b8f5ff';this.style.transform='translateY(-1px)'" onmouseleave="this.style.background='rgba(0,212,255,0.05)';this.style.borderColor='rgba(0,212,255,0.26)';this.style.color='#65ddff';this.style.transform='translateY(0)'">&#9432;</button>
-                            ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" title="删除节点" aria-label="删除节点" style="width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,71,87,0.045);border:1px solid rgba(255,71,87,0.24);border-radius:8px;color:#ff8995;cursor:pointer;font-size:20px;font-weight:400;line-height:1;box-shadow:inset 0 1px rgba(255,255,255,0.035);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;" onmouseenter="this.style.background='rgba(255,71,87,0.14)';this.style.borderColor='rgba(255,91,105,0.58)';this.style.color='#ffbec5';this.style.transform='translateY(-1px)'" onmouseleave="this.style.background='rgba(255,71,87,0.045)';this.style.borderColor='rgba(255,71,87,0.24)';this.style.color='#ff8995';this.style.transform='translateY(0)'">&times;</button>` : ''}
+                        <div class="lb-node-head-controls">
+                            <div class="lb-node-health ${nodeAvailable ? 'is-available' : 'is-unavailable'}">
+                                <span class="lb-node-health-dot"></span>
+                                <span>${healthText}</span>
+                            </div>
+                            <div class="lb-node-toolbar">
+                                <button class="lb-node-action logs" onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" title="查看节点日志" aria-label="查看节点日志">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path><path d="M10 9H8"></path></svg>
+                                </button>
+                                ${!isDirect ? `<button class="lb-node-action danger" onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" title="删除节点" aria-label="删除节点">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
+                                </button>` : ''}
+                            </div>
                         </div>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:8px;">
