@@ -117,6 +117,11 @@ class EPAutoPurchaseRepository:
                         message TEXT NOT NULL DEFAULT '',
                         next_attempt_at TIMESTAMP NULL,
                         attempt_started_at TIMESTAMP NULL,
+                        seller_lookup_state TEXT NOT NULL DEFAULT 'pending',
+                        seller_lookup_next_at TIMESTAMP NULL,
+                        seller_lookup_started_at TIMESTAMP NULL,
+                        seller_lookup_attempts INTEGER NOT NULL DEFAULT 0,
+                        seller_lookup_error TEXT NOT NULL DEFAULT '',
                         claimed_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         completed_at TIMESTAMP NULL,
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -130,12 +135,31 @@ class EPAutoPurchaseRepository:
                     "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS attempt_started_at TIMESTAMP NULL"
                 )
                 await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS seller_lookup_state TEXT NOT NULL DEFAULT 'pending'"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS seller_lookup_next_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS seller_lookup_started_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS seller_lookup_attempts INTEGER NOT NULL DEFAULT 0"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS seller_lookup_error TEXT NOT NULL DEFAULT ''"
+                )
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_claimed_at "
                     "ON ep_auto_purchase_orders(claimed_at DESC)"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_pending "
                     "ON ep_auto_purchase_orders(state, next_attempt_at)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_seller_lookup "
+                    "ON ep_auto_purchase_orders(buyer_account, seller_lookup_state, seller_lookup_next_at)"
                 )
                 await conn.execute(
                     """
@@ -145,6 +169,34 @@ class EPAutoPurchaseRepository:
                         completed_at = COALESCE(completed_at, NOW()),
                         updated_at = NOW()
                     WHERE state IN ('claimed', 'sending')
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET seller_lookup_state = CASE
+                            WHEN BTRIM(seller_account) <> '' THEN 'complete'
+                            ELSE 'pending'
+                        END,
+                        seller_lookup_next_at = CASE
+                            WHEN BTRIM(seller_account) <> '' THEN NULL
+                            ELSE COALESCE(seller_lookup_next_at, NOW())
+                        END,
+                        seller_lookup_started_at = NULL,
+                        seller_lookup_error = CASE
+                            WHEN BTRIM(seller_account) <> '' THEN ''
+                            ELSE seller_lookup_error
+                        END,
+                        updated_at = NOW()
+                    WHERE seller_lookup_state = 'pending'
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET seller_lookup_state = 'pending', seller_lookup_next_at = NOW(),
+                        seller_lookup_started_at = NULL, updated_at = NOW()
+                    WHERE seller_lookup_state = 'running' AND BTRIM(seller_account) = ''
                     """
                 )
             self._ready = True
@@ -360,12 +412,48 @@ class EPAutoPurchaseRepository:
         await self.ensure_ready()
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
-            result = await conn.execute(
+            row = await conn.fetchrow(
                 """
                 INSERT INTO ep_auto_purchase_orders (
-                    sid, buyer_account, seller_account, ep_amount, sokey_digest, state, next_attempt_at
-                ) VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-                ON CONFLICT (sid) DO NOTHING
+                    sid, buyer_account, seller_account, ep_amount, sokey_digest, state, next_attempt_at,
+                    seller_lookup_state, seller_lookup_next_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, 'pending', NOW(),
+                    CASE WHEN BTRIM($3) <> '' THEN 'complete' ELSE 'pending' END,
+                    CASE WHEN BTRIM($3) <> '' THEN NULL ELSE NOW() END
+                )
+                ON CONFLICT (sid) DO UPDATE
+                SET seller_account = CASE
+                        WHEN BTRIM(ep_auto_purchase_orders.seller_account) = ''
+                             AND BTRIM(EXCLUDED.seller_account) <> ''
+                        THEN EXCLUDED.seller_account
+                        ELSE ep_auto_purchase_orders.seller_account
+                    END,
+                    seller_lookup_state = CASE
+                        WHEN BTRIM(ep_auto_purchase_orders.seller_account) = ''
+                             AND BTRIM(EXCLUDED.seller_account) <> ''
+                        THEN 'complete'
+                        ELSE ep_auto_purchase_orders.seller_lookup_state
+                    END,
+                    seller_lookup_next_at = CASE
+                        WHEN BTRIM(ep_auto_purchase_orders.seller_account) = ''
+                             AND BTRIM(EXCLUDED.seller_account) <> ''
+                        THEN NULL
+                        ELSE ep_auto_purchase_orders.seller_lookup_next_at
+                    END,
+                    seller_lookup_error = CASE
+                        WHEN BTRIM(ep_auto_purchase_orders.seller_account) = ''
+                             AND BTRIM(EXCLUDED.seller_account) <> ''
+                        THEN ''
+                        ELSE ep_auto_purchase_orders.seller_lookup_error
+                    END,
+                    updated_at = CASE
+                        WHEN BTRIM(ep_auto_purchase_orders.seller_account) = ''
+                             AND BTRIM(EXCLUDED.seller_account) <> ''
+                        THEN NOW()
+                        ELSE ep_auto_purchase_orders.updated_at
+                    END
+                RETURNING (xmax = 0) AS inserted
                 """,
                 sid,
                 buyer_account,
@@ -373,7 +461,7 @@ class EPAutoPurchaseRepository:
                 ep_amount,
                 sokey_digest,
             )
-        return result == "INSERT 0 1"
+        return bool(row and row["inserted"])
 
     async def begin_order_attempt(
         self,
@@ -439,6 +527,77 @@ class EPAutoPurchaseRepository:
                 sid,
                 state,
                 str(message or "")[:500],
+            )
+
+    async def claim_next_seller_lookup(self, buyer_account: str) -> dict[str, Any] | None:
+        """Reserve one missing seller account for a safe, serialized detail lookup."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                WITH candidate AS (
+                    SELECT sid
+                    FROM ep_auto_purchase_orders
+                    WHERE buyer_account = $1
+                      AND BTRIM(seller_account) = ''
+                      AND seller_lookup_state = 'pending'
+                      AND (seller_lookup_next_at IS NULL OR seller_lookup_next_at <= NOW())
+                    ORDER BY claimed_at ASC
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE ep_auto_purchase_orders AS orders
+                SET seller_lookup_state = 'running', seller_lookup_next_at = NULL,
+                    seller_lookup_started_at = NOW(), seller_lookup_attempts = seller_lookup_attempts + 1,
+                    seller_lookup_error = '', updated_at = NOW()
+                FROM candidate
+                WHERE orders.sid = candidate.sid
+                RETURNING orders.sid, orders.buyer_account
+                """,
+                str(buyer_account or "").strip().lower(),
+            )
+        return dict(row) if row is not None else None
+
+    async def finish_seller_lookup(self, sid: str, seller_account: str) -> None:
+        """Save only the seller account extracted from Public_EP_SellDetail."""
+        await self.ensure_ready()
+        normalized_seller = str(seller_account or "").strip()
+        state = "complete" if normalized_seller else "empty"
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET seller_account = CASE WHEN $2 <> '' THEN $2 ELSE seller_account END,
+                    seller_lookup_state = $3, seller_lookup_next_at = NULL,
+                    seller_lookup_started_at = NULL, seller_lookup_error = '', updated_at = NOW()
+                WHERE sid = $1 AND seller_lookup_state = 'running'
+                """,
+                str(sid or ""),
+                normalized_seller,
+                state,
+            )
+
+    async def defer_seller_lookup(self, sid: str, error: str, retry_seconds: int = 60) -> None:
+        """Retry transient detail lookup failures without touching the purchase result."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET seller_lookup_state = CASE WHEN seller_lookup_attempts >= 3 THEN 'failed' ELSE 'pending' END,
+                    seller_lookup_next_at = CASE
+                        WHEN seller_lookup_attempts >= 3 THEN NULL
+                        ELSE NOW() + make_interval(secs => $3)
+                    END,
+                    seller_lookup_started_at = NULL, seller_lookup_error = $2, updated_at = NOW()
+                WHERE sid = $1 AND seller_lookup_state = 'running'
+                """,
+                str(sid or ""),
+                str(error or "详情查询失败")[:500],
+                max(1, int(retry_seconds or 60)),
             )
 
     async def dashboard(self) -> dict[str, Any]:

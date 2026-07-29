@@ -1,14 +1,13 @@
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
 
 import pytest
 
 from .ep_auto_purchase.provider import EPAutoPurchaseProvider
 from .ep_auto_purchase.repository import EPAutoPurchaseRepository
 from .ep_auto_purchase.service import EPAutoPurchaseService, parse_interval_milliseconds
-from .ep_auto_purchase.diagnostics import ListingDiagnosticSnapshot
 from .ep_auto_purchase.listing import inspect_listing_payload, parse_listing
+from .ep_auto_purchase.order_detail import extract_seller_account
 from .ep_auto_purchase.internal_rpc import (
     DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL,
     EP_AUTO_PURCHASE_INTERNAL_HEADER,
@@ -82,6 +81,19 @@ async def test_default_provider_routes_ep_calls_through_nginx_with_internal_mark
 
     assert provider.base_url == DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL
     assert client.calls[0][0] == "https://ak2025.vip/RPC/Public_EP_SellRecords1"
+    assert client.calls[0][2] == {EP_AUTO_PURCHASE_INTERNAL_HEADER: "runtime-secret"}
+
+
+@pytest.mark.anyio
+async def test_order_detail_uses_confirmed_minimal_parameters_and_internal_marker():
+    client = _Client({"Error": False, "Detail": {"Seller": {"FlowNumber": "seller"}}})
+    provider = EPAutoPurchaseProvider(internal_token="runtime-secret")
+
+    await provider.fetch_order_detail(client, {"key": "buyer-key", "user_id": "103"}, "88")
+
+    assert client.calls[0][0] == "https://ak2025.vip/RPC/Public_EP_SellDetail"
+    assert client.calls[0][1]["sId"] == "88"
+    assert set(client.calls[0][1]) == {"sId", "key", "UserID", "v", "lang"}
     assert client.calls[0][2] == {EP_AUTO_PURCHASE_INTERNAL_HEADER: "runtime-secret"}
 
 
@@ -160,6 +172,9 @@ class _Repository:
         self.finished.append((sid, state, message))
         if self.order_states.get(sid) == "sending":
             self.order_states[sid] = state
+
+    async def claim_next_seller_lookup(self, buyer_account):
+        return None
 
 
 @pytest.mark.anyio
@@ -314,15 +329,103 @@ def test_listing_parser_accepts_standard_and_legacy_order_identifiers():
     assert parse_listing(inspection.rows[1]).sid == "89"
 
 
-def test_listing_diagnostic_is_process_memory_only_and_expires():
-    snapshot = ListingDiagnosticSnapshot(ttl_seconds=10)
-    now = datetime(2026, 7, 30, 12, 0, 0)
-    payload = {"Data": {"List": [{"sId": 88, "Sokey": "temporary-secret"}]}}
+def test_order_detail_extracts_only_seller_flow_number():
+    payload = {
+        "Error": False,
+        "Detail": {
+            "Seller": {
+                "FlowNumber": "cwy6699",
+                "Usdt": {"Address": "must-not-be-persisted"},
+            }
+        },
+    }
 
-    assert snapshot.capture("buyer", payload, {"row_count": 1}, now=now) is True
-    assert snapshot.payload(now=now)["payload"] == payload
-    assert snapshot.summary(now=now)["available"] is True
-    assert snapshot.payload(now=now + timedelta(seconds=10)) == {"available": False}
+    assert extract_seller_account(payload) == "cwy6699"
+
+
+@pytest.mark.anyio
+async def test_missing_seller_is_enriched_once_and_persisted():
+    class SellerRepository(_Repository):
+        def __init__(self):
+            super().__init__()
+            self.jobs = [{"sid": "3297128", "buyer_account": "buyer"}]
+            self.saved_sellers = []
+            self.deferred_sellers = []
+
+        async def claim_next_seller_lookup(self, buyer_account):
+            return self.jobs.pop(0) if self.jobs else None
+
+        async def finish_seller_lookup(self, sid, seller_account):
+            self.saved_sellers.append((sid, seller_account))
+
+        async def defer_seller_lookup(self, sid, error, retry_seconds=60):
+            self.deferred_sellers.append((sid, error, retry_seconds))
+
+    repository = SellerRepository()
+    service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=_Gate())
+
+    async def order_detail(client, auth, sid):
+        assert sid == "3297128"
+        assert auth == {"account": "buyer", "user_id": "103", "key": "buyer-key"}
+        return {"Detail": {"Seller": {"FlowNumber": "cwy6699"}}}
+
+    service.provider.fetch_order_detail = order_detail
+
+    await service._enrich_one_missing_seller(
+        object(),
+        "buyer",
+        {"account": "buyer", "user_id": "103", "key": "buyer-key"},
+    )
+
+    assert repository.saved_sellers == [("3297128", "cwy6699")]
+    assert repository.deferred_sellers == []
+
+
+@pytest.mark.anyio
+async def test_existing_seller_does_not_call_order_detail():
+    repository = _Repository()
+    service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=_Gate())
+
+    async def should_not_fetch(*args):
+        raise AssertionError("existing seller account must skip Public_EP_SellDetail")
+
+    service.provider.fetch_order_detail = should_not_fetch
+
+    await service._enrich_one_missing_seller(
+        object(),
+        "buyer",
+        {"account": "buyer", "user_id": "103", "key": "buyer-key"},
+    )
+
+
+@pytest.mark.anyio
+async def test_seller_lookup_gate_busy_defers_without_breaking_the_purchase_poll():
+    class SellerRepository(_Repository):
+        def __init__(self):
+            super().__init__()
+            self.deferred_sellers = []
+
+        async def claim_next_seller_lookup(self, buyer_account):
+            return {"sid": "3297128", "buyer_account": buyer_account}
+
+        async def defer_seller_lookup(self, sid, error, retry_seconds=60):
+            self.deferred_sellers.append((sid, error, retry_seconds))
+
+    repository = SellerRepository()
+    service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=_Gate())
+
+    async def busy(*args):
+        raise RpcGateBusy()
+
+    service.provider.fetch_order_detail = busy
+
+    await service._enrich_one_missing_seller(
+        object(),
+        "buyer",
+        {"account": "buyer", "user_id": "103", "key": "buyer-key"},
+    )
+
+    assert repository.deferred_sellers == [("3297128", "等待用户请求优先", 1)]
 
 
 class _ConfigRepository:
@@ -496,6 +599,7 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "WHERE interval_milliseconds IS NULL" in sql
     assert "unique_listings_discovered" in sql
     assert "next_attempt_at" in sql
+    assert "seller_lookup_state" in sql
     assert "state IN ('claimed', 'sending')" in sql
     assert "ep_auto_purchase_listing_diagnostics" not in sql
 

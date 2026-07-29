@@ -10,9 +10,9 @@ from typing import Any, Mapping
 from ..notice_guidance.provider import make_v
 from ..upstream_rpc_gate import RpcGateBusy
 from .credentials import EPAutoPurchaseCredentials
-from .diagnostics import ListingDiagnosticSnapshot
 from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
-from .listing import EPListing, ListingPayloadInspection, inspect_listing_payload, parse_listing
+from .listing import EPListing, inspect_listing_payload, parse_listing
+from .order_detail import extract_seller_account
 from .provider import EPAutoPurchaseProvider, EPAutoPurchaseUpstreamError, extract_auth_fields
 
 
@@ -55,7 +55,6 @@ class EPAutoPurchaseService:
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
         self._wake = asyncio.Event()
-        self._listing_diagnostic = ListingDiagnosticSnapshot()
 
     async def start(self) -> None:
         await self.repository.ensure_ready()
@@ -146,7 +145,6 @@ class EPAutoPurchaseService:
             }
             for account in config.get("accounts") or []
         ]
-        diagnostic = await self._listing_diagnostic_summary()
         return {
             "success": True,
             "config": self._serialize(config),
@@ -154,11 +152,7 @@ class EPAutoPurchaseService:
             "accounts": self._serialize(data.get("accounts") or []),
             "orders": self._serialize(data.get("orders") or []),
             "summary": self._serialize(data.get("summary") or {}),
-            "listing_diagnostic": self._serialize(diagnostic),
         }
-
-    async def listing_diagnostic_payload(self) -> dict[str, Any]:
-        return self._serialize(self._listing_diagnostic.payload())
 
     async def _run(self) -> None:
         while not self._stopping.is_set():
@@ -192,14 +186,6 @@ class EPAutoPurchaseService:
                 auth = await self._load_auth(account)
                 payload, auth = await self._list_with_one_refresh(client, account, auth)
                 inspection = inspect_listing_payload(payload)
-                await self._capture_listing_snapshot(account, payload, inspection)
-                if inspection.row_count and (inspection.missing_sid_count or inspection.missing_sokey_count):
-                    self._log(
-                        "listing parse account=%s path=%s rows=%s valid=%s missing_sid=%s missing_sokey=%s keys=%s",
-                        account, inspection.list_path or "-", inspection.row_count, inspection.valid_count,
-                        inspection.missing_sid_count, inspection.missing_sokey_count,
-                        ",".join(inspection.first_row_keys[:24]) or "-",
-                    )
                 for row in inspection.rows:
                     listing = parse_listing(row)
                     if listing is None:
@@ -211,6 +197,7 @@ class EPAutoPurchaseService:
                         unique_listings_discovered += 1
                     if await self._purchase_listing(client, account, auth, row, listing=listing, registered=True):
                         successes += 1
+                await self._enrich_one_missing_seller(client, account, auth)
         except RpcGateBusy:
             state = "waiting"
         except EPAutoPurchaseUpstreamError as exc:
@@ -289,16 +276,43 @@ class EPAutoPurchaseService:
         await self.repository.finish_order(listing.sid, state, str(result.get("message") or ""))
         return state == "success"
 
-    async def _capture_listing_snapshot(
+    async def _enrich_one_missing_seller(
         self,
-        account: str,
-        payload: Mapping[str, Any],
-        inspection: ListingPayloadInspection,
+        client,
+        buyer_account: str,
+        auth: Mapping[str, str],
     ) -> None:
-        self._listing_diagnostic.capture(account, payload, inspection.summary(payload))
+        job = await self.repository.claim_next_seller_lookup(buyer_account)
+        if job is None:
+            return
+        sid = str(job.get("sid") or "").strip()
+        if not sid:
+            return
+        try:
+            payload = await self._fetch_order_detail_with_one_refresh(client, buyer_account, dict(auth), sid)
+            await self.repository.finish_seller_lookup(sid, extract_seller_account(payload))
+        except RpcGateBusy:
+            await self.repository.defer_seller_lookup(sid, "等待用户请求优先", retry_seconds=1)
+            return
+        except EPAutoPurchaseUpstreamError as exc:
+            await self.repository.defer_seller_lookup(sid, str(exc), retry_seconds=60)
+        except Exception as exc:
+            await self.repository.defer_seller_lookup(sid, str(exc) or exc.__class__.__name__, retry_seconds=60)
 
-    async def _listing_diagnostic_summary(self) -> dict[str, Any]:
-        return self._listing_diagnostic.summary()
+    async def _fetch_order_detail_with_one_refresh(
+        self,
+        client,
+        buyer_account: str,
+        auth: dict[str, str],
+        sid: str,
+    ) -> dict[str, Any]:
+        try:
+            return await self.provider.fetch_order_detail(client, auth, sid)
+        except EPAutoPurchaseUpstreamError as exc:
+            if not exc.is_auth_error:
+                raise
+        refreshed_auth = await self._refresh_auth(client, buyer_account)
+        return await self.provider.fetch_order_detail(client, refreshed_auth, sid)
 
     @staticmethod
     def _sokey_digest(listing: EPListing) -> str:

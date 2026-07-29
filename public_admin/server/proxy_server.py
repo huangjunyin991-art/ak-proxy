@@ -3715,13 +3715,13 @@ async def proxy_rpc(path: str, request: Request):
     }
     normalized_path = path.strip("/").lower()
     ep_auto_purchase_internal_request = bool(
-        normalized_path in {"login", "public_ep_sellrecords1", "ep_buy"}
+        normalized_path in {"login", "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy"}
         and ep_auto_purchase_service is not None
         and ep_auto_purchase_service.is_internal_rpc_request(request)
     )
     upstream_rpc_lease = None
     if (
-        normalized_path in {"login", "notice_list", "my_subaccount", "public_ep_sellrecords1", "ep_buy"}
+        normalized_path in {"login", "notice_list", "my_subaccount", "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy"}
         and not notice_guidance_internal_request
         and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):

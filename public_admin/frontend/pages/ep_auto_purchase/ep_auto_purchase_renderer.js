@@ -92,29 +92,6 @@
         }).join('');
     }
 
-    function renderListingDiagnostic(diagnostic, loading) {
-        var source = diagnostic || {};
-        if (!source.available) return '<span class="ak-ep-diagnostic-empty">\u6682\u65e0\u5217\u8868\u54cd\u5e94</span>';
-        var summary = source.summary || {};
-        return '<div class="ak-ep-diagnostic-grid">' +
-            '<span>\u8def\u5f84 <b>' + escapeHtml(summary.list_path || '--') + '</b></span>' +
-            '<span>\u8fd4\u56de <b>' + number(summary.row_count) + '</b></span>' +
-            '<span>\u53ef\u8d2d\u4e70 <b class="is-good">' + number(summary.valid_count) + '</b></span>' +
-            '<span>\u7f3a\u8ba2\u5355\u53f7 <b>' + number(summary.missing_sid_count) + '</b></span>' +
-            '<span>\u7f3a\u6821\u9a8c\u503c <b>' + number(summary.missing_sokey_count) + '</b></span>' +
-            '<button type="button" class="ak-ep-diagnostic-open" data-action="view-listing-diagnostic" ' + (loading ? 'disabled' : '') + '>\u67e5\u770b\u54cd\u5e94</button>' +
-        '</div>';
-    }
-
-    function renderDiagnosticModal(raw) {
-        if (!raw) return '';
-        return '<div class="ak-ep-diagnostic-modal" role="dialog" aria-modal="true" aria-label="\u5217\u8868\u54cd\u5e94">' +
-            '<div class="ak-ep-diagnostic-backdrop" data-action="close-listing-diagnostic"></div>' +
-            '<section class="ak-ep-diagnostic-dialog"><header><div><strong>\u5217\u8868\u54cd\u5e94</strong><span>' + escapeHtml(shortTime(raw.captured_at)) + '</span></div>' +
-            '<button type="button" class="ak-ep-diagnostic-close" data-action="close-listing-diagnostic" aria-label="\u5173\u95ed">&times;</button></header>' +
-            '<pre>' + escapeHtml(JSON.stringify(raw.payload || {}, null, 2)) + '</pre></section></div>';
-    }
-
     function render(state) {
         var data = state.data || {};
         var config = data.config || {};
@@ -127,7 +104,6 @@
         }
         var statuses = Array.isArray(data.accounts) ? data.accounts : [];
         var summary = data.summary || {};
-        var listingDiagnostic = data.listing_diagnostic || {};
         var totalPolls = statuses.reduce(function(total, item) { return total + Number(item.total_polls || 0); }, 0);
         var listings = statuses.reduce(function(total, item) { return total + Number(item.unique_listings_discovered || 0); }, 0);
         var enabled = !!config.enabled;
@@ -173,9 +149,6 @@
                 '<div class="ak-ep-table-wrap"><table><thead><tr><th>账号</th><th>状态</th><th>轮询</th><th>挂单</th><th>成交</th><th>最近轮询</th><th>最近异常</th></tr></thead><tbody>' + renderAccountRows(statuses) + '</tbody></table></div></section>' +
             '<section class="ak-ep-section"><header><h3>订单执行记录</h3><span>' + number(summary.orders) + ' 条</span></header>' +
                 '<div class="ak-ep-table-wrap"><table><thead><tr><th>订单</th><th>抢分账号</th><th>挂卖账号</th><th>EP</th><th>结果</th><th>信息</th><th>时间</th></tr></thead><tbody>' + renderOrderRows(data.orders) + '</tbody></table></div></section>' +
-            '<section class="ak-ep-diagnostic-section"><header><div><h3>\u5217\u8868\u54cd\u5e94\u8bca\u65ad</h3><span>\u4ec5\u4fdd\u5b58\u6700\u65b0\u4e00\u4efd\uff0c\u4ec5\u5f53\u524d\u670d\u52a1\u8fdb\u7a0b\u5185\u5b58\u4fdd\u7559\u4e00\u5c0f\u65f6\uff0c\u91cd\u542f\u5373\u6e05\u9664</span></div><em>' + escapeHtml(shortTime(listingDiagnostic.captured_at)) + '</em></header>' +
-                renderListingDiagnostic(listingDiagnostic, loading) + '</section>' +
-            renderDiagnosticModal(state.diagnosticRaw) +
         '</div>';
     }
 

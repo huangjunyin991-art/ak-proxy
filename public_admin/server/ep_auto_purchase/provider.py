@@ -97,7 +97,12 @@ class EPAutoPurchaseProvider:
         allow_rpc_error: bool = False,
     ) -> dict[str, Any]:
         request_headers = None
-        if self.internal_token and endpoint.strip("/").lower() in {"login", "public_ep_sellrecords1", "ep_buy"}:
+        if self.internal_token and endpoint.strip("/").lower() in {
+            "login",
+            "public_ep_sellrecords1",
+            "public_ep_selldetail",
+            "ep_buy",
+        }:
             request_headers = {EP_AUTO_PURCHASE_INTERNAL_HEADER: self.internal_token}
         try:
             response = await client.post(
@@ -148,6 +153,24 @@ class EPAutoPurchaseProvider:
     async def list_pending(self, client: httpx.AsyncClient, auth: Mapping[str, str]) -> list[dict[str, Any]]:
         payload = await self.fetch_pending_payload(client, auth)
         return inspect_listing_payload(payload).rows
+
+    async def fetch_order_detail(
+        self,
+        client: httpx.AsyncClient,
+        auth: Mapping[str, str],
+        sid: str,
+    ) -> dict[str, Any]:
+        return await self.post_rpc(
+            client,
+            "Public_EP_SellDetail",
+            {
+                "sId": str(sid or ""),
+                "key": str(auth.get("key") or ""),
+                "UserID": str(auth.get("user_id") or ""),
+                "v": make_v(),
+                "lang": "cn",
+            },
+        )
 
     async def buy(
         self,

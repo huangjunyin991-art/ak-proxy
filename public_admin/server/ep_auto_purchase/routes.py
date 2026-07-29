@@ -23,15 +23,6 @@ def create_ep_auto_purchase_router(
             return error_response
         return await service.dashboard()
 
-    @router.get("/listing-diagnostic")
-    async def listing_diagnostic(request: Request):
-        error_response = await authorize(request)
-        if error_response is not None:
-            return error_response
-        response = JSONResponse(content=service._serialize(await service.listing_diagnostic_payload()))
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
     @router.post("/config")
     async def save_config(request: Request):
         error_response = await authorize(request)
