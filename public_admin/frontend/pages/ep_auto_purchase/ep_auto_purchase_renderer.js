@@ -37,7 +37,7 @@
 
     function renderAccountRows(rows) {
         var items = Array.isArray(rows) ? rows : [];
-        if (!items.length) return '<tr><td colspan="7" class="ak-ep-empty">尚未配置抢分账号</td></tr>';
+        if (!items.length) return '<tr class="ak-ep-empty-row"><td colspan="7" class="ak-ep-empty">尚未配置抢分账号</td></tr>';
         return items.map(function(item) {
             var meta = stateMeta(item.state);
             return '<tr>' +
@@ -54,7 +54,7 @@
 
     function renderOrderRows(rows) {
         var items = Array.isArray(rows) ? rows : [];
-        if (!items.length) return '<tr><td colspan="7" class="ak-ep-empty">暂无购买记录</td></tr>';
+        if (!items.length) return '<tr class="ak-ep-empty-row"><td colspan="7" class="ak-ep-empty">暂无购买记录</td></tr>';
         return items.map(function(item) {
             var meta = orderMeta(item.state);
             return '<tr>' +
@@ -81,28 +81,38 @@
         var loading = !!state.loading;
         var current = String(config.current_account || '');
         return '<div class="ak-ep-root">' +
-            '<section class="ak-ep-toolbar">' +
-                '<div class="ak-ep-heading"><span>EP 自动抢购</span><small>账号轮转与订单执行</small></div>' +
+            '<header class="ak-ep-toolbar">' +
+                '<div class="ak-ep-heading"><h2>EP 自动抢购</h2><span>' + number(accounts.length) + ' 个轮转账号</span></div>' +
                 '<span class="ak-ep-run-state ' + (enabled ? 'is-running' : '') + '"><i></i>' + (enabled ? '运行中' : '已停用') + '</span>' +
-            '</section>' +
+            '</header>' +
             (state.error ? '<div class="ak-ep-alert" role="alert">' + escapeHtml(state.error) + '</div>' : '') +
-            '<section class="ak-ep-config">' +
-                '<div class="ak-ep-field ak-ep-account-field"><label for="akEpAccounts">抢分账号</label>' +
-                    '<textarea id="akEpAccounts" data-field="accounts" rows="3" spellcheck="false" autocomplete="off" ' + (loading ? 'disabled' : '') + '>' + escapeHtml(accounts.join('\n')) + '</textarea></div>' +
-                '<div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
-                    '<input id="akEpInterval" data-field="interval" type="number" min="1" max="3600" step="1" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
-                '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
-                '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +
-                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg><span>保存配置</span></button>' +
+            '<section class="ak-ep-workspace">' +
+                '<div class="ak-ep-config-pane">' +
+                    '<div class="ak-ep-pane-title"><strong>执行配置</strong><span>全局任务</span></div>' +
+                    '<div class="ak-ep-config-grid">' +
+                        '<div class="ak-ep-field ak-ep-account-field"><label for="akEpAccounts">抢分账号</label>' +
+                            '<textarea id="akEpAccounts" data-field="accounts" rows="3" spellcheck="false" autocomplete="off" placeholder="每行一个账号" ' + (loading ? 'disabled' : '') + '>' + escapeHtml(accounts.join('\n')) + '</textarea></div>' +
+                        '<div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
+                            '<input id="akEpInterval" data-field="interval" type="number" min="1" max="3600" step="1" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
+                        '<div class="ak-ep-actions">' +
+                            '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
+                            '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +
+                                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg><span>保存配置</span></button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="ak-ep-summary-pane">' +
+                    '<div class="ak-ep-pane-title"><strong>运行摘要</strong><span>' + (enabled ? '任务已启用' : '任务未启用') + '</span></div>' +
+                    '<div class="ak-ep-metrics">' +
+                        '<div class="ak-ep-metric"><span>轮转账号</span><strong>' + number(accounts.length) + '</strong></div>' +
+                        '<div class="ak-ep-metric is-cyan"><span>累计轮询</span><strong>' + number(totalPolls) + '</strong></div>' +
+                        '<div class="ak-ep-metric is-yellow"><span>发现挂单</span><strong>' + number(listings) + '</strong></div>' +
+                        '<div class="ak-ep-metric is-green"><span>购买成功</span><strong>' + number(summary.successes) + '</strong></div>' +
+                    '</div>' +
+                    '<div class="ak-ep-scheduler"><div><span>当前账号</span><strong>' + escapeHtml(current || '等待轮转') + '</strong></div>' +
+                        '<div><span>下次轮询</span><strong>' + escapeHtml(shortTime(config.next_poll_at)) + '</strong></div></div>' +
+                '</div>' +
             '</section>' +
-            '<section class="ak-ep-metrics">' +
-                '<div><span>轮转账号</span><strong>' + number(accounts.length) + '</strong></div>' +
-                '<div><span>累计轮询</span><strong>' + number(totalPolls) + '</strong></div>' +
-                '<div><span>发现挂单</span><strong>' + number(listings) + '</strong></div>' +
-                '<div><span>购买成功</span><strong>' + number(summary.successes) + '</strong></div>' +
-            '</section>' +
-            '<section class="ak-ep-scheduler"><div><span>当前账号</span><strong>' + escapeHtml(current || '等待轮转') + '</strong></div>' +
-                '<div><span>下次轮询</span><strong>' + escapeHtml(shortTime(config.next_poll_at)) + '</strong></div></section>' +
             '<section class="ak-ep-section"><header><h3>账号运行状态</h3><span>' + number(statuses.length) + ' 个账号</span></header>' +
                 '<div class="ak-ep-table-wrap"><table><thead><tr><th>账号</th><th>状态</th><th>轮询</th><th>挂单</th><th>成交</th><th>最近轮询</th><th>最近异常</th></tr></thead><tbody>' + renderAccountRows(statuses) + '</tbody></table></div></section>' +
             '<section class="ak-ep-section"><header><h3>订单执行记录</h3><span>' + number(summary.orders) + ' 条</span></header>' +
