@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import uuid
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from ..notice_guidance.provider import make_v
@@ -11,6 +12,20 @@ from ..upstream_rpc_gate import RpcGateBusy
 from .credentials import EPAutoPurchaseCredentials
 from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
 from .provider import EPAutoPurchaseProvider, EPAutoPurchaseUpstreamError, extract_auth_fields
+
+
+def parse_interval_milliseconds(value: Any) -> int:
+    raw_value = 1 if value is None or str(value).strip() == "" else value
+    try:
+        seconds = Decimal(str(raw_value).strip())
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("抢分间隔必须是有效数字")
+    if not seconds.is_finite() or seconds <= 0:
+        raise ValueError("抢分间隔必须大于 0 秒")
+    milliseconds = seconds * Decimal("1000")
+    if milliseconds != milliseconds.to_integral_value():
+        raise ValueError("抢分间隔最多支持三位小数，最小为 0.001 秒")
+    return int(milliseconds)
 
 
 class EPAutoPurchaseService:
@@ -80,12 +95,7 @@ class EPAutoPurchaseService:
             accounts.append(account)
             if password.strip():
                 password_updates[account] = password
-        try:
-            interval_seconds = int(payload.get("interval_seconds") or 1)
-        except (TypeError, ValueError):
-            raise ValueError("抢分间隔必须是整数秒")
-        if not 1 <= interval_seconds <= 3600:
-            raise ValueError("抢分间隔必须在 1 到 3600 秒之间")
+        interval_milliseconds = parse_interval_milliseconds(payload.get("interval_seconds", 1))
         active_rows = await self.repository.list_active_accounts()
         active = {
             str(item.get("username") or "").strip().lower(): item
@@ -107,7 +117,7 @@ class EPAutoPurchaseService:
         for account, password in password_updates.items():
             if not await self.credentials.update_password(account, password):
                 raise ValueError(f"账号 {account} 的密码更新失败")
-        config = await self.repository.save_config(accounts, interval_seconds, enabled)
+        config = await self.repository.save_config(accounts, interval_milliseconds, enabled)
         self._wake.set()
         return self._serialize(config)
 
@@ -144,19 +154,22 @@ class EPAutoPurchaseService:
 
     async def _run(self) -> None:
         while not self._stopping.is_set():
-            did_work = False
+            self._wake.clear()
+            wait_seconds = 1.0
             try:
                 poll = await self.repository.claim_next_poll(self.instance_id)
                 if poll is not None:
-                    did_work = True
+                    wait_seconds = max(
+                        0.001,
+                        int(poll.get("interval_milliseconds") or 1000) / 1000,
+                    )
                     await self._process_poll(str(poll.get("account") or ""))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 self._log("worker iteration failed: %s", str(exc)[:500])
-            self._wake.clear()
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=0.2 if did_work else 1.0)
+                await asyncio.wait_for(self._wake.wait(), timeout=wait_seconds)
             except asyncio.TimeoutError:
                 pass
 

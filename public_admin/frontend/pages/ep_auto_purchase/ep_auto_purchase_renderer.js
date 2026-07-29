@@ -109,7 +109,7 @@
         var current = String(config.current_account || '');
         return '<div class="ak-ep-root">' +
             '<header class="ak-ep-toolbar">' +
-                '<div class="ak-ep-heading"><h2>EP 自动抢购</h2><span>' + number(accountRows.length) + ' 个轮转账号</span></div>' +
+                '<div class="ak-ep-heading"><h2>EP 自动抢购</h2></div>' +
                 '<span class="ak-ep-run-state ' + (enabled ? 'is-running' : '') + '"><i></i>' + (enabled ? '运行中' : '已停用') + '</span>' +
             '</header>' +
             (state.error ? '<div class="ak-ep-alert" role="alert">' + escapeHtml(state.error) + '</div>' : '') +
@@ -122,7 +122,7 @@
                                 '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加账号</span></button></div>' +
                             '<div class="ak-ep-credential-table-wrap"><table class="ak-ep-credential-table"><thead><tr><th>账号</th><th>登录密码</th><th>密码状态</th><th></th></tr></thead><tbody>' + renderCredentialRows(accountRows, loading) + '</tbody></table></div></div>' +
                         '<div class="ak-ep-control-row"><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
-                            '<input id="akEpInterval" data-field="interval" type="number" min="1" max="3600" step="1" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
+                            '<input id="akEpInterval" data-field="interval" type="number" min="0.001" step="0.001" inputmode="decimal" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
                             '<div class="ak-ep-actions">' +
                                 '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
                                 '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +

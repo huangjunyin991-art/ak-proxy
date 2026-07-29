@@ -44,6 +44,7 @@ class EPAutoPurchaseRepository:
                         slot SMALLINT PRIMARY KEY DEFAULT 1 CHECK (slot = 1),
                         enabled BOOLEAN NOT NULL DEFAULT FALSE,
                         interval_seconds INTEGER NOT NULL DEFAULT 1,
+                        interval_milliseconds BIGINT NOT NULL DEFAULT 1000,
                         accounts_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                         rotation_cursor INTEGER NOT NULL DEFAULT 0,
                         next_poll_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -53,6 +54,26 @@ class EPAutoPurchaseRepository:
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
+                    """
+                )
+                await conn.execute(
+                    """
+                    ALTER TABLE ep_auto_purchase_config
+                    ADD COLUMN IF NOT EXISTS interval_milliseconds BIGINT
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_config
+                    SET interval_milliseconds = GREATEST(1, COALESCE(interval_seconds, 1)::BIGINT * 1000)
+                    WHERE interval_milliseconds IS NULL
+                    """
+                )
+                await conn.execute(
+                    """
+                    ALTER TABLE ep_auto_purchase_config
+                    ALTER COLUMN interval_milliseconds SET DEFAULT 1000,
+                    ALTER COLUMN interval_milliseconds SET NOT NULL
                     """
                 )
                 await conn.execute(
@@ -138,9 +159,21 @@ class EPAutoPurchaseRepository:
             row = await conn.fetchrow("SELECT * FROM ep_auto_purchase_config WHERE slot = 1")
         result = dict(row or {})
         result["accounts"] = _accounts(result.pop("accounts_json", []))
+        interval_milliseconds = max(1, int(result.get("interval_milliseconds") or 1000))
+        result["interval_milliseconds"] = interval_milliseconds
+        result["interval_seconds"] = (
+            interval_milliseconds // 1000
+            if interval_milliseconds % 1000 == 0
+            else interval_milliseconds / 1000
+        )
         return result
 
-    async def save_config(self, accounts: list[str], interval_seconds: int, enabled: bool) -> dict[str, Any]:
+    async def save_config(
+        self,
+        accounts: list[str],
+        interval_milliseconds: int,
+        enabled: bool,
+    ) -> dict[str, Any]:
         await self.ensure_ready()
         encoded = json.dumps(accounts, ensure_ascii=False)
         pool = self._pool_supplier()
@@ -149,7 +182,8 @@ class EPAutoPurchaseRepository:
                 """
                 UPDATE ep_auto_purchase_config
                 SET enabled = $1,
-                    interval_seconds = $2,
+                    interval_seconds = GREATEST(1, CEIL($2::numeric / 1000)::INTEGER),
+                    interval_milliseconds = $2,
                     accounts_json = $3::jsonb,
                     rotation_cursor = CASE WHEN accounts_json = $3::jsonb THEN rotation_cursor ELSE 0 END,
                     next_poll_at = NOW(),
@@ -157,7 +191,7 @@ class EPAutoPurchaseRepository:
                 WHERE slot = 1
                 """,
                 bool(enabled),
-                int(interval_seconds),
+                max(1, int(interval_milliseconds)),
                 encoded,
             )
             await conn.execute(
@@ -222,7 +256,10 @@ class EPAutoPurchaseRepository:
                     owner,
                     account,
                 )
-                return {"account": account, "interval_seconds": int(row["interval_seconds"] or 1)}
+                return {
+                    "account": account,
+                    "interval_milliseconds": max(1, int(row["interval_milliseconds"] or 1000)),
+                }
 
     async def finish_poll(
         self,
@@ -277,7 +314,8 @@ class EPAutoPurchaseRepository:
                     """
                     UPDATE ep_auto_purchase_config
                     SET lease_owner = '', lease_expires_at = NULL, current_account = '',
-                        next_poll_at = NOW() + make_interval(secs => interval_seconds), updated_at = NOW()
+                        next_poll_at = NOW() + interval_milliseconds * INTERVAL '1 millisecond',
+                        updated_at = NOW()
                     WHERE slot = 1 AND lease_owner = $1
                     """,
                     owner,

@@ -1,9 +1,11 @@
 import asyncio
+from contextlib import asynccontextmanager
 
 import pytest
 
 from .ep_auto_purchase.provider import EPAutoPurchaseProvider
-from .ep_auto_purchase.service import EPAutoPurchaseService
+from .ep_auto_purchase.repository import EPAutoPurchaseRepository
+from .ep_auto_purchase.service import EPAutoPurchaseService, parse_interval_milliseconds
 from .ep_auto_purchase.internal_rpc import (
     DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL,
     EP_AUTO_PURCHASE_INTERNAL_HEADER,
@@ -223,11 +225,12 @@ class _ConfigRepository:
     async def list_active_accounts(self):
         return [dict(item) for item in self.active_accounts]
 
-    async def save_config(self, accounts, interval_seconds, enabled):
-        self.saved = (list(accounts), interval_seconds, enabled)
+    async def save_config(self, accounts, interval_milliseconds, enabled):
+        self.saved = (list(accounts), interval_milliseconds, enabled)
         return {
             "accounts": list(accounts),
-            "interval_seconds": interval_seconds,
+            "interval_milliseconds": interval_milliseconds,
+            "interval_seconds": interval_milliseconds / 1000,
             "enabled": enabled,
         }
 
@@ -283,11 +286,106 @@ async def test_configure_reuses_saved_password_and_updates_only_explicit_passwor
     })
 
     assert result["accounts"] == ["buyer1", "buyer2"]
-    assert repository.saved == (["buyer1", "buyer2"], 2, True)
+    assert repository.saved == (["buyer1", "buyer2"], 2000, True)
     assert auth_store.updated == [("buyer2", "new-password")]
     assert auth_store.cleared == ["buyer2"]
     assert invalidated == ["buyer2"]
     assert "password" not in str(result).lower()
+
+
+@pytest.mark.parametrize(
+    ("seconds", "milliseconds"),
+    [("0.001", 1), ("0.1", 100), ("0.5", 500), (1, 1000)],
+)
+def test_interval_seconds_are_converted_to_exact_milliseconds(seconds, milliseconds):
+    assert parse_interval_milliseconds(seconds) == milliseconds
+
+
+@pytest.mark.parametrize("value", [0, -0.1, "invalid", "0.0001", float("inf")])
+def test_interval_rejects_non_positive_or_sub_millisecond_values(value):
+    with pytest.raises(ValueError, match="抢分间隔"):
+        parse_interval_milliseconds(value)
+
+
+@pytest.mark.anyio
+async def test_configure_persists_sub_second_interval_as_milliseconds():
+    repository = _ConfigRepository([
+        {"username": "buyer", "nickname": "", "has_password": True},
+    ])
+    service = EPAutoPurchaseService(repository, _AuthStore(), _Gate())
+
+    result = await service.configure({
+        "accounts": [{"account": "buyer", "password": ""}],
+        "interval_seconds": "0.1",
+        "enabled": True,
+    })
+
+    assert repository.saved == (["buyer"], 100, True)
+    assert result["interval_seconds"] == 0.1
+
+
+class _WorkerIntervalRepository:
+    def __init__(self):
+        self.claims = 0
+
+    async def claim_next_poll(self, owner):
+        self.claims += 1
+        return {"account": "buyer", "interval_milliseconds": 1}
+
+
+@pytest.mark.anyio
+async def test_worker_does_not_impose_legacy_200ms_delay_on_subsecond_poll(monkeypatch):
+    repository = _WorkerIntervalRepository()
+    service = EPAutoPurchaseService(repository, _AuthStore(), _Gate())
+    observed_timeouts = []
+
+    async def finish_immediately(account):
+        return None
+
+    async def capture_wait(awaitable, timeout):
+        awaitable.close()
+        observed_timeouts.append(timeout)
+        raise asyncio.CancelledError
+
+    service._process_poll = finish_immediately
+    monkeypatch.setattr(asyncio, "wait_for", capture_wait)
+
+    with pytest.raises(asyncio.CancelledError):
+        await service._run()
+
+    assert repository.claims == 1
+    assert observed_timeouts == [0.001]
+
+
+class _MigrationConnection:
+    def __init__(self):
+        self.statements = []
+
+    async def execute(self, statement, *args):
+        self.statements.append((statement, args))
+        return "OK"
+
+
+class _MigrationPool:
+    def __init__(self, connection):
+        self.connection = connection
+
+    @asynccontextmanager
+    async def acquire(self):
+        yield self.connection
+
+
+@pytest.mark.anyio
+async def test_repository_startup_backfills_only_unmigrated_intervals():
+    connection = _MigrationConnection()
+    repository = EPAutoPurchaseRepository(lambda: _MigrationPool(connection))
+
+    await repository.ensure_ready()
+
+    sql = "\n".join(statement for statement, _ in connection.statements)
+    assert "ADD COLUMN IF NOT EXISTS interval_milliseconds BIGINT" in sql
+    assert "COALESCE(interval_seconds, 1)::BIGINT * 1000" in sql
+    assert "WHERE interval_milliseconds IS NULL" in sql
 
 
 @pytest.mark.anyio

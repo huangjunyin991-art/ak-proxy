@@ -457,7 +457,7 @@
     box-shadow: 0 0 0 3px rgba(0, 212, 255, .14);
 }
 
-.ak-ep-save {
+#epAutoPurchasePanelMount button.ak-ep-save {
     min-width: 112px;
     height: 38px;
     display: inline-flex;
@@ -465,11 +465,11 @@
     justify-content: center;
     gap: 7px;
     padding: 0 15px;
-    border: 0;
-    border-radius: 6px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-green));
-    box-shadow: 0 6px 16px rgba(0, 212, 255, .16);
-    color: #00131a;
+    border: 1px solid rgba(108, 240, 213, .72) !important;
+    border-radius: 7px !important;
+    background: linear-gradient(135deg, var(--accent) 0%, #39e6ca 52%, var(--accent-green) 100%) !important;
+    box-shadow: 0 7px 18px rgba(0, 212, 255, .2), inset 0 1px 0 rgba(255, 255, 255, .24) !important;
+    color: #00131a !important;
     cursor: pointer;
     font: inherit;
     font-size: 13px;
@@ -478,7 +478,7 @@
     transition: transform .18s ease, filter .18s ease, box-shadow .18s ease;
 }
 
-.ak-ep-save svg {
+#epAutoPurchasePanelMount button.ak-ep-save svg {
     width: 15px;
     height: 15px;
     fill: none;
@@ -488,13 +488,14 @@
     stroke-linejoin: round;
 }
 
-.ak-ep-save:hover {
+#epAutoPurchasePanelMount button.ak-ep-save:hover {
     transform: translateY(-1px);
     filter: brightness(1.05);
-    box-shadow: 0 8px 20px rgba(0, 212, 255, .23);
+    background: linear-gradient(135deg, #35dcff 0%, #4aedd0 52%, #2cff9d 100%) !important;
+    box-shadow: 0 9px 22px rgba(0, 212, 255, .28), inset 0 1px 0 rgba(255, 255, 255, .3) !important;
 }
 
-.ak-ep-save:disabled {
+#epAutoPurchasePanelMount button.ak-ep-save:disabled {
     transform: none;
     cursor: not-allowed;
     opacity: .5;

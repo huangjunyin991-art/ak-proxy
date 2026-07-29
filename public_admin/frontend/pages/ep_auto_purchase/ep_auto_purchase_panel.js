@@ -74,6 +74,20 @@
         if (!node || state.loading) return;
         var intervalInput = node.querySelector('[data-field="interval"]');
         var enabledInput = node.querySelector('[data-field="enabled"]');
+        var intervalSeconds = Number(intervalInput && intervalInput.value);
+        var intervalMilliseconds = intervalSeconds * 1000;
+        if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
+            state.error = '抢分间隔必须大于 0 秒';
+            toast(state.error, 'error');
+            render();
+            return;
+        }
+        if (intervalSeconds < 0.001 || Math.abs(intervalMilliseconds - Math.round(intervalMilliseconds)) > 1e-9) {
+            state.error = '抢分间隔最多支持三位小数，最小为 0.001 秒';
+            toast(state.error, 'error');
+            render();
+            return;
+        }
         var accounts = collectAccountRows().filter(function(item) { return !!item.account; }).map(function(item) {
             return { account: item.account, password: item.password };
         });
@@ -82,7 +96,7 @@
         render();
         api.saveConfig({
             accounts: accounts,
-            interval_seconds: Number(intervalInput && intervalInput.value || 1),
+            interval_seconds: intervalSeconds,
             enabled: !!(enabledInput && enabledInput.checked)
         }).then(function() {
             state.dirty = false;
