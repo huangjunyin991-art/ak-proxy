@@ -4,13 +4,15 @@ from typing import Any, Mapping
 
 import httpx
 
-from ..notice_guidance.provider import DEFAULT_BASE_URL, make_headers, make_v, normalize_base_url
+from ..notice_guidance.provider import make_v
 from ..rpc_timeout_policy import (
     NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS,
     NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
     resolve_connect_timeout,
 )
 from ..security.upstream_http import resolve_upstream_tls_verify
+from ..upstream_rpc_gate import RpcGateBusy
+from .internal_rpc import EP_AUTO_PURCHASE_INTERNAL_HEADER, resolve_nginx_rpc_base_url
 
 
 AUTH_ERROR_MARKERS = ("key", "userkey", "token", "login", "登录", "未登录", "未登錄", "失效", "无效", "认证")
@@ -55,13 +57,25 @@ def extract_auth_fields(payload: Mapping[str, Any] | None, fallback_key: str = "
 
 
 class EPAutoPurchaseProvider:
-    def __init__(self, base_url: str = DEFAULT_BASE_URL) -> None:
-        self.base_url = normalize_base_url(base_url)
+    def __init__(self, base_url: str | None = None, *, internal_token: str = "") -> None:
+        self.base_url = resolve_nginx_rpc_base_url(base_url)
+        self.internal_token = str(internal_token or "").strip()
+
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "User-Agent": "AK-Proxy-EP-Auto-Purchase/1.0",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": "https://ak2025.vip",
+            "Referer": "https://ak2025.vip/",
+        }
+        return headers
 
     def build_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            headers=make_headers(),
-            verify=resolve_upstream_tls_verify("ep_auto_purchase", default=False),
+            headers=self._headers(),
+            verify=resolve_upstream_tls_verify("ep_auto_purchase", default=True),
             follow_redirects=True,
             trust_env=False,
             timeout=httpx.Timeout(
@@ -81,19 +95,29 @@ class EPAutoPurchaseProvider:
         *,
         allow_rpc_error: bool = False,
     ) -> dict[str, Any]:
+        request_headers = None
+        if self.internal_token and endpoint.strip("/").lower() in {"public_ep_sellrecords1", "ep_buy"}:
+            request_headers = {EP_AUTO_PURCHASE_INTERNAL_HEADER: self.internal_token}
         try:
-            response = await client.post(self.base_url + endpoint, data=dict(data))
+            response = await client.post(
+                self.base_url + endpoint,
+                data=dict(data),
+                headers=request_headers,
+            )
         except Exception as exc:
             raise EPAutoPurchaseUpstreamError(str(exc) or exc.__class__.__name__) from exc
+        payload = None
+        try:
+            payload = response.json()
+        except Exception:
+            pass
         if response.status_code >= 400:
+            if isinstance(payload, Mapping) and str(payload.get("Code") or "") == "rpc_gate_busy":
+                raise RpcGateBusy()
             raise EPAutoPurchaseUpstreamError(
                 f"HTTP {response.status_code}",
                 status_code=int(response.status_code),
             )
-        try:
-            payload = response.json()
-        except Exception as exc:
-            raise EPAutoPurchaseUpstreamError("upstream returned non-JSON response") from exc
         if not isinstance(payload, Mapping):
             raise EPAutoPurchaseUpstreamError("upstream payload is not an object")
         result = dict(payload)

@@ -123,9 +123,8 @@
 
 .ak-ep-config-grid {
     display: grid;
-    grid-template-columns: minmax(240px, 1fr) 118px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
-    align-items: end;
 }
 
 .ak-ep-field {
@@ -142,7 +141,8 @@
 }
 
 .ak-ep-field textarea,
-.ak-ep-field input {
+.ak-ep-field input,
+.ak-ep-row-input {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -170,12 +170,14 @@
 }
 
 .ak-ep-field textarea:hover,
-.ak-ep-field input:hover {
+.ak-ep-field input:hover,
+.ak-ep-row-input:hover {
     border-color: rgba(0, 212, 255, .45);
 }
 
 .ak-ep-field textarea:focus,
-.ak-ep-field input:focus {
+.ak-ep-field input:focus,
+.ak-ep-row-input:focus {
     border-color: var(--accent);
     background: rgba(15, 15, 35, .95);
     box-shadow: 0 0 0 3px rgba(0, 212, 255, .1);
@@ -197,8 +199,206 @@
     pointer-events: none;
 }
 
+.ak-ep-account-editor {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: rgba(15, 15, 35, .34);
+}
+
+.ak-ep-editor-heading {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 8px 6px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.ak-ep-editor-heading > div {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.ak-ep-editor-heading strong {
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.ak-ep-editor-heading > div span {
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.ak-ep-add-account {
+    height: 29px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 10px;
+    border: 1px solid rgba(0, 212, 255, .36);
+    border-radius: 5px;
+    outline: 0;
+    background: rgba(0, 212, 255, .08);
+    color: #76e6f7;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 750;
+    white-space: nowrap;
+    transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+
+.ak-ep-add-account svg,
+.ak-ep-remove-account svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.ak-ep-add-account:hover {
+    border-color: rgba(0, 212, 255, .62);
+    background: rgba(0, 212, 255, .14);
+    color: #b3f4ff;
+}
+
+.ak-ep-add-account:focus-visible,
+.ak-ep-remove-account:focus-visible {
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, .13);
+}
+
+.ak-ep-add-account:disabled,
+.ak-ep-remove-account:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+}
+
+.ak-ep-credential-table-wrap {
+    width: 100%;
+    max-height: 238px;
+    overflow: auto;
+}
+
+.ak-ep-credential-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.ak-ep-credential-table th {
+    height: 30px;
+    padding: 0 7px;
+    background: rgba(15, 15, 35, .3);
+    color: #8f9ab2;
+    font-size: 10px;
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.ak-ep-credential-table th:first-child { width: 29%; }
+.ak-ep-credential-table th:nth-child(2) { width: auto; }
+.ak-ep-credential-table th:nth-child(3) { width: 86px; }
+.ak-ep-credential-table th:last-child { width: 39px; }
+
+.ak-ep-credential-table td {
+    height: 47px;
+    padding: 5px 7px;
+    border-top: 1px solid rgba(45, 45, 68, .68);
+    vertical-align: middle;
+}
+
+.ak-ep-row-input {
+    width: 100%;
+    height: 34px;
+    padding: 0 9px;
+    border: 1px solid rgba(76, 86, 116, .72);
+    border-radius: 5px;
+    outline: 0;
+    background: rgba(10, 13, 29, .72);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+}
+
+.ak-ep-row-input::placeholder {
+    color: #68738b;
+}
+
+.ak-ep-credential-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.ak-ep-credential-state i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #758097;
+}
+
+.ak-ep-credential-state.is-saved { color: #79e6ae; }
+.ak-ep-credential-state.is-saved i { background: #52d694; }
+.ak-ep-credential-state.is-pending { color: #72dff4; }
+.ak-ep-credential-state.is-pending i { background: var(--accent); }
+.ak-ep-credential-state.is-missing { color: #ffbe73; }
+.ak-ep-credential-state.is-missing i { background: #ffa502; }
+
+.ak-ep-row-action {
+    text-align: right;
+}
+
+.ak-ep-remove-account {
+    width: 29px;
+    height: 29px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    outline: 0;
+    background: transparent;
+    color: #7f8aa2;
+    cursor: pointer;
+    transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+
+.ak-ep-remove-account:hover {
+    border-color: rgba(255, 71, 87, .28);
+    background: rgba(255, 71, 87, .08);
+    color: #ff9ca6;
+}
+
+.ak-ep-credential-empty td {
+    height: 70px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+}
+
+.ak-ep-control-row {
+    display: grid;
+    grid-template-columns: 118px minmax(0, 1fr);
+    align-items: end;
+    gap: 12px;
+}
+
 .ak-ep-actions {
-    grid-column: 1 / -1;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -534,12 +734,76 @@
     }
 
     .ak-ep-config-grid {
-        grid-template-columns: minmax(0, 1fr) 96px;
+        grid-template-columns: minmax(0, 1fr);
         gap: 10px;
     }
 
-    .ak-ep-account-field {
-        grid-column: 1 / -1;
+    .ak-ep-editor-heading {
+        padding-left: 10px;
+    }
+
+    .ak-ep-editor-heading > div span {
+        display: none;
+    }
+
+    .ak-ep-credential-table-wrap {
+        max-height: 320px;
+        overflow-x: hidden;
+    }
+
+    .ak-ep-credential-table,
+    .ak-ep-credential-table tbody,
+    .ak-ep-credential-table tr,
+    .ak-ep-credential-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .ak-ep-credential-table thead {
+        display: none;
+    }
+
+    .ak-ep-credential-table tr[data-account-row] {
+        display: grid;
+        grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr) 31px;
+        gap: 6px;
+        padding: 8px;
+        border-top: 1px solid rgba(45, 45, 68, .68);
+    }
+
+    .ak-ep-credential-table tr[data-account-row]:first-child {
+        border-top: 0;
+    }
+
+    .ak-ep-credential-table td {
+        height: auto;
+        padding: 0;
+        border: 0;
+    }
+
+    .ak-ep-credential-table td:nth-child(3) {
+        grid-column: 1 / 3;
+        min-height: 20px;
+        display: flex;
+        align-items: center;
+        padding-left: 2px;
+    }
+
+    .ak-ep-credential-table td:last-child {
+        grid-column: 3;
+        grid-row: 1;
+        align-self: center;
+    }
+
+    .ak-ep-row-input {
+        height: 36px;
+        padding: 0 8px;
+        font-size: 11px;
+    }
+
+    .ak-ep-control-row {
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 8px;
     }
 
     .ak-ep-actions {

@@ -106,10 +106,12 @@ class EPAutoPurchaseRepository:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT username, nickname
-                FROM authorized_accounts
-                WHERE status = 'active' AND expire_time >= NOW()
-                ORDER BY username
+                SELECT aa.username, aa.nickname,
+                       COALESCE(NULLIF(us.password, ''), NULLIF(aa.password, ''), '') <> '' AS has_password
+                FROM authorized_accounts aa
+                LEFT JOIN user_stats us ON us.username = aa.username
+                WHERE aa.status = 'active' AND aa.expire_time >= NOW()
+                ORDER BY aa.username
                 """
             )
         return [dict(row) for row in rows]
@@ -321,6 +323,21 @@ class EPAutoPurchaseRepository:
                 state,
                 str(message or "")[:500],
             )
+
+    async def release_order_claim(self, sid: str, buyer_account: str) -> bool:
+        """Release only a claim that is known not to have reached the upstream."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM ep_auto_purchase_orders
+                WHERE sid = $1 AND buyer_account = $2 AND state = 'claimed'
+                """,
+                str(sid or ""),
+                str(buyer_account or "").strip().lower(),
+            )
+        return result == "DELETE 1"
 
     async def dashboard(self) -> dict[str, Any]:
         config = await self.get_config()

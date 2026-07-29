@@ -840,12 +840,14 @@ upstream_rpc_gate = None
 
 try:
     from .ep_auto_purchase import (
+        EP_AUTO_PURCHASE_INTERNAL_HEADER,
         EPAutoPurchaseRepository,
         EPAutoPurchaseService,
         create_ep_auto_purchase_router,
     )
     _EP_AUTO_PURCHASE_IMPORT_ERROR = None
 except Exception as e:
+    EP_AUTO_PURCHASE_INTERNAL_HEADER = "x-ak-ep-auto-purchase-job"
     EPAutoPurchaseRepository = None
     EPAutoPurchaseService = None
     create_ep_auto_purchase_router = None
@@ -3712,21 +3714,33 @@ async def proxy_rpc(path: str, request: Request):
         "mnemonic_confirm",
     }
     normalized_path = path.strip("/").lower()
+    ep_auto_purchase_internal_request = bool(
+        normalized_path in {"public_ep_sellrecords1", "ep_buy"}
+        and ep_auto_purchase_service is not None
+        and ep_auto_purchase_service.is_internal_rpc_request(request)
+    )
     upstream_rpc_lease = None
     if (
         normalized_path in {"notice_list", "my_subaccount", "public_ep_sellrecords1", "ep_buy"}
         and not notice_guidance_internal_request
         and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):
-        if normalized_path in {"notice_list", "my_subaccount"} and guided_sale_statistics_service is not None:
+        if ep_auto_purchase_internal_request and upstream_rpc_gate is not None:
+            upstream_rpc_lease = await upstream_rpc_gate.try_reserve_background(build_rpc_identity(params))
+        elif normalized_path in {"notice_list", "my_subaccount"} and guided_sale_statistics_service is not None:
             try:
                 user_id = str(params.get("UserID") or params.get("userId") or params.get("userid") or "").strip()
                 await guided_sale_statistics_service.repository.mark_external_activity(user_id)
             except Exception as exc:
                 logger.warning(f"[GuidedSaleStatistics] external activity update failed: {exc}")
-        if upstream_rpc_gate is not None and build_rpc_identity is not None:
+        if upstream_rpc_lease is None and ep_auto_purchase_internal_request:
+            return JSONResponse(
+                {"Error": True, "Code": "rpc_gate_busy", "Msg": "用户请求优先，后台任务稍后重试"},
+                status_code=503,
+            )
+        if upstream_rpc_lease is None and upstream_rpc_gate is not None and build_rpc_identity is not None:
             upstream_rpc_lease = await upstream_rpc_gate.reserve_external(build_rpc_identity(params))
-        elif guided_sale_statistics_service is not None:
+        elif upstream_rpc_lease is None and guided_sale_statistics_service is not None:
             upstream_rpc_lease = await guided_sale_statistics_service.reserve_external_rpc(params)
         if upstream_rpc_lease is None:
             return JSONResponse(
@@ -3798,6 +3812,7 @@ async def proxy_rpc(path: str, request: Request):
         upstream_started_at = time.perf_counter()
         forward_headers = dict(request.headers)
         forward_headers.pop(NOTICE_GUIDANCE_INTERNAL_HEADER, None)
+        forward_headers.pop(EP_AUTO_PURCHASE_INTERNAL_HEADER, None)
         if auth_cookie_header:
             forward_headers["cookie"] = auth_cookie_header
         response = await forward_request(
@@ -7031,6 +7046,7 @@ if (
             auth_store=db,
             rpc_gate=upstream_rpc_gate,
             logger=logger,
+            on_password_updated=lambda account: _ak_auth_cache.pop(account, None),
         )
         app.include_router(create_ep_auto_purchase_router(
             service=ep_auto_purchase_service,

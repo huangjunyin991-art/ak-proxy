@@ -2,23 +2,38 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import time
 import uuid
 from datetime import datetime
 from typing import Any, Mapping
 
 from ..notice_guidance.provider import make_v
 from ..upstream_rpc_gate import RpcGateBusy
+from .credentials import EPAutoPurchaseCredentials
+from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
 from .provider import EPAutoPurchaseProvider, EPAutoPurchaseUpstreamError, extract_auth_fields
 
 
 class EPAutoPurchaseService:
-    def __init__(self, repository, auth_store, rpc_gate, logger=None) -> None:
+    def __init__(
+        self,
+        repository,
+        auth_store,
+        rpc_gate,
+        logger=None,
+        provider=None,
+        on_password_updated=None,
+    ) -> None:
         self.repository = repository
         self.auth_store = auth_store
         self.rpc_gate = rpc_gate
         self.logger = logger
-        self.provider = EPAutoPurchaseProvider()
+        self.credentials = EPAutoPurchaseCredentials(
+            repository,
+            auth_store,
+            on_password_updated=on_password_updated,
+        )
+        self._internal_rpc_token = create_internal_rpc_token()
+        self.provider = provider or EPAutoPurchaseProvider(internal_token=self._internal_rpc_token)
         self.instance_id = "ep-auto-purchase-" + uuid.uuid4().hex
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
@@ -48,35 +63,79 @@ class EPAutoPurchaseService:
         if isinstance(raw_accounts, str):
             raw_accounts = raw_accounts.replace(",", "\n").splitlines()
         accounts: list[str] = []
+        password_updates: dict[str, str] = {}
         seen: set[str] = set()
         for value in raw_accounts if isinstance(raw_accounts, list) else []:
-            account = str(value or "").strip().lower()
-            if account and account not in seen:
-                seen.add(account)
-                accounts.append(account)
+            if isinstance(value, Mapping):
+                account = str(value.get("account") or value.get("username") or "").strip().lower()
+                password = str(value.get("password") or "")
+            else:
+                account = str(value or "").strip().lower()
+                password = ""
+            if not account:
+                continue
+            if account in seen:
+                raise ValueError(f"抢分账号不能重复：{account}")
+            seen.add(account)
+            accounts.append(account)
+            if password.strip():
+                password_updates[account] = password
         try:
             interval_seconds = int(payload.get("interval_seconds") or 1)
         except (TypeError, ValueError):
             raise ValueError("抢分间隔必须是整数秒")
         if not 1 <= interval_seconds <= 3600:
             raise ValueError("抢分间隔必须在 1 到 3600 秒之间")
-        active = {str(item.get("username") or "").strip().lower() for item in await self.repository.list_active_accounts()}
+        active_rows = await self.repository.list_active_accounts()
+        active = {
+            str(item.get("username") or "").strip().lower(): item
+            for item in active_rows
+        }
         invalid = [account for account in accounts if account not in active]
         if invalid:
             raise ValueError("以下账号不在有效白名单中：" + "、".join(invalid[:8]))
+        missing_passwords = [
+            account
+            for account in accounts
+            if account not in password_updates and not bool(active[account].get("has_password"))
+        ]
+        if missing_passwords:
+            raise ValueError("以下账号没有已保存密码，请先输入密码：" + "、".join(missing_passwords[:8]))
         enabled = bool(payload.get("enabled"))
         if enabled and not accounts:
             raise ValueError("启用前至少配置一个抢分账号")
+        for account, password in password_updates.items():
+            if not await self.credentials.update_password(account, password):
+                raise ValueError(f"账号 {account} 的密码更新失败")
         config = await self.repository.save_config(accounts, interval_seconds, enabled)
         self._wake.set()
         return self._serialize(config)
 
     async def dashboard(self) -> dict[str, Any]:
         data = await self.repository.dashboard()
-        active_accounts = await self.repository.list_active_accounts()
+        active_accounts = [
+            {
+                "username": str(item.get("username") or "").strip().lower(),
+                "nickname": str(item.get("nickname") or ""),
+                "has_password": bool(item.get("has_password")),
+            }
+            for item in await self.repository.list_active_accounts()
+        ]
+        active_by_account = {
+            str(item.get("username") or "").strip().lower(): item
+            for item in active_accounts
+        }
+        config = dict(data.get("config") or {})
+        config["account_rows"] = [
+            {
+                "account": account,
+                "has_password": bool(active_by_account.get(account, {}).get("has_password")),
+            }
+            for account in config.get("accounts") or []
+        ]
         return {
             "success": True,
-            "config": self._serialize(data.get("config") or {}),
+            "config": self._serialize(config),
             "available_accounts": self._serialize(active_accounts),
             "accounts": self._serialize(data.get("accounts") or []),
             "orders": self._serialize(data.get("orders") or []),
@@ -148,19 +207,13 @@ class EPAutoPurchaseService:
         if not auth.get("key") or not auth.get("user_id"):
             auth = await self._refresh_auth(client, account)
         try:
-            rows = await self._gated_call(
-                auth.get("user_id") or account,
-                lambda: self.provider.list_pending(client, auth),
-            )
+            rows = await self.provider.list_pending(client, auth)
             return rows, auth
         except EPAutoPurchaseUpstreamError as exc:
             if not exc.is_auth_error:
                 raise
         auth = await self._refresh_auth(client, account)
-        rows = await self._gated_call(
-            auth.get("user_id") or account,
-            lambda: self.provider.list_pending(client, auth),
-        )
+        rows = await self.provider.list_pending(client, auth)
         return rows, auth
 
     async def _purchase_listing(
@@ -174,30 +227,27 @@ class EPAutoPurchaseService:
         sokey = str(row.get("Sokey") or row.get("SoKey") or "").strip()
         if not sid or not sokey:
             return False
-        lease = await self.rpc_gate.try_reserve_background(auth.get("user_id") or buyer_account)
-        if lease is None:
-            raise RpcGateBusy()
+        claimed = await self.repository.claim_order(
+            sid,
+            buyer_account,
+            str(row.get("Account") or row.get("account") or "").strip(),
+            str(row.get("EPAmount") or row.get("epAmount") or "").strip(),
+            hashlib.sha256(sokey.encode("utf-8")).hexdigest(),
+        )
+        if not claimed:
+            return False
         try:
-            claimed = await self.repository.claim_order(
-                sid,
-                buyer_account,
-                str(row.get("Account") or row.get("account") or "").strip(),
-                str(row.get("EPAmount") or row.get("epAmount") or "").strip(),
-                hashlib.sha256(sokey.encode("utf-8")).hexdigest(),
-            )
-            if not claimed:
-                return False
-            try:
-                result = await self.provider.buy(client, auth, sid, sokey)
-            except Exception as exc:
-                await self.repository.finish_order(sid, "unknown", str(exc) or exc.__class__.__name__)
-                self._log("purchase result unknown account=%s sid=%s error=%s", buyer_account, sid, str(exc)[:200])
-                return False
-            state = "success" if result.get("success") else "rejected"
-            await self.repository.finish_order(sid, state, str(result.get("message") or ""))
-            return state == "success"
-        finally:
-            await self.rpc_gate.release(lease)
+            result = await self.provider.buy(client, auth, sid, sokey)
+        except RpcGateBusy:
+            await self.repository.release_order_claim(sid, buyer_account)
+            raise
+        except Exception as exc:
+            await self.repository.finish_order(sid, "unknown", str(exc) or exc.__class__.__name__)
+            self._log("purchase result unknown account=%s sid=%s error=%s", buyer_account, sid, str(exc)[:200])
+            return False
+        state = "success" if result.get("success") else "rejected"
+        await self.repository.finish_order(sid, state, str(result.get("message") or ""))
+        return state == "success"
 
     async def _load_auth(self, account: str) -> dict[str, str]:
         try:
@@ -211,12 +261,7 @@ class EPAutoPurchaseService:
         return {"account": account, **fields}
 
     async def _refresh_auth(self, client, account: str) -> dict[str, str]:
-        password = ""
-        getter = getattr(self.auth_store, "get_user_password", None)
-        if callable(getter):
-            password = str(await getter(account) or "").strip()
-        if not password:
-            password = await self.repository.get_account_password(account)
+        password = await self.credentials.get_password(account)
         if not password:
             raise EPAutoPurchaseUpstreamError("账号缺少可用登录密码")
         payload = await self._gated_call(
@@ -247,6 +292,14 @@ class EPAutoPurchaseService:
             return await callback()
         finally:
             await self.rpc_gate.release(lease)
+
+    def is_internal_rpc_request(self, request) -> bool:
+        client = getattr(request, "client", None)
+        return is_trusted_internal_rpc_request(
+            request.headers,
+            str(getattr(client, "host", "") or ""),
+            self._internal_rpc_token,
+        )
 
     @classmethod
     def _serialize(cls, value: Any) -> Any:

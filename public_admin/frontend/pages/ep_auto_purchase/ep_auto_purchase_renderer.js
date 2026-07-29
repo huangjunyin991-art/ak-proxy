@@ -69,10 +69,37 @@
         }).join('');
     }
 
+    function renderCredentialRows(rows, loading) {
+        var items = Array.isArray(rows) ? rows : [];
+        if (!items.length) {
+            return '<tr class="ak-ep-credential-empty"><td colspan="4">尚未添加抢分账号</td></tr>';
+        }
+        return items.map(function(item, index) {
+            var hasInput = !!String(item.password || '');
+            var hasSaved = !!item.has_password;
+            var stateClass = hasInput ? 'is-pending' : (hasSaved ? 'is-saved' : 'is-missing');
+            var stateText = hasInput ? '待更新' : (hasSaved ? '已有密码' : '需要密码');
+            var placeholder = hasSaved ? '留空使用已保存密码' : '请输入登录密码';
+            return '<tr data-account-row data-index="' + index + '">' +
+                '<td data-label="账号"><input class="ak-ep-row-input" data-field="account" type="text" value="' + escapeHtml(item.account || '') + '" placeholder="账号" autocomplete="off" spellcheck="false" aria-label="抢分账号" ' + (loading ? 'disabled' : '') + '></td>' +
+                '<td data-label="登录密码"><input class="ak-ep-row-input" data-field="password" type="password" value="' + escapeHtml(item.password || '') + '" placeholder="' + placeholder + '" autocomplete="new-password" aria-label="登录密码" ' + (loading ? 'disabled' : '') + '></td>' +
+                '<td data-label="密码状态"><span class="ak-ep-credential-state ' + stateClass + '" data-password-state><i></i>' + stateText + '</span></td>' +
+                '<td class="ak-ep-row-action"><button type="button" class="ak-ep-remove-account" data-action="remove-account" data-index="' + index + '" title="删除账号" aria-label="删除账号" ' + (loading ? 'disabled' : '') + '>' +
+                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></td>' +
+            '</tr>';
+        }).join('');
+    }
+
     function render(state) {
         var data = state.data || {};
         var config = data.config || {};
-        var accounts = Array.isArray(config.accounts) ? config.accounts : [];
+        var savedRows = Array.isArray(config.account_rows) ? config.account_rows : [];
+        var accountRows = Array.isArray(state.draftAccounts) ? state.draftAccounts : savedRows;
+        if (!accountRows.length && Array.isArray(config.accounts)) {
+            accountRows = config.accounts.map(function(account) {
+                return { account: account, password: '', has_password: false };
+            });
+        }
         var statuses = Array.isArray(data.accounts) ? data.accounts : [];
         var summary = data.summary || {};
         var totalPolls = statuses.reduce(function(total, item) { return total + Number(item.total_polls || 0); }, 0);
@@ -82,7 +109,7 @@
         var current = String(config.current_account || '');
         return '<div class="ak-ep-root">' +
             '<header class="ak-ep-toolbar">' +
-                '<div class="ak-ep-heading"><h2>EP 自动抢购</h2><span>' + number(accounts.length) + ' 个轮转账号</span></div>' +
+                '<div class="ak-ep-heading"><h2>EP 自动抢购</h2><span>' + number(accountRows.length) + ' 个轮转账号</span></div>' +
                 '<span class="ak-ep-run-state ' + (enabled ? 'is-running' : '') + '"><i></i>' + (enabled ? '运行中' : '已停用') + '</span>' +
             '</header>' +
             (state.error ? '<div class="ak-ep-alert" role="alert">' + escapeHtml(state.error) + '</div>' : '') +
@@ -90,21 +117,24 @@
                 '<div class="ak-ep-config-pane">' +
                     '<div class="ak-ep-pane-title"><strong>执行配置</strong><span>全局任务</span></div>' +
                     '<div class="ak-ep-config-grid">' +
-                        '<div class="ak-ep-field ak-ep-account-field"><label for="akEpAccounts">抢分账号</label>' +
-                            '<textarea id="akEpAccounts" data-field="accounts" rows="3" spellcheck="false" autocomplete="off" placeholder="每行一个账号" ' + (loading ? 'disabled' : '') + '>' + escapeHtml(accounts.join('\n')) + '</textarea></div>' +
-                        '<div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
+                        '<div class="ak-ep-account-editor"><div class="ak-ep-editor-heading"><div><strong>抢分账号</strong><span>按表格顺序轮转</span></div>' +
+                            '<button type="button" class="ak-ep-add-account" data-action="add-account" ' + (loading ? 'disabled' : '') + '>' +
+                                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加账号</span></button></div>' +
+                            '<div class="ak-ep-credential-table-wrap"><table class="ak-ep-credential-table"><thead><tr><th>账号</th><th>登录密码</th><th>密码状态</th><th></th></tr></thead><tbody>' + renderCredentialRows(accountRows, loading) + '</tbody></table></div></div>' +
+                        '<div class="ak-ep-control-row"><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
                             '<input id="akEpInterval" data-field="interval" type="number" min="1" max="3600" step="1" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
-                        '<div class="ak-ep-actions">' +
-                            '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
-                            '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +
-                                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg><span>保存配置</span></button>' +
+                            '<div class="ak-ep-actions">' +
+                                '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
+                                '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +
+                                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg><span>保存配置</span></button>' +
+                            '</div>' +
                         '</div>' +
                     '</div>' +
                 '</div>' +
                 '<div class="ak-ep-summary-pane">' +
                     '<div class="ak-ep-pane-title"><strong>运行摘要</strong><span>' + (enabled ? '任务已启用' : '任务未启用') + '</span></div>' +
                     '<div class="ak-ep-metrics">' +
-                        '<div class="ak-ep-metric"><span>轮转账号</span><strong>' + number(accounts.length) + '</strong></div>' +
+                        '<div class="ak-ep-metric"><span>轮转账号</span><strong>' + number(accountRows.length) + '</strong></div>' +
                         '<div class="ak-ep-metric is-cyan"><span>累计轮询</span><strong>' + number(totalPolls) + '</strong></div>' +
                         '<div class="ak-ep-metric is-yellow"><span>发现挂单</span><strong>' + number(listings) + '</strong></div>' +
                         '<div class="ak-ep-metric is-green"><span>购买成功</span><strong>' + number(summary.successes) + '</strong></div>' +
