@@ -614,11 +614,6 @@
             return Number.isFinite(index) ? index : fallbackIndex;
         }
 
-        function getLbConnectFailureFreezeSeconds(policy) {
-            const value = Number(policy && policy.connect_failure_freeze_seconds);
-            return Number.isFinite(value) && value >= 30 ? Math.round(value) : 300;
-        }
-
         function formatLbDuration(seconds) {
             const total = Math.max(0, Math.round(Number(seconds || 0)));
             if (total >= 3600) {
@@ -1220,7 +1215,6 @@
             const policy = (lbData && lbData.policy) || {};
             const rate = policy.per_exit_rate_per_second || 3;
             const enabled = policy.latency_strategy_enabled !== false;
-            const connectFreezeSeconds = getLbConnectFailureFreezeSeconds(policy);
             const content = `
                 <div style="margin-bottom:12px;">
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
@@ -1234,11 +1228,8 @@
                             <input id="lbPolicyLatencyEnabled" type="checkbox" ${enabled ? 'checked' : ''} style="accent-color:var(--accent);">
                             启用延迟优先调度
                         </label>
-                        <label style="font-size:13px;color:var(--text-primary);">节点连接失败禁用时间（秒）:</label>
-                        <input id="lbPolicyConnectFreezeInput" type="number" min="30" max="86400" step="30" value="${connectFreezeSeconds}"
-                            style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
                         <div style="font-size:11px;color:var(--text-secondary);">
-                            默认 3 req/s/节点；连接失败默认禁用 300 秒，连续失败会按梯度延长；节点会每 30 分钟自动测速一次，也可以点击“测速”立即触发。
+                            连接失败按 10、30、60、180、300、900、3600 秒逐级保护，任意一次成功后重置；系统至少保留 100 个已验证出口。节点会每 30 分钟自动测速一次。
                         </div>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:12px;">
@@ -1251,20 +1242,18 @@
             showModal('⚙️ 负载均衡策略', content, async () => {
                 const val = parseInt(document.getElementById('lbPolicyRpsInput')?.value || '3', 10);
                 const latencyEnabled = !!document.getElementById('lbPolicyLatencyEnabled')?.checked;
-                const connectFreeze = parseInt(document.getElementById('lbPolicyConnectFreezeInput')?.value || '300', 10);
-                await lbSetPolicy(val, latencyEnabled, connectFreeze);
+                await lbSetPolicy(val, latencyEnabled);
             }, '应用策略');
         }
 
-        async function lbSetPolicy(perExitRatePerSecond, latencyStrategyEnabled, connectFailureFreezeSeconds) {
+        async function lbSetPolicy(perExitRatePerSecond, latencyStrategyEnabled) {
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/policy`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         per_exit_rate_per_second: perExitRatePerSecond,
-                        latency_strategy_enabled: latencyStrategyEnabled,
-                        connect_failure_freeze_seconds: connectFailureFreezeSeconds
+                        latency_strategy_enabled: latencyStrategyEnabled
                     })
                 });
                 const data = await res.json();

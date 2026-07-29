@@ -35,13 +35,14 @@ class GuidedSaleStatisticsService:
 
     def __init__(
         self, repository: GuidedSaleStatisticsRepository, auth_store, system_config, logger=None,
-        notice_cache_repository=None,
+        notice_cache_repository=None, rpc_gate=None,
     ) -> None:
         self.repository = repository
         self.auth_store = auth_store
         self.system_config = system_config
         self.logger = logger
         self.notice_cache_repository = notice_cache_repository
+        self.rpc_gate = rpc_gate
         self.provider = NoticeGuidanceProvider()
         self.instance_id = "guided-sale-" + uuid.uuid4().hex
         self._task: asyncio.Task | None = None
@@ -400,6 +401,8 @@ class GuidedSaleStatisticsService:
         identity = self._request_identity(params)
         user_id = trim_string(params.get("UserID") or params.get("userId") or params.get("userid"))
         await self.repository.mark_external_activity(user_id)
+        if self.rpc_gate is not None:
+            return await self.rpc_gate.reserve_external(identity, wait_seconds=EXTERNAL_WAIT_SECONDS)
         holder = "external-" + uuid.uuid4().hex
         deadline = time.monotonic() + EXTERNAL_WAIT_SECONDS
         while time.monotonic() < deadline:
@@ -413,6 +416,9 @@ class GuidedSaleStatisticsService:
             return
         try:
             await asyncio.sleep(BACKGROUND_CALL_INTERVAL_SECONDS)
+            if self.rpc_gate is not None:
+                await self.rpc_gate.release(lease)
+                return
             await self.repository.release_rpc_locks(lease[0], lease[1])
         except Exception as exc:
             self._log("external RPC lock release failed: %s", str(exc)[:300])
@@ -648,6 +654,15 @@ class GuidedSaleStatisticsService:
         return {"account": account, "key": fields["key"], "user_id": fields["user_id"]}
 
     async def _gated_post(self, client, identity: str, endpoint: str, data: Mapping[str, Any]) -> dict[str, Any]:
+        if self.rpc_gate is not None:
+            lease = await self.rpc_gate.try_reserve_background(identity)
+            if lease is None:
+                raise RpcSlotBusy()
+            try:
+                return await self.provider.post_rpc(client, endpoint, dict(data))
+            finally:
+                await asyncio.sleep(BACKGROUND_CALL_INTERVAL_SECONDS)
+                await self.rpc_gate.release(lease)
         holder = "background-" + uuid.uuid4().hex
         if not await self.repository.try_claim_rpc_locks(identity, holder):
             raise RpcSlotBusy()

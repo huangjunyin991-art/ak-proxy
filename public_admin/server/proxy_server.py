@@ -828,6 +828,32 @@ except Exception as e:
 guided_sale_statistics_service = None
 
 try:
+    from .upstream_rpc_gate import UpstreamRpcGate, UpstreamRpcGateRepository, build_rpc_identity
+    _UPSTREAM_RPC_GATE_IMPORT_ERROR = None
+except Exception as e:
+    UpstreamRpcGate = None
+    UpstreamRpcGateRepository = None
+    build_rpc_identity = None
+    _UPSTREAM_RPC_GATE_IMPORT_ERROR = e
+
+upstream_rpc_gate = None
+
+try:
+    from .ep_auto_purchase import (
+        EPAutoPurchaseRepository,
+        EPAutoPurchaseService,
+        create_ep_auto_purchase_router,
+    )
+    _EP_AUTO_PURCHASE_IMPORT_ERROR = None
+except Exception as e:
+    EPAutoPurchaseRepository = None
+    EPAutoPurchaseService = None
+    create_ep_auto_purchase_router = None
+    _EP_AUTO_PURCHASE_IMPORT_ERROR = e
+
+ep_auto_purchase_service = None
+
+try:
     from .account_identity.admin import (
         AccountIdentityAdminService,
         AccountIdentitySyncScheduler,
@@ -3686,14 +3712,23 @@ async def proxy_rpc(path: str, request: Request):
         "mnemonic_confirm",
     }
     normalized_path = path.strip("/").lower()
-    guided_sale_external_rpc_lease = None
+    upstream_rpc_lease = None
     if (
-        normalized_path in {"notice_list", "my_subaccount"}
+        normalized_path in {"notice_list", "my_subaccount", "public_ep_sellrecords1", "ep_buy"}
         and not notice_guidance_internal_request
-        and guided_sale_statistics_service is not None
+        and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):
-        guided_sale_external_rpc_lease = await guided_sale_statistics_service.reserve_external_rpc(params)
-        if guided_sale_external_rpc_lease is None:
+        if normalized_path in {"notice_list", "my_subaccount"} and guided_sale_statistics_service is not None:
+            try:
+                user_id = str(params.get("UserID") or params.get("userId") or params.get("userid") or "").strip()
+                await guided_sale_statistics_service.repository.mark_external_activity(user_id)
+            except Exception as exc:
+                logger.warning(f"[GuidedSaleStatistics] external activity update failed: {exc}")
+        if upstream_rpc_gate is not None and build_rpc_identity is not None:
+            upstream_rpc_lease = await upstream_rpc_gate.reserve_external(build_rpc_identity(params))
+        elif guided_sale_statistics_service is not None:
+            upstream_rpc_lease = await guided_sale_statistics_service.reserve_external_rpc(params)
+        if upstream_rpc_lease is None:
             return JSONResponse(
                 {"Error": True, "Msg": "请求正在排队，请稍后重试"},
                 status_code=503,
@@ -3932,8 +3967,11 @@ async def proxy_rpc(path: str, request: Request):
             return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
     finally:
-        if guided_sale_external_rpc_lease is not None and guided_sale_statistics_service is not None:
-            await guided_sale_statistics_service.release_external_rpc(guided_sale_external_rpc_lease)
+        if upstream_rpc_lease is not None:
+            if upstream_rpc_gate is not None:
+                await upstream_rpc_gate.release(upstream_rpc_lease)
+            elif guided_sale_statistics_service is not None:
+                await guided_sale_statistics_service.release_external_rpc(upstream_rpc_lease)
         if stock_price_cache_key and stock_price_cache_lock is not None:
             _AK_STOCK_PRICE_RPC_CACHE.release_lock(stock_price_cache_key, stock_price_cache_lock)
 
@@ -4136,10 +4174,9 @@ async def api_dispatcher_policy(request: Request):
     ok = dispatcher.set_policy(
         per_exit_rate_per_second=data.get("per_exit_rate_per_second"),
         latency_strategy_enabled=data.get("latency_strategy_enabled"),
-        connect_failure_freeze_seconds=data.get("connect_failure_freeze_seconds"),
     )
     if not ok:
-        return {"success": False, "message": "策略配置无效（每节点速率需在 1~20 req/s，连接失败禁用时间需在 30~86400 秒之间）"}
+        return {"success": False, "message": "策略配置无效（每节点速率需在 1~20 req/s）"}
     return {"success": True, "message": "负载均衡策略已更新", "policy": dispatcher.get_status().get("policy", {})}
 
 
@@ -6947,6 +6984,15 @@ if create_notice_guidance_router is not None:
 elif _NOTICE_GUIDANCE_IMPORT_ERROR is not None:
     logger.warning(f"[NoticeGuidance] 公告提示模块不可用，已跳过: {_NOTICE_GUIDANCE_IMPORT_ERROR}")
 
+if UpstreamRpcGate is not None and UpstreamRpcGateRepository is not None:
+    try:
+        upstream_rpc_gate = UpstreamRpcGate(UpstreamRpcGateRepository(db._get_pool))
+    except Exception as e:
+        logger.warning(f"[UpstreamRpcGate] initialization failed, skipped: {e}")
+        upstream_rpc_gate = None
+elif _UPSTREAM_RPC_GATE_IMPORT_ERROR is not None:
+    logger.warning(f"[UpstreamRpcGate] module unavailable, skipped: {_UPSTREAM_RPC_GATE_IMPORT_ERROR}")
+
 if (
     create_guided_sale_statistics_router is not None
     and GuidedSaleStatisticsService is not None
@@ -6959,6 +7005,7 @@ if (
             system_config=db.system_config,
             logger=logger,
             notice_cache_repository=(NoticeGuidanceCacheRepository(db._get_pool) if NoticeGuidanceCacheRepository else None),
+            rpc_gate=upstream_rpc_gate,
         )
         online_manager.add_presence_listener(guided_sale_statistics_service.handle_presence_event)
         app.include_router(create_guided_sale_statistics_router(
@@ -6971,6 +7018,29 @@ if (
         guided_sale_statistics_service = None
 elif _GUIDED_SALE_STATISTICS_IMPORT_ERROR is not None:
     logger.warning(f"[GuidedSaleStatistics] module unavailable, skipped: {_GUIDED_SALE_STATISTICS_IMPORT_ERROR}")
+
+if (
+    create_ep_auto_purchase_router is not None
+    and EPAutoPurchaseService is not None
+    and EPAutoPurchaseRepository is not None
+    and upstream_rpc_gate is not None
+):
+    try:
+        ep_auto_purchase_service = EPAutoPurchaseService(
+            repository=EPAutoPurchaseRepository(db._get_pool),
+            auth_store=db,
+            rpc_gate=upstream_rpc_gate,
+            logger=logger,
+        )
+        app.include_router(create_ep_auto_purchase_router(
+            service=ep_auto_purchase_service,
+            require_admin_identity=_require_admin_identity,
+        ))
+    except Exception as e:
+        logger.warning(f"[EPAutoPurchase] route registration failed, skipped: {e}")
+        ep_auto_purchase_service = None
+elif _EP_AUTO_PURCHASE_IMPORT_ERROR is not None:
+    logger.warning(f"[EPAutoPurchase] module unavailable, skipped: {_EP_AUTO_PURCHASE_IMPORT_ERROR}")
 
 if create_account_identity_admin_router is not None and AccountIdentityAdminService is not None:
     try:
@@ -7180,6 +7250,13 @@ async def admin_startup():
         except Exception as e:
             logger.warning(f"[GuidedSaleStatistics] worker start failed, skipped: {e}")
 
+    if ep_auto_purchase_service is not None:
+        try:
+            await ep_auto_purchase_service.start()
+            logger.info("[EPAutoPurchase] worker started")
+        except Exception as e:
+            logger.warning(f"[EPAutoPurchase] worker start failed, skipped: {e}")
+
     try:
         hydration = await _AK_WEB_STATIC_CACHE_SERVICE.hydrate_memory_from_disk(reason="startup")
         logger.info(
@@ -7286,6 +7363,9 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    if ep_auto_purchase_service is not None:
+        await ep_auto_purchase_service.stop()
 
     if guided_sale_statistics_service is not None:
         await guided_sale_statistics_service.stop()
@@ -14746,6 +14826,29 @@ async def guided_sale_statistics_panel_asset(request: Request, asset_name: str):
     if not media_type:
         return Response(content="// not found", media_type="application/javascript")
     base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "guided_sale_statistics"))
+    asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
+    if not asset_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
+
+
+@app.get("/admin/api/ep-auto-purchase-panel/{asset_name:path}")
+async def ep_auto_purchase_panel_asset(request: Request, asset_name: str):
+    allowed_assets = {
+        "ep_auto_purchase_api.js": "application/javascript",
+        "ep_auto_purchase_renderer.js": "application/javascript",
+        "ep_auto_purchase_panel.js": "application/javascript",
+        "ep_auto_purchase_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "ep_auto_purchase"))
     asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
     if not asset_path.startswith(base_dir + os.sep):
         return Response(content="// not found", media_type="application/javascript")

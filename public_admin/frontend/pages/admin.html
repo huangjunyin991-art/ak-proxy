@@ -5151,6 +5151,7 @@
         <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表 <span class="online-tab-count banlist-tab-count" id="banlistTabCount">0</span></div>
         <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
         <div class="tab" data-panel="guidedSaleStatistics"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 4-5"/><circle cx="7" cy="15" r="1"/><circle cx="11" cy="11" r="1"/><circle cx="14" cy="13" r="1"/><circle cx="18" cy="8" r="1"/></svg> 指导销售统计</div>
+        <div class="tab" data-panel="epAutoPurchase"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/><path d="M8 12h8"/><path d="M12 9v6"/></svg> EP自动抢购</div>
         <div class="tab" data-panel="riskIsolation"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3z"/><path d="M9 9l6 6"/><path d="m15 9-6 6"/></svg> 风险隔离</div>
         <div class="tab" data-panel="contacts"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 8h5"/><path d="M16 12h5"/><path d="M16 16h5"/></svg> 通讯管理</div>
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
@@ -5415,6 +5416,9 @@
 
         <div class="panel" id="guidedSaleStatistics">
             <div id="guidedSaleStatisticsPanelMount"></div>
+        </div>
+        <div class="panel" id="epAutoPurchase">
+            <div id="epAutoPurchasePanelMount"></div>
         </div>
         
         <!-- IP管理 -->
@@ -6846,7 +6850,8 @@
             aiAssistant: 'AKAIAssistantPanel',
             settings: 'AKAdminSettingsPanel',
             akData: 'AKDataPanel',
-            guidedSaleStatistics: 'AKGuidedSaleStatisticsPanel'
+            guidedSaleStatistics: 'AKGuidedSaleStatisticsPanel',
+            epAutoPurchase: 'AKEPAutoPurchasePanel'
         };
         const adminLazyPanelLoadState = {};
 
@@ -9952,7 +9957,7 @@
         ];
 
         const PERM_LABELS = Object.fromEntries(SUB_ADMIN_PERMISSION_DEFS.map(item => [item.key, item.label]));
-        const SUB_ADMIN_SUPER_ONLY_PANELS = new Set(['settings', 'accountMigration']);
+        const SUB_ADMIN_SUPER_ONLY_PANELS = new Set(['settings', 'accountMigration', 'epAutoPurchase']);
 
         function getSubAdminPermissionKeys() {
             return SUB_ADMIN_PERMISSION_DEFS.map(item => item.key);
@@ -10790,6 +10795,7 @@
                 window.AKAccountMigrationPanel.stop();
             }
             if (panelName === 'guidedSaleStatistics') ensureLazyPanelModule('guidedSaleStatistics');
+            if (panelName === 'epAutoPurchase') ensureLazyPanelModule('epAutoPurchase');
             if (panelName === 'ips') loadIPs();
             if (panelName === 'banlist') loadBanlist();
             if (panelName === 'whitelist') loadWhitelist();
@@ -15906,6 +15912,86 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 load(0, false, 1);
             };
             if (currentPanelName === 'guidedSaleStatistics') ensureLazyPanelModule('guidedSaleStatistics');
+        })();
+    </script>
+    <script>
+        (function() {
+            var epAutoPurchaseBuildVersion = '20260729-01';
+            var assets = [
+                'ep_auto_purchase_api.js',
+                'ep_auto_purchase_renderer.js',
+                'ep_auto_purchase_panel.js'
+            ];
+
+            function mountError(message) {
+                var mount = document.getElementById('epAutoPurchasePanelMount');
+                if (mount) mount.innerHTML = '<div class="ak-ep-alert">' + message + '</div>';
+            }
+
+            function url(asset, fresh) {
+                return '/admin/api/ep-auto-purchase-panel/' + asset + (fresh ? '?t=' + Date.now() : '?v=' + encodeURIComponent(epAutoPurchaseBuildVersion));
+            }
+
+            function ensureCss(fresh) {
+                var link = document.querySelector('link[data-ep-auto-purchase-css="1"]');
+                if (!link) {
+                    link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.setAttribute('data-ep-auto-purchase-css', '1');
+                    document.head.appendChild(link);
+                }
+                link.href = url('ep_auto_purchase_panel.css', fresh);
+            }
+
+            function clearAssets() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-ep-auto-purchase-script="1"]')).forEach(function(node) {
+                    if (node.parentNode) node.parentNode.removeChild(node);
+                });
+                ['AKEPAutoPurchaseApi', 'AKEPAutoPurchaseRenderer', 'AKEPAutoPurchasePanel'].forEach(function(name) {
+                    try { delete window[name]; } catch (e) { window[name] = undefined; }
+                });
+            }
+
+            function load(index, fresh, attempt) {
+                if (index >= assets.length) {
+                    if (window.AKEPAutoPurchasePanel) {
+                        if (document.querySelector('.tab.active[data-panel="epAutoPurchase"]')) window.AKEPAutoPurchasePanel.start();
+                        return;
+                    }
+                    if (attempt < 2) {
+                        clearAssets(); ensureCss(true); load(0, true, attempt + 1);
+                    } else {
+                        mountError('EP 自动抢购面板加载失败');
+                    }
+                    return;
+                }
+                var script = document.createElement('script');
+                script.src = url(assets[index], fresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-ep-auto-purchase-script', '1');
+                script.onload = function() { load(index + 1, fresh, attempt); };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        clearAssets(); ensureCss(true); load(0, true, attempt + 1);
+                    } else {
+                        mountError('EP 自动抢购资源请求失败');
+                    }
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.epAutoPurchase = function() {
+                if (window.AKEPAutoPurchasePanel) {
+                    window.AKEPAutoPurchasePanel.start();
+                    return;
+                }
+                clearAssets();
+                ensureCss(false);
+                load(0, false, 1);
+            };
+            if (currentPanelName === 'epAutoPurchase') ensureLazyPanelModule('epAutoPurchase');
         })();
     </script>
     <script>

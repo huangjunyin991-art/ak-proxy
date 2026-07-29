@@ -29,6 +29,8 @@ from .rpc_timeout_policy import resolve_connect_timeout
 from .runtime_hygiene import RuntimeHygienePolicy
 from .security.upstream_http import resolve_upstream_tls_verify
 from .source_reachability import (
+    SourceFleetGuard,
+    SourceFleetStateStore,
     SourceProbePolicy,
     SourceReachabilityProbe,
     source_probe_policy_for_protocol,
@@ -36,10 +38,12 @@ from .source_reachability import (
 
 try:
     from .dispatcher_policy import (
+        CONNECTION_FAILURE_FREEZE_SCHEDULE,
         DispatcherPolicyConfig,
         LatencyAwareStrategy,
         LatencyProbeService,
         PerSecondRateLimiter,
+        connection_failure_freeze_seconds,
     )
     _DISPATCHER_POLICY_IMPORT_ERROR = None
 except Exception as e:
@@ -47,6 +51,10 @@ except Exception as e:
     LatencyAwareStrategy = None
     LatencyProbeService = None
     PerSecondRateLimiter = None
+    CONNECTION_FAILURE_FREEZE_SCHEDULE = (10, 30, 60, 180, 300, 900, 3600)
+    connection_failure_freeze_seconds = lambda level: CONNECTION_FAILURE_FREEZE_SCHEDULE[
+        min(max(1, int(level or 1)) - 1, len(CONNECTION_FAILURE_FREEZE_SCHEDULE) - 1)
+    ]
     _DISPATCHER_POLICY_IMPORT_ERROR = e
 
 logger = logging.getLogger("TransparentProxy")
@@ -82,7 +90,8 @@ class OutboundExit:
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures',
-                 'source_probe_ready', 'source_probing', 'source_probe_checked_at', 'source_probe_failures',
+                 'source_probe_ready', 'source_probe_protected', 'source_probing', 'source_probe_checked_at',
+                 'source_probe_last_success_at', 'source_probe_failures',
                  'source_probe_last_error', 'source_probe_status_code', '_source_probe_next_at',
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
@@ -119,8 +128,10 @@ class OutboundExit:
         self._frozen_reason: str = ""
         self._connect_failures: int = 0
         self.source_probe_ready: bool = proxy_url is None
+        self.source_probe_protected: bool = False
         self.source_probing: bool = False
         self.source_probe_checked_at: str = ""
+        self.source_probe_last_success_at: float = 0.0
         self.source_probe_failures: int = 0
         self.source_probe_last_error: str = ""
         self.source_probe_status_code: Optional[int] = None
@@ -146,7 +157,9 @@ class OutboundExit:
 
     @property
     def is_dispatch_ready(self) -> bool:
-        return self.is_direct or (self.healthy and self.source_probe_ready)
+        return self.is_direct or (
+            self.healthy and (self.source_probe_ready or self.source_probe_protected)
+        )
 
     @property
     def is_frozen(self) -> bool:
@@ -167,18 +180,23 @@ class OutboundExit:
         self._frozen_reason = reason
         logger.warning(f"[Dispatcher] {self.name} {reason}, 冻结{duration}秒")
 
-    def freeze_for_connect_error(self, error: str = "", base_duration_seconds: int = 3600):
+    def freeze_for_connect_error(self, error: str = "", *, allow_freeze: bool = True):
         self._connect_failures += 1
-        base_duration = max(30, min(int(base_duration_seconds or 3600), 86400))
-        multipliers = [1, 3, 6, 12, 24]
-        multiplier = multipliers[min(self._connect_failures - 1, len(multipliers) - 1)]
-        duration = min(base_duration * multiplier, 86400)
-        self.freeze(float(duration), f"连接失败×{self._connect_failures}")
-        logger.warning(f"[Dispatcher] {self.name} 连接失败梯度禁用 level={self._connect_failures} duration={duration}s error={error}")
+        duration = connection_failure_freeze_seconds(self._connect_failures)
+        if allow_freeze:
+            self.freeze(float(duration), f"连接失败×{self._connect_failures}")
+            logger.warning(f"[Dispatcher] {self.name} 连接失败梯度禁用 level={self._connect_failures} duration={duration}s error={error}")
+        else:
+            if self._frozen_reason.startswith("连接失败"):
+                self._frozen_until = 0.0
+                self._frozen_reason = ""
+            logger.warning(f"[Dispatcher] {self.name} 连接失败但触发出口保底 level={self._connect_failures} error={error}")
 
     def reset_connect_failures(self):
         self._connect_failures = 0
-        self._frozen_reason = ""
+        if self._frozen_reason.startswith("连接失败"):
+            self._frozen_until = 0.0
+            self._frozen_reason = ""
 
     def _trim_login_timestamps(self, cutoff: float):
         while self._login_timestamps and self._login_timestamps[0] <= cutoff:
@@ -411,6 +429,9 @@ class OutboundDispatcher:
     QUIC_SOURCE_PROBE_HARD_TIMEOUT_SECONDS = 25
     QUIC_SOURCE_PROBE_RETRY_DELAY_SECONDS = 0.5
     SOURCE_PROBE_FAILURE_BACKOFF_SECONDS = (5 * 60, 15 * 60, 60 * 60)
+    MINIMUM_VERIFIED_TUNNEL_EXITS = 100
+    SOURCE_PROBE_CIRCUIT_MIN_INCUMBENTS = 20
+    SOURCE_PROBE_CIRCUIT_FAILURE_RATIO = 0.5
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
@@ -450,6 +471,7 @@ class OutboundDispatcher:
         self._periodic_source_probe_task: Optional[asyncio.Task] = None
         self._failed_source_probe_task: Optional[asyncio.Task] = None
         self._pending_source_probe_task: Optional[asyncio.Task] = None
+        self._fleet_state_persist_task: Optional[asyncio.Task] = None
         self._started = False
         self._source_probe_run_lock = asyncio.Lock()
         self._rr_counter: int = 0
@@ -463,6 +485,13 @@ class OutboundDispatcher:
         self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
         self.rate_limiter = PerSecondRateLimiter() if PerSecondRateLimiter is not None else None
         self.source_probe = SourceReachabilityProbe()
+        self.source_fleet_guard = SourceFleetGuard(
+            minimum_ready=self.MINIMUM_VERIFIED_TUNNEL_EXITS,
+            circuit_min_incumbents=self.SOURCE_PROBE_CIRCUIT_MIN_INCUMBENTS,
+            circuit_failure_ratio=self.SOURCE_PROBE_CIRCUIT_FAILURE_RATIO,
+        )
+        self.source_fleet_state_store: SourceFleetStateStore | None = None
+        self._persisted_source_fleet_state: dict = {}
         self.latency_strategy = LatencyAwareStrategy(
             self.policy_config.latency_tier_tolerance_ms
         ) if self.policy_config is not None and LatencyAwareStrategy is not None else None
@@ -481,6 +510,67 @@ class OutboundDispatcher:
         task.add_done_callback(_on_done)
         return task
 
+    def _restore_exit_state(self, exit_obj: OutboundExit) -> None:
+        identity = str(exit_obj.node_identity or "").strip()
+        state = self._persisted_source_fleet_state.get(identity) if identity else None
+        if not isinstance(state, dict):
+            return
+        last_success_at = float(state.get("source_probe_last_success_at") or 0.0)
+        if last_success_at <= 0:
+            return
+        exit_obj.source_probe_ready = bool(state.get("source_probe_ready"))
+        exit_obj.source_probe_protected = bool(state.get("source_probe_protected"))
+        exit_obj.source_probe_last_success_at = last_success_at
+        exit_obj.source_probe_checked_at = str(state.get("source_probe_checked_at") or "")
+        exit_obj.source_probe_status_code = state.get("source_probe_status_code")
+        exit_obj._connect_failures = max(0, int(state.get("connect_failures") or 0))
+        frozen_reason = str(state.get("frozen_reason") or "")
+        frozen_until = float(state.get("frozen_until") or 0.0)
+        if frozen_reason.startswith("连接失败") and frozen_until > time.time():
+            exit_obj._frozen_reason = frozen_reason
+            exit_obj._frozen_until = frozen_until
+
+    def _load_source_fleet_state(self) -> None:
+        try:
+            self.source_fleet_state_store = SourceFleetStateStore()
+            self._persisted_source_fleet_state = self.source_fleet_state_store.load()
+            for exit_obj in self.exits:
+                self._restore_exit_state(exit_obj)
+        except Exception as exc:
+            self.source_fleet_state_store = None
+            self._persisted_source_fleet_state = {}
+            logger.warning("[Dispatcher] 出口保护状态加载失败，使用内存状态: %s", exc)
+
+    async def _persist_source_fleet_state(self) -> None:
+        if self.source_fleet_state_store is None:
+            return
+        exits_snapshot = list(self.exits)
+        try:
+            await asyncio.to_thread(self.source_fleet_state_store.save, exits_snapshot)
+            self._persisted_source_fleet_state = self.source_fleet_state_store.load()
+        except Exception as exc:
+            logger.warning("[Dispatcher] 出口保护状态保存失败: %s", exc)
+
+    def _schedule_source_fleet_state_persist(self) -> None:
+        if not self._started or self.source_fleet_state_store is None:
+            return
+        if self._fleet_state_persist_task is not None and not self._fleet_state_persist_task.done():
+            return
+
+        async def _persist_later() -> None:
+            await asyncio.sleep(0.1)
+            await self._persist_source_fleet_state()
+
+        self._fleet_state_persist_task = self._safe_create_task(
+            _persist_later(),
+            "persist_source_fleet_state",
+        )
+
+    def _record_connect_failure(self, exit_obj: OutboundExit, error: str) -> None:
+        allow_freeze = self.source_fleet_guard.allow_connect_failure_freeze(self.exits, exit_obj)
+        exit_obj.freeze_for_connect_error(error, allow_freeze=allow_freeze)
+        self._schedule_source_fleet_state_persist()
+
     # ===== 配置 =====
 
     def add_socks5(self, name: str, port: int, core_type: str = "singbox", group_id: str = "",
@@ -488,7 +578,7 @@ class OutboundDispatcher:
                    node_type: str = "") -> int:
         """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
-        self.exits.append(OutboundExit(
+        exit_obj = OutboundExit(
             name,
             proxy_url,
             self.client_policy,
@@ -499,7 +589,9 @@ class OutboundDispatcher:
             group_name=group_name,
             source_url=source_url,
             node_identity=node_identity,
-        ))
+        )
+        self._restore_exit_state(exit_obj)
+        self.exits.append(exit_obj)
         idx = len(self.exits) - 1
         logger.info(f"[Dispatcher] 添加出口 #{idx}: {name} -> :{port}")
         self._ensure_health_check_started()
@@ -529,8 +621,9 @@ class OutboundDispatcher:
                 source_url=str(item.get("source_url") or ""),
                 node_identity=str(item.get("node_identity") or ""),
             )
+            self._restore_exit_state(new_exit)
             previous_exit = previous_by_identity.get(new_exit.node_identity)
-            if previous_exit is not None and previous_exit.healthy and previous_exit.source_probe_ready:
+            if previous_exit is not None and previous_exit.healthy and previous_exit.is_dispatch_ready:
                 self._inherit_verified_exit_state(new_exit, previous_exit)
             new_exits.append(new_exit)
 
@@ -556,8 +649,10 @@ class OutboundDispatcher:
         """Carry route-level state across a port-bank switch for the same node."""
         target.healthy = True
         target._ever_healthy = previous._ever_healthy
-        target.source_probe_ready = True
+        target.source_probe_ready = previous.source_probe_ready
+        target.source_probe_protected = previous.source_probe_protected
         target.source_probe_checked_at = previous.source_probe_checked_at
+        target.source_probe_last_success_at = previous.source_probe_last_success_at
         target.source_probe_failures = 0
         target.source_probe_last_error = ""
         target.source_probe_status_code = previous.source_probe_status_code
@@ -568,6 +663,7 @@ class OutboundDispatcher:
         target.latency_probe_error = previous.latency_probe_error
         target._frozen_until = previous._frozen_until
         target._frozen_reason = previous._frozen_reason
+        target._connect_failures = previous._connect_failures
 
     def _schedule_source_probe_for_unverified_exits(self, exits: list[OutboundExit]) -> None:
         """Promptly batch-probe newly published nodes without rechecking preserved ones."""
@@ -670,6 +766,7 @@ class OutboundDispatcher:
         """启动健康检查后台任务"""
         if self._started:
             return
+        self._load_source_fleet_state()
         self._started = True
         self._ensure_health_check_started()
         self._ensure_latency_probe_started()
@@ -715,6 +812,12 @@ class OutboundDispatcher:
                 await self._pending_source_probe_task
             except asyncio.CancelledError:
                 pass
+        if self._fleet_state_persist_task:
+            try:
+                await self._fleet_state_persist_task
+            except asyncio.CancelledError:
+                pass
+        await self._persist_source_fleet_state()
         # 关闭所有出口的持久 client
         for ex in self.exits:
             await ex.close_client()
@@ -1448,7 +1551,9 @@ class OutboundDispatcher:
                         attempt_index + 1,
                     )
                     raise RpcUpstreamNonJsonError(UPSTREAM_NETWORK_ERROR_MESSAGE)
-                current_exit.reset_connect_failures()
+                if 100 <= int(resp.status_code or 0) < 500 and int(resp.status_code or 0) != 429:
+                    current_exit.reset_connect_failures()
+                    self._schedule_source_fleet_state_persist()
                 self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
                 if (
                     self._is_login_rpc(api_path)
@@ -1464,10 +1569,7 @@ class OutboundDispatcher:
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
                 if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError)):
-                    base_freeze_seconds = 3600
-                    if self.policy_config is not None:
-                        base_freeze_seconds = int(getattr(self.policy_config, "connect_failure_freeze_seconds", 3600) or 3600)
-                    current_exit.freeze_for_connect_error(str(e), base_freeze_seconds)
+                    self._record_connect_failure(current_exit, str(e))
                 if attempt_index + 1 < len(attempts):
                     next_exit = attempts[attempt_index + 1]
                     logger.warning(f"[Dispatcher] {current_exit.name} 失败({e})，降级至 {next_exit.name} 重试")
@@ -1696,16 +1798,20 @@ class OutboundDispatcher:
             if result is not None and result.reachable:
                 was_ready = ex.source_probe_ready
                 ex.source_probe_ready = True
+                ex.source_probe_protected = False
+                ex.source_probe_last_success_at = time.time()
                 ex.source_probe_failures = 0
                 ex.source_probe_last_error = ""
                 ex.source_probe_status_code = result.status_code
                 ex._source_probe_next_at = time.time() + self.SOURCE_PROBE_INTERVAL_SECONDS
+                ex.reset_connect_failures()
                 if not was_ready:
                     status = f"HTTP {result.status_code}" if result.status_code else "network success"
                     logger.info(f"[Dispatcher] 源站连通恢复: {ex.name} ({status})")
                 return True
 
             ex.source_probe_ready = False
+            ex.source_probe_protected = False
             ex.source_probe_status_code = result.status_code if result is not None else None
             ex.source_probe_last_error = result.error if result is not None else error
             ex.source_probe_failures = min(3, ex.source_probe_failures + 1)
@@ -1721,6 +1827,7 @@ class OutboundDispatcher:
             ex.source_probing = False
 
     async def _probe_source_batch(self, exits_snapshot: list[OutboundExit]) -> list[bool]:
+        snapshots = self.source_fleet_guard.snapshot(exits_snapshot)
         policies = {id(ex): self._source_probe_policy(ex) for ex in exits_snapshot}
         semaphores = {
             policy.pool: asyncio.Semaphore(policy.batch_concurrency)
@@ -1735,7 +1842,24 @@ class OutboundDispatcher:
         if not exits_snapshot:
             return []
         results = await asyncio.gather(*[_probe(ex) for ex in exits_snapshot], return_exceptions=True)
-        return [bool(result) if isinstance(result, bool) else False for result in results]
+        normalized = [bool(result) if isinstance(result, bool) else False for result in results]
+        decision = self.source_fleet_guard.reconcile(self.exits, snapshots, normalized)
+        if decision.circuit_open:
+            logger.warning(
+                "[Dispatcher] 源站探测批量异常熔断，保留上次可用出口 protected=%s ready=%s target=%s",
+                decision.protected_count,
+                decision.ready_count,
+                decision.target_count,
+            )
+        elif decision.protected_count:
+            logger.warning(
+                "[Dispatcher] 出口保底已启用 protected=%s ready=%s target=%s",
+                decision.protected_count,
+                decision.ready_count,
+                decision.target_count,
+            )
+        self._schedule_source_fleet_state_persist()
+        return normalized
 
     async def probe_all_sources(self) -> int:
         """Probe every locally reachable SOCKS exit against the business source."""
@@ -1824,8 +1948,10 @@ class OutboundDispatcher:
                     "healthy": ex.healthy,
                     "dispatch_ready": ex.is_dispatch_ready,
                     "source_probe_ready": ex.source_probe_ready,
+                    "source_probe_protected": ex.source_probe_protected,
                     "source_probing": ex.source_probing,
                     "source_probe_checked_at": ex.source_probe_checked_at,
+                    "source_probe_last_success_at": ex.source_probe_last_success_at,
                     "source_probe_failures": ex.source_probe_failures,
                     "source_probe_last_error": ex.source_probe_last_error,
                     "source_probe_status_code": ex.source_probe_status_code,
@@ -1873,7 +1999,11 @@ class OutboundDispatcher:
                 "total_active": total_active,
                 "max_login_per_min": self.MAX_LOGIN_PER_MIN,
                 "direct_critical_fallback": direct_critical_fallback,
-                "policy": self.policy_config.to_dict() if self.policy_config is not None else {},
+                "policy": {
+                    **(self.policy_config.to_dict() if self.policy_config is not None else {}),
+                    "minimum_verified_tunnel_exits": self.source_fleet_guard.minimum_ready,
+                    "connect_failure_freeze_schedule": list(CONNECTION_FAILURE_FREEZE_SCHEDULE),
+                },
                 "client_policy": self.client_policy.to_dict(),
                 "exits": exits_info,
             }
@@ -1898,23 +2028,19 @@ class OutboundDispatcher:
             return True
         return False
 
-    def set_policy(self, *, per_exit_rate_per_second=None, latency_strategy_enabled=None,
-                   connect_failure_freeze_seconds=None) -> bool:
+    def set_policy(self, *, per_exit_rate_per_second=None, latency_strategy_enabled=None) -> bool:
         if self.policy_config is None:
             return False
         old_rate = self.policy_config.per_exit_rate_per_second
         old_enabled = self.policy_config.latency_strategy_enabled
-        old_freeze = self.policy_config.connect_failure_freeze_seconds
         ok = self.policy_config.update(
             per_exit_rate_per_second=per_exit_rate_per_second,
             latency_strategy_enabled=latency_strategy_enabled,
-            connect_failure_freeze_seconds=connect_failure_freeze_seconds,
         )
         if ok:
             logger.info(
                 f"[DispatcherPolicy] 策略调整: req/s {old_rate} -> {self.policy_config.per_exit_rate_per_second}, "
-                f"latency_enabled {old_enabled} -> {self.policy_config.latency_strategy_enabled}, "
-                f"connect_failure_freeze_seconds {old_freeze} -> {self.policy_config.connect_failure_freeze_seconds}"
+                f"latency_enabled {old_enabled} -> {self.policy_config.latency_strategy_enabled}"
             )
         return ok
 

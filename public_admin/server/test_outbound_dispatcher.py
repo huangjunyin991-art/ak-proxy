@@ -843,7 +843,7 @@ async def test_successful_response_resets_connect_failure_gradient():
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "recovering", 10001)
     recovering = dispatcher.exits[1]
-    recovering.freeze_for_connect_error("boom", 30)
+    recovering.freeze_for_connect_error("boom")
     recovering._frozen_until = 0
 
     async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
