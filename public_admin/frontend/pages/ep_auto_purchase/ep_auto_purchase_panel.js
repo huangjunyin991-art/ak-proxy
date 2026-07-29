@@ -2,7 +2,7 @@
     if (window.AKEPAutoPurchasePanel) return;
     var api = window.AKEPAutoPurchaseApi;
     var renderer = window.AKEPAutoPurchaseRenderer;
-    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null };
+    var state = { data: {}, draftAccounts: null, diagnosticRaw: null, error: '', loading: false, dirty: false, bound: false, timer: null };
 
     function mount() { return document.getElementById('epAutoPurchasePanelMount'); }
     function active() { return !!document.querySelector('.tab.active[data-panel="epAutoPurchase"]'); }
@@ -123,6 +123,25 @@
             if (!button) return;
             var action = button.getAttribute('data-action');
             if (action === 'save') save();
+            if (action === 'view-listing-diagnostic') {
+                if (state.loading) return;
+                state.loading = true;
+                render();
+                api.listingDiagnostic().then(function(data) {
+                    if (!data.available) throw new Error(data.message || '\u6682\u65e0\u53ef\u8bfb\u53d6\u7684\u5217\u8868\u54cd\u5e94');
+                    state.diagnosticRaw = data;
+                    state.error = '';
+                }).catch(function(error) {
+                    state.error = error.message || '\u8bfb\u53d6\u5217\u8868\u54cd\u5e94\u5931\u8d25';
+                }).finally(function() {
+                    state.loading = false;
+                    render();
+                });
+            }
+            if (action === 'close-listing-diagnostic') {
+                state.diagnosticRaw = null;
+                render();
+            }
             if (action === 'add-account') {
                 state.draftAccounts = collectAccountRows();
                 state.draftAccounts.push({ account: '', password: '', has_password: false });

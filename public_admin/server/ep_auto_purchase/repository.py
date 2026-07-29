@@ -101,14 +101,22 @@ class EPAutoPurchaseRepository:
                 )
                 await conn.execute(
                     """
+                    ALTER TABLE ep_auto_purchase_account_status
+                    ADD COLUMN IF NOT EXISTS unique_listings_discovered BIGINT NOT NULL DEFAULT 0
+                    """
+                )
+                await conn.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS ep_auto_purchase_orders (
                         sid TEXT PRIMARY KEY,
                         buyer_account TEXT NOT NULL,
                         seller_account TEXT NOT NULL DEFAULT '',
                         ep_amount TEXT NOT NULL DEFAULT '',
                         sokey_digest TEXT NOT NULL,
-                        state TEXT NOT NULL DEFAULT 'claimed',
+                        state TEXT NOT NULL DEFAULT 'pending',
                         message TEXT NOT NULL DEFAULT '',
+                        next_attempt_at TIMESTAMP NULL,
+                        attempt_started_at TIMESTAMP NULL,
                         claimed_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         completed_at TIMESTAMP NULL,
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -116,8 +124,28 @@ class EPAutoPurchaseRepository:
                     """
                 )
                 await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS attempt_started_at TIMESTAMP NULL"
+                )
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_claimed_at "
                     "ON ep_auto_purchase_orders(claimed_at DESC)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_pending "
+                    "ON ep_auto_purchase_orders(state, next_attempt_at)"
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET state = 'unknown',
+                        message = CASE WHEN message = '' THEN '服务重启时购买结果无法确认' ELSE message END,
+                        completed_at = COALESCE(completed_at, NOW()),
+                        updated_at = NOW()
+                    WHERE state IN ('claimed', 'sending')
+                    """
                 )
             self._ready = True
 
@@ -267,7 +295,7 @@ class EPAutoPurchaseRepository:
         account: str,
         *,
         state: str,
-        listings_seen: int = 0,
+        unique_listings_discovered: int = 0,
         purchase_successes: int = 0,
         error: str = "",
         retry_seconds: int = 0,
@@ -280,10 +308,10 @@ class EPAutoPurchaseRepository:
                 await conn.execute(
                     """
                     INSERT INTO ep_auto_purchase_account_status (
-                        account, state, total_polls, listings_seen, purchase_successes,
+                        account, state, total_polls, listings_seen, unique_listings_discovered, purchase_successes,
                         consecutive_failures, retry_after, last_poll_at, last_success_at, last_error, updated_at
                     ) VALUES (
-                        $1, $2, CASE WHEN $7 THEN 1 ELSE 0 END, $3, $4,
+                        $1, $2, CASE WHEN $7 THEN 1 ELSE 0 END, 0, $3, $4,
                         CASE WHEN $5 = '' THEN 0 ELSE 1 END,
                         CASE WHEN $6 > 0 THEN NOW() + make_interval(secs => $6) ELSE NULL END,
                         CASE WHEN $7 THEN NOW() ELSE NULL END,
@@ -293,7 +321,7 @@ class EPAutoPurchaseRepository:
                     ON CONFLICT (account) DO UPDATE SET
                         state = EXCLUDED.state,
                         total_polls = ep_auto_purchase_account_status.total_polls + CASE WHEN $7 THEN 1 ELSE 0 END,
-                        listings_seen = ep_auto_purchase_account_status.listings_seen + $3,
+                        unique_listings_discovered = ep_auto_purchase_account_status.unique_listings_discovered + $3,
                         purchase_successes = ep_auto_purchase_account_status.purchase_successes + $4,
                         consecutive_failures = CASE WHEN $5 = '' THEN 0 ELSE ep_auto_purchase_account_status.consecutive_failures + 1 END,
                         retry_after = EXCLUDED.retry_after,
@@ -304,7 +332,7 @@ class EPAutoPurchaseRepository:
                     """,
                     account,
                     state,
-                    max(0, int(listings_seen)),
+                    max(0, int(unique_listings_discovered)),
                     max(0, int(purchase_successes)),
                     str(error or "")[:500],
                     max(0, int(retry_seconds)),
@@ -321,7 +349,7 @@ class EPAutoPurchaseRepository:
                     owner,
                 )
 
-    async def claim_order(
+    async def register_listing(
         self,
         sid: str,
         buyer_account: str,
@@ -335,8 +363,8 @@ class EPAutoPurchaseRepository:
             result = await conn.execute(
                 """
                 INSERT INTO ep_auto_purchase_orders (
-                    sid, buyer_account, seller_account, ep_amount, sokey_digest
-                ) VALUES ($1, $2, $3, $4, $5)
+                    sid, buyer_account, seller_account, ep_amount, sokey_digest, state, next_attempt_at
+                ) VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
                 ON CONFLICT (sid) DO NOTHING
                 """,
                 sid,
@@ -347,6 +375,56 @@ class EPAutoPurchaseRepository:
             )
         return result == "INSERT 0 1"
 
+    async def begin_order_attempt(
+        self,
+        sid: str,
+        buyer_account: str,
+        seller_account: str,
+        ep_amount: str,
+        sokey_digest: str,
+    ) -> bool:
+        """Atomically move a pending order to sending before EP_Buy is forwarded."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET state = 'sending', buyer_account = $2, seller_account = $3, ep_amount = $4,
+                    sokey_digest = $5, message = '', next_attempt_at = NULL,
+                    attempt_started_at = NOW(), completed_at = NULL, updated_at = NOW()
+                WHERE sid = $1
+                  AND state = 'pending'
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+                RETURNING sid
+                """,
+                str(sid or ""),
+                str(buyer_account or "").strip().lower(),
+                str(seller_account or "").strip(),
+                str(ep_amount or "").strip(),
+                str(sokey_digest or ""),
+            )
+        return row is not None
+
+    async def defer_order(self, sid: str, buyer_account: str, message: str, retry_seconds: float = 1.0) -> None:
+        """Return a request known not to reach the upstream to the pending queue."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET state = 'pending', buyer_account = $2, message = $3,
+                    next_attempt_at = NOW() + make_interval(secs => $4),
+                    attempt_started_at = NULL, completed_at = NULL, updated_at = NOW()
+                WHERE sid = $1 AND state = 'sending'
+                """,
+                str(sid or ""),
+                str(buyer_account or "").strip().lower(),
+                str(message or "等待用户请求优先")[:500],
+                max(0.1, float(retry_seconds or 1.0)),
+            )
+
     async def finish_order(self, sid: str, state: str, message: str) -> None:
         await self.ensure_ready()
         pool = self._pool_supplier()
@@ -354,28 +432,14 @@ class EPAutoPurchaseRepository:
             await conn.execute(
                 """
                 UPDATE ep_auto_purchase_orders
-                SET state = $2, message = $3, completed_at = NOW(), updated_at = NOW()
-                WHERE sid = $1
+                SET state = $2, message = $3, next_attempt_at = NULL,
+                    completed_at = NOW(), updated_at = NOW()
+                WHERE sid = $1 AND state = 'sending'
                 """,
                 sid,
                 state,
                 str(message or "")[:500],
             )
-
-    async def release_order_claim(self, sid: str, buyer_account: str) -> bool:
-        """Release only a claim that is known not to have reached the upstream."""
-        await self.ensure_ready()
-        pool = self._pool_supplier()
-        async with pool.acquire() as conn:
-            result = await conn.execute(
-                """
-                DELETE FROM ep_auto_purchase_orders
-                WHERE sid = $1 AND buyer_account = $2 AND state = 'claimed'
-                """,
-                str(sid or ""),
-                str(buyer_account or "").strip().lower(),
-            )
-        return result == "DELETE 1"
 
     async def dashboard(self) -> dict[str, Any]:
         config = await self.get_config()
@@ -402,6 +466,7 @@ class EPAutoPurchaseRepository:
                 """
                 SELECT COUNT(*)::int AS orders,
                        COUNT(*) FILTER (WHERE state = 'success')::int AS successes,
+                       COUNT(*) FILTER (WHERE state = 'pending')::int AS pending,
                        COUNT(*) FILTER (WHERE state = 'unknown')::int AS unknown
                 FROM ep_auto_purchase_orders
                 """

@@ -23,14 +23,15 @@ _SENSITIVE_KEYWORDS = (
     "session_key",
     "admin_key",
     "license_admin_key",
+    "sokey",
     "key",
 )
 
 _JSON_STRING_FIELD_RE = re.compile(
-    r'(?i)("?(?:password|passwd|pwd|token|authorization|cookie|secret|code|totp|otp|recovery|userkey|user_key|ak_userkey|session_key|admin_key|license_admin_key|key)"?\s*[:=]\s*)"([^"\\]*(?:\\.[^"\\]*)*)"'
+    r'(?i)("?(?:password|passwd|pwd|token|authorization|cookie|secret|code|totp|otp|recovery|userkey|user_key|ak_userkey|session_key|admin_key|license_admin_key|sokey|key)"?\s*[:=]\s*)"([^"\\]*(?:\\.[^"\\]*)*)"'
 )
 _QUERY_FIELD_RE = re.compile(
-    r"(?i)([?&;\s](?:password|passwd|pwd|token|authorization|cookie|secret|code|totp|otp|recovery|userkey|user_key|ak_userkey|session_key|admin_key|license_admin_key|key)=)[^&;\s]+"
+    r"(?i)([?&;\s](?:password|passwd|pwd|token|authorization|cookie|secret|code|totp|otp|recovery|userkey|user_key|ak_userkey|session_key|admin_key|license_admin_key|sokey|key)=)[^&;\s]+"
 )
 
 

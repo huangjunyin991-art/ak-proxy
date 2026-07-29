@@ -13,6 +13,7 @@
 
     window.AKEPAutoPurchaseApi = {
         dashboard: function() { return request('/dashboard'); },
+        listingDiagnostic: function() { return request('/listing-diagnostic', { cache: 'no-store' }); },
         saveConfig: function(payload) {
             return request('/config', {
                 method: 'POST',

@@ -1,11 +1,14 @@
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 import pytest
 
 from .ep_auto_purchase.provider import EPAutoPurchaseProvider
 from .ep_auto_purchase.repository import EPAutoPurchaseRepository
 from .ep_auto_purchase.service import EPAutoPurchaseService, parse_interval_milliseconds
+from .ep_auto_purchase.diagnostics import ListingDiagnosticSnapshot
+from .ep_auto_purchase.listing import inspect_listing_payload, parse_listing
 from .ep_auto_purchase.internal_rpc import (
     DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL,
     EP_AUTO_PURCHASE_INTERNAL_HEADER,
@@ -83,13 +86,13 @@ async def test_default_provider_routes_ep_calls_through_nginx_with_internal_mark
 
 
 @pytest.mark.anyio
-async def test_login_does_not_leak_internal_marker():
+async def test_background_login_uses_internal_marker_for_shared_rpc_gate():
     client = _Client({"Error": False, "UserData": {"Id": "103", "Key": "key"}})
     provider = EPAutoPurchaseProvider("https://proxy.example/RPC/", internal_token="runtime-secret")
 
     await provider.post_rpc(client, "Login", {"account": "buyer", "password": "secret"})
 
-    assert client.calls[0][2] == {}
+    assert client.calls[0][2] == {EP_AUTO_PURCHASE_INTERNAL_HEADER: "runtime-secret"}
 
 
 @pytest.mark.anyio
@@ -126,22 +129,37 @@ class _Gate:
 
 
 class _Repository:
-    def __init__(self, claimed=True):
-        self.claimed = claimed
-        self.claim_calls = 0
+    def __init__(self, allow_begin=True):
+        self.allow_begin = allow_begin
+        self.order_states = {}
+        self.registered = []
+        self.begin_calls = []
+        self.deferred = []
         self.finished = []
-        self.released_claims = []
 
-    async def claim_order(self, *args):
-        self.claim_calls += 1
-        return self.claimed
+    async def register_listing(self, sid, buyer_account, seller_account, ep_amount, sokey_digest):
+        self.registered.append((sid, buyer_account, seller_account, ep_amount, sokey_digest))
+        if sid in self.order_states:
+            return False
+        self.order_states[sid] = "pending"
+        return True
+
+    async def begin_order_attempt(self, sid, buyer_account, seller_account, ep_amount, sokey_digest):
+        self.begin_calls.append((sid, buyer_account, seller_account, ep_amount, sokey_digest))
+        if not self.allow_begin or self.order_states.get(sid) != "pending":
+            return False
+        self.order_states[sid] = "sending"
+        return True
+
+    async def defer_order(self, sid, buyer_account, message, retry_seconds=1.0):
+        self.deferred.append((sid, buyer_account, message, retry_seconds))
+        if self.order_states.get(sid) == "sending":
+            self.order_states[sid] = "pending"
 
     async def finish_order(self, sid, state, message):
         self.finished.append((sid, state, message))
-
-    async def release_order_claim(self, sid, buyer_account):
-        self.released_claims.append((sid, buyer_account))
-        return True
+        if self.order_states.get(sid) == "sending":
+            self.order_states[sid] = state
 
 
 @pytest.mark.anyio
@@ -168,12 +186,23 @@ async def test_order_timeout_is_recorded_unknown_without_second_buy():
     assert success is False
     assert calls == 1
     assert repository.finished == [("88", "unknown", "timeout")]
+    assert repository.order_states["88"] == "unknown"
+
+    second_attempt = await service._purchase_listing(
+        None,
+        "buyer",
+        {"user_id": "103", "key": "key"},
+        {"sId": "88", "Sokey": "secret"},
+    )
+    assert second_attempt is False
+    assert calls == 1
     assert gate.released == 0
 
 
 @pytest.mark.anyio
 async def test_existing_order_is_not_purchased_again():
-    repository = _Repository(claimed=False)
+    repository = _Repository()
+    repository.order_states["88"] = "success"
     gate = _Gate()
     service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=gate)
 
@@ -190,13 +219,14 @@ async def test_existing_order_is_not_purchased_again():
     )
 
     assert success is False
-    assert repository.claim_calls == 1
+    assert len(repository.registered) == 1
+    assert len(repository.begin_calls) == 1
     assert repository.finished == []
     assert gate.released == 0
 
 
 @pytest.mark.anyio
-async def test_gate_busy_releases_unforwarded_order_claim_for_retry():
+async def test_gate_busy_defers_unforwarded_order_for_retry():
     repository = _Repository()
     service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=_Gate())
 
@@ -213,8 +243,86 @@ async def test_gate_busy_releases_unforwarded_order_claim_for_retry():
             {"sId": "88", "Sokey": "secret"},
         )
 
-    assert repository.released_claims == [("88", "buyer")]
+    assert repository.order_states["88"] == "pending"
+    assert repository.deferred[0][:2] == ("88", "buyer")
     assert repository.finished == []
+
+
+@pytest.mark.anyio
+async def test_repeated_listing_is_counted_once_and_bought_once():
+    class PollRepository(_Repository):
+        def __init__(self):
+            super().__init__()
+            self.poll_results = []
+
+        async def finish_poll(self, owner, account, **values):
+            self.poll_results.append((owner, account, values))
+
+    repository = PollRepository()
+    service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=_Gate())
+    purchases = []
+
+    @asynccontextmanager
+    async def no_network_client():
+        yield object()
+
+    async def load_auth(account):
+        return {"account": account, "user_id": "103", "key": "buyer-key"}
+
+    async def pending_payload(client, auth):
+        return {
+            "Data": {
+                "List": [
+                    {"sId": "88", "Sokey": "order-secret", "Account": "seller", "EPAmount": "5"},
+                    {"sId": "88", "Sokey": "order-secret", "Account": "seller", "EPAmount": "5"},
+                ]
+            }
+        }
+
+    async def buy(client, auth, sid, sokey):
+        purchases.append((sid, sokey))
+        return {"success": True, "message": "ok"}
+
+    service.provider.build_client = no_network_client
+    service._load_auth = load_auth
+    service.provider.fetch_pending_payload = pending_payload
+    service.provider.buy = buy
+
+    await service._process_poll("buyer")
+
+    assert purchases == [("88", "order-secret")]
+    assert repository.poll_results[0][2]["unique_listings_discovered"] == 1
+    assert repository.poll_results[0][2]["purchase_successes"] == 1
+
+
+def test_listing_parser_accepts_standard_and_legacy_order_identifiers():
+    payload = {
+        "Data": {
+            "List": [
+                {"sId": 88, "Sokey": "secret-a", "Account": "seller-a", "EPAmount": 5},
+                {"eId": 89, "Sokey": "secret-b", "Account": "seller-b", "EPAmount": 6},
+            ]
+        }
+    }
+
+    inspection = inspect_listing_payload(payload)
+
+    assert inspection.list_path == "Data.List"
+    assert inspection.row_count == 2
+    assert inspection.valid_count == 2
+    assert parse_listing(inspection.rows[0]).sid == "88"
+    assert parse_listing(inspection.rows[1]).sid == "89"
+
+
+def test_listing_diagnostic_is_process_memory_only_and_expires():
+    snapshot = ListingDiagnosticSnapshot(ttl_seconds=10)
+    now = datetime(2026, 7, 30, 12, 0, 0)
+    payload = {"Data": {"List": [{"sId": 88, "Sokey": "temporary-secret"}]}}
+
+    assert snapshot.capture("buyer", payload, {"row_count": 1}, now=now) is True
+    assert snapshot.payload(now=now)["payload"] == payload
+    assert snapshot.summary(now=now)["available"] is True
+    assert snapshot.payload(now=now + timedelta(seconds=10)) == {"available": False}
 
 
 class _ConfigRepository:
@@ -386,6 +494,10 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "ADD COLUMN IF NOT EXISTS interval_milliseconds BIGINT" in sql
     assert "COALESCE(interval_seconds, 1)::BIGINT * 1000" in sql
     assert "WHERE interval_milliseconds IS NULL" in sql
+    assert "unique_listings_discovered" in sql
+    assert "next_attempt_at" in sql
+    assert "state IN ('claimed', 'sending')" in sql
+    assert "ep_auto_purchase_listing_diagnostics" not in sql
 
 
 @pytest.mark.anyio

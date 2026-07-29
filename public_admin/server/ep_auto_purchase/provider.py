@@ -13,6 +13,7 @@ from ..rpc_timeout_policy import (
 from ..security.upstream_http import resolve_upstream_tls_verify
 from ..upstream_rpc_gate import RpcGateBusy
 from .internal_rpc import EP_AUTO_PURCHASE_INTERNAL_HEADER, resolve_nginx_rpc_base_url
+from .listing import inspect_listing_payload
 
 
 AUTH_ERROR_MARKERS = ("key", "userkey", "token", "login", "登录", "未登录", "未登錄", "失效", "无效", "认证")
@@ -96,7 +97,7 @@ class EPAutoPurchaseProvider:
         allow_rpc_error: bool = False,
     ) -> dict[str, Any]:
         request_headers = None
-        if self.internal_token and endpoint.strip("/").lower() in {"public_ep_sellrecords1", "ep_buy"}:
+        if self.internal_token and endpoint.strip("/").lower() in {"login", "public_ep_sellrecords1", "ep_buy"}:
             request_headers = {EP_AUTO_PURCHASE_INTERNAL_HEADER: self.internal_token}
         try:
             response = await client.post(
@@ -127,8 +128,8 @@ class EPAutoPurchaseProvider:
             )
         return result
 
-    async def list_pending(self, client: httpx.AsyncClient, auth: Mapping[str, str]) -> list[dict[str, Any]]:
-        payload = await self.post_rpc(
+    async def fetch_pending_payload(self, client: httpx.AsyncClient, auth: Mapping[str, str]) -> dict[str, Any]:
+        return await self.post_rpc(
             client,
             "Public_EP_SellRecords1",
             {
@@ -143,9 +144,10 @@ class EPAutoPurchaseProvider:
                 "lang": "cn",
             },
         )
-        data = payload.get("Data") if isinstance(payload.get("Data"), Mapping) else {}
-        rows = data.get("List") if isinstance(data, Mapping) else []
-        return [dict(item) for item in rows if isinstance(item, Mapping)] if isinstance(rows, list) else []
+
+    async def list_pending(self, client: httpx.AsyncClient, auth: Mapping[str, str]) -> list[dict[str, Any]]:
+        payload = await self.fetch_pending_payload(client, auth)
+        return inspect_listing_payload(payload).rows
 
     async def buy(
         self,
