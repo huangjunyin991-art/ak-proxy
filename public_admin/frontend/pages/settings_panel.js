@@ -295,12 +295,42 @@
             });
         }
 
+        async function fetchLbStatusJson(url) {
+            const response = await fetch(url);
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (error) {
+                throw new Error(`负载均衡状态响应无法解析 (HTTP ${response.status})`);
+            }
+            if (!response.ok || !data || data.error) {
+                throw new Error((data && data.message) || (data && data.error) || `HTTP ${response.status}`);
+            }
+            return data;
+        }
+
+        function renderLbLoadError(error) {
+            const message = String((error && error.message) || '负载均衡状态加载失败');
+            setLbText('lbSummary', '状态加载失败');
+            const exitContainer = document.getElementById('lbExitCards');
+            if (exitContainer) {
+                exitContainer.innerHTML = `
+                    <div role="alert" style="grid-column:1/-1;padding:24px 18px;text-align:center;border:1px solid rgba(255,71,87,.32);border-radius:8px;background:rgba(255,71,87,.06);color:#ff8d98;">
+                        <strong style="display:block;margin-bottom:6px;">负载均衡状态加载失败</strong>
+                        <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(message)}</span>
+                    </div>`;
+            }
+            const coreContainer = document.getElementById('lbCoreCards');
+            if (coreContainer) {
+                coreContainer.innerHTML = '<div class="lb-core-card"><div class="lb-core-head"><span class="lb-core-name">代理核心</span><span class="lb-core-state warn">状态获取失败</span></div></div>';
+            }
+        }
+
         async function loadLbStatus(options = {forceMeta: true}) {
             if (!shouldRunAdminPanelPoll('settings')) return;
             try {
                 if (!lbLightApiAvailable) {
-                    const res = await fetch(`${API_BASE}/api/dispatcher/full`);
-                    const data = await res.json();
+                    const data = await fetchLbStatusJson(`${API_BASE}/api/dispatcher/full`);
                     lbData = data;
                     renderLbStatus(data);
                     renderProxyCoreStatus(data);
@@ -309,9 +339,9 @@
                 }
                 const forceMeta = options.forceMeta !== false || !lbMetaData;
                 const metaPromise = forceMeta
-                    ? fetch(`${API_BASE}/api/dispatcher/meta${forceMeta ? '?force_refresh=true' : ''}`).then(res => res.json())
+                    ? fetchLbStatusJson(`${API_BASE}/api/dispatcher/meta${forceMeta ? '?force_refresh=true' : ''}`)
                     : Promise.resolve(lbMetaData);
-                const lightPromise = fetch(`${API_BASE}/api/dispatcher/light`).then(res => res.json());
+                const lightPromise = fetchLbStatusJson(`${API_BASE}/api/dispatcher/light`);
                 const [meta, light] = await Promise.all([metaPromise, lightPromise]);
                 lbMetaData = meta || lbMetaData;
                 const data = mergeLbStatusData(light, lbMetaData);
@@ -322,14 +352,14 @@
             } catch (e) {
                 try {
                     lbLightApiAvailable = false;
-                    const res = await fetch(`${API_BASE}/api/dispatcher/full`);
-                    const data = await res.json();
+                    const data = await fetchLbStatusJson(`${API_BASE}/api/dispatcher/full`);
                     lbData = data;
                     renderLbStatus(data);
                     renderProxyCoreStatus(data);
                     syncSubscriptionGroupStatus(data);
                 } catch (fallbackError) {
                     console.error('加载负载均衡状态失败', fallbackError);
+                    renderLbLoadError(fallbackError);
                 }
             }
         }
@@ -341,8 +371,7 @@
                 return;
             }
             try {
-                const res = await fetch(`${API_BASE}/api/dispatcher/light`);
-                const light = await res.json();
+                const light = await fetchLbStatusJson(`${API_BASE}/api/dispatcher/light`);
                 const data = mergeLbStatusData(light, lbMetaData);
                 lbData = data;
                 renderLbStatus(data);
@@ -625,6 +654,24 @@
             return `${total}秒`;
         }
 
+        function getLbConnectFailureFreezeSchedule(policy) {
+            const configured = policy && policy.connect_failure_freeze_schedule;
+            const schedule = (Array.isArray(configured) ? configured : [])
+                .map(value => Number(value))
+                .filter(value => Number.isFinite(value) && value > 0)
+                .map(value => Math.round(value));
+            if (schedule.length) return schedule;
+            const legacySeconds = Number(policy && policy.connect_failure_freeze_seconds);
+            if (Number.isFinite(legacySeconds) && legacySeconds > 0) {
+                return [Math.round(legacySeconds)];
+            }
+            return [10, 30, 60, 180, 300, 900, 3600];
+        }
+
+        function formatLbConnectFailureFreezeSchedule(policy) {
+            return getLbConnectFailureFreezeSchedule(policy).map(formatLbDuration).join(' → ');
+        }
+
         function getLbExitLatencyNumber(ex) {
             const value = ex && ex.latency_ms;
             if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
@@ -757,7 +804,7 @@
             setLbText('lbPerSecondLimit', `${policy.per_exit_rate_per_second || 3} req/s/节点`);
             setLbText('lbProbeInterval', `${Math.round((policy.latency_probe_interval_seconds || 1800) / 60)} 分钟`);
             const connectFreezeEl = document.getElementById('lbConnectFailureFreeze');
-            if (connectFreezeEl) connectFreezeEl.textContent = formatLbDuration(getLbConnectFailureFreezeSeconds(policy));
+            if (connectFreezeEl) connectFreezeEl.textContent = formatLbConnectFailureFreezeSchedule(policy);
             setLbText('lbSummary', `可用 ${availability.available}/${availability.total} (${availableRatioText}) | 禁用 ${availability.disabled} | ${data.total_active} 活跃连接`);
 
             const container = document.getElementById('lbExitCards');
