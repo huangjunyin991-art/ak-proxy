@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.requests import Request
 
+from .ak_sell.account_state import CachedAKAccountAuth, UserStatsAKAccountState
 from .ak_sell.clock import AKSellClock, BEIJING_TIMEZONE
 from .ak_sell.license_guard import AKSellLicenseGuard, MACHINE_AUTHORIZATION_HEADER
 from .ak_sell.internal_rpc import AK_SELL_INTERNAL_RPC_HEADER
@@ -43,6 +44,23 @@ class FakeProvider:
             headers={},
             url="https://gateway.example/RPC/Google_Secret",
         )
+
+
+class FakeAccountState:
+    def __init__(self, auth=None, password="saved-password"):
+        self.auth = auth
+        self.password = password
+        self.invalidated = []
+
+    async def get_auth(self, _account):
+        return self.auth
+
+    async def get_password(self, _account):
+        return self.password
+
+    async def invalidate_auth(self, account):
+        self.invalidated.append(account)
+        self.auth = None
 
 
 def fixed_clock() -> AKSellClock:
@@ -199,6 +217,115 @@ async def test_upstream_business_rejection_is_returned_without_a_retry():
     assert len(provider.calls) == 1
 
 
+@pytest.mark.asyncio
+async def test_account_uses_existing_user_stats_login_state_without_relogin():
+    provider = FakeProvider()
+    state = FakeAccountState(CachedAKAccountAuth("demo", "cached-key", "42"))
+    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=state)
+
+    result = await service.invoke("balance", {"account": "Demo"})
+
+    assert result["success"] is True
+    assert provider.calls == [
+        ("public_IndexData", {"key": "cached-key", "UserID": "42", "v": "2096", "lang": "cn"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_account_refreshes_login_only_after_cached_state_is_missing():
+    state = FakeAccountState()
+
+    class RefreshingProvider(FakeProvider):
+        async def post_rpc(self, client, endpoint, data):
+            self.calls.append((endpoint, data))
+            if endpoint == "Login":
+                state.auth = CachedAKAccountAuth("demo", "fresh-key", "73")
+                return {"Error": False, "Key": "fresh-key", "UserData": {"Id": "73"}}
+            return {"Error": False, "Data": {"ACECount": 100}}
+
+    provider = RefreshingProvider()
+    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=state)
+
+    result = await service.invoke("balance", {"account": "demo"})
+
+    assert result["success"] is True
+    assert [call[0] for call in provider.calls] == ["Login", "public_IndexData"]
+    assert provider.calls[0][1] == {"account": "demo", "password": "saved-password", "client": "WEB"}
+    assert provider.calls[1][1]["key"] == "fresh-key"
+    assert provider.calls[1][1]["UserID"] == "73"
+
+
+@pytest.mark.asyncio
+async def test_read_operation_refreshes_once_after_an_explicit_login_rejection():
+    state = FakeAccountState(CachedAKAccountAuth("demo", "stale-key", "42"))
+
+    class ExpiringProvider(FakeProvider):
+        async def post_rpc(self, client, endpoint, data):
+            self.calls.append((endpoint, data))
+            if endpoint == "public_IndexData" and len([item for item in self.calls if item[0] == endpoint]) == 1:
+                return {"Error": True, "Msg": "用户未登录"}
+            if endpoint == "Login":
+                state.auth = CachedAKAccountAuth("demo", "fresh-key", "42")
+                return {"Error": False, "Key": "fresh-key", "UserData": {"Id": "42"}}
+            return {"Error": False}
+
+    provider = ExpiringProvider()
+    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=state)
+
+    result = await service.invoke("balance", {"account": "demo"})
+
+    assert result["success"] is True
+    assert [call[0] for call in provider.calls] == ["public_IndexData", "Login", "public_IndexData"]
+    assert state.invalidated == ["demo"]
+    assert provider.calls[-1][1]["key"] == "fresh-key"
+
+
+@pytest.mark.asyncio
+async def test_submit_does_not_retry_when_cached_key_is_explicitly_rejected():
+    state = FakeAccountState(CachedAKAccountAuth("demo", "stale-key", "42"))
+    provider = FakeProvider(result={"Error": True, "Msg": "用户未登录"})
+    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=state)
+
+    result = await service.invoke(
+        "submit",
+        {
+            "account": "demo",
+            "mnemonicid1": 1,
+            "mnemonickey": "challenge-key",
+            "mnemonicstr1": "word",
+            "gCode": "123456",
+            "count": 100,
+        },
+    )
+
+    assert result["state"] == "auth_expired"
+    assert [call[0] for call in provider.calls] == ["ACE_Sell"]
+    assert state.invalidated == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_user_stats_adapter_extracts_key_and_user_id_from_login_state():
+    async def load_auth_state(account):
+        assert account == "demo"
+        return {"userkey": "cached-key", "login_result": {"UserData": {"Id": "56"}}}
+
+    async def get_password(_account):
+        return "saved-password"
+
+    async def clear_auth_state(_account):
+        return True
+
+    state = UserStatsAKAccountState(
+        load_auth_state=load_auth_state,
+        get_password=get_password,
+        clear_auth_state=clear_auth_state,
+    )
+
+    auth = await state.get_auth("Demo")
+
+    assert auth == CachedAKAccountAuth(account="demo", userkey="cached-key", user_id="56")
+
+
 def test_server_time_is_utc_normalized_and_calculates_upstream_v():
     snapshot = fixed_clock().snapshot()
 
@@ -350,6 +477,60 @@ async def test_google_bind_uses_server_time_and_returns_secret_without_persistin
 
 
 @pytest.mark.asyncio
+async def test_google_bind_retries_google_secret_only_with_redirect_following():
+    class RedirectProvider(FakeProvider):
+        async def post_rpc_reply(self, client, endpoint, data, **options):
+            self.calls.append((endpoint, data, options.get("follow_redirects")))
+            if options.get("follow_redirects") is False:
+                return AKSellUpstreamReply(payload={}, headers={}, url="https://gateway.example/RPC/Google_Secret")
+            return AKSellUpstreamReply(
+                payload={"BindKey": "JBSWY3DPEHPK3PXP"},
+                headers={},
+                url="https://gateway.example/RPC/Google_Secret?ac=JBSWY3DPEHPK3PXP",
+            )
+
+        async def post_rpc(self, client, endpoint, data):
+            self.calls.append((endpoint, data))
+            return {"Error": False}
+
+    provider = RedirectProvider()
+    service = AKSellService(provider=provider, clock=fixed_clock())
+
+    result = await service.invoke(
+        "google-bind",
+        {
+            "key": "key-1",
+            "UserID": "42",
+            "activationCode": "activation-code",
+            "tradePassword": "trade-pin",
+        },
+    )
+
+    assert result["success"] is True
+    assert [call[2] for call in provider.calls if len(call) == 3] == [False, True]
+    assert provider.calls[-1][0] == "Google_Bind"
+
+
+@pytest.mark.asyncio
+async def test_google_write_read_timeout_is_unknown_and_not_retried():
+    provider = FakeProvider(error=AKSellUpstreamError("ReadTimeout", is_read_timeout=True))
+    service = AKSellService(provider=provider, clock=fixed_clock())
+
+    result = await service.invoke(
+        "google-bind",
+        {
+            "key": "key-1",
+            "UserID": "42",
+            "activationCode": "activation-code",
+            "tradePassword": "trade-pin",
+        },
+    )
+
+    assert result["state"] == "unknown"
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_google_unbind_uses_only_the_challenge_words_requested_by_ak():
     class UnbindProvider(FakeProvider):
         async def post_rpc(self, _client, endpoint, data):
@@ -383,3 +564,26 @@ async def test_google_unbind_uses_only_the_challenge_words_requested_by_ak():
     assert request["mnemonicstr1"] == "word-2"
     assert request["mnemonicstr2"] == "word-5"
     assert request["mnemonicstr3"] == "word-8"
+
+
+@pytest.mark.asyncio
+async def test_google_unbind_rejects_invalid_upstream_challenge_as_input_error():
+    class InvalidChallengeProvider(FakeProvider):
+        async def post_rpc(self, _client, endpoint, data):
+            self.calls.append((endpoint, data))
+            if endpoint == "Mnemonic_Get03":
+                return {"Error": False, "mnemonicid1": "not-a-number"}
+            raise AssertionError("Google_Unbind must not be called")
+
+    service = AKSellService(provider=InvalidChallengeProvider(), clock=fixed_clock())
+
+    with pytest.raises(AKSellInputError, match="upstream mnemonic challenge"):
+        await service.invoke(
+            "google-unbind",
+            {
+                "key": "key-1",
+                "UserID": "42",
+                "tradePassword": "trade-pin",
+                "mnemonicWords": [f"word-{index}" for index in range(1, 13)],
+            },
+        )

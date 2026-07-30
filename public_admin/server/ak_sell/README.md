@@ -1,6 +1,6 @@
 # AK 挂卖 API
 
-所有接口都位于 `/admin/api/ak-sell`，只需要有效的 AK 自动挂卖机器授权，不要求管理后台 Bearer Token。请求体为 JSON；服务端只接受本文列出的字段，经现有 Nginx 和出口调度转发到 AK。挂卖服务调用使用进程内随机受信标记，并按账号互斥、允许不同账号并行；普通用户 RPC 仍保留全局优先锁。不保存请求参数、密码、Key、助记词或 Google 验证码。
+所有接口都位于 `/admin/api/ak-sell`，只需要有效的 AK 自动挂卖机器授权，不要求管理后台 Bearer Token。请求体为 JSON；服务端只接受本文列出的字段，经现有 Nginx 和出口调度转发到 AK。挂卖服务调用使用进程内随机受信标记，并按账号互斥、允许不同账号并行；普通用户 RPC 仍保留全局优先锁。AK Sell 不创建第二份凭据库，登录仍经过现有 `/RPC/Login` 拦截器，并复用 `user_stats` 中已保存的密码、Key、登录响应和 Cookie。
 
 每次请求必须携带机器授权请求头：
 
@@ -11,6 +11,15 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 `X-AK-Authorization` 是 `/api/v1/offline-authorization` 签发的 `authorization_code`。服务端会验签、确认产品为 `ak_auto_sell`，并实时查询激活码和机器绑定状态；授权码过期、设备禁用、激活码撤销/过期或授权中心不可用时，均不会转发任何上游 AK 请求。
 
 所有请求都由服务端使用已 NTP 同步的北京时间计算上游 `v`（`年 + 月 + 日 + 时 + 分`）；客户端传入的 `v` 会被忽略。每个成功或失败响应均带有 `server_time`，客户端不应使用自身时钟生成上游参数。
+
+## 账号登录态复用
+
+除 `/login` 外，认证接口同时支持两种方式：
+
+- 兼容方式：传入 `key` 与 `UserID`。
+- 推荐方式：只传入 `account`。服务端从该账号在 `user_stats` 中的有效登录态补齐 `key` 和 `UserID`。
+
+登录态有效时不会再调用上游登录。登录态缺失或过期时，服务端仅在 `user_stats` 已有该账号密码的前提下登录一次，并由既有登录拦截器更新同一份缓存。若账号未保存密码，先调用 `/login` 完成一次登录。
 
 ## 时间同步
 
@@ -38,14 +47,14 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 {"account":"账号","password":"密码"}
 ```
 
-服务端固定补充 `client=WEB`。成功响应中的 `payload.Key` 与 `payload.UserData.Id` 可用于后续接口。
+服务端固定补充 `client=WEB`。成功响应中的 `payload.Key` 与 `payload.UserData.Id` 会由现有登录拦截器写入 `user_stats`，供后续 `account` 方式复用。
 
 ## 读取助记词校验位
 
 `POST /mnemonic`
 
 ```json
-{"key":"Key","UserID":"用户 ID","lang":"cn"}
+{"account":"账号","lang":"cn"}
 ```
 
 ## 读取主账号余额
@@ -53,7 +62,7 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 `POST /balance`
 
 ```json
-{"key":"Key","UserID":"用户 ID","lang":"cn"}
+{"account":"账号","lang":"cn"}
 ```
 
 余额位于上游响应的 `payload.Data.ACECount`。
@@ -63,10 +72,10 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 `POST /subaccounts`
 
 ```json
-{"key":"Key","UserID":"用户 ID","lang":"cn","account":"","p":1,"pageSize":50}
+{"account":"账号","lang":"cn","p":1,"pageSize":50}
 ```
 
-`account` 可以为空字符串；`p` 与 `pageSize` 为正整数，`pageSize` 最大为 100。
+`account` 是登录态所属账号；`p` 与 `pageSize` 为正整数，`pageSize` 最大为 100。
 
 ## 提交挂卖
 
@@ -74,8 +83,7 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 
 ```json
 {
-  "key":"Key",
-  "UserID":"用户 ID",
+  "account":"账号",
   "lang":"cn",
   "mnemonicid1":1,
   "mnemonickey":"助记词校验 Key",
@@ -94,8 +102,7 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 
 ```json
 {
-  "key":"Key",
-  "UserID":"用户 ID",
+  "account":"账号",
   "lang":"cn",
   "activationCode":"谷歌激活码",
   "tradePassword":"交易密码"
@@ -110,8 +117,7 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 
 ```json
 {
-  "key":"Key",
-  "UserID":"用户 ID",
+  "account":"账号",
   "lang":"cn",
   "tradePassword":"交易密码",
   "mnemonicWords":["助记词 1", "助记词 2"]
@@ -125,5 +131,6 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 - 上游正常响应均在 `payload` 原样返回；`success` 依据上游 `Error` 判断。
 - `state=completed` 表示上游业务成功，`state=rejected` 表示上游已明确拒绝。
 - `state=waiting` 表示同一账号的 RPC 正在排队，客户端可以稍后重试。
-- 提交挂卖出现读取超时时返回 HTTP 504 及 `state=unknown`。客户端不得自动重发该请求，因为上游可能已完成挂卖。
-- 客户端定时任务只在定时点调用上述接口；服务端没有自动任务或凭据缓存，因此服务重启不会产生补发行为。
+- `state=auth_expired` 表示上游明确拒绝了已缓存的登录态。服务端已清除该 Key；客户端再次提交时会先刷新登录。
+- 挂卖提交、Google 绑定和解绑出现读取超时时返回 HTTP 504 及 `state=unknown`。客户端不得自动重发该请求，因为上游可能已完成写入。
+- 客户端定时任务只在定时点调用上述接口；服务端没有自动业务任务，服务重启不会产生补发行为。

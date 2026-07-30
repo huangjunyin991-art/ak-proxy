@@ -857,10 +857,12 @@ ep_auto_purchase_service = None
 
 try:
     from .ak_sell import AKSellService, create_ak_sell_router
+    from .ak_sell.account_state import UserStatsAKAccountState
     _AK_SELL_IMPORT_ERROR = None
 except Exception as e:
     AKSellService = None
     create_ak_sell_router = None
+    UserStatsAKAccountState = None
     _AK_SELL_IMPORT_ERROR = e
 
 ak_sell_service = None
@@ -7084,7 +7086,13 @@ elif _EP_AUTO_PURCHASE_IMPORT_ERROR is not None:
 
 if create_ak_sell_router is not None and AKSellService is not None and upstream_rpc_gate is not None:
     try:
-        ak_sell_service = AKSellService()
+        ak_sell_service = AKSellService(
+            account_state=UserStatsAKAccountState(
+                load_auth_state=db.get_ak_auth_state,
+                get_password=db.get_user_password,
+                clear_auth_state=db.clear_ak_auth_state,
+            ) if UserStatsAKAccountState is not None else None,
+        )
         app.include_router(create_ak_sell_router(
             service=ak_sell_service,
             machine_authorization_validator=(
