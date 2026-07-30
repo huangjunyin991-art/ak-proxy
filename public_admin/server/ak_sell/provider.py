@@ -13,6 +13,7 @@ from ..rpc_timeout_policy import (
 )
 from ..security.upstream_http import resolve_upstream_tls_verify
 from ..upstream_rpc_gate import RpcGateBusy
+from .internal_rpc import AK_SELL_INTERNAL_RPC_HEADER
 from .transport import resolve_nginx_rpc_base_url
 
 
@@ -43,8 +44,9 @@ class AKSellUpstreamReply:
 class AKSellProvider:
     """Forwards the fixed AK sell RPC contract through the local Nginx entry point."""
 
-    def __init__(self, base_url: str | None = None) -> None:
+    def __init__(self, base_url: str | None = None, *, internal_token: str = "") -> None:
         self.base_url = resolve_nginx_rpc_base_url(base_url)
+        self.internal_token = str(internal_token or "").strip()
 
     @staticmethod
     def _headers() -> dict[str, str]:
@@ -89,10 +91,25 @@ class AKSellProvider:
         follow_redirects: bool = True,
         allow_non_json: bool = False,
     ) -> AKSellUpstreamReply:
+        request_headers = None
+        if self.internal_token and str(endpoint or "").strip("/").lower() in {
+            "login",
+            "mnemonic_get01",
+            "mnemonic_get03",
+            "public_indexdata",
+            "my_subaccount",
+            "ace_sell",
+            "ace_sell_son",
+            "google_secret",
+            "google_bind",
+            "google_unbind",
+        }:
+            request_headers = {AK_SELL_INTERNAL_RPC_HEADER: self.internal_token}
         try:
             response = await client.post(
                 self.base_url + str(endpoint or "").strip("/"),
                 data=dict(data),
+                headers=request_headers,
                 follow_redirects=follow_redirects,
             )
         except httpx.ReadTimeout as exc:

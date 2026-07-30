@@ -3729,24 +3729,35 @@ async def proxy_rpc(path: str, request: Request):
         and ep_auto_purchase_service is not None
         and ep_auto_purchase_service.is_internal_rpc_request(request)
     )
+    ak_sell_internal_request = bool(
+        normalized_path in {
+            "login", "mnemonic_get01", "mnemonic_get03", "public_indexdata", "my_subaccount",
+            "ace_sell", "ace_sell_son", "google_secret", "google_bind", "google_unbind",
+        }
+        and ak_sell_service is not None
+        and ak_sell_service.is_internal_rpc_request(request)
+    )
     upstream_rpc_lease = None
     if (
         normalized_path in {
             "login", "notice_list", "my_subaccount", "mnemonic_get01", "ace_sell", "ace_sell_son",
-            "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy",
+            "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy", "mnemonic_get03",
+            "public_indexdata", "google_secret", "google_bind", "google_unbind",
         }
         and not notice_guidance_internal_request
         and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):
         if ep_auto_purchase_internal_request and upstream_rpc_gate is not None:
             upstream_rpc_lease = await upstream_rpc_gate.try_reserve_background(build_rpc_identity(params))
+        elif ak_sell_internal_request and upstream_rpc_gate is not None:
+            upstream_rpc_lease = await upstream_rpc_gate.reserve_ak_sell(build_rpc_identity(params))
         elif normalized_path in {"notice_list", "my_subaccount"} and guided_sale_statistics_service is not None:
             try:
                 user_id = str(params.get("UserID") or params.get("userId") or params.get("userid") or "").strip()
                 await guided_sale_statistics_service.repository.mark_external_activity(user_id)
             except Exception as exc:
                 logger.warning(f"[GuidedSaleStatistics] external activity update failed: {exc}")
-        if upstream_rpc_lease is None and ep_auto_purchase_internal_request:
+        if upstream_rpc_lease is None and (ep_auto_purchase_internal_request or ak_sell_internal_request):
             return JSONResponse(
                 {"Error": True, "Code": "rpc_gate_busy", "Msg": "用户请求优先，后台任务稍后重试"},
                 status_code=503,

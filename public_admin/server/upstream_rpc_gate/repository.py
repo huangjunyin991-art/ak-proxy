@@ -32,9 +32,17 @@ class UpstreamRpcGateRepository:
                 )
             self._ready = True
 
-    async def try_claim(self, identity: str, holder: str, *, external: bool) -> bool:
+    async def try_claim(
+        self,
+        identity: str,
+        holder: str,
+        *,
+        external: bool,
+        include_global: bool = True,
+    ) -> bool:
         await self.ensure_ready()
-        keys = sorted({"__global__", "account:" + (str(identity or "").strip() or "unknown")})
+        account_key = "account:" + (str(identity or "").strip() or "unknown")
+        keys = sorted({"__global__", account_key}) if include_global else [account_key]
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -43,7 +51,7 @@ class UpstreamRpcGateRepository:
                         "INSERT INTO upstream_rpc_call_locks (lock_key) VALUES ($1) ON CONFLICT DO NOTHING",
                         key,
                     )
-                if external:
+                if external and include_global:
                     await conn.execute(
                         """
                         UPDATE upstream_rpc_call_locks
@@ -62,7 +70,7 @@ class UpstreamRpcGateRepository:
                     keys,
                 )
                 now = datetime.now()
-                if not external and any(
+                if include_global and not external and any(
                     row["external_priority_until"] and row["external_priority_until"] > now
                     for row in rows
                 ):
@@ -80,9 +88,10 @@ class UpstreamRpcGateRepository:
                 )
         return True
 
-    async def release(self, identity: str, holder: str) -> None:
+    async def release(self, identity: str, holder: str, *, include_global: bool = True) -> None:
         await self.ensure_ready()
-        keys = ["__global__", "account:" + (str(identity or "").strip() or "unknown")]
+        account_key = "account:" + (str(identity or "").strip() or "unknown")
+        keys = ["__global__", account_key] if include_global else [account_key]
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             await conn.execute(

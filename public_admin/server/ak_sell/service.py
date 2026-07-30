@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ..upstream_rpc_gate import RpcGateBusy
 from .clock import AKSellClock
+from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
 from .provider import AKSellProvider, AKSellUpstreamError
 
 
@@ -32,8 +33,17 @@ class AKSellService:
     })
 
     def __init__(self, *, provider=None, clock: AKSellClock | None = None) -> None:
-        self.provider = provider or AKSellProvider()
+        self._internal_rpc_token = create_internal_rpc_token()
+        self.provider = provider or AKSellProvider(internal_token=self._internal_rpc_token)
         self.clock = clock or AKSellClock()
+
+    def is_internal_rpc_request(self, request) -> bool:
+        client = getattr(request, "client", None)
+        return is_trusted_internal_rpc_request(
+            request.headers,
+            str(getattr(client, "host", "") or ""),
+            self._internal_rpc_token,
+        )
 
     def server_time(self) -> dict[str, str | int]:
         return self.clock.snapshot()

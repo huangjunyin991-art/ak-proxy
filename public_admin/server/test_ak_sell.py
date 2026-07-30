@@ -8,6 +8,7 @@ from starlette.requests import Request
 
 from .ak_sell.clock import AKSellClock, BEIJING_TIMEZONE
 from .ak_sell.license_guard import AKSellLicenseGuard, MACHINE_AUTHORIZATION_HEADER
+from .ak_sell.internal_rpc import AK_SELL_INTERNAL_RPC_HEADER
 from .ak_sell.provider import AKSellUpstreamError, AKSellUpstreamReply
 from .ak_sell.routes import create_ak_sell_router
 from .ak_sell.service import AKSellInputError, AKSellService
@@ -57,6 +58,18 @@ def make_request(headers: dict[str, str] | None = None) -> Request:
         "path": "/admin/api/ak-sell/time",
         "headers": raw_headers,
         "client": ("203.0.113.10", 443),
+    })
+
+
+def make_local_request(headers: dict[str, str]) -> Request:
+    raw_headers = [(key.lower().encode("ascii"), value.encode("ascii")) for key, value in headers.items()]
+    return Request({
+        "type": "http",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/RPC/Login",
+        "headers": raw_headers,
+        "client": ("127.0.0.1", 443),
     })
 
 
@@ -269,6 +282,15 @@ async def test_time_sync_only_requires_machine_authorization_not_admin_bearer_to
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, private"
     assert response.json()["server_time"]["v"] == "2096"
+
+
+def test_ak_sell_internal_rpc_token_requires_loopback_and_matches_constant_time():
+    service = AKSellService(provider=FakeProvider(), clock=fixed_clock())
+    token = service._internal_rpc_token
+
+    assert service.is_internal_rpc_request(make_local_request({AK_SELL_INTERNAL_RPC_HEADER: token})) is True
+    assert service.is_internal_rpc_request(make_request({AK_SELL_INTERNAL_RPC_HEADER: token})) is False
+    assert service.is_internal_rpc_request(make_local_request({AK_SELL_INTERNAL_RPC_HEADER: "wrong"})) is False
 
 
 @pytest.mark.asyncio
