@@ -1,12 +1,15 @@
 from datetime import datetime
 import json
 
+import httpx
 import pytest
+from fastapi import FastAPI
 from starlette.requests import Request
 
 from .ak_sell.clock import AKSellClock, BEIJING_TIMEZONE
 from .ak_sell.license_guard import AKSellLicenseGuard, MACHINE_AUTHORIZATION_HEADER
 from .ak_sell.provider import AKSellUpstreamError
+from .ak_sell.routes import create_ak_sell_router
 from .ak_sell.service import AKSellInputError, AKSellService
 
 
@@ -235,3 +238,27 @@ async def test_license_guard_rejects_a_revoked_or_disabled_machine_before_upstre
         "message": "机器已被禁用",
         "error_code": "DEVICE_BLACKLISTED",
     }
+
+
+@pytest.mark.asyncio
+async def test_time_sync_only_requires_machine_authorization_not_admin_bearer_token():
+    service = AKSellService(provider=FakeProvider(), clock=fixed_clock())
+    app = FastAPI()
+
+    async def validator(code, _client_ip):
+        return {"success": code == "active-machine-authorization"}
+
+    app.include_router(create_ak_sell_router(
+        service=service,
+        machine_authorization_validator=validator,
+    ))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as client:
+        response = await client.get(
+            "/admin/api/ak-sell/time",
+            headers={MACHINE_AUTHORIZATION_HEADER: "active-machine-authorization"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, private"
+    assert response.json()["server_time"]["v"] == "2096"

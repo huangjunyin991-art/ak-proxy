@@ -7076,7 +7076,6 @@ if create_ak_sell_router is not None and AKSellService is not None and upstream_
         ak_sell_service = AKSellService()
         app.include_router(create_ak_sell_router(
             service=ak_sell_service,
-            require_admin_identity=_require_admin_identity,
             machine_authorization_validator=(
                 license_center_service.validate_auto_sell_machine_authorization
                 if license_center_service is not None

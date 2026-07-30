@@ -1,11 +1,10 @@
 # AK 挂卖 API
 
-所有接口都位于 `/admin/api/ak-sell`，需要总管理员身份和有效的 AK 自动挂卖机器授权。请求体为 JSON；服务端只接受本文列出的字段，经现有 Nginx 和出口调度转发到 AK。登录、助记词、子账号和挂卖提交还与现有用户请求共享 RPC 锁，不保存请求参数、密码、Key、助记词或 Google 验证码。
+所有接口都位于 `/admin/api/ak-sell`，只需要有效的 AK 自动挂卖机器授权，不要求管理后台 Bearer Token。请求体为 JSON；服务端只接受本文列出的字段，经现有 Nginx 和出口调度转发到 AK。登录、助记词、子账号和挂卖提交还与现有用户请求共享 RPC 锁，不保存请求参数、密码、Key、助记词或 Google 验证码。
 
-每次请求都必须同时携带两个不同的请求头：
+每次请求必须携带机器授权请求头：
 
 ```http
-Authorization: Bearer <管理员令牌>
 X-AK-Authorization: <ak_auto_sell 八小时授权码>
 ```
 

@@ -77,8 +77,10 @@ def test_offline_authorization_server_verifier_checks_signature_and_expiry():
     assert signer.verify(token, now=datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc)) == payload
     with pytest.raises(ValueError, match="expired"):
         signer.verify(token, now=datetime(2026, 7, 15, 17, 0, tzinfo=timezone.utc))
+    header, body, signature = token.split(".")
+    tampered_signature = ("A" if signature[0] != "A" else "B") + signature[1:]
     with pytest.raises(ValueError, match="signature"):
-        signer.verify(token[:-1] + ("A" if token[-1] != "A" else "B"), now=datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc))
+        signer.verify(f"{header}.{body}.{tampered_signature}", now=datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc))
 
 
 def test_offline_authorization_generates_missing_deployment_key_once(tmp_path, monkeypatch):

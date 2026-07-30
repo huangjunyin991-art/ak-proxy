@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
-
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -12,16 +9,12 @@ from .service import AKSellInputError
 
 def create_ak_sell_router(
     service,
-    require_admin_identity: Callable[..., Any],
     machine_authorization_validator: MachineAuthorizationValidator | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/ak-sell")
     license_guard = AKSellLicenseGuard(machine_authorization_validator)
 
     async def authorize(request: Request):
-        _, _, _, error_response = await require_admin_identity(request, super_admin_only=True)
-        if error_response is not None:
-            return error_response
         return await license_guard.authorize(request)
 
     async def invoke(request: Request, operation: str):
