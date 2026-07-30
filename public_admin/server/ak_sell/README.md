@@ -88,6 +88,38 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 
 `sonId` 为空时调用 `ACE_Sell`，有值时调用 `ACE_Sell_Son`。服务端固定传递空的 `amount` 和 `password`，与原客户端逻辑一致。
 
+## 谷歌验证绑定
+
+`POST /google-bind`
+
+```json
+{
+  "key":"Key",
+  "UserID":"用户 ID",
+  "lang":"cn",
+  "activationCode":"谷歌激活码",
+  "tradePassword":"交易密码"
+}
+```
+
+服务端临时向 AK 换取谷歌密钥、以服务端时间生成验证码并完成绑定。成功响应额外包含一次性的 `google_secret`，客户端须立即存入本机安全存储；服务端不保存密钥、激活码或交易密码。
+
+## 谷歌验证解绑
+
+`POST /google-unbind`
+
+```json
+{
+  "key":"Key",
+  "UserID":"用户 ID",
+  "lang":"cn",
+  "tradePassword":"交易密码",
+  "mnemonicWords":["助记词 1", "助记词 2"]
+}
+```
+
+服务端临时读取本次解绑所需的三个助记词校验位后转发解绑请求，不保存助记词或交易密码。
+
 ## 响应约定
 
 - 上游正常响应均在 `payload` 原样返回；`success` 依据上游 `Error` 判断。

@@ -8,7 +8,7 @@ from starlette.requests import Request
 
 from .ak_sell.clock import AKSellClock, BEIJING_TIMEZONE
 from .ak_sell.license_guard import AKSellLicenseGuard, MACHINE_AUTHORIZATION_HEADER
-from .ak_sell.provider import AKSellUpstreamError
+from .ak_sell.provider import AKSellUpstreamError, AKSellUpstreamReply
 from .ak_sell.routes import create_ak_sell_router
 from .ak_sell.service import AKSellInputError, AKSellService
 
@@ -35,6 +35,13 @@ class FakeProvider:
         if self.error is not None:
             raise self.error
         return self.result
+
+    async def post_rpc_reply(self, client, endpoint, data, **_options):
+        return AKSellUpstreamReply(
+            payload=await self.post_rpc(client, endpoint, data),
+            headers={},
+            url="https://gateway.example/RPC/Google_Secret",
+        )
 
 
 def fixed_clock() -> AKSellClock:
@@ -262,3 +269,95 @@ async def test_time_sync_only_requires_machine_authorization_not_admin_bearer_to
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, private"
     assert response.json()["server_time"]["v"] == "2096"
+
+
+@pytest.mark.asyncio
+async def test_google_bind_route_requires_only_machine_authorization():
+    service = AKSellService(
+        provider=FakeProvider(result={"Error": False, "BindKey": "0XYBCWJOQMMGH0R"}),
+        clock=fixed_clock(),
+    )
+    app = FastAPI()
+
+    async def validator(code, _client_ip):
+        return {"success": code == "active-machine-authorization"}
+
+    app.include_router(create_ak_sell_router(
+        service=service,
+        machine_authorization_validator=validator,
+    ))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as client:
+        response = await client.post(
+            "/admin/api/ak-sell/google-bind",
+            headers={MACHINE_AUTHORIZATION_HEADER: "active-machine-authorization"},
+            json={
+                "key": "key-1",
+                "UserID": "42",
+                "activationCode": "activation-code",
+                "tradePassword": "trade-pin",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_google_bind_uses_server_time_and_returns_secret_without_persisting_it():
+    provider = FakeProvider(result={"Error": False, "BindKey": "0XYBCWJOQMMGH0R"})
+    service = AKSellService(provider=provider, clock=fixed_clock())
+
+    result = await service.invoke(
+        "google-bind",
+        {
+            "key": "key-1",
+            "UserID": "42",
+            "activationCode": "activation-code",
+            "tradePassword": "trade-pin",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["google_secret"] == "OXYBCWJOQMMGHOR"
+    assert [call[0] for call in provider.calls] == ["Google_Secret", "Google_Bind"]
+    assert provider.calls[1][1]["gCode"].isdigit()
+    assert provider.calls[1][1]["v"] == "2096"
+    assert "aCode" not in provider.calls[1][1]
+    assert "pin" not in provider.calls[1][1]
+
+
+@pytest.mark.asyncio
+async def test_google_unbind_uses_only_the_challenge_words_requested_by_ak():
+    class UnbindProvider(FakeProvider):
+        async def post_rpc(self, _client, endpoint, data):
+            self.calls.append((endpoint, data))
+            if endpoint == "Mnemonic_Get03":
+                return {
+                    "Error": False,
+                    "mnemonicid1": 2,
+                    "mnemonicid2": 5,
+                    "mnemonicid3": 8,
+                    "mnemonickey": "challenge-key",
+                }
+            return {"Error": False, "Msg": "unbound"}
+
+    provider = UnbindProvider()
+    service = AKSellService(provider=provider, clock=fixed_clock())
+
+    result = await service.invoke(
+        "google-unbind",
+        {
+            "key": "key-1",
+            "UserID": "42",
+            "tradePassword": "trade-pin",
+            "mnemonicWords": [f"word-{index}" for index in range(1, 13)],
+        },
+    )
+
+    assert result["success"] is True
+    assert [call[0] for call in provider.calls] == ["Mnemonic_Get03", "Google_Unbind"]
+    request = provider.calls[1][1]
+    assert request["mnemonicstr1"] == "word-2"
+    assert request["mnemonicstr2"] == "word-5"
+    assert request["mnemonicstr3"] == "word-8"

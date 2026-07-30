@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -30,6 +31,13 @@ class AKSellUpstreamError(RuntimeError):
     @property
     def is_rate_limited(self) -> bool:
         return self.status_code == 429
+
+
+@dataclass(frozen=True)
+class AKSellUpstreamReply:
+    payload: dict[str, Any]
+    headers: Mapping[str, str]
+    url: str
 
 
 class AKSellProvider:
@@ -70,10 +78,22 @@ class AKSellProvider:
         endpoint: str,
         data: Mapping[str, Any],
     ) -> dict[str, Any]:
+        return (await self.post_rpc_reply(client, endpoint, data)).payload
+
+    async def post_rpc_reply(
+        self,
+        client: httpx.AsyncClient,
+        endpoint: str,
+        data: Mapping[str, Any],
+        *,
+        follow_redirects: bool = True,
+        allow_non_json: bool = False,
+    ) -> AKSellUpstreamReply:
         try:
             response = await client.post(
                 self.base_url + str(endpoint or "").strip("/"),
                 data=dict(data),
+                follow_redirects=follow_redirects,
             )
         except httpx.ReadTimeout as exc:
             raise AKSellUpstreamError("ReadTimeout", is_read_timeout=True) from exc
@@ -94,6 +114,10 @@ class AKSellProvider:
                 f"upstream returned HTTP {response.status_code}",
                 status_code=int(response.status_code),
             )
-        if not isinstance(payload, Mapping):
+        if not isinstance(payload, Mapping) and not allow_non_json:
             raise AKSellUpstreamError("upstream payload is not an object")
-        return dict(payload)
+        return AKSellUpstreamReply(
+            payload=dict(payload) if isinstance(payload, Mapping) else {},
+            headers=dict(response.headers),
+            url=str(response.url),
+        )

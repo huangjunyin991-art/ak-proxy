@@ -92,4 +92,12 @@ def create_ak_sell_router(
     async def submit(request: Request):
         return await invoke(request, "submit")
 
+    @router.post("/google-bind")
+    async def google_bind(request: Request):
+        return await invoke(request, "google-bind")
+
+    @router.post("/google-unbind")
+    async def google_unbind(request: Request):
+        return await invoke(request, "google-unbind")
+
     return router
