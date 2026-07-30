@@ -1,8 +1,35 @@
 # AK 挂卖 API
 
-所有接口都位于 `/admin/api/ak-sell`，需要总管理员身份。请求体为 JSON；服务端只接受本文列出的字段，经现有 Nginx 和出口调度转发到 AK。登录、助记词、子账号和挂卖提交还与现有用户请求共享 RPC 锁，不保存请求参数、密码、Key、助记词或 Google 验证码。
+所有接口都位于 `/admin/api/ak-sell`，需要总管理员身份和有效的 AK 自动挂卖机器授权。请求体为 JSON；服务端只接受本文列出的字段，经现有 Nginx 和出口调度转发到 AK。登录、助记词、子账号和挂卖提交还与现有用户请求共享 RPC 锁，不保存请求参数、密码、Key、助记词或 Google 验证码。
 
-除登录外，上游要求 `v`。客户端按当前北京时间计算：`年 + 月 + 日 + 时 + 分`，例如 2026-07-30 21:12 的值为 `2096`。
+每次请求都必须同时携带两个不同的请求头：
+
+```http
+Authorization: Bearer <管理员令牌>
+X-AK-Authorization: <ak_auto_sell 八小时授权码>
+```
+
+`X-AK-Authorization` 是 `/api/v1/offline-authorization` 签发的 `authorization_code`。服务端会验签、确认产品为 `ak_auto_sell`，并实时查询激活码和机器绑定状态；授权码过期、设备禁用、激活码撤销/过期或授权中心不可用时，均不会转发任何上游 AK 请求。
+
+所有请求都由服务端使用已 NTP 同步的北京时间计算上游 `v`（`年 + 月 + 日 + 时 + 分`）；客户端传入的 `v` 会被忽略。每个成功或失败响应均带有 `server_time`，客户端不应使用自身时钟生成上游参数。
+
+## 时间同步
+
+`GET /time`
+
+```json
+{
+  "success": true,
+  "server_time": {
+    "epoch_ms": 1785417120000,
+    "utc": "2026-07-30T13:12:00Z",
+    "beijing": "2026-07-30T21:12:00+08:00",
+    "v": "2096"
+  }
+}
+```
+
+响应带 `Cache-Control: no-store`。客户端在发起请求和收到响应时各记录一次本地毫秒时间，用 `server_time.epoch_ms - (sent_ms + received_ms) / 2` 计算时钟偏移；网络延迟异常大的样本应丢弃。
 
 ## 登录
 
@@ -19,7 +46,7 @@
 `POST /mnemonic`
 
 ```json
-{"key":"Key","UserID":"用户 ID","v":"2069","lang":"cn"}
+{"key":"Key","UserID":"用户 ID","lang":"cn"}
 ```
 
 ## 读取主账号余额
@@ -27,7 +54,7 @@
 `POST /balance`
 
 ```json
-{"key":"Key","UserID":"用户 ID","v":"2069","lang":"cn"}
+{"key":"Key","UserID":"用户 ID","lang":"cn"}
 ```
 
 余额位于上游响应的 `payload.Data.ACECount`。
@@ -37,7 +64,7 @@
 `POST /subaccounts`
 
 ```json
-{"key":"Key","UserID":"用户 ID","v":"2069","lang":"cn","account":"","p":1,"pageSize":50}
+{"key":"Key","UserID":"用户 ID","lang":"cn","account":"","p":1,"pageSize":50}
 ```
 
 `account` 可以为空字符串；`p` 与 `pageSize` 为正整数，`pageSize` 最大为 100。
@@ -50,7 +77,6 @@
 {
   "key":"Key",
   "UserID":"用户 ID",
-  "v":"2069",
   "lang":"cn",
   "mnemonicid1":1,
   "mnemonickey":"助记词校验 Key",

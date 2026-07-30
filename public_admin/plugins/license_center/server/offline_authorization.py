@@ -128,6 +128,59 @@ class OfflineAuthorizationSigner:
         signature = private_key.sign(signing_input.encode("ascii"))
         return signing_input + "." + _b64url_encode(signature), payload
 
+    def verify(self, authorization_code: str, *, now: datetime | None = None) -> dict[str, Any]:
+        """Verify an issued credential and return its bound claims.
+
+        This intentionally does not consult the license database. Callers must
+        still verify the bound device and license state before authorizing work.
+        """
+        parts = str(authorization_code or "").strip().split(".")
+        if len(parts) != 3 or not all(parts):
+            raise ValueError("authorization code format is invalid")
+        encoded_header, encoded_payload, encoded_signature = parts
+        try:
+            header = json.loads(_b64url_decode(encoded_header))
+            payload = json.loads(_b64url_decode(encoded_payload))
+            signature = _b64url_decode(encoded_signature)
+        except Exception as exc:
+            raise ValueError("authorization code encoding is invalid") from exc
+        if not isinstance(header, dict) or not isinstance(payload, dict):
+            raise ValueError("authorization code payload is invalid")
+        if header.get("alg") != "EdDSA" or header.get("typ") != "AK-AUTH":
+            raise ValueError("authorization code algorithm is invalid")
+        if payload.get("v") != 1:
+            raise ValueError("authorization code version is invalid")
+        if str(header.get("kid") or "") != self.key_id or str(payload.get("kid") or "") != self.key_id:
+            raise ValueError("authorization code key id is invalid")
+
+        private_key, _ = self._load_keys()
+        try:
+            private_key.public_key().verify(
+                signature,
+                f"{encoded_header}.{encoded_payload}".encode("ascii"),
+            )
+        except Exception as exc:
+            raise ValueError("authorization code signature is invalid") from exc
+
+        required_fields = ("product_id", "license_key", "machine_id", "issued_at", "expires_at")
+        if any(not str(payload.get(field) or "").strip() for field in required_fields):
+            raise ValueError("authorization code claims are incomplete")
+        try:
+            issued_at = datetime.fromisoformat(str(payload["issued_at"]).replace("Z", "+00:00"))
+            expires_at = datetime.fromisoformat(str(payload["expires_at"]).replace("Z", "+00:00"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("authorization code time is invalid") from exc
+        if issued_at.tzinfo is None or expires_at.tzinfo is None:
+            raise ValueError("authorization code time zone is invalid")
+        if expires_at.astimezone(timezone.utc) <= issued_at.astimezone(timezone.utc):
+            raise ValueError("authorization code expiry is invalid")
+        current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        if issued_at.astimezone(timezone.utc) > current_time:
+            raise ValueError("authorization code is not active")
+        if expires_at.astimezone(timezone.utc) <= current_time:
+            raise ValueError("authorization code is expired")
+        return dict(payload)
+
     def _load_keys(self):
         if self._configuration_error:
             raise RuntimeError(self._configuration_error)

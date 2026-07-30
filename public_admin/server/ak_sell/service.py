@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..upstream_rpc_gate import RpcGateBusy
+from .clock import AKSellClock
 from .provider import AKSellProvider, AKSellUpstreamError
 
 
@@ -16,8 +17,12 @@ class AKSellService:
 
     _OPERATIONS = frozenset({"login", "mnemonic", "balance", "subaccounts", "submit"})
 
-    def __init__(self, *, provider=None) -> None:
+    def __init__(self, *, provider=None, clock: AKSellClock | None = None) -> None:
         self.provider = provider or AKSellProvider()
+        self.clock = clock or AKSellClock()
+
+    def server_time(self) -> dict[str, str | int]:
+        return self.clock.snapshot()
 
     async def invoke(self, operation: str, payload: Mapping[str, Any] | None) -> dict[str, Any]:
         name = str(operation or "").strip().lower()
@@ -28,38 +33,37 @@ class AKSellService:
             async with self.provider.build_client() as client:
                 upstream = await self.provider.post_rpc(client, endpoint, request_data)
         except RpcGateBusy:
-            return {
+            return self._with_server_time({
                 "success": False,
                 "state": "waiting",
                 "operation": name,
                 "message": "请求正在排队，请稍后重试",
-            }
+            })
         except AKSellUpstreamError as exc:
-            return self._error_response(name, exc)
+            return self._with_server_time(self._error_response(name, exc))
 
         success = not bool(upstream.get("Error"))
-        return {
+        return self._with_server_time({
             "success": success,
             "state": "completed" if success else "rejected",
             "operation": name,
             "payload": upstream,
-        }
+        })
 
-    @classmethod
-    def _build_request(cls, operation: str, payload: Mapping[str, Any]) -> tuple[dict[str, str], str]:
+    def _build_request(self, operation: str, payload: Mapping[str, Any]) -> tuple[dict[str, str], str]:
         if operation == "login":
-            return cls._build_login(payload), "Login"
+            return self._build_login(payload), "Login"
         if operation == "mnemonic":
-            return cls._build_auth_request(payload), "Mnemonic_Get01"
+            return self._build_auth_request(payload), "Mnemonic_Get01"
         if operation == "balance":
-            return cls._build_auth_request(payload), "public_IndexData"
+            return self._build_auth_request(payload), "public_IndexData"
         if operation == "subaccounts":
-            data = cls._build_auth_request(payload)
-            data["account"] = cls._optional_text(payload, "account", max_length=128)
-            data["p"] = cls._positive_integer(payload, "p", maximum=1_000_000)
-            data["pageSize"] = cls._positive_integer(payload, "pageSize", maximum=100)
+            data = self._build_auth_request(payload)
+            data["account"] = self._optional_text(payload, "account", max_length=128)
+            data["p"] = self._positive_integer(payload, "p", maximum=1_000_000)
+            data["pageSize"] = self._positive_integer(payload, "pageSize", maximum=100)
             return data, "My_Subaccount"
-        return cls._build_submit(payload)
+        return self._build_submit(payload)
 
     @classmethod
     def _build_login(cls, payload: Mapping[str, Any]) -> dict[str, str]:
@@ -69,32 +73,33 @@ class AKSellService:
             "client": "WEB",
         }
 
-    @classmethod
-    def _build_auth_request(cls, payload: Mapping[str, Any]) -> dict[str, str]:
+    def _build_auth_request(self, payload: Mapping[str, Any]) -> dict[str, str]:
         return {
-            "key": cls._required_text(payload, "key", max_length=512),
-            "UserID": cls._required_text(payload, "UserID", aliases=("userId", "user_id"), max_length=64),
-            "v": cls._required_text(payload, "v", max_length=32),
-            "lang": cls._optional_text(payload, "lang", max_length=16) or "cn",
+            "key": self._required_text(payload, "key", max_length=512),
+            "UserID": self._required_text(payload, "UserID", aliases=("userId", "user_id"), max_length=64),
+            "v": str(self.server_time()["v"]),
+            "lang": self._optional_text(payload, "lang", max_length=16) or "cn",
         }
 
-    @classmethod
-    def _build_submit(cls, payload: Mapping[str, Any]) -> tuple[dict[str, str], str]:
-        data = cls._build_auth_request(payload)
-        son_id = cls._optional_text(payload, "sonId", aliases=("son_id",), max_length=64)
+    def _build_submit(self, payload: Mapping[str, Any]) -> tuple[dict[str, str], str]:
+        data = self._build_auth_request(payload)
+        son_id = self._optional_text(payload, "sonId", aliases=("son_id",), max_length=64)
         data.update(
             {
                 "amount": "",
                 "password": "",
                 "sonId": son_id,
-                "mnemonicid1": cls._positive_integer(payload, "mnemonicid1", maximum=128),
-                "mnemonickey": cls._required_text(payload, "mnemonickey", max_length=512),
-                "mnemonicstr1": cls._required_text(payload, "mnemonicstr1", max_length=256),
-                "gCode": cls._required_text(payload, "gCode", aliases=("gcode",), max_length=32),
-                "count": cls._positive_integer(payload, "count", maximum=1_000_000_000),
+                "mnemonicid1": self._positive_integer(payload, "mnemonicid1", maximum=128),
+                "mnemonickey": self._required_text(payload, "mnemonickey", max_length=512),
+                "mnemonicstr1": self._required_text(payload, "mnemonicstr1", max_length=256),
+                "gCode": self._required_text(payload, "gCode", aliases=("gcode",), max_length=32),
+                "count": self._positive_integer(payload, "count", maximum=1_000_000_000),
             }
         )
         return data, "ACE_Sell_Son" if son_id else "ACE_Sell"
+
+    def _with_server_time(self, result: dict[str, Any]) -> dict[str, Any]:
+        return {**result, "server_time": self.server_time()}
 
     @classmethod
     def _required_text(

@@ -592,6 +592,110 @@ class LicenseCenterService:
             },
         }
 
+    async def validate_auto_sell_machine_authorization(
+        self,
+        authorization_code: str,
+        ip_address: str = '',
+    ) -> Dict[str, Any]:
+        """Fail-closed authorization for server-side AK auto-sell operations."""
+        try:
+            claims = self.offline_authorization_signer.verify(authorization_code)
+        except RuntimeError:
+            return {
+                'error': True,
+                'success': False,
+                'message': '授权验证服务不可用',
+                'error_code': 'AUTHORIZATION_UNAVAILABLE',
+            }
+        except ValueError as exc:
+            message = str(exc)
+            error_code = 'AUTHORIZATION_INVALID'
+            if 'expired' in message:
+                error_code = 'AUTHORIZATION_EXPIRED'
+            elif 'not active' in message:
+                error_code = 'AUTHORIZATION_NOT_ACTIVE'
+            return {
+                'error': True,
+                'success': False,
+                'message': '机器授权无效',
+                'error_code': error_code,
+            }
+
+        if str(claims.get('product_id') or '').strip() != AUTO_SELL_PRODUCT_ID:
+            return {
+                'error': True,
+                'success': False,
+                'message': '产品授权不匹配',
+                'error_code': 'PRODUCT_MISMATCH',
+            }
+        license_key = str(claims.get('license_key') or '').strip().upper()
+        machine_id = str(claims.get('machine_id') or '').strip()
+        try:
+            row = await self.repository.get_license(license_key)
+            if not row:
+                return {
+                    'error': True,
+                    'success': False,
+                    'message': '激活码不存在',
+                    'error_code': 'LICENSE_NOT_FOUND',
+                }
+            if str(row.get('product_id') or '').strip() != AUTO_SELL_PRODUCT_ID:
+                return {
+                    'error': True,
+                    'success': False,
+                    'message': '产品授权不匹配',
+                    'error_code': 'PRODUCT_MISMATCH',
+                }
+            if row.get('status') == 'revoked':
+                return {
+                    'error': True,
+                    'success': False,
+                    'message': '激活码已撤销',
+                    'error_code': 'LICENSE_REVOKED',
+                }
+            validity_error = self.validate_license_time_and_count(row)
+            if validity_error:
+                return validity_error
+            device = await self.repository.get_license_device(license_key, machine_id)
+            if not device or str(device.get('product_id') or '').strip() != AUTO_SELL_PRODUCT_ID:
+                return {
+                    'error': True,
+                    'success': False,
+                    'message': '机器未激活',
+                    'error_code': 'MACHINE_ID_MISMATCH',
+                }
+            if device.get('status') != 'active':
+                return {
+                    'error': True,
+                    'success': False,
+                    'message': '机器已被禁用',
+                    'error_code': 'DEVICE_BLACKLISTED',
+                }
+            ban = await self.find_blacklist(row, machine_id, '', ip_address)
+            if ban:
+                return {
+                    'error': True,
+                    'success': False,
+                    'message': ban.get('reason') or '设备或授权已被封禁',
+                    'error_code': 'DEVICE_BLACKLISTED',
+                }
+        except Exception:
+            return {
+                'error': True,
+                'success': False,
+                'message': '授权验证服务不可用',
+                'error_code': 'AUTHORIZATION_UNAVAILABLE',
+            }
+        return {
+            'error': False,
+            'success': True,
+            'data': {
+                'product_id': AUTO_SELL_PRODUCT_ID,
+                'license_key': license_key,
+                'machine_id': machine_id,
+            },
+        }
+
     async def consume(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         verify_result = await self._verify_or_activate(data, ip_address, activate=False)
         if verify_result.get('error'):

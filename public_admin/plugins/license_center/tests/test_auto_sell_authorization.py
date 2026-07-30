@@ -1,8 +1,9 @@
 import asyncio
 import base64
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
@@ -61,6 +62,23 @@ def test_offline_authorization_signature_binds_machine_and_expiry():
     assert decoded["product_id"] == AUTO_SELL_PRODUCT_ID
     assert decoded["machine_id"] == "machine-a"
     assert decoded["expires_at"] == "2026-07-15T17:00:00Z"
+
+
+def test_offline_authorization_server_verifier_checks_signature_and_expiry():
+    signer = _signer()
+    token, payload = signer.issue(
+        product_id=AUTO_SELL_PRODUCT_ID,
+        license_key="ABCDE-ABCDE-ABCDE-ABCDE",
+        machine_id="machine-a",
+        issued_at=datetime(2026, 7, 15, 9, 0, 0),
+        ttl_seconds=8 * 60 * 60,
+    )
+
+    assert signer.verify(token, now=datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc)) == payload
+    with pytest.raises(ValueError, match="expired"):
+        signer.verify(token, now=datetime(2026, 7, 15, 17, 0, tzinfo=timezone.utc))
+    with pytest.raises(ValueError, match="signature"):
+        signer.verify(token[:-1] + ("A" if token[-1] != "A" else "B"), now=datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc))
 
 
 def test_offline_authorization_generates_missing_deployment_key_once(tmp_path, monkeypatch):
@@ -196,6 +214,61 @@ def test_auto_sell_authorization_does_not_activate_when_signing_is_unavailable()
     assert verify_calls == []
     assert repository.logs[-1]["action"] == "offline_authorize"
     assert repository.logs[-1]["result"] == "failed"
+
+
+def test_auto_sell_machine_authorization_requires_a_still_active_bound_device():
+    class Repository:
+        pool_supplier = staticmethod(lambda: None)
+
+        def __init__(self):
+            self.license = {
+                "license_key": "ABCDE-ABCDE-ABCDE-ABCDE",
+                "product_id": AUTO_SELL_PRODUCT_ID,
+                "status": "active",
+                "billing_mode": "unlimited",
+                "expiry_date": datetime.now() + timedelta(days=30),
+            }
+            self.device = {
+                "license_key": self.license["license_key"],
+                "product_id": AUTO_SELL_PRODUCT_ID,
+                "machine_id": "machine-a",
+                "status": "active",
+            }
+
+        async def get_license(self, license_key):
+            return self.license if license_key == self.license["license_key"] else None
+
+        async def get_license_device(self, license_key, machine_id):
+            if license_key == self.device["license_key"] and machine_id == self.device["machine_id"]:
+                return self.device
+            return None
+
+        async def is_blacklisted(self, _target_type, _target_value):
+            return None
+
+    repository = Repository()
+    signer = _signer()
+    service = LicenseCenterService(repository, offline_authorization_signer=signer)
+    token, _ = signer.issue(
+        product_id=AUTO_SELL_PRODUCT_ID,
+        license_key=repository.license["license_key"],
+        machine_id=repository.device["machine_id"],
+        ttl_seconds=8 * 60 * 60,
+    )
+
+    valid = asyncio.run(service.validate_auto_sell_machine_authorization(token, ip_address="203.0.113.10"))
+    assert valid["success"] is True
+    assert valid["data"]["machine_id"] == "machine-a"
+
+    repository.device["status"] = "disabled"
+    disabled = asyncio.run(service.validate_auto_sell_machine_authorization(token, ip_address="203.0.113.10"))
+    assert disabled["success"] is False
+    assert disabled["error_code"] == "DEVICE_BLACKLISTED"
+
+    repository.license["status"] = "revoked"
+    revoked = asyncio.run(service.validate_auto_sell_machine_authorization(token, ip_address="203.0.113.10"))
+    assert revoked["success"] is False
+    assert revoked["error_code"] == "LICENSE_REVOKED"
 
 
 def test_time_based_license_expires_after_activated_usage_window():
