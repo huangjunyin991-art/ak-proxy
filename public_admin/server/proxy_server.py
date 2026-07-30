@@ -856,6 +856,16 @@ except Exception as e:
 ep_auto_purchase_service = None
 
 try:
+    from .ak_sell import AKSellService, create_ak_sell_router
+    _AK_SELL_IMPORT_ERROR = None
+except Exception as e:
+    AKSellService = None
+    create_ak_sell_router = None
+    _AK_SELL_IMPORT_ERROR = e
+
+ak_sell_service = None
+
+try:
     from .account_identity.admin import (
         AccountIdentityAdminService,
         AccountIdentitySyncScheduler,
@@ -3721,7 +3731,10 @@ async def proxy_rpc(path: str, request: Request):
     )
     upstream_rpc_lease = None
     if (
-        normalized_path in {"login", "notice_list", "my_subaccount", "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy"}
+        normalized_path in {
+            "login", "notice_list", "my_subaccount", "mnemonic_get01", "ace_sell", "ace_sell_son",
+            "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy",
+        }
         and not notice_guidance_internal_request
         and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):
@@ -7057,6 +7070,19 @@ if (
         ep_auto_purchase_service = None
 elif _EP_AUTO_PURCHASE_IMPORT_ERROR is not None:
     logger.warning(f"[EPAutoPurchase] module unavailable, skipped: {_EP_AUTO_PURCHASE_IMPORT_ERROR}")
+
+if create_ak_sell_router is not None and AKSellService is not None and upstream_rpc_gate is not None:
+    try:
+        ak_sell_service = AKSellService()
+        app.include_router(create_ak_sell_router(
+            service=ak_sell_service,
+            require_admin_identity=_require_admin_identity,
+        ))
+    except Exception as e:
+        logger.warning(f"[AKSell] route registration failed, skipped: {e}")
+        ak_sell_service = None
+elif _AK_SELL_IMPORT_ERROR is not None:
+    logger.warning(f"[AKSell] module unavailable, skipped: {_AK_SELL_IMPORT_ERROR}")
 
 if create_account_identity_admin_router is not None and AccountIdentityAdminService is not None:
     try:
