@@ -7,9 +7,8 @@ from typing import Any
 import httpx
 
 from ..rpc_timeout_policy import (
-    NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS,
-    NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
     resolve_connect_timeout,
+    resolve_ak_sell_response_timeout,
 )
 from ..security.upstream_http import resolve_upstream_tls_verify
 from ..upstream_rpc_gate import RpcGateBusy
@@ -59,17 +58,17 @@ class AKSellProvider:
             "Referer": "https://ak2025.vip/",
         }
 
-    def build_client(self) -> httpx.AsyncClient:
+    def build_client(self, operation: str = "") -> httpx.AsyncClient:
+        timeout_seconds = resolve_ak_sell_response_timeout(operation)
         return httpx.AsyncClient(
             headers=self._headers(),
             verify=resolve_upstream_tls_verify("ak_sell", default=True),
             follow_redirects=True,
             trust_env=False,
             timeout=httpx.Timeout(
-                NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
+                timeout_seconds,
                 connect=resolve_connect_timeout(
-                    NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
-                    connect_timeout_seconds=NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS,
+                    timeout_seconds,
                 ),
             ),
         )

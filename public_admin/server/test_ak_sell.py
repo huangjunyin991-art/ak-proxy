@@ -13,6 +13,12 @@ from .ak_sell.internal_rpc import AK_SELL_INTERNAL_RPC_HEADER
 from .ak_sell.provider import AKSellUpstreamError, AKSellUpstreamReply
 from .ak_sell.routes import create_ak_sell_router
 from .ak_sell.service import AKSellInputError, AKSellService
+from .rpc_timeout_policy import (
+    AK_SELL_READ_TIMEOUT_SECONDS,
+    AK_SELL_WRITE_TIMEOUT_SECONDS,
+    resolve_ak_sell_forward_timeout,
+    resolve_ak_sell_response_timeout,
+)
 
 
 class FakeClient:
@@ -29,7 +35,7 @@ class FakeProvider:
         self.error = error
         self.calls = []
 
-    def build_client(self):
+    def build_client(self, _operation=""):
         return FakeClient()
 
     async def post_rpc(self, _client, endpoint, data):
@@ -65,6 +71,12 @@ class FakeAccountState:
 
 def fixed_clock() -> AKSellClock:
     return AKSellClock(lambda: datetime(2026, 7, 30, 21, 12, 34, 567000, tzinfo=BEIJING_TIMEZONE))
+
+
+def test_ak_sell_timeout_policy_keeps_reads_fast_and_submit_separate():
+    assert resolve_ak_sell_forward_timeout("My_Subaccount") == AK_SELL_READ_TIMEOUT_SECONDS
+    assert resolve_ak_sell_forward_timeout("ACE_Sell_Son") == AK_SELL_WRITE_TIMEOUT_SECONDS
+    assert resolve_ak_sell_response_timeout("submit") > AK_SELL_WRITE_TIMEOUT_SECONDS
 
 
 def make_request(headers: dict[str, str] | None = None) -> Request:
@@ -181,6 +193,20 @@ async def test_submit_read_timeout_is_unknown_and_not_retried():
     assert result["state"] == "unknown"
     assert result["server_time"]["v"] == "2096"
     assert len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_login_reuses_the_server_cached_identity_without_an_upstream_login():
+    cached = CachedAKAccountAuth(account="account-1", userkey="cached-key", user_id="cached-user")
+    provider = FakeProvider()
+    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=FakeAccountState(auth=cached))
+
+    result = await service.invoke("login", {"account": "account-1", "password": "password"})
+
+    assert result["success"] is True
+    assert result["payload"]["Key"] == "cached-key"
+    assert result["payload"]["UserData"]["Id"] == "cached-user"
+    assert provider.calls == []
 
 
 @pytest.mark.asyncio

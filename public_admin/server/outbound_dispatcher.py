@@ -1496,7 +1496,7 @@ class OutboundDispatcher:
                       params: dict = None, raw_body: bytes = None,
                       timeout: float = 30, connect_timeout: float | None = None,
                       client_ip: str = "", account: str = "",
-                      api_path: str = "") -> httpx.Response:
+                      api_path: str = "", max_tunnel_fallbacks: int = 3) -> httpx.Response:
         """
         通过指定出口转发HTTP请求。
         - 自动跟踪活跃连接数（进入+1，完成-1）
@@ -1505,7 +1505,11 @@ class OutboundDispatcher:
         """
         attempts = [exit_obj]
         if not exit_obj.is_direct:
-            attempts.extend(self._fallback_sequence(exit_obj, api_path, max_tunnel_fallbacks=3))
+            attempts.extend(self._fallback_sequence(
+                exit_obj,
+                api_path,
+                max_tunnel_fallbacks=max(0, int(max_tunnel_fallbacks)),
+            ))
         last_error = None
         for attempt_index, current_exit in enumerate(attempts):
             if attempt_index > 0:

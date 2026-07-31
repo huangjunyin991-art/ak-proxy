@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from .config import (
+    AK_SELL_READ_REQUEST_TIMEOUT,
+    AK_SELL_WRITE_REQUEST_TIMEOUT,
     LOGIN_REQUEST_TIMEOUT,
     NOTICE_GUIDANCE_CONNECT_TIMEOUT,
     NOTICE_GUIDANCE_REQUEST_TIMEOUT,
@@ -17,6 +19,17 @@ NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS = max(
     0.1,
     float(NOTICE_GUIDANCE_CONNECT_TIMEOUT or 1.0),
 )
+AK_SELL_READ_TIMEOUT_SECONDS = max(0.1, float(AK_SELL_READ_REQUEST_TIMEOUT or 4.0))
+AK_SELL_WRITE_TIMEOUT_SECONDS = max(0.1, float(AK_SELL_WRITE_REQUEST_TIMEOUT or 20.0))
+
+
+_AK_SELL_WRITE_OPERATIONS = frozenset({
+    "submit",
+    "google-bind",
+    "google-unbind",
+    "ace-sell",
+    "ace-sell-son",
+})
 
 
 def normalize_rpc_api_path(api_path: str) -> str:
@@ -32,6 +45,18 @@ def resolve_rpc_forward_timeout(api_path: str = "", *, is_login: bool = False) -
     if is_login or normalize_rpc_api_path(api_path) == "login":
         return LOGIN_RPC_TIMEOUT_SECONDS
     return REGULAR_RPC_TIMEOUT_SECONDS
+
+
+def resolve_ak_sell_forward_timeout(api_path: str = "") -> float:
+    """Keep read RPCs responsive while allowing the non-replayable submit to wait."""
+    operation = normalize_rpc_api_path(api_path).replace("_", "-")
+    return AK_SELL_WRITE_TIMEOUT_SECONDS if operation in _AK_SELL_WRITE_OPERATIONS else AK_SELL_READ_TIMEOUT_SECONDS
+
+
+def resolve_ak_sell_response_timeout(operation: str = "") -> float:
+    """Leave a small local-proxy margin around the upstream attempt budget."""
+    upstream_timeout = resolve_ak_sell_forward_timeout(operation)
+    return upstream_timeout + 1.0
 
 
 def resolve_connect_timeout(total_timeout_seconds: float, *, connect_timeout_seconds: float | None = None) -> float:

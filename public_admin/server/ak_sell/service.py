@@ -79,7 +79,7 @@ class AKSellService:
             return await self._unbind_google_auth(payload or {})
 
         try:
-            async with self.provider.build_client() as client:
+            async with self.provider.build_client(name) as client:
                 auth = await self._resolve_auth(client, payload or {})
                 request_data, endpoint = self._build_request(name, payload or {}, auth)
                 upstream = await self.provider.post_rpc(client, endpoint, request_data)
@@ -119,8 +119,11 @@ class AKSellService:
 
     async def _invoke_login(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         request_data = self._build_login(payload)
+        cached = await self._cached_login(request_data["account"])
+        if cached is not None:
+            return self._result("login", cached)
         try:
-            async with self.provider.build_client() as client:
+            async with self.provider.build_client("login") as client:
                 upstream = await self.provider.post_rpc(client, "Login", request_data)
         except RpcGateBusy:
             return self._waiting("login")
@@ -130,7 +133,7 @@ class AKSellService:
 
     async def _bind_google_auth(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:
-            async with self.provider.build_client() as client:
+            async with self.provider.build_client("google-bind") as client:
                 auth = await self._resolve_auth(client, payload)
                 auth_data = self._build_auth_request(payload, auth)
                 secret_data = dict(auth_data)
@@ -193,7 +196,7 @@ class AKSellService:
         words = self._mnemonic_words(payload)
         trade_password = self._required_text(payload, "tradePassword", aliases=("trade_password",), max_length=512)
         try:
-            async with self.provider.build_client() as client:
+            async with self.provider.build_client("google-unbind") as client:
                 auth = await self._resolve_auth(client, payload)
                 data = self._build_auth_request(payload, auth)
                 challenge = await self.provider.post_rpc(client, "Mnemonic_Get03", data)
@@ -295,6 +298,19 @@ class AKSellService:
     async def _invalidate_cached_auth(self, account: str) -> None:
         if self.account_state is not None and account:
             await self.account_state.invalidate_auth(account)
+
+    async def _cached_login(self, account: str) -> dict[str, Any] | None:
+        if self.account_state is None:
+            return None
+        cached = await self.account_state.get_auth(account)
+        if cached is None:
+            return None
+        return {
+            "Error": False,
+            "Key": cached.userkey,
+            "UserID": cached.user_id,
+            "UserData": {"Id": cached.user_id},
+        }
 
     async def _cached_auth_expired(
         self,

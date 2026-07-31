@@ -212,7 +212,11 @@ except NameError:
 
 from . import database_pg as db
 from .db_guard import GuardError
-from .rpc_timeout_policy import resolve_connect_timeout, resolve_rpc_forward_timeout
+from .rpc_timeout_policy import (
+    resolve_ak_sell_forward_timeout,
+    resolve_connect_timeout,
+    resolve_rpc_forward_timeout,
+)
 from .security import AdminSecurityFacade
 from .security.audit import (
     fingerprint_log_secret,
@@ -2521,7 +2525,11 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                           selected_exit=None,
 
-                          force_direct: bool = False) -> httpx.Response:
+                          force_direct: bool = False,
+
+                          request_timeout_seconds: float | None = None,
+
+                          max_tunnel_fallbacks: int = 3) -> httpx.Response:
 
     """转发请求到真实API服务器（通过出口调度器选择出口IP）"""
 
@@ -2564,7 +2572,11 @@ async def forward_request(method: str, api_path: str, content_type: str,
         exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
 
     account = _extract_forward_account(params)
-    request_timeout = resolve_rpc_forward_timeout(api_path, is_login=is_login)
+    request_timeout = (
+        max(0.1, float(request_timeout_seconds))
+        if request_timeout_seconds is not None
+        else resolve_rpc_forward_timeout(api_path, is_login=is_login)
+    )
     connect_timeout = resolve_connect_timeout(request_timeout)
 
     logger.debug(
@@ -2586,7 +2598,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                 raw_body=raw_body, timeout=request_timeout, connect_timeout=connect_timeout,
                 client_ip=real_ip, account=account,
-                api_path=api_path
+                api_path=api_path,
+                max_tunnel_fallbacks=max_tunnel_fallbacks,
 
             )
 
@@ -2608,7 +2621,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         raw_body=raw_body, timeout=request_timeout, connect_timeout=connect_timeout,
         client_ip=real_ip, account=account,
-        api_path=api_path
+        api_path=api_path,
+        max_tunnel_fallbacks=max_tunnel_fallbacks,
 
     )
 
@@ -3834,6 +3848,11 @@ async def proxy_rpc(path: str, request: Request):
             return _build_proxy_passthrough_response(cached_stock_response)
 
         selected_exit = _select_forward_exit(path)
+        ak_sell_timeout = (
+            resolve_ak_sell_forward_timeout(normalized_path)
+            if ak_sell_internal_request
+            else None
+        )
 
         upstream_started_at = time.perf_counter()
         forward_headers = dict(request.headers)
@@ -3847,7 +3866,14 @@ async def proxy_rpc(path: str, request: Request):
 
             client_ip=client_ip,
 
-            selected_exit=selected_exit
+            selected_exit=selected_exit,
+
+            request_timeout_seconds=ak_sell_timeout,
+
+            # The desktop client has no local tunnel fallback. The remote
+            # gateway therefore makes one bounded server-side attempt instead
+            # of holding a read request across a serial chain of exits.
+            max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
 
         )
         upstream_ms = _elapsed_ms(upstream_started_at)
