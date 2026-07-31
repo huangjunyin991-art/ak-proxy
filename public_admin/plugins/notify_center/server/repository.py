@@ -388,15 +388,16 @@ class NotifyCenterRepository:
             ''', normalized)
         return {str(row['username'] or '').lower(): _serialize_pushdeer_binding(row) for row in rows}
 
-    async def record_event(self, *, event_id: str, event_type: str, message_id: int, conversation_id: int, payload: dict[str, Any]) -> bool:
+    async def record_event(self, *, event_id: str, event_type: str, message_id: int, conversation_id: int,
+                           payload: dict[str, Any], source: str = 'im') -> bool:
         pool = self._pool_supplier()
         payload_json = json.dumps(payload or {}, ensure_ascii=False)
         async with pool.acquire() as conn:
             result = await conn.execute('''
                 INSERT INTO notify_events (event_id, source, event_type, message_id, conversation_id, payload_json)
-                VALUES ($1, 'im', $2, $3, $4, $5)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (event_id) DO NOTHING
-            ''', event_id, event_type or '', int(message_id or 0), int(conversation_id or 0), payload_json)
+            ''', event_id, str(source or 'im')[:32], event_type or '', int(message_id or 0), int(conversation_id or 0), payload_json)
         return str(result).endswith('1')
 
     async def recent_outbox_exists(self, *, channel: str, recipient_username: str, conversation_id: int, window_seconds: int) -> bool:

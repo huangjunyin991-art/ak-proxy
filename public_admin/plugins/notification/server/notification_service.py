@@ -34,6 +34,7 @@ class NotificationService:
         created_by: str,
         role: str,
         sub_name: str,
+        event_id: str = '',
     ) -> dict[str, Any]:
         normalized = normalize_notification_payload(notification_type, title, content, raw_payload)
         target_usernames = await self.resolve_audience(
@@ -56,15 +57,17 @@ class NotificationService:
             },
             created_by=created_by or 'system',
             usernames=target_usernames,
+            event_id=event_id,
         )
+        created = bool(campaign.pop('_created', True))
         notification_item = await self.get_campaign_notification_item(int(campaign.get('id') or 0))
-        if notification_item and self._push_user_payload:
+        if created and notification_item and self._push_user_payload:
             for username in target_usernames:
                 await self._push_user_payload(username, {
                     'type': 'notification_new',
                     'notification': notification_item,
                 })
-        if self._broadcast_admin_event:
+        if created and self._broadcast_admin_event:
             await self._broadcast_admin_event({
                 'type': 'notification_campaign_created',
                 'data': {
@@ -81,7 +84,31 @@ class NotificationService:
             'notification': notification_item,
             'target_count': len(target_usernames),
             'targets': target_usernames,
+            'created': created,
         }
+
+    async def publish_system_notification(
+        self,
+        *,
+        event_id: str,
+        username: str,
+        title: str,
+        content: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Persist one account-scoped system notification exactly once per event."""
+        return await self.publish_notification(
+            notification_type='general',
+            title=title,
+            content=content,
+            raw_payload=payload or {},
+            audience_mode='manual',
+            audience_options={'usernames': [username]},
+            created_by='system:ep_auto_purchase',
+            role='super_admin',
+            sub_name='',
+            event_id=event_id,
+        )
 
     async def resolve_audience(
         self,

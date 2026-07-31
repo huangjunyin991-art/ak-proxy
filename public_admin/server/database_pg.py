@@ -917,6 +917,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS notification_campaigns (
                 id BIGSERIAL PRIMARY KEY,
+                event_id TEXT NOT NULL DEFAULT '',
                 notification_type TEXT NOT NULL,
                 title TEXT DEFAULT '',
                 content TEXT DEFAULT '',
@@ -929,6 +930,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 published_at TIMESTAMP DEFAULT NOW()
             )
         ''')
+        await conn.execute("ALTER TABLE notification_campaigns ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT ''")
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS notification_deliveries (
                 id BIGSERIAL PRIMARY KEY,
@@ -995,6 +997,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_admin ON credit_transactions(admin_name)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_time ON credit_transactions(created_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_at ON notification_campaigns(created_at DESC)')
+        await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_campaigns_event_id ON notification_campaigns(event_id) WHERE event_id <> ''")
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_by ON notification_campaigns(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_username ON notification_deliveries(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_id ON notification_deliveries(campaign_id)')
@@ -4302,7 +4305,7 @@ async def _insert_notification_deliveries_bulk(conn, campaign_id: int, usernames
 async def create_notification_campaign(notification_type: str, title: str, content: str,
                                       payload: Dict[str, Any], audience_mode: str,
                                       audience_snapshot: Dict[str, Any], created_by: str,
-                                      usernames: List[str]) -> Dict:
+                                      usernames: List[str], event_id: str = '') -> Dict:
     pool = _get_pool()
     normalized_usernames: List[str] = []
     seen: set[str] = set()
@@ -4315,17 +4318,30 @@ async def create_notification_campaign(notification_type: str, title: str, conte
     now = datetime.now().replace(microsecond=0)
     payload_json = json.dumps(payload or {}, ensure_ascii=False)
     audience_snapshot_json = json.dumps(audience_snapshot or {}, ensure_ascii=False)
+    normalized_event_id = str(event_id or '').strip()[:160]
     async with pool.acquire() as conn:
         async with conn.transaction():
             row = await conn.fetchrow('''
                 INSERT INTO notification_campaigns
-                    (notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+                    (event_id, notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+                ON CONFLICT DO NOTHING
                 RETURNING id, notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at
-            ''', notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, len(normalized_usernames), now)
-            if normalized_usernames:
+            ''', normalized_event_id, notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, len(normalized_usernames), now)
+            created = row is not None
+            if row is None and normalized_event_id:
+                row = await conn.fetchrow('''
+                    SELECT id, notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at
+                    FROM notification_campaigns
+                    WHERE event_id = $1
+                ''', normalized_event_id)
+            if row is None:
+                raise RuntimeError('notification campaign creation was not persisted')
+            if created and normalized_usernames:
                 await _insert_notification_deliveries_bulk(conn, int(row['id']), normalized_usernames, now)
-    return _serialize_notification_campaign(dict(row))
+    result = _serialize_notification_campaign(dict(row))
+    result['_created'] = created
+    return result
 
 
 async def get_notification_campaign_item(campaign_id: int) -> Optional[Dict]:

@@ -122,6 +122,11 @@ class EPAutoPurchaseRepository:
                         seller_lookup_started_at TIMESTAMP NULL,
                         seller_lookup_attempts INTEGER NOT NULL DEFAULT 0,
                         seller_lookup_error TEXT NOT NULL DEFAULT '',
+                        notification_state TEXT NOT NULL DEFAULT 'pending',
+                        notification_next_at TIMESTAMP NULL,
+                        notification_started_at TIMESTAMP NULL,
+                        notification_attempts INTEGER NOT NULL DEFAULT 0,
+                        notification_error TEXT NOT NULL DEFAULT '',
                         claimed_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         completed_at TIMESTAMP NULL,
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -150,6 +155,21 @@ class EPAutoPurchaseRepository:
                     "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS seller_lookup_error TEXT NOT NULL DEFAULT ''"
                 )
                 await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS notification_state TEXT NOT NULL DEFAULT 'pending'"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS notification_next_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS notification_started_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS notification_attempts INTEGER NOT NULL DEFAULT 0"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS notification_error TEXT NOT NULL DEFAULT ''"
+                )
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_claimed_at "
                     "ON ep_auto_purchase_orders(claimed_at DESC)"
                 )
@@ -160,6 +180,10 @@ class EPAutoPurchaseRepository:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_seller_lookup "
                     "ON ep_auto_purchase_orders(buyer_account, seller_lookup_state, seller_lookup_next_at)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_notification "
+                    "ON ep_auto_purchase_orders(state, notification_state, notification_next_at)"
                 )
                 await conn.execute(
                     """
@@ -197,6 +221,27 @@ class EPAutoPurchaseRepository:
                     SET seller_lookup_state = 'pending', seller_lookup_next_at = NOW(),
                         seller_lookup_started_at = NULL, updated_at = NOW()
                     WHERE seller_lookup_state = 'running' AND BTRIM(seller_account) = ''
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET notification_state = 'pending', notification_next_at = NOW(),
+                        notification_started_at = NULL, updated_at = NOW()
+                    WHERE state = 'success' AND notification_state = 'sending'
+                    """
+                )
+                # The first rollout must not replay every historical successful order.
+                # New successful orders always receive notification_next_at in finish_order.
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET notification_state = 'sent', notification_error = '', updated_at = NOW()
+                    WHERE state = 'success'
+                      AND notification_state = 'pending'
+                      AND notification_next_at IS NULL
+                      AND notification_started_at IS NULL
+                      AND notification_attempts = 0
                     """
                 )
             self._ready = True
@@ -521,12 +566,76 @@ class EPAutoPurchaseRepository:
                 """
                 UPDATE ep_auto_purchase_orders
                 SET state = $2, message = $3, next_attempt_at = NULL,
+                    notification_state = CASE WHEN $2 = 'success' THEN 'pending' ELSE notification_state END,
+                    notification_next_at = CASE WHEN $2 = 'success' THEN NOW() ELSE notification_next_at END,
+                    notification_started_at = CASE WHEN $2 = 'success' THEN NULL ELSE notification_started_at END,
+                    notification_error = CASE WHEN $2 = 'success' THEN '' ELSE notification_error END,
                     completed_at = NOW(), updated_at = NOW()
                 WHERE sid = $1 AND state = 'sending'
                 """,
                 sid,
                 state,
                 str(message or "")[:500],
+            )
+
+    async def claim_next_success_notification(self) -> dict[str, Any] | None:
+        """Reserve one successful order for durable, at-least-once notification delivery."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                WITH candidate AS (
+                    SELECT sid
+                    FROM ep_auto_purchase_orders
+                    WHERE state = 'success'
+                      AND notification_state = 'pending'
+                      AND (notification_next_at IS NULL OR notification_next_at <= NOW())
+                    ORDER BY completed_at ASC NULLS FIRST, sid ASC
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                )
+                UPDATE ep_auto_purchase_orders AS orders
+                SET notification_state = 'sending', notification_next_at = NULL,
+                    notification_started_at = NOW(), notification_attempts = notification_attempts + 1,
+                    notification_error = '', updated_at = NOW()
+                FROM candidate
+                WHERE orders.sid = candidate.sid
+                RETURNING orders.sid, orders.buyer_account, orders.seller_account, orders.ep_amount,
+                          orders.notification_attempts
+                """
+            )
+        return dict(row) if row else None
+
+    async def finish_success_notification(self, sid: str) -> None:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET notification_state = 'sent', notification_next_at = NULL,
+                    notification_started_at = NULL, notification_error = '', updated_at = NOW()
+                WHERE sid = $1 AND state = 'success' AND notification_state = 'sending'
+                """,
+                str(sid or ""),
+            )
+
+    async def defer_success_notification(self, sid: str, error: str, retry_seconds: float = 60.0) -> None:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET notification_state = 'pending',
+                    notification_next_at = NOW() + make_interval(secs => $2),
+                    notification_started_at = NULL, notification_error = $3, updated_at = NOW()
+                WHERE sid = $1 AND state = 'success' AND notification_state = 'sending'
+                """,
+                str(sid or ""),
+                max(1.0, float(retry_seconds or 60.0)),
+                str(error or "通知派送失败")[:500],
             )
 
     async def claim_next_seller_lookup(self, buyer_account: str) -> dict[str, Any] | None:

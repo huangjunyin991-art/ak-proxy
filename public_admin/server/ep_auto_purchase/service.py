@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping
+from typing import Any, Awaitable, Callable, Mapping
 
 from ..notice_guidance.provider import make_v
 from ..upstream_rpc_gate import RpcGateBusy
@@ -39,6 +40,7 @@ class EPAutoPurchaseService:
         logger=None,
         provider=None,
         on_password_updated=None,
+        notification_publisher: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self.repository = repository
         self.auth_store = auth_store
@@ -51,10 +53,12 @@ class EPAutoPurchaseService:
         )
         self._internal_rpc_token = create_internal_rpc_token()
         self.provider = provider or EPAutoPurchaseProvider(internal_token=self._internal_rpc_token)
+        self.notification_publisher = notification_publisher
         self.instance_id = "ep-auto-purchase-" + uuid.uuid4().hex
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
         self._wake = asyncio.Event()
+        self._next_notification_dispatch_at = 0.0
 
     async def start(self) -> None:
         await self.repository.ensure_ready()
@@ -159,6 +163,7 @@ class EPAutoPurchaseService:
             self._wake.clear()
             wait_seconds = 1.0
             try:
+                await self._dispatch_one_success_notification()
                 poll = await self.repository.claim_next_poll(self.instance_id)
                 if poll is not None:
                     wait_seconds = max(
@@ -221,6 +226,29 @@ class EPAutoPurchaseService:
             )
         if error:
             self._log("poll failed account=%s error=%s", account, error[:300])
+
+    async def _dispatch_one_success_notification(self) -> None:
+        if self.notification_publisher is None:
+            return
+        now = time.monotonic()
+        if now < self._next_notification_dispatch_at:
+            return
+        job = await self.repository.claim_next_success_notification()
+        if job is None:
+            self._next_notification_dispatch_at = now + 5.0
+            return
+        sid = str(job.get("sid") or "").strip()
+        try:
+            await self.notification_publisher(job)
+            await self.repository.finish_success_notification(sid)
+            self._next_notification_dispatch_at = time.monotonic()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            error = str(exc) or exc.__class__.__name__
+            await self.repository.defer_success_notification(sid, error, retry_seconds=60)
+            self._next_notification_dispatch_at = time.monotonic() + 1.0
+            self._log("success notification deferred sid=%s error=%s", sid, error[:300])
 
     async def _list_with_one_refresh(
         self,

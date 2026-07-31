@@ -8,6 +8,7 @@ from .ep_auto_purchase.repository import EPAutoPurchaseRepository
 from .ep_auto_purchase.service import EPAutoPurchaseService, parse_interval_milliseconds
 from .ep_auto_purchase.listing import inspect_listing_payload, parse_listing
 from .ep_auto_purchase.order_detail import extract_seller_account
+from .ep_auto_purchase.notifier import EPAutoPurchaseSuccessNotifier
 from .ep_auto_purchase.internal_rpc import (
     DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL,
     EP_AUTO_PURCHASE_INTERNAL_HEADER,
@@ -310,6 +311,128 @@ async def test_repeated_listing_is_counted_once_and_bought_once():
     assert repository.poll_results[0][2]["purchase_successes"] == 1
 
 
+class _SuccessNotificationRepository:
+    def __init__(self, jobs):
+        self.jobs = list(jobs)
+        self.finished = []
+        self.deferred = []
+
+    async def claim_next_success_notification(self):
+        return self.jobs.pop(0) if self.jobs else None
+
+    async def finish_success_notification(self, sid):
+        self.finished.append(sid)
+
+    async def defer_success_notification(self, sid, error, retry_seconds=60):
+        self.deferred.append((sid, error, retry_seconds))
+
+
+@pytest.mark.anyio
+async def test_success_notification_is_dispatched_once_from_persisted_order():
+    repository = _SuccessNotificationRepository([{
+        "sid": "88",
+        "buyer_account": "buyer",
+        "seller_account": "seller",
+        "ep_amount": "5",
+    }])
+    published = []
+
+    async def publish(order):
+        published.append(dict(order))
+
+    service = EPAutoPurchaseService(
+        repository,
+        auth_store=None,
+        rpc_gate=_Gate(),
+        notification_publisher=publish,
+    )
+
+    await service._dispatch_one_success_notification()
+
+    assert published == [{
+        "sid": "88",
+        "buyer_account": "buyer",
+        "seller_account": "seller",
+        "ep_amount": "5",
+    }]
+    assert repository.finished == ["88"]
+    assert repository.deferred == []
+
+
+@pytest.mark.anyio
+async def test_success_notification_failure_is_deferred_without_stopping_worker():
+    repository = _SuccessNotificationRepository([{
+        "sid": "88",
+        "buyer_account": "buyer",
+        "seller_account": "",
+        "ep_amount": "5",
+    }])
+
+    async def fail_publish(order):
+        raise RuntimeError("notify unavailable")
+
+    service = EPAutoPurchaseService(
+        repository,
+        auth_store=None,
+        rpc_gate=_Gate(),
+        notification_publisher=fail_publish,
+    )
+
+    await service._dispatch_one_success_notification()
+
+    assert repository.finished == []
+    assert repository.deferred == [("88", "notify unavailable", 60)]
+
+
+@pytest.mark.anyio
+async def test_success_notifier_writes_account_notification_and_ntfy_event():
+    class SystemNotificationService:
+        def __init__(self):
+            self.calls = []
+
+        async def publish_system_notification(self, **kwargs):
+            self.calls.append(kwargs)
+
+    class NotifyCenter:
+        def __init__(self):
+            self.events = []
+
+        async def handle_system_notification_event(self, event):
+            self.events.append(event)
+
+    notification_service = SystemNotificationService()
+    notify_center = NotifyCenter()
+    notifier = EPAutoPurchaseSuccessNotifier(
+        notification_service=notification_service,
+        notify_center_supplier=lambda: notify_center,
+    )
+
+    await notifier.publish({
+        "sid": "88",
+        "buyer_account": "buyer",
+        "seller_account": "seller",
+        "ep_amount": "5",
+    })
+
+    assert notification_service.calls[0]["event_id"] == "ep-auto-purchase:88:success"
+    assert notification_service.calls[0]["username"] == "buyer"
+    assert "5 EP" in notification_service.calls[0]["content"]
+    assert notify_center.events == [{
+        "source": "ep_auto_purchase",
+        "event_id": "ep-auto-purchase:88:success",
+        "sid": "88",
+        "buyer_account": "buyer",
+        "seller_account": "seller",
+        "ep_amount": "5",
+        "event_type": "system.ep_auto_purchase.success",
+        "sender_username": "system",
+        "recipient_usernames": ["buyer"],
+        "notification_title": "EP 抢购成功",
+        "notification_body": "账号 buyer 已成功抢购订单 #88，数量 5 EP，挂卖账号 seller。",
+        "notification_url": "/pages/home.html?first=true",
+    }]
+
+
 def test_listing_parser_accepts_standard_and_legacy_order_identifiers():
     payload = {
         "Data": {
@@ -600,6 +723,8 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "unique_listings_discovered" in sql
     assert "next_attempt_at" in sql
     assert "seller_lookup_state" in sql
+    assert "notification_state" in sql
+    assert "notification_next_at IS NULL" in sql
     assert "state IN ('claimed', 'sending')" in sql
     assert "ep_auto_purchase_listing_diagnostics" not in sql
 

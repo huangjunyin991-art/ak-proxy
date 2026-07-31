@@ -847,6 +847,7 @@ try:
         EP_AUTO_PURCHASE_INTERNAL_HEADER,
         EPAutoPurchaseRepository,
         EPAutoPurchaseService,
+        EPAutoPurchaseSuccessNotifier,
         create_ep_auto_purchase_router,
     )
     _EP_AUTO_PURCHASE_IMPORT_ERROR = None
@@ -854,6 +855,7 @@ except Exception as e:
     EP_AUTO_PURCHASE_INTERNAL_HEADER = "x-ak-ep-auto-purchase-job"
     EPAutoPurchaseRepository = None
     EPAutoPurchaseService = None
+    EPAutoPurchaseSuccessNotifier = None
     create_ep_auto_purchase_router = None
     _EP_AUTO_PURCHASE_IMPORT_ERROR = e
 
@@ -7090,6 +7092,7 @@ if (
     create_ep_auto_purchase_router is not None
     and EPAutoPurchaseService is not None
     and EPAutoPurchaseRepository is not None
+    and EPAutoPurchaseSuccessNotifier is not None
     and upstream_rpc_gate is not None
 ):
     try:
@@ -7099,6 +7102,10 @@ if (
             rpc_gate=upstream_rpc_gate,
             logger=logger,
             on_password_updated=lambda account: _ak_auth_cache.pop(account, None),
+            notification_publisher=EPAutoPurchaseSuccessNotifier(
+                notification_service=notification_service,
+                notify_center_supplier=lambda: globals().get("notify_center_service"),
+            ).publish,
         )
         app.include_router(create_ep_auto_purchase_router(
             service=ep_auto_purchase_service,

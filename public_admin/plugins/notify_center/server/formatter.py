@@ -11,6 +11,9 @@ from .security import normalize_text, normalize_username
 
 
 def build_notification_title(event: dict[str, Any]) -> str:
+    custom_title = normalize_text(event.get('notification_title') or event.get('title'), 80)
+    if custom_title:
+        return custom_title
     if _is_call_invite_event(event):
         sender_name = normalize_text(event.get('sender_display_name') or event.get('sender_username'), 40)
         return f'{sender_name or "有人"} 邀请你{_call_kind_label(event)}'
@@ -24,6 +27,9 @@ def build_notification_title(event: dict[str, Any]) -> str:
 
 
 def build_notification_body(event: dict[str, Any], *, show_preview: bool = False) -> str:
+    custom_body = normalize_text(event.get('notification_body') or event.get('body'), 240)
+    if custom_body:
+        return custom_body
     if _is_call_invite_event(event):
         return '点击接听或查看'
 
@@ -60,6 +66,10 @@ def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conv
 
 
 def build_notification_url(event: dict[str, Any], public_base_url: str = '', *, internal_secret: str = '') -> str:
+    custom_path = str(event.get('notification_url') or '').strip()
+    if custom_path.startswith('/') and not custom_path.startswith('//'):
+        base = str(public_base_url or '').strip().rstrip('/')
+        return f'{base}{custom_path}' if base else custom_path
     conversation_id = int(event.get('conversation_id') or 0)
     recipient = normalize_username(event.get('recipient_username') or event.get('im_username') or event.get('username'))
     path = '/pages/home.html?first=true&ak_im_open=1'

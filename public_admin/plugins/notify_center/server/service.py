@@ -243,8 +243,16 @@ class NotifyCenterService:
         return {'disabled': disabled}
 
     async def handle_im_message_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        return await self._handle_notification_event(event, source='im')
+
+    async def handle_system_notification_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        """Queue account-scoped system events through the same durable push outbox."""
+        return await self._handle_notification_event(event, source='system')
+
+    async def _handle_notification_event(self, event: dict[str, Any], *, source: str) -> dict[str, Any]:
         if not self.config.enabled:
             return {'accepted': True, 'enabled': False, 'queued': 0}
+        event = dict(event or {})
         event_id = str(event.get('event_id') or '').strip()
         if not event_id:
             message_id = int(event.get('message_id') or 0)
@@ -257,12 +265,11 @@ class NotifyCenterService:
             message_id=int(event.get('message_id') or 0),
             conversation_id=int(event.get('conversation_id') or 0),
             payload=event,
+            source=source,
         )
-        if not inserted:
-            return {'accepted': True, 'duplicate': True, 'queued': 0}
         recipients = build_recipient_usernames(event)
         if not recipients:
-            return {'accepted': True, 'queued': 0, 'reason': 'no_recipients'}
+            return {'accepted': True, 'duplicate': not inserted, 'queued': 0, 'reason': 'no_recipients'}
         subscriptions = await self.repository.get_active_subscriptions(recipients)
         ntfy_bindings = await self.repository.get_active_ntfy_bindings(recipients)
         title = build_notification_title(event)
@@ -315,6 +322,7 @@ class NotifyCenterService:
                     queued += 1
         return {
             'accepted': True,
+            'duplicate': not inserted,
             'queued': queued,
             'target_count': len(recipients),
             'subscribed_user_count': len(subscriptions),
