@@ -104,6 +104,24 @@
         };
     }
 
+    function buildAuthIdentity(auth) {
+        var value = String(auth && auth.key || '');
+        var hash = 2166136261;
+        for (var i = 0; i < value.length; i++) {
+            hash ^= value.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return [
+            trimString(auth && auth.account).toLowerCase(),
+            trimString(auth && auth.userId),
+            (hash >>> 0).toString(16)
+        ].join('|');
+    }
+
+    function getCurrentAuthIdentity() {
+        return buildAuthIdentity(readCurrentAuth());
+    }
+
     function buildNoticeIdentityKey(notice) {
         var noticeId = trimString(notice && (notice.Id || notice.id));
         if (noticeId) return 'id:' + noticeId;
@@ -118,7 +136,7 @@
 
     function buildAnalysisCacheKey(notice, auth) {
         return [
-            trimString(auth && auth.account).toLowerCase() || trimString(auth && auth.userId),
+            buildAuthIdentity(auth),
             buildNoticeIdentityKey(notice)
         ].join('|');
     }
@@ -473,6 +491,7 @@
 
     window.AKClientRuntimeNotices = window.AKClientRuntimeNotices || {};
     window.AKClientRuntimeNotices.extractNoticeDetail = extractNoticeDetail;
+    window.AKClientRuntimeNotices.getCurrentAuthIdentity = getCurrentAuthIdentity;
     window.AKClientRuntimeNotices.getCachedGuidedSaleResultByNoticeId = getCachedGuidedSaleResultByNoticeId;
     window.AKClientRuntimeNotices.getPendingGuidedSaleRetryByNoticeId = getPendingGuidedSaleRetryByNoticeId;
     window.AKClientRuntimeNotices.analyzeGuidedSaleNotice = analyzeGuidedSaleNotice;
