@@ -4,7 +4,7 @@ from typing import Any, Callable, Mapping
 
 
 class EPAutoPurchaseSuccessNotifier:
-    """Adapts EP success records to the independent system-notification services."""
+    """Persist EP success history and deliver it through the IM push contract."""
 
     def __init__(self, *, notification_service: Any, notify_center_supplier: Callable[[], Any]) -> None:
         self._notification_service = notification_service
@@ -39,9 +39,12 @@ class EPAutoPurchaseSuccessNotifier:
         notify_center = self._notify_center_supplier()
         if notify_center is None:
             raise RuntimeError("通知中心暂不可用")
-        await notify_center.handle_system_notification_event({
+        await notify_center.handle_im_message_event({
             **payload,
-            "event_type": "system.ep_auto_purchase.success",
+            # Keep the event compatible with clients that only handle IM
+            # notification events. This is a push envelope, not a chat row.
+            "event_type": "im.system.ep_auto_purchase.success",
+            "message_type": "system_notification",
             "sender_username": "system",
             "recipient_usernames": [buyer_account],
             "notification_title": title,

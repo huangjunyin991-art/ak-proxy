@@ -397,7 +397,7 @@ async def test_success_notifier_writes_account_notification_and_ntfy_event():
         def __init__(self):
             self.events = []
 
-        async def handle_system_notification_event(self, event):
+        async def handle_im_message_event(self, event):
             self.events.append(event)
 
     notification_service = SystemNotificationService()
@@ -424,7 +424,8 @@ async def test_success_notifier_writes_account_notification_and_ntfy_event():
         "buyer_account": "buyer",
         "seller_account": "seller",
         "ep_amount": "5",
-        "event_type": "system.ep_auto_purchase.success",
+        "event_type": "im.system.ep_auto_purchase.success",
+        "message_type": "system_notification",
         "sender_username": "system",
         "recipient_usernames": ["buyer"],
         "notification_title": "EP 抢购成功",
