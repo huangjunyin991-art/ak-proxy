@@ -623,6 +623,8 @@ class OutboundDispatcher:
             )
             self._restore_exit_state(new_exit)
             previous_exit = previous_by_identity.get(new_exit.node_identity)
+            if previous_exit is not None:
+                self._inherit_alert_state(new_exit, previous_exit)
             if previous_exit is not None and previous_exit.healthy and previous_exit.is_dispatch_ready:
                 self._inherit_verified_exit_state(new_exit, previous_exit)
             new_exits.append(new_exit)
@@ -643,6 +645,12 @@ class OutboundDispatcher:
             len(new_exits),
         )
         return previous_tunnels
+
+    @staticmethod
+    def _inherit_alert_state(target: OutboundExit, previous: OutboundExit) -> None:
+        """Keep visible upstream risk history when a node receives a new port."""
+        target.warn_403 = previous.warn_403
+        target.warn_429 = previous.warn_429
 
     @staticmethod
     def _inherit_verified_exit_state(target: OutboundExit, previous: OutboundExit) -> None:
@@ -1533,6 +1541,10 @@ class OutboundDispatcher:
                 resp.extensions["ak_exit_name"] = current_exit.name
                 resp.extensions["ak_exit_proxy"] = current_exit.proxy_url or "direct"
                 resp.extensions["ak_exit_is_direct"] = current_exit.is_direct
+                # WAF and rate-limit pages are often HTML. Record their status
+                # before JSON validation so a visible upstream 403/429 never
+                # disappears from the exit card.
+                self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
                 if not self._response_has_json_payload(resp):
                     if self._is_login_rpc(api_path):
                         self._record_login_non_json_response(
@@ -1558,7 +1570,6 @@ class OutboundDispatcher:
                 if 100 <= int(resp.status_code or 0) < 500 and int(resp.status_code or 0) != 429:
                     current_exit.reset_connect_failures()
                     self._schedule_source_fleet_state_persist()
-                self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
                 if (
                     self._is_login_rpc(api_path)
                     and resp.status_code == 403

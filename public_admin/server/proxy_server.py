@@ -743,15 +743,22 @@ try:
         ActiveDefenseConfigService,
         ActiveDefensePolicy,
         ActiveDefenseService,
+        RequestOriginResolver,
         create_active_defense_router,
+        resolve_defense_client_ip,
     )
     _ACTIVE_DEFENSE_IMPORT_ERROR = None
 except Exception as e:
     ActiveDefenseConfigService = None
     ActiveDefensePolicy = None
     ActiveDefenseService = None
+    RequestOriginResolver = None
     create_active_defense_router = None
+    resolve_defense_client_ip = None
     _ACTIVE_DEFENSE_IMPORT_ERROR = e
+
+
+_request_origin_resolver = RequestOriginResolver() if RequestOriginResolver is not None else None
 
 try:
     from .rate_ban import (
@@ -2418,35 +2425,51 @@ async def _record_dispatcher_alert_event(exit_name: str, exit_ip: str, status_co
     _append_dispatcher_temp_event(event)
 
 
-def _extract_client_ip(request: Request) -> str:
-    candidates = [request.headers.get("cf-connecting-ip", "")]
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        candidates.extend(part.strip() for part in forwarded_for.split(","))
-    candidates.append(request.headers.get("x-real-ip", ""))
-    if request.client and request.client.host:
-        candidates.append(request.client.host)
-    parsed_candidates = []
-    for candidate in candidates:
-        candidate = str(candidate or "").strip()
-        if not candidate:
+def _is_trusted_first_party_rpc_request(request: Request) -> bool:
+    """Recognize loopback-only background RPC calls carrying runtime secrets."""
+    for service in (ep_auto_purchase_service, ak_sell_service):
+        checker = getattr(service, "is_internal_rpc_request", None)
+        if not callable(checker):
             continue
         try:
-            parsed_ip = ipaddress.ip_address(candidate)
-        except ValueError:
-            continue
-        if parsed_ip.is_loopback:
-            continue
-        parsed_candidates.append(str(parsed_ip))
-    if parsed_candidates:
-        return parsed_candidates[0]
-    return "unknown"
+            if checker(request):
+                return True
+        except Exception as exc:
+            logger.warning(f"[RequestOrigin] internal RPC trust check failed: {exc}")
+    return False
+
+
+def _extract_client_ip(request: Request) -> str:
+    # First-party jobs enter through Nginx too, so their X-Real-IP is the
+    # server itself. They are authenticated with an in-memory token and must
+    # not participate in public IP penalty buckets.
+    peer_host = str(getattr(getattr(request, "client", None), "host", "") or "")
+    first_party_internal = _is_trusted_first_party_rpc_request(request)
+    if _request_origin_resolver is not None and resolve_defense_client_ip is not None:
+        return resolve_defense_client_ip(
+            _request_origin_resolver,
+            request.headers,
+            peer_host,
+            first_party_internal=first_party_internal,
+        )
+
+    if first_party_internal:
+        return "unknown"
+
+    # Keep a narrow fallback if the optional active-defense module is missing.
+    try:
+        peer_ip = ipaddress.ip_address(peer_host)
+    except ValueError:
+        return "unknown"
+    return "unknown" if peer_ip.is_loopback else str(peer_ip)
 
 
 @app.middleware("http")
 async def active_defense_response_status_middleware(request: Request, call_next):
     response = await call_next(request)
     if active_defense_service is None:
+        return response
+    if _is_trusted_first_party_rpc_request(request):
         return response
     try:
         await _refresh_active_defense_policy()

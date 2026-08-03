@@ -59,6 +59,24 @@ def test_replacing_matching_node_keeps_verified_source_state():
     assert replacement.is_frozen is True
 
 
+def test_replacing_matching_node_keeps_visible_upstream_alert_counts():
+    dispatcher = OutboundDispatcher()
+    old_index = _add_ready_socks5(dispatcher, "preserved", 10001, node_identity="node-a")
+    old_exit = dispatcher.exits[old_index]
+    old_exit.warn_403 = 3
+    old_exit.warn_429 = 2
+
+    dispatcher.replace_socks5_exits([
+        {"name": "preserved", "port": 30001, "core_type": "singbox", "node_identity": "node-a"},
+    ])
+
+    replacement = dispatcher.exits[1]
+    assert replacement.warn_403 == 3
+    assert replacement.warn_429 == 2
+    assert dispatcher.get_status()["exits"][1]["warn_403"] == 3
+    assert dispatcher.get_status()["exits"][1]["warn_429"] == 2
+
+
 def test_replacing_unverified_node_schedules_immediate_source_probe(monkeypatch):
     dispatcher = OutboundDispatcher()
     dispatcher._started = True
@@ -716,7 +734,7 @@ async def test_login_invalid_json_content_type_retries_next_exit():
 
 
 @pytest.mark.anyio
-async def test_login_403_response_retries_next_exit_and_freezes_current():
+async def test_login_html_403_response_retries_next_exit_freezes_and_records_current():
     dispatcher = OutboundDispatcher()
     dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
     _add_ready_socks5(dispatcher, "bad-403", 10001, group_id="g1")
@@ -728,8 +746,8 @@ async def test_login_403_response_retries_next_exit_and_freezes_current():
         if exit_obj.name == "bad-403":
             return httpx.Response(
                 403,
-                json={"Error": True, "Msg": "forbidden"},
-                headers={"content-type": "application/json"},
+                content=b"<html><body>forbidden</body></html>",
+                headers={"content-type": "text/html"},
             )
         return httpx.Response(
             200,
@@ -753,6 +771,34 @@ async def test_login_403_response_retries_next_exit_and_freezes_current():
     assert dispatcher.exits[1].warn_403 == 1
     assert dispatcher.exits[1].is_frozen
     assert response.json()["Error"] is False
+
+
+@pytest.mark.anyio
+async def test_rpc_html_429_response_is_recorded_before_non_json_rejection():
+    dispatcher = OutboundDispatcher()
+
+    async def fake_request(*_args, **_kwargs):
+        return httpx.Response(
+            429,
+            content=b"<html><body>too many requests</body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+    dispatcher._do_request = fake_request
+
+    with pytest.raises(RpcUpstreamNonJsonError, match="网络异常，请刷新重试！"):
+        await dispatcher.forward(
+            dispatcher.exits[0],
+            "POST",
+            "https://example.test/RPC/My_Subaccount",
+            {},
+            content_type="application/x-www-form-urlencoded",
+            params={"account": "demo"},
+            raw_body=b"",
+            api_path="My_Subaccount",
+        )
+
+    assert dispatcher.exits[0].warn_429 == 1
 
 
 @pytest.mark.anyio
