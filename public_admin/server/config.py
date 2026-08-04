@@ -29,7 +29,7 @@ LOG_TO_FILE = True
 
 # ===== 请求超时 =====
 REQUEST_TIMEOUT = 5  # 普通 RPC 总超时（秒）
-LOGIN_REQUEST_TIMEOUT = 10  # 登录 RPC 总超时（秒）
+LOGIN_REQUEST_TIMEOUT = 5  # 登录 RPC 总超时（秒）
 RPC_CONNECT_TIMEOUT = 3  # RPC 建连超时（秒）
 AK_SELL_READ_REQUEST_TIMEOUT = 4  # 自动挂卖读取接口的单出口超时（秒）
 AK_SELL_WRITE_REQUEST_TIMEOUT = 20  # 自动挂卖提交接口的单出口超时（秒）

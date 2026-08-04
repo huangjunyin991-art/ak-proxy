@@ -472,6 +472,8 @@ class OutboundDispatcher:
         self._failed_source_probe_task: Optional[asyncio.Task] = None
         self._pending_source_probe_task: Optional[asyncio.Task] = None
         self._fleet_state_persist_task: Optional[asyncio.Task] = None
+        self._latency_probe_run_task: Optional[asyncio.Task] = None
+        self._latency_probe_run_lock = asyncio.Lock()
         self._started = False
         self._source_probe_run_lock = asyncio.Lock()
         self._rr_counter: int = 0
@@ -794,6 +796,12 @@ class OutboundDispatcher:
             self._latency_probe_task.cancel()
             try:
                 await self._latency_probe_task
+            except asyncio.CancelledError:
+                pass
+        if self._latency_probe_run_task:
+            self._latency_probe_run_task.cancel()
+            try:
+                await self._latency_probe_run_task
             except asyncio.CancelledError:
                 pass
         if self._initial_source_probe_task:
@@ -1914,32 +1922,56 @@ class OutboundDispatcher:
                 logger.warning(f"[Dispatcher] 延迟测速异常: {e}")
             await asyncio.sleep(self.policy_config.latency_probe_interval_seconds)
 
-    async def probe_latencies_now(self) -> dict:
+    async def _run_latency_probe(self) -> dict:
+        """Run one latency batch and publish each exit as soon as it finishes."""
         if self.latency_probe is None:
             return {"success": False, "message": "延迟测速模块不可用", "exits": []}
+
         exits_snapshot = list(self.exits)
         for ex in exits_snapshot:
             ex.latency_probing = True
+        checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        async def _publish_result(result: dict) -> None:
+            index = result.get("index")
+            if not isinstance(index, int) or not 0 <= index < len(exits_snapshot):
+                return
+            ex = exits_snapshot[index]
+            ex.latency_checked_at = checked_at
+            if result.get("success"):
+                ex.latency_ms = result.get("latency_ms")
+                ex.latency_probe_failures = 0
+                ex.latency_probe_error = ""
+            else:
+                ex.latency_ms = None
+                ex.latency_probe_failures += 1
+                ex.latency_probe_error = result.get("error") or "延迟测速失败"
+            ex.latency_probing = False
+
         try:
-            results = await self.latency_probe.probe_all(exits_snapshot)
-            checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for result in results:
-                ex = exits_snapshot[result["index"]]
-                ex.latency_checked_at = checked_at
-                if result.get("success"):
-                    ex.latency_ms = result.get("latency_ms")
-                    ex.latency_probe_failures = 0
-                    ex.latency_probe_error = ""
-                else:
-                    ex.latency_ms = None
-                    ex.latency_probe_failures += 1
-                    ex.latency_probe_error = result.get("error") or "延迟测速失败"
-            for ex in exits_snapshot:
-                ex.latency_probing = False
+            await self.latency_probe.probe_all(exits_snapshot, on_result=_publish_result)
             return {"success": True, "message": "节点延迟测试完成", "exits": self.get_status().get("exits", [])}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[Dispatcher] 延迟测速批次异常: %s", exc)
+            return {"success": False, "message": f"延迟测速失败: {exc}", "exits": self.get_status().get("exits", [])}
         finally:
+            # A cancelled or failed batch must never leave the UI in a
+            # permanent probing state.
             for ex in exits_snapshot:
                 ex.latency_probing = False
+
+    async def probe_latencies_now(self) -> dict:
+        """Reuse an in-flight batch instead of launching another full probe."""
+        if self.latency_probe is None:
+            return {"success": False, "message": "延迟测速模块不可用", "exits": []}
+        async with self._latency_probe_run_lock:
+            task = self._latency_probe_run_task
+            if task is None or task.done():
+                task = asyncio.create_task(self._run_latency_probe(), name="latency_probe_batch")
+                self._latency_probe_run_task = task
+        return await asyncio.shield(task)
 
     # ===== 状态查询 =====
 

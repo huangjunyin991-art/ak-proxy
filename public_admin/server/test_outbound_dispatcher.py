@@ -5,6 +5,7 @@ import time
 
 from .outbound_dispatcher import OutboundDispatcher, OutboundExit, RpcUpstreamNonJsonError
 from .dispatcher_policy.latency_probe import LatencyProbeService
+from .rpc_timeout_policy import LOGIN_RPC_TIMEOUT_SECONDS
 from .source_reachability import SourceProbeResult
 
 
@@ -655,6 +656,96 @@ async def test_latency_probe_uses_first_successful_endpoint_without_waiting_for_
     assert result["success"] is True
     assert result["url"] == "https://fast.example"
     assert time.perf_counter() - started < 0.2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_latency_probe_publishes_each_exit_as_it_finishes():
+    class Client:
+        def __init__(self, delay):
+            self.delay = delay
+
+        async def get(self, url, timeout):
+            await asyncio.sleep(self.delay)
+            return httpx.Response(200, request=httpx.Request("GET", url))
+
+    class Exit:
+        def __init__(self, name, delay):
+            self.name = name
+            self.delay = delay
+
+        async def get_client(self):
+            return Client(self.delay)
+
+    published = []
+
+    async def on_result(result):
+        published.append(result["name"])
+
+    probe = LatencyProbeService(
+        probe_urls=("https://probe.example",),
+        timeout_seconds=1,
+        concurrency=2,
+    )
+    await probe.probe_all(
+        [Exit("slow", 0.08), Exit("fast", 0.01)],
+        on_result=on_result,
+    )
+
+    assert published == ["fast", "slow"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_latency_probe_times_out_stuck_client_creation():
+    class Exit:
+        name = "stuck"
+
+        async def get_client(self):
+            await asyncio.sleep(1)
+
+    probe = LatencyProbeService(
+        probe_urls=("https://probe.example",),
+        timeout_seconds=0.05,
+        exit_hard_timeout_seconds=0.1,
+    )
+    started = time.perf_counter()
+    result = await probe.probe_exit(Exit())
+
+    assert result["success"] is False
+    assert time.perf_counter() - started < 0.5
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_latency_probe_concurrent_callers_share_one_batch():
+    dispatcher = OutboundDispatcher()
+    calls = 0
+
+    class Probe:
+        async def probe_all(self, exits, on_result=None):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.03)
+            if on_result is not None:
+                await on_result({"index": 0, "name": "direct", "success": True, "latency_ms": 3})
+            return []
+
+    dispatcher.latency_probe = Probe()
+    first, second = await asyncio.gather(
+        dispatcher.probe_latencies_now(),
+        dispatcher.probe_latencies_now(),
+    )
+
+    assert calls == 1
+    assert first["success"] is True
+    assert second["success"] is True
+    assert dispatcher.exits[0].latency_ms == 3
+    assert dispatcher.exits[0].latency_probing is False
+
+
+def test_login_forward_timeout_is_five_seconds():
+    assert LOGIN_RPC_TIMEOUT_SECONDS == 5
 
 
 @pytest.mark.anyio
