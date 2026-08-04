@@ -32,6 +32,7 @@ from .performance.ban_maintenance import ensure_ban_normalized, run_ban_normaliz
 from .performance.login_guard import (
     PasswordFailureEvent,
     count_recent_password_failures as count_structured_password_failures,
+    count_recent_password_failures_for_account as count_structured_password_failures_for_account,
     ensure_login_guard_tables,
     record_login_guard_event,
 )
@@ -1346,6 +1347,52 @@ async def count_recent_login_password_failures(username: str, ip_address: str, h
         ip_address,
         hours,
         fallback_counter=_count_recent_login_password_failures_from_logs,
+    )
+
+
+async def _count_recent_login_password_failures_for_account_from_logs(
+    username: str,
+    hours: int = 24,
+) -> int:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    cutoff = datetime.now() - timedelta(hours=hours)
+    async with pool.acquire() as conn:
+        count = await conn.fetchval('''
+            WITH last_success AS (
+                SELECT MAX(login_time) AS login_time
+                FROM login_records
+                WHERE username = $1
+                  AND request_path = '/RPC/Login'
+                  AND login_success IS TRUE
+            )
+            SELECT COUNT(*)
+            FROM login_records
+            WHERE username = $1
+              AND request_path = '/RPC/Login'
+              AND status_code = 401
+              AND login_time > COALESCE((SELECT login_time FROM last_success), $2)
+              AND login_time >= $2
+              AND (
+                    extra_data ILIKE '%local_password_mismatch%true%'
+                 OR extra_data ILIKE '%账户或密码%'
+                 OR extra_data ILIKE '%賬戶或密碼%'
+              )
+        ''', username or '', cutoff)
+        return int(count or 0)
+
+
+async def count_recent_login_password_failures_for_account(
+    username: str,
+    hours: int = 24,
+) -> int:
+    """Count login password failures by account, independent of edge IP."""
+    pool = _get_pool()
+    return await count_structured_password_failures_for_account(
+        pool,
+        username,
+        hours,
+        fallback_counter=_count_recent_login_password_failures_for_account_from_logs,
     )
 
 

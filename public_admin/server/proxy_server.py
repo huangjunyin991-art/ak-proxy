@@ -1591,9 +1591,11 @@ async def _count_recent_password_failures_for_login_guard(client_ip: str, userna
     if not normalized_username or normalized_username == "unknown":
         return 0
     try:
-        return int(await db.count_recent_login_password_failures(normalized_username, client_ip or "", hours=24) or 0)
+        # Cloudflare and other trusted reverse proxies can rotate edge IPs;
+        # the upstream-probe gate is intentionally account-scoped.
+        return int(await db.count_recent_login_password_failures_for_account(normalized_username, hours=24) or 0)
     except Exception as exc:
-        logger.warning(f"[LoginPasswordGuard] 读取连续密码错误次数失败，保持本地阻断: account={normalized_username}, IP={client_ip}, error={exc}")
+        logger.warning(f"[LoginPasswordGuard] 读取账号连续密码错误次数失败，保持本地阻断: account={normalized_username}, error={exc}")
         return 0
 
 

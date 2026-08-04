@@ -78,6 +78,58 @@ async def count_password_failure_events(conn, username: str, ip_address: str,
     return int(value or 0)
 
 
+async def ensure_password_failure_events_backfilled_for_account(
+    conn,
+    username: str,
+    window_start: datetime,
+) -> None:
+    """Backfill legacy password failures for account-wide probe counting."""
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return
+    await conn.execute('''
+        INSERT INTO login_password_failure_events (username, ip_address, occurred_at, login_record_id)
+        SELECT username, ip_address, login_time, id
+        FROM login_records
+        WHERE username = $1
+          AND request_path = '/RPC/Login'
+          AND status_code = 401
+          AND login_time >= $2
+          AND (
+                extra_data ILIKE '%local_password_mismatch%true%'
+             OR extra_data ILIKE '%账户或密码%'
+             OR extra_data ILIKE '%賬戶或密碼%'
+          )
+        ON CONFLICT (login_record_id) WHERE login_record_id IS NOT NULL DO NOTHING
+    ''', normalized_username, window_start)
+
+
+async def count_password_failure_events_for_account(
+    conn,
+    username: str,
+    window_start: datetime,
+) -> int:
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return 0
+    value = await conn.fetchval('''
+        WITH last_success AS (
+            SELECT MAX(login_time) AS login_time
+            FROM login_records
+            WHERE username = $1
+              AND request_path = '/RPC/Login'
+              AND login_success IS TRUE
+              AND login_time >= $2
+        )
+        SELECT COUNT(*)
+        FROM login_password_failure_events
+        WHERE username = $1
+          AND occurred_at > COALESCE((SELECT login_time FROM last_success), $2)
+          AND occurred_at >= $2
+    ''', normalized_username, window_start)
+    return int(value or 0)
+
+
 async def ensure_password_failure_events_backfilled(conn, username: str, ip_address: str,
                                                     window_start: datetime) -> None:
     normalized_username = str(username or '').strip().lower()
@@ -115,5 +167,4 @@ async def ensure_password_failure_events_backfilled(conn, username: str, ip_addr
             earliest_window_start = LEAST(login_password_failure_backfills.earliest_window_start, $3),
             backfilled_at = NOW()
     ''', normalized_username, normalized_ip, window_start)
-
 
