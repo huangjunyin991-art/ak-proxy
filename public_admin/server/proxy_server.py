@@ -52,6 +52,8 @@ import httpx
 
 import secrets
 
+from .login_guard import LoginUiTokenService
+
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 
 from fastapi.responses import JSONResponse, HTMLResponse, Response
@@ -205,6 +207,27 @@ try:
 except NameError:
 
     NOTICE_GUIDANCE_CONNECT_TIMEOUT = 1
+
+
+LOGIN_UI_TOKEN_TTL_SECONDS = max(
+    60,
+    int(os.environ.get("AK_LOGIN_UI_TOKEN_TTL_SECONDS", "900") or 900),
+)
+_LOGIN_UI_TOKEN_COOKIE = "ak_login_ui"
+_login_ui_token_secret = str(
+    os.environ.get("AK_LOGIN_UI_TOKEN_SECRET")
+    or os.environ.get("NOTIFY_CENTER_INTERNAL_SECRET")
+    or globals().get("DB_PASSWORD")
+    or ""
+).strip()
+if not _login_ui_token_secret:
+    # A process-local fallback keeps the marker enabled without a new
+    # mandatory deployment secret; a page reload follows a restart.
+    _login_ui_token_secret = secrets.token_urlsafe(32)
+login_ui_token_service = LoginUiTokenService(
+    _login_ui_token_secret,
+    ttl_seconds=LOGIN_UI_TOKEN_TTL_SECONDS,
+)
 
 
 
@@ -1410,12 +1433,22 @@ async def _ban_active_defense_ip(ip: str, count: int, trigger_reason: str, base_
     )
 
 
-async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint: str) -> dict:
+async def _record_login_endpoint_call_and_maybe_ban_ip(
+    client_ip: str,
+    endpoint: str,
+    *,
+    frontend_authenticated: bool = False,
+) -> dict:
     normalized_ip = str(client_ip or "").strip()
     if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
+    if frontend_authenticated:
+        logger.debug(
+            f"[LoginRateGuard] 前端登录页请求跳过短间隔封禁计数 ip={normalized_ip} endpoint={endpoint}"
+        )
+        return {"frontend_authenticated": True}
     if active_defense_service is not None:
         try:
             await _refresh_active_defense_policy()
@@ -2839,6 +2872,10 @@ async def proxy_login(request: Request):
     
 
     account = params.get("account", "unknown")
+    frontend_authenticated = _is_verified_login_ui_request(request)
+    login_forward_headers = dict(request.headers)
+    login_forward_headers.pop("x-ak-login-ui", None)
+    _strip_cookie_header(login_forward_headers, _LOGIN_UI_TOKEN_COOKIE)
 
     password = params.get("password", "")
 
@@ -2869,7 +2906,11 @@ async def proxy_login(request: Request):
 
             return await _public_ip_ban_response(client_ip)
 
-    login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(client_ip, "/RPC/Login")
+    login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(
+        client_ip,
+        "/RPC/Login",
+        frontend_authenticated=frontend_authenticated,
+    )
     if login_rate_result.get("already_banned"):
         return await _public_ip_ban_response(client_ip, status_code=403)
     if login_rate_result.get("blocked"):
@@ -3004,7 +3045,7 @@ async def proxy_login(request: Request):
                 upstream_started_at = time.perf_counter()
                 response = await forward_request(
 
-                    request.method, "Login", content_type, params, raw_body, dict(request.headers),
+                    request.method, "Login", content_type, params, raw_body, login_forward_headers,
 
                     client_ip=client_ip, is_login=True
 
@@ -3042,7 +3083,7 @@ async def proxy_login(request: Request):
                     fastpath_result = await _try_ak_userkey_login_fastpath(
                         account,
                         password,
-                        dict(request.headers),
+                        login_forward_headers,
                         client_ip=client_ip,
                     )
             if fastpath_result is not None and fastpath_result.success:
@@ -3053,7 +3094,7 @@ async def proxy_login(request: Request):
                 upstream_started_at = time.perf_counter()
                 response = await forward_request(
 
-                    request.method, "Login", content_type, params, raw_body, dict(request.headers),
+                    request.method, "Login", content_type, params, raw_body, login_forward_headers,
 
                     client_ip=client_ip, is_login=True
 
@@ -15321,6 +15362,54 @@ _AK_STOCK_PRICE_RPC_CACHE = StockPriceRpcCache(
 _AK_PROXY_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
+def _is_login_page_path(path: str) -> bool:
+    normalized = str(path or "").strip().lower().split("?", 1)[0].rstrip("/")
+    return normalized.endswith("/pages/account/login.html")
+
+
+def _set_login_ui_cookie(response: Response, request: Request) -> Response:
+    token = login_ui_token_service.issue()
+    if not token:
+        return response
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip().lower()
+    secure = forwarded_proto == "https" or str(request.url.scheme or "").lower() == "https"
+    response.set_cookie(
+        key=_LOGIN_UI_TOKEN_COOKIE,
+        value=token,
+        max_age=LOGIN_UI_TOKEN_TTL_SECONDS,
+        path="/",
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+    )
+    return response
+
+
+def _is_verified_login_ui_request(request: Request) -> bool:
+    if str(request.headers.get("x-ak-login-ui") or "").strip() != "1":
+        return False
+    return login_ui_token_service.validate(
+        request.cookies.get(_LOGIN_UI_TOKEN_COOKIE) or "",
+    )
+
+
+def _strip_cookie_header(headers: dict, cookie_name: str) -> None:
+    raw_cookie = str(headers.get("cookie") or "")
+    if not raw_cookie:
+        return
+    kept = []
+    for item in raw_cookie.split(";"):
+        name, separator, _ = item.strip().partition("=")
+        if separator and name.strip().lower() == str(cookie_name or "").strip().lower():
+            continue
+        if item.strip():
+            kept.append(item.strip())
+    if kept:
+        headers["cookie"] = "; ".join(kept)
+    else:
+        headers.pop("cookie", None)
+
+
 def _request_public_origin(request: Request) -> str:
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip()
     scheme = forwarded_proto or str(request.url.scheme or "https")
@@ -17156,16 +17245,17 @@ def _inject_account_login_submit_interval(text: str) -> tuple[str, bool]:
     script = (
         "<script>(function(){try{if(window.__akAccountLoginIntervalInstalled)return;"
         "window.__akAccountLoginIntervalInstalled=true;"
-        "var min=3000,uiLast=0,uiLocked=false,apiLast=0,submitGrace=300;"
+        "var min=5000,uiInFlight=false,networkInFlight=false,lastStart=0,releaseTimer=null;"
         "function isLoginUrl(url){try{var u=new URL(String(url||''),location.href);var p=(u.pathname||'').toLowerCase();return p.indexOf('/rpc/login')>=0||p.indexOf('/admin/ak-rpc/login')>=0;}catch(e){var s=String(url||'').toLowerCase();return s.indexOf('/rpc/login')>=0||s.indexOf('/admin/ak-rpc/login')>=0;}}"
-        "function uiGuard(kind){var now=Date.now();if(kind==='submit'&&uiLast&&now-uiLast<submitGrace)return true;if(uiLocked||now-uiLast<min)return false;uiLast=now;uiLocked=true;setTimeout(function(){uiLocked=false;},min);return true;}"
-        "function apiGuard(){var now=Date.now();if(apiLast&&now-apiLast<min)return false;apiLast=now;return true;}"
-        "function bind(){try{var nodes=document.querySelectorAll('button,input[type=button],input[type=submit],.btn,.login-btn');for(var i=0;i<nodes.length;i++){var n=nodes[i];if(n.__akLoginIntervalBound)continue;n.__akLoginIntervalBound=true;n.addEventListener('click',function(ev){if(!uiGuard('click')){ev.preventDefault();ev.stopImmediatePropagation();return false;}},true);}var forms=document.querySelectorAll('form');for(var j=0;j<forms.length;j++){var f=forms[j];if(f.__akLoginIntervalBound)continue;f.__akLoginIntervalBound=true;f.addEventListener('submit',function(ev){if(!uiGuard('submit')){ev.preventDefault();ev.stopImmediatePropagation();return false;}},true);}}catch(e){}}"
+        "function setControls(disabled){try{var nodes=document.querySelectorAll('button,input[type=button],input[type=submit],.btn,.login-btn');for(var i=0;i<nodes.length;i++){if(nodes[i].__akLoginControlState==null)nodes[i].__akLoginControlState=!!nodes[i].disabled;nodes[i].disabled=!!disabled;nodes[i].setAttribute('aria-disabled',disabled?'true':'false');}}catch(e){}}"
+        "function finish(){networkInFlight=false;uiInFlight=false;var remain=Math.max(0,min-(Date.now()-lastStart));if(releaseTimer)clearTimeout(releaseTimer);if(remain>0){setControls(true);releaseTimer=setTimeout(function(){setControls(false);},remain);}else{setControls(false);}}"
+        "function begin(){var now=Date.now();if(uiInFlight||networkInFlight)return false;if(lastStart&&now-lastStart<min)return false;lastStart=now;uiInFlight=true;setControls(true);if(releaseTimer)clearTimeout(releaseTimer);releaseTimer=setTimeout(finish,min+5000);return true;}"
+        "function bind(){try{var nodes=document.querySelectorAll('button,input[type=button],input[type=submit],.btn,.login-btn');for(var i=0;i<nodes.length;i++){var n=nodes[i];if(n.__akLoginIntervalBound)continue;n.__akLoginIntervalBound=true;n.addEventListener('click',function(ev){if(!begin()){ev.preventDefault();ev.stopImmediatePropagation();return false;}},true);}var forms=document.querySelectorAll('form');for(var j=0;j<forms.length;j++){var f=forms[j];if(f.__akLoginIntervalBound)continue;f.__akLoginIntervalBound=true;f.addEventListener('submit',function(ev){if(!begin()){ev.preventDefault();ev.stopImmediatePropagation();return false;}},true);}}catch(e){}}"
         "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bind);}else{bind();}setInterval(bind,1000);"
         "var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;"
         "XMLHttpRequest.prototype.open=function(m,u){this.__akLoginUrl=u;return xo.apply(this,arguments);};"
-        "XMLHttpRequest.prototype.send=function(){if(isLoginUrl(this.__akLoginUrl)&&!apiGuard())return;return xs.apply(this,arguments);};"
-        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var url=typeof input==='string'?input:(input&&input.url)||'';if(isLoginUrl(url)&&!apiGuard())return new Promise(function(){});return of.apply(this,arguments);};}"
+        "XMLHttpRequest.prototype.send=function(){if(!isLoginUrl(this.__akLoginUrl))return xs.apply(this,arguments);if(networkInFlight){try{this.abort();}catch(e){}return;}if(!uiInFlight&&!begin())return;networkInFlight=true;try{this.setRequestHeader('X-AK-Login-UI','1');}catch(e){}this.addEventListener('loadend',finish,{once:true});return xs.apply(this,arguments);};"
+        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var url=typeof input==='string'?input:(input&&input.url)||'';if(!isLoginUrl(url))return of.apply(this,arguments);if(networkInFlight)return Promise.reject(new Error('login request already in progress'));if(!uiInFlight&&!begin())return Promise.reject(new Error('login request throttled'));networkInFlight=true;var nextInit=Object.assign({},init||{});try{var h=new Headers(nextInit.headers||{});h.set('X-AK-Login-UI','1');nextInit.headers=h;}catch(e){}return of.call(this,input,nextInit).finally(finish);};}"
         "}catch(e){}})();</script>"
     )
     if "</body>" in text:
@@ -19758,6 +19848,8 @@ async def ak_web_proxy(request: Request, path: str):
             )
         if bs_id and not is_static_asset:
             _set_browse_session_cookie(response, bs_id)
+        if _is_login_page_path(normalized_path) and response.status_code < 400:
+            _set_login_ui_cookie(response, request)
         if static_cache_lock:
             _AK_WEB_STATIC_CACHE_SERVICE.release_lock(static_cache_request, static_cache_lock)
             static_cache_lock = None

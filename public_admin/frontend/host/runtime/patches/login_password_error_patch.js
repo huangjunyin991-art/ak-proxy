@@ -4,6 +4,8 @@
     var PASSWORD_ERROR_COUNTDOWN_SECONDS = 5;
     var LOGIN_SUBMIT_BLOCK_MS = PASSWORD_ERROR_COUNTDOWN_SECONDS * 1000;
     var lastLoginSubmitAt = 0;
+    var loginInFlight = false;
+    var loginReleaseTimer = null;
 
     function isLoginPage() {
         try {
@@ -160,12 +162,33 @@
             var originalDoLoginAjax = vm.doLoginAjax;
             vm.doLoginAjax = function() {
                 var now = Date.now();
-                if (lastLoginSubmitAt && now - lastLoginSubmitAt < LOGIN_SUBMIT_BLOCK_MS) {
-                    resetLoginLoadingState();
+                if (loginInFlight || (lastLoginSubmitAt && now - lastLoginSubmitAt < LOGIN_SUBMIT_BLOCK_MS)) {
                     return;
                 }
                 lastLoginSubmitAt = now;
-                return originalDoLoginAjax.apply(this, arguments);
+                loginInFlight = true;
+                if (loginReleaseTimer) clearTimeout(loginReleaseTimer);
+                loginReleaseTimer = setTimeout(function() {
+                    loginInFlight = false;
+                    loginReleaseTimer = null;
+                }, LOGIN_SUBMIT_BLOCK_MS + 5000);
+                var result;
+                try {
+                    result = originalDoLoginAjax.apply(this, arguments);
+                } catch (error) {
+                    loginInFlight = false;
+                    if (loginReleaseTimer) clearTimeout(loginReleaseTimer);
+                    loginReleaseTimer = null;
+                    throw error;
+                }
+                if (result && typeof result.finally === 'function') {
+                    return result.finally(function() {
+                        loginInFlight = false;
+                        if (loginReleaseTimer) clearTimeout(loginReleaseTimer);
+                        loginReleaseTimer = null;
+                    });
+                }
+                return result;
             };
         }, 100);
     }
