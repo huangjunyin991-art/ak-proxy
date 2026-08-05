@@ -6104,8 +6104,7 @@
                             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                                 <span id="lbSummary" style="font-size: 12px; color: var(--text-secondary);"></span>
                                 <button class="btn" onclick="lbReloadSingbox()" id="lbReloadBtn" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3);">🔄 热重载</button>
-                                <button class="btn" onclick="lbDetectIPs()" style="padding: 4px 10px; font-size: 12px; background: rgba(102,126,234,0.15); color: #667eea; border: 1px solid rgba(102,126,234,0.3);">检查源站</button>
-                                <button class="btn" onclick="lbProbeLatency()" style="padding: 4px 10px; font-size: 12px; background: rgba(0,212,255,0.12); color: #00d4ff; border: 1px solid rgba(0,212,255,0.3);">测速</button>
+                                <button class="btn" onclick="lbProbeLatency()" style="padding: 4px 10px; font-size: 12px; background: rgba(0,212,255,0.12); color: #00d4ff; border: 1px solid rgba(0,212,255,0.3);">源站测速</button>
                                 <button class="btn" onclick="lbShowPolicyModal()" style="padding: 4px 10px; font-size: 12px; background: rgba(255,165,2,0.12); color: #ffa502; border: 1px solid rgba(255,165,2,0.3);">策略</button>
                                 <button class="btn" onclick="showLbAddModal()" style="padding: 4px 10px; font-size: 12px; background: rgba(0,255,136,0.1); color: #00ff88; border: 1px solid rgba(0,255,136,0.3);">➕ 添加</button>
                                 <button class="btn" onclick="showLbSubModal()" style="padding: 4px 10px; font-size: 12px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none;">📡 导入订阅</button>
@@ -6149,7 +6148,7 @@
                             <span id="lbLatencyStrategy" style="color: var(--accent);">-</span>
                             <span style="color: var(--text-secondary);">每节点限速:</span>
                             <span id="lbPerSecondLimit" style="color: var(--accent-yellow); font-weight: bold;">-</span>
-                            <span style="color: var(--text-secondary);">测速周期:</span>
+                            <span style="color: var(--text-secondary);">源站复检:</span>
                             <span id="lbProbeInterval" style="color: var(--text-secondary);">-</span>
                             <span style="color: var(--text-secondary);">失败禁用:</span>
                             <span id="lbConnectFailureFreeze" style="color: var(--accent-yellow); font-weight: bold;">-</span>

@@ -3,11 +3,10 @@ from dataclasses import dataclass
 
 @dataclass
 class DispatcherPolicyConfig:
-    latency_probe_interval_seconds: int = 30 * 60
+    latency_probe_interval_seconds: int = 60 * 60
     per_exit_rate_per_second: int = 3
     latency_strategy_enabled: bool = True
-    latency_tier_tolerance_ms: int = 50
-    initial_probe_delay_seconds: int = 60
+
     def update(self, *, per_exit_rate_per_second=None, latency_strategy_enabled=None):
         if per_exit_rate_per_second is not None:
             try:
@@ -26,5 +25,4 @@ class DispatcherPolicyConfig:
             'latency_probe_interval_seconds': self.latency_probe_interval_seconds,
             'per_exit_rate_per_second': self.per_exit_rate_per_second,
             'latency_strategy_enabled': self.latency_strategy_enabled,
-            'latency_tier_tolerance_ms': self.latency_tier_tolerance_ms,
         }

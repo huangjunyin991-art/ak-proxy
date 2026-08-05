@@ -1,10 +1,8 @@
 import pytest
 import httpx
 import asyncio
-import time
 
 from .outbound_dispatcher import OutboundDispatcher, OutboundExit, RpcUpstreamNonJsonError
-from .dispatcher_policy.latency_probe import LatencyProbeService
 from .rpc_timeout_policy import LOGIN_RPC_TIMEOUT_SECONDS
 from .source_reachability import SourceProbeResult
 
@@ -211,9 +209,8 @@ def test_ace_sell_uses_wide_spread_rpc_policy():
     assert set(picked) == {"sell-tunnel-0", "sell-tunnel-1"}
 
 
-def test_wide_spread_rpc_ignores_dedicated_fast_pool_size():
+def test_my_subaccount_uses_all_eligible_exits():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 1
     for idx, latency in enumerate([1, 200, 300]):
         _add_ready_socks5(dispatcher, f"tunnel-{idx}", 10001 + idx)
         dispatcher.exits[idx + 1].latency_ms = latency
@@ -238,7 +235,7 @@ def test_wide_spread_rpc_prefers_lower_recent_rate_over_latency():
     assert picked.name == "idle-slow"
 
 
-def test_regular_rpc_keeps_latency_strategy_even_when_other_exit_is_idle():
+def test_regular_rpc_prefers_idle_exit_before_faster_busy_exit():
     dispatcher = OutboundDispatcher()
     dispatcher.policy_config.per_exit_rate_per_second = 20
     _add_ready_socks5(dispatcher, "hot-fast", 10001, group_id="g1")
@@ -250,7 +247,48 @@ def test_regular_rpc_keeps_latency_strategy_even_when_other_exit_is_idle():
 
     picked = dispatcher.pick_api_exit("Public_ACE")
 
-    assert picked.name == "hot-fast"
+    assert picked.name == "idle-slow"
+
+
+def test_regular_rpc_rotates_across_all_eligible_exits_before_reusing_one():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    for idx, latency in enumerate([10, 200, 500]):
+        _add_ready_socks5(dispatcher, f"tunnel-{idx}", 10001 + idx)
+        dispatcher.exits[idx + 1].latency_ms = latency
+
+    picked = [dispatcher.pick_api_exit("Public_EP_SellRecords1").name for _ in range(3)]
+
+    assert picked == ["tunnel-0", "tunnel-1", "tunnel-2"]
+
+
+def test_exit_without_latency_sample_remains_eligible_with_neutral_latency():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    _add_ready_socks5(dispatcher, "fast", 10001)
+    _add_ready_socks5(dispatcher, "unmeasured", 10002)
+    _add_ready_socks5(dispatcher, "slow", 10003)
+    dispatcher.exits[1].latency_ms = 20
+    dispatcher.exits[3].latency_ms = 500
+
+    picked = [dispatcher.pick_api_exit("Public_ACE").name for _ in range(3)]
+
+    assert picked == ["fast", "unmeasured", "slow"]
+
+
+def test_fair_strategy_accounts_for_different_minute_capacities():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    _add_ready_socks5(dispatcher, "small-capacity", 10001)
+    _add_ready_socks5(dispatcher, "large-capacity", 10002)
+    dispatcher.exits[1].rate_limit = 6
+    dispatcher.exits[2].rate_limit = 60
+    dispatcher.exits[1].record_request()
+    dispatcher.exits[2].record_request()
+
+    picked = dispatcher.pick_api_exit("Public_IndexData")
+
+    assert picked.name == "large-capacity"
 
 
 def test_login_spreads_across_subscription_groups_without_latency_bias():
@@ -320,9 +358,8 @@ def test_fallback_sequence_keeps_availability_before_group_spread():
     assert [item.name for item in attempts] == ["healthy-same-group", "direct"]
 
 
-def test_wide_spread_fallback_ignores_dedicated_fast_pool_size():
+def test_fallback_spreads_across_available_subscription_groups():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 1
     _add_ready_socks5(dispatcher, "failed", 10001, group_id="g1")
     for idx, group_id in enumerate(["g2", "g3", "g4"], start=2):
         _add_ready_socks5(dispatcher, f"group-{idx}", 10000 + idx, group_id=group_id)
@@ -350,7 +387,6 @@ async def test_start_starts_initial_and_periodic_source_probe_tasks(monkeypatch)
         return DummyTask(name)
 
     monkeypatch.setattr(dispatcher, "_ensure_health_check_started", lambda: None)
-    monkeypatch.setattr(dispatcher, "_ensure_latency_probe_started", lambda: None)
     monkeypatch.setattr(dispatcher, "_safe_create_task", fake_create_task)
 
     await dispatcher.start()
@@ -632,106 +668,17 @@ async def test_source_probe_batch_applies_separate_protocol_concurrency(monkeypa
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("anyio_backend", ["asyncio"])
-async def test_latency_probe_uses_first_successful_endpoint_without_waiting_for_slow_fallbacks():
-    class Client:
-        async def get(self, url, timeout):
-            if url == "https://fast.example":
-                await asyncio.sleep(0.01)
-                return httpx.Response(200, request=httpx.Request("GET", url))
-            await asyncio.sleep(1)
-            return httpx.Response(200, request=httpx.Request("GET", url))
-
-    class Exit:
-        async def get_client(self):
-            return Client()
-
-    probe = LatencyProbeService(
-        probe_urls=("https://slow-a.example", "https://fast.example", "https://slow-b.example"),
-        timeout_seconds=5,
-        concurrency=20,
-    )
-    started = time.perf_counter()
-    result = await probe.probe_exit(Exit(), asyncio.Semaphore(20))
-
-    assert result["success"] is True
-    assert result["url"] == "https://fast.example"
-    assert time.perf_counter() - started < 0.2
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("anyio_backend", ["asyncio"])
-async def test_latency_probe_publishes_each_exit_as_it_finishes():
-    class Client:
-        def __init__(self, delay):
-            self.delay = delay
-
-        async def get(self, url, timeout):
-            await asyncio.sleep(self.delay)
-            return httpx.Response(200, request=httpx.Request("GET", url))
-
-    class Exit:
-        def __init__(self, name, delay):
-            self.name = name
-            self.delay = delay
-
-        async def get_client(self):
-            return Client(self.delay)
-
-    published = []
-
-    async def on_result(result):
-        published.append(result["name"])
-
-    probe = LatencyProbeService(
-        probe_urls=("https://probe.example",),
-        timeout_seconds=1,
-        concurrency=2,
-    )
-    await probe.probe_all(
-        [Exit("slow", 0.08), Exit("fast", 0.01)],
-        on_result=on_result,
-    )
-
-    assert published == ["fast", "slow"]
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("anyio_backend", ["asyncio"])
-async def test_latency_probe_times_out_stuck_client_creation():
-    class Exit:
-        name = "stuck"
-
-        async def get_client(self):
-            await asyncio.sleep(1)
-
-    probe = LatencyProbeService(
-        probe_urls=("https://probe.example",),
-        timeout_seconds=0.05,
-        exit_hard_timeout_seconds=0.1,
-    )
-    started = time.perf_counter()
-    result = await probe.probe_exit(Exit())
-
-    assert result["success"] is False
-    assert time.perf_counter() - started < 0.5
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("anyio_backend", ["asyncio"])
 async def test_latency_probe_concurrent_callers_share_one_batch():
     dispatcher = OutboundDispatcher()
     calls = 0
 
-    class Probe:
-        async def probe_all(self, exits, on_result=None):
-            nonlocal calls
-            calls += 1
-            await asyncio.sleep(0.03)
-            if on_result is not None:
-                await on_result({"index": 0, "name": "direct", "success": True, "latency_ms": 3})
-            return []
+    async def probe_all_sources():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.03)
+        return 3
 
-    dispatcher.latency_probe = Probe()
+    dispatcher.probe_all_sources = probe_all_sources
     first, second = await asyncio.gather(
         dispatcher.probe_latencies_now(),
         dispatcher.probe_latencies_now(),
@@ -740,8 +687,29 @@ async def test_latency_probe_concurrent_callers_share_one_batch():
     assert calls == 1
     assert first["success"] is True
     assert second["success"] is True
-    assert dispatcher.exits[0].latency_ms == 3
-    assert dispatcher.exits[0].latency_probing is False
+    assert "可用 3 个出口" in first["message"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_full_source_probe_callers_share_one_batch():
+    dispatcher = OutboundDispatcher()
+    calls = 0
+
+    async def probe_once():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.03)
+        return 4
+
+    dispatcher._probe_all_sources_once = probe_once
+    first, second = await asyncio.gather(
+        dispatcher.probe_all_sources(),
+        dispatcher.probe_all_sources(),
+    )
+
+    assert calls == 1
+    assert first == second == 4
 
 
 def test_login_forward_timeout_is_five_seconds():
@@ -751,7 +719,6 @@ def test_login_forward_timeout_is_five_seconds():
 @pytest.mark.anyio
 async def test_login_non_json_response_retries_next_exit():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
     _add_ready_socks5(dispatcher, "bad-html", 10001)
     _add_ready_socks5(dispatcher, "good-json", 10002)
     attempts = []
@@ -789,7 +756,6 @@ async def test_login_non_json_response_retries_next_exit():
 @pytest.mark.anyio
 async def test_login_invalid_json_content_type_retries_next_exit():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
     _add_ready_socks5(dispatcher, "bad-json", 10001)
     _add_ready_socks5(dispatcher, "good-json", 10002)
     attempts = []
@@ -827,7 +793,6 @@ async def test_login_invalid_json_content_type_retries_next_exit():
 @pytest.mark.anyio
 async def test_login_html_403_response_retries_next_exit_freezes_and_records_current():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
     _add_ready_socks5(dispatcher, "bad-403", 10001, group_id="g1")
     _add_ready_socks5(dispatcher, "good-json", 10002, group_id="g2")
     attempts = []
@@ -895,7 +860,6 @@ async def test_rpc_html_429_response_is_recorded_before_non_json_rejection():
 @pytest.mark.anyio
 async def test_rpc_non_json_response_retries_next_exit_and_records_diagnostic():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
     _add_ready_socks5(dispatcher, "bad-html", 10001, group_id="g1")
     _add_ready_socks5(dispatcher, "good-json", 10002, group_id="g2")
     attempts = []
@@ -943,7 +907,6 @@ async def test_rpc_non_json_response_retries_next_exit_and_records_diagnostic():
 @pytest.mark.anyio
 async def test_rpc_non_json_response_raises_after_all_fallbacks_fail():
     dispatcher = OutboundDispatcher()
-    dispatcher.DEDICATED_FAST_EXIT_COUNT = 0
     _add_ready_socks5(dispatcher, "bad-json-1", 10001, group_id="g1")
     _add_ready_socks5(dispatcher, "bad-json-2", 10002, group_id="g2")
     attempts = []

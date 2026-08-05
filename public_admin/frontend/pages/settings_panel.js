@@ -625,13 +625,13 @@
         }
 
         function formatLbLatency(ex) {
-            if (ex.latency_probing) return { text: '测速中...', color: '#00d4ff' };
+            if (ex.latency_probing) return { text: '源站检测中...', color: '#00d4ff' };
             const latency = ex.latency_ms;
             if (latency === null || latency === undefined) {
                 if (ex.latency_checked_at || ex.latency_probe_failures > 0) {
-                    return { text: '测速失败', color: '#ff4757' };
+                    return { text: '源站不可达', color: '#ff4757' };
                 }
-                return { text: '未测速', color: 'var(--text-secondary)' };
+                return { text: '未检测', color: 'var(--text-secondary)' };
             }
             if (latency < 100) return { text: `${latency}ms`, color: '#00ff88' };
             if (latency < 300) return { text: `${latency}ms`, color: '#00d4ff' };
@@ -800,7 +800,7 @@
             setLbText('lbAvailableRatio', availableRatioText);
             setLbText('lbTotalActive', data.total_active);
             setLbText('lbLoginLimit', data.max_login_per_min);
-            setLbText('lbLatencyStrategy', policy.latency_strategy_enabled === false ? '最少连接' : '延迟优先');
+            setLbText('lbLatencyStrategy', policy.latency_strategy_enabled === false ? '最少连接' : '公平负载');
             setLbText('lbPerSecondLimit', `${policy.per_exit_rate_per_second || 3} req/s/节点`);
             setLbText('lbProbeInterval', `${Math.round((policy.latency_probe_interval_seconds || 1800) / 60)} 分钟`);
             const connectFreezeEl = document.getElementById('lbConnectFailureFreeze');
@@ -850,7 +850,7 @@
                 const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${exitIndex}`;
                 const latencyMeta = formatLbLatency(ex);
                 const latencyErr = ex.latency_probe_error ? ` | ${ex.latency_probe_error}` : '';
-                const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}${latencyErr}` : '暂未开始延迟测速';
+                const latencyTitle = ex.latency_checked_at ? `上次源站检测: ${ex.latency_checked_at}${latencyErr}` : '暂未检测业务源站';
                 const exitNameArg = jsArg(ex.name || '');
                 const groupHtml = ex.group_name ? `<div style="display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:rgba(102,126,234,0.14);color:#8ea2ff;font-size:10px;">订阅组 · ${escapeHtml(ex.group_name)}</div>` : '';
 
@@ -929,13 +929,13 @@
 
         async function lbProbeLatency() {
             try {
-                showToast('正在测试节点延迟...', 'info');
+                showToast('正在检测业务源站...', 'info');
                 const res = await fetch(`${API_BASE}/api/dispatcher/probe_latency`, {method: 'POST'});
                 const data = await res.json();
-                showToast(data.message || (data.success ? '测速完成' : '测速失败'), data.success ? 'success' : 'error');
+                showToast(data.message || (data.success ? '源站检测完成' : '源站检测失败'), data.success ? 'success' : 'error');
                 loadLbStatus();
             } catch (e) {
-                showToast('测速请求失败: ' + e.message, 'error');
+                showToast('源站检测请求失败: ' + e.message, 'error');
             }
         }
 
@@ -1265,7 +1265,7 @@
             const content = `
                 <div style="margin-bottom:12px;">
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
-                        控制所有出口节点的每秒请求上限，并决定是否优先使用低延迟节点。
+                        控制所有出口节点的每秒请求上限，并决定是否按实时负载公平分配请求。
                     </div>
                     <div style="display:flex;flex-direction:column;gap:10px;">
                         <label style="font-size:13px;color:var(--text-primary);">每节点请求上限 (req/s):</label>
@@ -1273,10 +1273,10 @@
                             style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
                         <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-primary);">
                             <input id="lbPolicyLatencyEnabled" type="checkbox" ${enabled ? 'checked' : ''} style="accent-color:var(--accent);">
-                            启用延迟优先调度
+                            启用公平负载调度
                         </label>
                         <div style="font-size:11px;color:var(--text-secondary);">
-                            连接失败按 10、30、60、180、300、900、3600 秒逐级保护，任意一次成功后重置；系统至少保留 100 个已验证出口。节点会每 30 分钟自动测速一次。
+                            源站延迟仅在负载相同时参与排序。连接失败按 10、30、60、180、300、900、3600 秒逐级保护，任意一次成功后重置；系统至少保留 100 个已验证出口。节点会每 60 分钟自动检测业务源站。
                         </div>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:12px;">

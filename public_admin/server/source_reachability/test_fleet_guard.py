@@ -92,7 +92,7 @@ def test_successful_source_probe_resets_connection_failure_ladder():
     dispatcher = OutboundDispatcher()
 
     async def successful_probe(_exit_obj, _policy):
-        return SimpleNamespace(reachable=True, status_code=403, error="")
+        return SimpleNamespace(reachable=True, status_code=403, error="", elapsed_ms=120)
 
     dispatcher._request_source_probe = successful_probe
 
@@ -101,6 +101,8 @@ def test_successful_source_probe_resets_connection_failure_ladder():
     assert asyncio.run(dispatcher._probe_source_exit(exit_obj)) is True
     assert exit_obj._connect_failures == 0
     assert exit_obj._frozen_reason == ""
+    assert exit_obj.latency_ms == 120
+    assert exit_obj.latency_checked_at == exit_obj.source_probe_checked_at
 
 
 def test_unverified_and_429_exits_are_never_promoted_for_floor():
@@ -126,6 +128,8 @@ def test_state_store_restores_last_known_good_metadata(tmp_path):
     exit_obj._connect_failures = 3
     exit_obj._frozen_until = time.time() + 60
     exit_obj._frozen_reason = "连接失败×3"
+    exit_obj.latency_ms = 88
+    exit_obj.latency_checked_at = "2026-08-05 12:00:00"
     store = SourceFleetStateStore(tmp_path / "fleet.json")
 
     store.save([exit_obj])
@@ -134,12 +138,16 @@ def test_state_store_restores_last_known_good_metadata(tmp_path):
     assert loaded["source_probe_protected"] is True
     assert loaded["source_probe_last_success_at"] == 1007.0
     assert loaded["connect_failures"] == 3
+    assert loaded["business_latency_ms"] == 88
+    assert loaded["business_latency_checked_at"] == "2026-08-05 12:00:00"
 
 
 def test_dispatcher_restores_persisted_state_for_new_exit(monkeypatch, tmp_path):
     original = _verified_exit(9)
     original.source_probe_protected = True
     original._connect_failures = 4
+    original.latency_ms = 76
+    original.latency_checked_at = "2026-08-05 12:00:00"
     path = tmp_path / "fleet.json"
     SourceFleetStateStore(path).save([original])
     monkeypatch.setenv("AK_PROXY_SOURCE_FLEET_STATE_FILE", str(path))
@@ -154,3 +162,5 @@ def test_dispatcher_restores_persisted_state_for_new_exit(monkeypatch, tmp_path)
     assert restored.source_probe_protected is True
     assert restored.source_probe_last_success_at == 1009.0
     assert restored._connect_failures == 4
+    assert restored.latency_ms == 76
+    assert restored.latency_checked_at == "2026-08-05 12:00:00"

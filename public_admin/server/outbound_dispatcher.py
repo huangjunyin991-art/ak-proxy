@@ -38,18 +38,18 @@ from .source_reachability import (
 
 try:
     from .dispatcher_policy import (
+        BusinessLatencyEstimator,
         CONNECTION_FAILURE_FREEZE_SCHEDULE,
         DispatcherPolicyConfig,
-        LatencyAwareStrategy,
-        LatencyProbeService,
+        FairLoadStrategy,
         PerSecondRateLimiter,
         connection_failure_freeze_seconds,
     )
     _DISPATCHER_POLICY_IMPORT_ERROR = None
 except Exception as e:
     DispatcherPolicyConfig = None
-    LatencyAwareStrategy = None
-    LatencyProbeService = None
+    BusinessLatencyEstimator = None
+    FairLoadStrategy = None
     PerSecondRateLimiter = None
     CONNECTION_FAILURE_FREEZE_SCHEDULE = (10, 30, 60, 180, 300, 900, 3600)
     connection_failure_freeze_seconds = lambda level: CONNECTION_FAILURE_FREEZE_SCHEDULE[
@@ -438,8 +438,6 @@ class OutboundDispatcher:
     DIRECT_FALLBACK_RATE_PER_MINUTE = 30
     DIRECT_CRITICAL_FALLBACK_RATE_PER_SECOND = 8
     DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE = 240
-    DEDICATED_FAST_EXIT_COUNT = 5
-    DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1", "public_indexdata"}
     WIDE_SPREAD_RPC_PATHS = {"ace_sell", "my_subaccount"}
     CRITICAL_DIRECT_FALLBACK_RPC_PATHS = {
         "logout",
@@ -466,7 +464,6 @@ class OutboundDispatcher:
         ]
         self._direct_critical_timestamps = deque()
         self._health_task: Optional[asyncio.Task] = None
-        self._latency_probe_task: Optional[asyncio.Task] = None
         self._initial_source_probe_task: Optional[asyncio.Task] = None
         self._periodic_source_probe_task: Optional[asyncio.Task] = None
         self._failed_source_probe_task: Optional[asyncio.Task] = None
@@ -476,6 +473,8 @@ class OutboundDispatcher:
         self._latency_probe_run_lock = asyncio.Lock()
         self._started = False
         self._source_probe_run_lock = asyncio.Lock()
+        self._source_probe_task_lock = asyncio.Lock()
+        self._source_probe_batch_task: Optional[asyncio.Task] = None
         self._rr_counter: int = 0
         self._wide_spread_rr_counter: int = 0
         self._wide_spread_group_rr_counter: int = 0
@@ -484,9 +483,9 @@ class OutboundDispatcher:
         self.login_non_json_callback = None
         self.rpc_non_json_callback = None
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
-        self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
         self.rate_limiter = PerSecondRateLimiter() if PerSecondRateLimiter is not None else None
         self.source_probe = SourceReachabilityProbe()
+        self.business_latency = BusinessLatencyEstimator() if BusinessLatencyEstimator is not None else None
         self.source_fleet_guard = SourceFleetGuard(
             minimum_ready=self.MINIMUM_VERIFIED_TUNNEL_EXITS,
             circuit_min_incumbents=self.SOURCE_PROBE_CIRCUIT_MIN_INCUMBENTS,
@@ -494,9 +493,7 @@ class OutboundDispatcher:
         )
         self.source_fleet_state_store: SourceFleetStateStore | None = None
         self._persisted_source_fleet_state: dict = {}
-        self.latency_strategy = LatencyAwareStrategy(
-            self.policy_config.latency_tier_tolerance_ms
-        ) if self.policy_config is not None and LatencyAwareStrategy is not None else None
+        self.latency_strategy = FairLoadStrategy() if FairLoadStrategy is not None else None
         if _DISPATCHER_POLICY_IMPORT_ERROR is not None:
             logger.warning(f"[DispatcherPolicy] 策略模块不可用，使用原始调度策略: {_DISPATCHER_POLICY_IMPORT_ERROR}")
 
@@ -525,6 +522,12 @@ class OutboundDispatcher:
         exit_obj.source_probe_last_success_at = last_success_at
         exit_obj.source_probe_checked_at = str(state.get("source_probe_checked_at") or "")
         exit_obj.source_probe_status_code = state.get("source_probe_status_code")
+        try:
+            stored_latency = state.get("business_latency_ms")
+            exit_obj.latency_ms = max(0, int(stored_latency)) if stored_latency is not None else None
+        except (TypeError, ValueError):
+            exit_obj.latency_ms = None
+        exit_obj.latency_checked_at = str(state.get("business_latency_checked_at") or "")
         exit_obj._connect_failures = max(0, int(state.get("connect_failures") or 0))
         frozen_reason = str(state.get("frozen_reason") or "")
         frozen_until = float(state.get("frozen_until") or 0.0)
@@ -747,16 +750,6 @@ class OutboundDispatcher:
         self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
         logger.info("[Dispatcher] 健康检查已启动")
 
-    def _ensure_latency_probe_started(self):
-        if not self._started:
-            return
-        if self.policy_config is None or self.latency_probe is None:
-            return
-        if self._latency_probe_task and not self._latency_probe_task.done():
-            return
-        self._latency_probe_task = self._safe_create_task(self._latency_probe_loop(), "latency_probe_loop")
-        logger.info("[Dispatcher] 延迟测速任务已启动")
-
     def _ensure_source_probe_started(self):
         if not self._started:
             return
@@ -779,7 +772,6 @@ class OutboundDispatcher:
         self._load_source_fleet_state()
         self._started = True
         self._ensure_health_check_started()
-        self._ensure_latency_probe_started()
         self._ensure_source_probe_started()
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
 
@@ -792,18 +784,20 @@ class OutboundDispatcher:
                 await self._health_task
             except asyncio.CancelledError:
                 pass
-        if self._latency_probe_task:
-            self._latency_probe_task.cancel()
-            try:
-                await self._latency_probe_task
-            except asyncio.CancelledError:
-                pass
         if self._latency_probe_run_task:
             self._latency_probe_run_task.cancel()
             try:
                 await self._latency_probe_run_task
             except asyncio.CancelledError:
                 pass
+        if self._source_probe_batch_task:
+            self._source_probe_batch_task.cancel()
+            try:
+                await self._source_probe_batch_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning("[Dispatcher] 源站探测任务停止时异常: %s", exc)
         if self._initial_source_probe_task:
             self._initial_source_probe_task.cancel()
             try:
@@ -895,21 +889,9 @@ class OutboundDispatcher:
         return min(candidates, key=lambda e: e.active)
 
     def _filter_latency_failed_pool(self, pool: list[int]) -> list[int]:
-        if (
-            not pool
-            or self.policy_config is None
-            or not self.policy_config.latency_strategy_enabled
-        ):
-            return pool
-        filtered = [
-            i for i in pool
-            if not (
-                getattr(self.exits[i], "latency_checked_at", "")
-                and getattr(self.exits[i], "latency_probe_failures", 0) > 0
-                and getattr(self.exits[i], "latency_ms", None) is None
-            )
-        ]
-        return filtered
+        # Reachability is a hard gate. Missing latency data must stay neutral
+        # instead of permanently excluding a newly added or recovering exit.
+        return list(pool)
 
     def _fallback_sequence(
         self,
@@ -940,14 +922,7 @@ class OutboundDispatcher:
     def _order_fallback_tunnels(self, candidate_indices: list[int], failed_exit: OutboundExit, api_path: str = "") -> list[int]:
         if not candidate_indices:
             return []
-        if self.is_wide_spread_rpc(api_path):
-            ordered = self._order_wide_spread_pool(self._filter_latency_failed_pool(candidate_indices))
-        else:
-            primary_indices = self._route_dedicated_fast_pool(candidate_indices, api_path)
-            overflow_indices = [i for i in candidate_indices if i not in set(primary_indices)]
-            ordered = primary_indices + sorted(overflow_indices, key=self._latency_sort_key)
-            ordered = self._filter_latency_failed_pool(ordered)
-            ordered.sort(key=lambda i: (self.exits[i].active, self.exits[i].count_recent_requests(60.0), i))
+        ordered = self._order_fair_pool(self._filter_latency_failed_pool(candidate_indices))
         return self._prefer_distinct_subscription_groups(ordered, failed_exit)
 
     def _fallback_group_key(self, ex: OutboundExit) -> str:
@@ -1042,7 +1017,12 @@ class OutboundDispatcher:
             return None
         if self.policy_config is not None and self.policy_config.latency_strategy_enabled and self.latency_strategy is not None:
             try:
-                best = self.latency_strategy.pick(self.exits, pool, self._rr_counter)
+                best = self.latency_strategy.pick(
+                    self.exits,
+                    pool,
+                    self._rr_counter,
+                    self.policy_config.per_exit_rate_per_second,
+                )
                 if best is not None:
                     return best
             except Exception as e:
@@ -1120,35 +1100,15 @@ class OutboundDispatcher:
         pool = self._filter_latency_failed_pool(pool)
         if not pool:
             return None
-        pool = sorted(pool, key=self._latency_sort_key)
-        min_active = min(self.exits[i].active for i in pool)
-        candidates = [i for i in pool if self.exits[i].active == min_active]
         self._rr_counter += 1
-        return candidates[self._rr_counter % len(candidates)]
+        ordered = self._order_fair_pool(pool, self._rr_counter)
+        return ordered[0] if ordered else None
 
     def _pick_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
-        if self.is_wide_spread_rpc(api_path):
-            return self._pick_wide_spread_tunnel_index()
-        primary = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), api_path)
-        best = self._pick_from_pool(primary)
-        if best is not None:
-            return best
-        overflow = [i for i in self._get_healthy_tunnels() if i not in set(primary)]
-        best = self._pick_from_pool(overflow)
-        if best is not None:
-            logger.warning(f"[Dispatcher] API primary pool empty/limited, overflow to tunnel: {self.exits[best].name}")
-            return best
-        return None
+        return self._pick_from_pool(self._get_healthy_tunnels())
 
     def _pick_relaxed_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
-        if self.is_wide_spread_rpc(api_path):
-            best = self._pick_relaxed_wide_spread_tunnel_index()
-            if best is not None:
-                logger.warning(f"[Dispatcher] API direct fallback exhausted, wide spread overflow to tunnel: {self.exits[best].name}")
-            return best
-        primary = set(self._route_dedicated_fast_pool(self._get_healthy_tunnels_relaxed(), api_path))
-        pool = [i for i in self._get_healthy_tunnels_relaxed() if i not in primary] or list(primary)
-        best = self._pick_relaxed_from_pool(pool)
+        best = self._pick_relaxed_from_pool(self._get_healthy_tunnels_relaxed())
         if best is not None:
             logger.warning(f"[Dispatcher] API direct fallback exhausted, relaxed overflow to tunnel: {self.exits[best].name}")
         return best
@@ -1302,9 +1262,6 @@ class OutboundDispatcher:
             return path[4:]
         return path
 
-    def _is_dedicated_fast_rpc(self, api_path: str) -> bool:
-        return self._normalize_api_path(api_path) in self.DEDICATED_FAST_RPC_PATHS
-
     def is_wide_spread_rpc(self, api_path: str) -> bool:
         return self._normalize_api_path(api_path) in self.WIDE_SPREAD_RPC_PATHS
 
@@ -1322,29 +1279,17 @@ class OutboundDispatcher:
             latency = None
         return (1 if latency is None else 0, latency if latency is not None else 10**9, self.exits[idx].active, idx)
 
-    def _get_dedicated_fast_tunnels(self) -> list[int]:
-        candidates = [
-            i for i, ex in enumerate(self.exits)
-            if not ex.is_direct
-            and ex.is_dispatch_ready
-            and not ex.is_frozen
-        ]
-        candidates = self._filter_latency_failed_pool(candidates)
-        candidates.sort(key=self._latency_sort_key)
-        return candidates[:self.DEDICATED_FAST_EXIT_COUNT]
-
-    def _route_dedicated_fast_pool(self, pool: list[int], api_path: str = "") -> list[int]:
-        dedicated = set(self._get_dedicated_fast_tunnels())
-        if not dedicated:
-            return pool
-        if self._is_dedicated_fast_rpc(api_path):
-            primary = [i for i in pool if i in dedicated]
-            if primary:
-                return primary
-            overflow = [i for i in pool if i not in dedicated]
-            overflow.sort(key=self._latency_sort_key)
-            return overflow
-        return [i for i in pool if i not in dedicated]
+    def _order_fair_pool(self, pool: list[int], rr_counter: int | None = None) -> list[int]:
+        if not pool:
+            return []
+        if self.latency_strategy is None or self.policy_config is None:
+            return sorted(pool, key=lambda i: (self.exits[i].active, self.exits[i].count_recent_requests(60.0), i))
+        return self.latency_strategy.order(
+            self.exits,
+            pool,
+            self._rr_counter if rr_counter is None else rr_counter,
+            self.policy_config.per_exit_rate_per_second,
+        )
 
     # ===== 调度（全部异常安全） =====
 
@@ -1785,6 +1730,7 @@ class OutboundDispatcher:
         """Check whether an exit can reach the configured business source."""
         policy = policy or self._source_probe_policy(ex)
         ex.source_probing = True
+        ex.latency_probing = True
         ex.source_probe_checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             result = None
@@ -1827,6 +1773,12 @@ class OutboundDispatcher:
                 ex.source_probe_last_error = ""
                 ex.source_probe_status_code = result.status_code
                 ex._source_probe_next_at = time.time() + self.SOURCE_PROBE_INTERVAL_SECONDS
+                if self.business_latency is not None:
+                    self.business_latency.record_success(
+                        ex,
+                        getattr(result, "elapsed_ms", 0),
+                        ex.source_probe_checked_at,
+                    )
                 ex.reset_connect_failures()
                 if not was_ready:
                     status = f"HTTP {result.status_code}" if result.status_code else "network success"
@@ -1838,6 +1790,12 @@ class OutboundDispatcher:
             ex.source_probe_status_code = result.status_code if result is not None else None
             ex.source_probe_last_error = result.error if result is not None else error
             ex.source_probe_failures = min(3, ex.source_probe_failures + 1)
+            if self.business_latency is not None:
+                self.business_latency.record_failure(
+                    ex,
+                    ex.source_probe_last_error,
+                    ex.source_probe_checked_at,
+                )
             retry_seconds = self.SOURCE_PROBE_FAILURE_BACKOFF_SECONDS[ex.source_probe_failures - 1]
             ex._source_probe_next_at = time.time() + retry_seconds
             if ex.source_probe_failures == 3 and ex._ever_healthy:
@@ -1848,6 +1806,7 @@ class OutboundDispatcher:
             return False
         finally:
             ex.source_probing = False
+            ex.latency_probing = False
 
     async def _probe_source_batch(self, exits_snapshot: list[OutboundExit]) -> list[bool]:
         snapshots = self.source_fleet_guard.snapshot(exits_snapshot)
@@ -1884,12 +1843,21 @@ class OutboundDispatcher:
         self._schedule_source_fleet_state_persist()
         return normalized
 
-    async def probe_all_sources(self) -> int:
-        """Probe every locally reachable SOCKS exit against the business source."""
+    async def _probe_all_sources_once(self) -> int:
+        """Run one serialized full business-source probe batch."""
         async with self._source_probe_run_lock:
             exits_snapshot = [ex for ex in self.exits if not ex.is_direct and ex.healthy]
             results = await self._probe_source_batch(exits_snapshot)
             return sum(1 for result in results if result)
+
+    async def probe_all_sources(self) -> int:
+        """Coalesce concurrent full probes so one window produces one batch."""
+        async with self._source_probe_task_lock:
+            task = self._source_probe_batch_task
+            if task is None or task.done():
+                task = asyncio.create_task(self._probe_all_sources_once(), name="source_probe_batch")
+                self._source_probe_batch_task = task
+        return await asyncio.shield(task)
 
     async def probe_failed_sources(self, force_due: bool = False) -> int:
         """Probe only currently unavailable exits whose retry deadline has elapsed."""
@@ -1911,61 +1879,23 @@ class OutboundDispatcher:
         """Compatibility alias for callers of the former IP detection endpoint."""
         return await self.probe_all_sources()
 
-    async def _latency_probe_loop(self):
-        await asyncio.sleep(self.policy_config.initial_probe_delay_seconds)
-        while self._started:
-            try:
-                await self.probe_latencies_now()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.warning(f"[Dispatcher] 延迟测速异常: {e}")
-            await asyncio.sleep(self.policy_config.latency_probe_interval_seconds)
-
     async def _run_latency_probe(self) -> dict:
-        """Run one latency batch and publish each exit as soon as it finishes."""
-        if self.latency_probe is None:
-            return {"success": False, "message": "延迟测速模块不可用", "exits": []}
-
-        exits_snapshot = list(self.exits)
-        for ex in exits_snapshot:
-            ex.latency_probing = True
-        checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        async def _publish_result(result: dict) -> None:
-            index = result.get("index")
-            if not isinstance(index, int) or not 0 <= index < len(exits_snapshot):
-                return
-            ex = exits_snapshot[index]
-            ex.latency_checked_at = checked_at
-            if result.get("success"):
-                ex.latency_ms = result.get("latency_ms")
-                ex.latency_probe_failures = 0
-                ex.latency_probe_error = ""
-            else:
-                ex.latency_ms = None
-                ex.latency_probe_failures += 1
-                ex.latency_probe_error = result.get("error") or "延迟测速失败"
-            ex.latency_probing = False
-
+        """Refresh reachability and latency with the same business-origin probe."""
         try:
-            await self.latency_probe.probe_all(exits_snapshot, on_result=_publish_result)
-            return {"success": True, "message": "节点延迟测试完成", "exits": self.get_status().get("exits", [])}
+            reachable = await self.probe_all_sources()
+            return {
+                "success": True,
+                "message": f"业务源站测速完成，可用 {reachable} 个出口",
+                "exits": self.get_status().get("exits", []),
+            }
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.warning("[Dispatcher] 延迟测速批次异常: %s", exc)
-            return {"success": False, "message": f"延迟测速失败: {exc}", "exits": self.get_status().get("exits", [])}
-        finally:
-            # A cancelled or failed batch must never leave the UI in a
-            # permanent probing state.
-            for ex in exits_snapshot:
-                ex.latency_probing = False
+            logger.warning("[Dispatcher] 业务源站测速批次异常: %s", exc)
+            return {"success": False, "message": f"业务源站测速失败: {exc}", "exits": self.get_status().get("exits", [])}
 
     async def probe_latencies_now(self) -> dict:
-        """Reuse an in-flight batch instead of launching another full probe."""
-        if self.latency_probe is None:
-            return {"success": False, "message": "延迟测速模块不可用", "exits": []}
+        """Reuse one in-flight business-origin probe for concurrent callers."""
         async with self._latency_probe_run_lock:
             task = self._latency_probe_run_task
             if task is None or task.done():

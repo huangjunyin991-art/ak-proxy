@@ -40,6 +40,8 @@ class SourceFleetStateStore:
                 "source_probe_last_success_at": last_success_at,
                 "source_probe_checked_at": str(getattr(exit_obj, "source_probe_checked_at", "") or ""),
                 "source_probe_status_code": getattr(exit_obj, "source_probe_status_code", None),
+                "business_latency_ms": getattr(exit_obj, "latency_ms", None),
+                "business_latency_checked_at": str(getattr(exit_obj, "latency_checked_at", "") or ""),
                 "connect_failures": connect_failures,
                 "frozen_until": float(getattr(exit_obj, "_frozen_until", 0.0) or 0.0),
                 "frozen_reason": str(getattr(exit_obj, "_frozen_reason", "") or ""),

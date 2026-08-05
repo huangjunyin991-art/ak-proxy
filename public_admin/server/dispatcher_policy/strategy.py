@@ -1,18 +1,72 @@
-class LatencyAwareStrategy:
-    def __init__(self, tier_tolerance_ms: int = 50):
-        self.tier_tolerance_ms = tier_tolerance_ms
+from __future__ import annotations
 
-    def pick(self, exits: list, candidate_indices: list[int], rr_counter: int) -> int | None:
-        if not candidate_indices:
-            return None
-        measured = [i for i in candidate_indices if self._latency(exits[i]) is not None]
-        pool = measured if measured else list(candidate_indices)
-        if measured:
-            best_latency = min(self._latency(exits[i]) for i in measured)
-            pool = [i for i in measured if self._latency(exits[i]) <= best_latency + self.tier_tolerance_ms]
-        min_active = min(getattr(exits[i], 'active', 0) for i in pool)
-        pool = [i for i in pool if getattr(exits[i], 'active', 0) == min_active]
-        return pool[rr_counter % len(pool)]
+from statistics import median
+
+
+class FairLoadStrategy:
+    """Order eligible exits by current utilization, using latency as a soft tie-breaker."""
+
+    def pick(
+        self,
+        exits: list,
+        candidate_indices: list[int],
+        rr_counter: int,
+        per_second_limit: int = 0,
+    ) -> int | None:
+        ordered = self.order(exits, candidate_indices, rr_counter, per_second_limit)
+        return ordered[0] if ordered else None
+
+    def order(
+        self,
+        exits: list,
+        candidate_indices: list[int],
+        rr_counter: int,
+        per_second_limit: int = 0,
+    ) -> list[int]:
+        pool = list(dict.fromkeys(candidate_indices))
+        if not pool:
+            return []
+
+        measured = [self._latency(exits[index]) for index in pool]
+        measured = [value for value in measured if value is not None]
+        neutral_latency = int(median(measured)) if measured else 0
+        position = {index: offset for offset, index in enumerate(pool)}
+        size = len(pool)
+
+        return sorted(
+            pool,
+            key=lambda index: self._score(
+                exits[index],
+                position[index],
+                size,
+                rr_counter,
+                per_second_limit,
+                neutral_latency,
+            ),
+        )
+
+    def _score(
+        self,
+        exit_obj,
+        position: int,
+        pool_size: int,
+        rr_counter: int,
+        per_second_limit: int,
+        neutral_latency: int,
+    ) -> tuple:
+        rps_limit = max(1, int(per_second_limit or 1))
+        rpm_limit = int(getattr(exit_obj, "rate_limit", 0) or 0)
+        effective_rpm_limit = rpm_limit if rpm_limit > 0 else rps_limit * 60
+        recent_second = max(0, int(exit_obj.count_recent_requests(1.0)))
+        recent_minute = max(0, int(exit_obj.count_recent_requests(60.0)))
+        latency = self._latency(exit_obj)
+        return (
+            recent_second / rps_limit,
+            recent_minute / max(1, effective_rpm_limit),
+            max(0, int(getattr(exit_obj, "active", 0) or 0)),
+            latency if latency is not None else neutral_latency,
+            (position - rr_counter) % max(1, pool_size),
+        )
 
     @staticmethod
     def _latency(exit_obj):
@@ -23,3 +77,7 @@ class LatencyAwareStrategy:
             return int(value)
         except Exception:
             return None
+
+
+# Preserve the old import name for external extensions while changing its semantics.
+LatencyAwareStrategy = FairLoadStrategy
