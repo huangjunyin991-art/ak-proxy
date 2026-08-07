@@ -6,7 +6,7 @@
     }
     function parse(response) {
         return response.json().catch(function() { return {}; }).then(function(body) {
-            if (!response.ok || body.success === false) throw new Error(body.message || body.detail || 'AK 卖出流水请求失败');
+            if (!response.ok || body.success === false) throw new Error(body.message || body.detail || 'AK流水请求失败');
             return body;
         });
     }
