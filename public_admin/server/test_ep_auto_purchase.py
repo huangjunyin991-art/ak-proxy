@@ -14,6 +14,7 @@ from .ep_auto_purchase.internal_rpc import (
     EP_AUTO_PURCHASE_INTERNAL_HEADER,
     is_trusted_internal_rpc_request,
 )
+from .notice_guidance.subaccount_pause import NOTICE_GUIDANCE_INTERNAL_HEADER
 from .upstream_rpc_gate import RpcGateBusy
 from .upstream_rpc_gate.service import UpstreamRpcGate
 
@@ -148,15 +149,26 @@ async def test_pending_list_uses_confirmed_market_parameters():
 
 
 @pytest.mark.anyio
-async def test_default_provider_routes_ep_calls_through_nginx_with_internal_marker():
+async def test_default_provider_routes_ep_calls_through_loopback_with_internal_marker():
     client = _Client({"Error": False, "Data": {"List": []}})
     provider = EPAutoPurchaseProvider(internal_token="runtime-secret")
 
     await provider.list_pending(client, {"key": "buyer-key", "user_id": "103"})
 
     assert provider.base_url == DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL
-    assert client.calls[0][0] == "https://ak2025.vip/RPC/Public_EP_SellRecords1"
+    assert client.calls[0][0] == "http://127.0.0.1:8080/RPC/Public_EP_SellRecords1"
     assert client.calls[0][2] == {EP_AUTO_PURCHASE_INTERNAL_HEADER: "runtime-secret"}
+
+
+def test_default_provider_uses_source_browser_headers_without_notice_bypass_marker():
+    provider = EPAutoPurchaseProvider(internal_token="runtime-secret")
+
+    headers = provider._headers()
+
+    assert headers["User-Agent"].startswith("Mozilla/5.0")
+    assert headers["Origin"] == "https://www.akapi1.com"
+    assert headers["Referer"] == "https://www.akapi1.com/"
+    assert NOTICE_GUIDANCE_INTERNAL_HEADER not in headers
 
 
 @pytest.mark.anyio
@@ -166,7 +178,7 @@ async def test_order_detail_uses_confirmed_minimal_parameters_and_internal_marke
 
     await provider.fetch_order_detail(client, {"key": "buyer-key", "user_id": "103"}, "88")
 
-    assert client.calls[0][0] == "https://ak2025.vip/RPC/Public_EP_SellDetail"
+    assert client.calls[0][0] == "http://127.0.0.1:8080/RPC/Public_EP_SellDetail"
     assert client.calls[0][1]["sId"] == "88"
     assert set(client.calls[0][1]) == {"sId", "key", "UserID", "v", "lang"}
     assert client.calls[0][2] == {EP_AUTO_PURCHASE_INTERNAL_HEADER: "runtime-secret"}

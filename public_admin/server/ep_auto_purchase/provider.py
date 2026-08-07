@@ -4,7 +4,8 @@ from typing import Any, Mapping
 
 import httpx
 
-from ..notice_guidance.provider import make_v
+from ..notice_guidance.provider import make_headers, make_v
+from ..notice_guidance.subaccount_pause import NOTICE_GUIDANCE_INTERNAL_HEADER
 from ..rpc_timeout_policy import (
     NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS,
     NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
@@ -63,14 +64,10 @@ class EPAutoPurchaseProvider:
         self.internal_token = str(internal_token or "").strip()
 
     def _headers(self) -> dict[str, str]:
-        headers = {
-            "User-Agent": "AK-Proxy-EP-Auto-Purchase/1.0",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://ak2025.vip",
-            "Referer": "https://ak2025.vip/",
-        }
+        headers = make_headers()
+        # The legacy helper also marks NoticeGuidance background calls. EP
+        # requests use their own token so the proxy can apply the EP gate.
+        headers.pop(NOTICE_GUIDANCE_INTERNAL_HEADER, None)
         return headers
 
     def build_client(self) -> httpx.AsyncClient:
