@@ -163,7 +163,7 @@
                         '<label class="ak-ep-master-toggle"><b>自动抢购</b><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span></label></div>' +
                     '<div class="ak-ep-config-grid">' +
                         '<div class="ak-ep-account-editor"><div class="ak-ep-editor-heading"><div><strong>抢分账号</strong><span>已启用 ' + number(enabledAccountCount) + ' / ' + number(accountRows.length) + '</span></div>' +
-                            '<button type="button" class="ak-ep-add-account" data-action="add-account" ' + (loading ? 'disabled' : '') + '>' +
+                            '<button type="button" class="ak-ep-add-account" data-action="add-account" title="' + (enabled ? '运行中不可添加账号' : '添加抢分账号') + '" ' + (loading || enabled ? 'disabled' : '') + '>' +
                                 '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加账号</span></button></div>' +
                             '<div class="ak-ep-credential-table-wrap"><table class="ak-ep-credential-table"><thead><tr><th>账号</th><th>登录密码</th><th>交易密码</th><th>启用</th><th></th></tr></thead><tbody>' + renderCredentialRows(accountRows, loading) + '</tbody></table></div></div>' +
                         '<div class="ak-ep-automation-bar"><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +

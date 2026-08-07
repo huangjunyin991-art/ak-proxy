@@ -132,16 +132,21 @@
         });
     }
 
-    function stop() {
+    function clearRefreshTimer() {
         if (state.timer) clearTimeout(state.timer);
-        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
         state.timer = null;
+    }
+
+    function stop() {
+        clearRefreshTimer();
+        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
         state.autosaveTimer = null;
     }
 
     function schedule() {
-        stop();
-        if (!active()) return;
+        clearRefreshTimer();
+        var config = state.data && state.data.config || {};
+        if (!active() || !config.enabled) return;
         state.timer = setTimeout(function() { refresh(false); }, 2000);
     }
 
@@ -348,12 +353,18 @@
             if (action === 'confirm-payment') confirmPayment(button.getAttribute('data-sid'));
             if (action === 'cancel-purchase') cancelPurchase(button.getAttribute('data-sid'));
             if (action === 'add-account') {
+                if (state.data.config && state.data.config.enabled) {
+                    toast('自动抢购运行中，请先停止后再添加账号', 'warning');
+                    return;
+                }
                 state.draftAccounts = collectAccountRows();
                 state.draftAccounts.push({
                     account: '', password: '', trading_password: '', enabled: true,
                     has_password: false, has_trading_password: false,
                     edit_password: true, edit_trading_password: true
                 });
+                // Keep an unfinished row from being overwritten by the next dashboard refresh.
+                state.dirty = true;
                 render();
                 var inputs = mount().querySelectorAll('[data-field="account"]');
                 if (inputs.length) inputs[inputs.length - 1].focus();
