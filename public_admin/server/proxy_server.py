@@ -3838,7 +3838,7 @@ async def proxy_rpc(path: str, request: Request):
     if (
         normalized_path in {
             "login", "notice_list", "my_subaccount", "mnemonic_get01", "ace_sell", "ace_sell_son",
-            "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy", "ep_confirm_payment", "mnemonic_get03",
+            "public_ep_sellrecords1", "public_ep_selldetail", "ep_buy", "ep_confirm_payment", "ep_cancel_buy", "mnemonic_get03",
             "public_indexdata", "google_secret", "google_bind", "google_unbind",
         }
         and not notice_guidance_internal_request

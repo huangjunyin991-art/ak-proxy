@@ -54,7 +54,39 @@
         }).join('');
     }
 
-    function renderOrderRows(rows, accountRows, confirmingSid) {
+    function renderOrderActions(item, tradingPasswordAccounts, confirmingSid, cancellingSid) {
+        var paymentState = String(item.payment_state || 'pending');
+        var cancelState = String(item.cancel_state || 'pending');
+        var sid = escapeHtml(item.sid);
+        if (cancelState === 'cancelled') {
+            return '<span class="ak-ep-payment is-cancelled">\u5df2\u53d6\u6d88\u8d2d\u4e70</span>';
+        }
+        if (cancelState === 'unknown') {
+            return '<span class="ak-ep-payment is-unknown">\u53d6\u6d88\u7ed3\u679c\u672a\u77e5</span>';
+        }
+        if (cancelState === 'cancelling' || String(cancellingSid || '') === String(item.sid || '')) {
+            return '<span class="ak-ep-payment is-cancelling"><i></i>\u53d6\u6d88\u4e2d</span>';
+        }
+        if (paymentState === 'confirmed') {
+            return '<span class="ak-ep-payment is-paid"><i>\u2713</i>\u5df2\u4ed8\u6b3e</span>';
+        }
+        if (paymentState === 'confirming' || String(confirmingSid || '') === String(item.sid || '')) {
+            return '<span class="ak-ep-payment is-confirming"><i></i>\u786e\u8ba4\u4e2d</span>';
+        }
+        if (paymentState === 'unknown') {
+            return '<span class="ak-ep-payment is-unknown">\u4ed8\u6b3e\u7ed3\u679c\u672a\u77e5</span>';
+        }
+        var account = String(item.buyer_account || '').trim().toLowerCase();
+        var confirm = tradingPasswordAccounts[account]
+            ? '<button type="button" class="ak-ep-confirm-payment" data-action="confirm-payment" data-sid="' + sid + '">\u786e\u8ba4\u4ed8\u6b3e</button>'
+            : '<button type="button" class="ak-ep-confirm-payment is-disabled" disabled title="\u8bf7\u5148\u8bbe\u7f6e\u4ea4\u6613\u5bc6\u7801">\u786e\u8ba4\u4ed8\u6b3e</button>';
+        var cancelLabel = cancelState === 'failed' ? '\u91cd\u8bd5\u53d6\u6d88' : '\u53d6\u6d88\u8d2d\u4e70';
+        var cancel = '<button type="button" class="ak-ep-cancel-purchase" data-action="cancel-purchase" data-sid="' + sid + '">' + cancelLabel + '</button>';
+        return '<span class="ak-ep-order-actions">' + confirm + cancel + '</span>';
+    }
+
+    function renderOrderRows(rows, accountRows, confirmingSid, cancellingSid) {
+        cancellingSid = String(cancellingSid || '');
         var items = Array.isArray(rows) ? rows : [];
         var tradingPasswordAccounts = {};
         (Array.isArray(accountRows) ? accountRows : []).forEach(function(item) {
@@ -65,21 +97,9 @@
         if (!items.length) return '<tr class="ak-ep-empty-row"><td colspan="8" class="ak-ep-empty">暂无购买记录</td></tr>';
         return items.map(function(item) {
             var meta = orderMeta(item.state);
-            var paymentState = String(item.payment_state || 'pending');
-            var hasTradingPassword = !!tradingPasswordAccounts[String(item.buyer_account || '').trim().toLowerCase()];
             var action = '<span class="ak-ep-payment is-not-applicable">--</span>';
             if (item.state === 'success') {
-                if (paymentState === 'confirmed') {
-                    action = '<button type="button" class="ak-ep-payment is-paid" disabled><i>✓</i>已付款</button>';
-                } else if (paymentState === 'confirming' || String(confirmingSid || '') === String(item.sid || '')) {
-                    action = '<span class="ak-ep-payment is-confirming"><i></i>确认中</span>';
-                } else if (paymentState === 'unknown') {
-                    action = '<span class="ak-ep-payment is-unknown">结果未知</span>';
-                } else if (!hasTradingPassword) {
-                    action = '<button type="button" class="ak-ep-confirm-payment is-disabled" disabled title="请先设置交易密码">确认付款</button>';
-                } else {
-                    action = '<button type="button" class="ak-ep-confirm-payment" data-action="confirm-payment" data-sid="' + escapeHtml(item.sid) + '">确认付款</button>';
-                }
+                action = renderOrderActions(item, tradingPasswordAccounts, confirmingSid, cancellingSid);
             }
             return '<tr>' +
                 '<td><strong>#' + escapeHtml(item.sid) + '</strong></td>' +
@@ -172,7 +192,7 @@
             '<section class="ak-ep-section"><header><h3>账号运行状态</h3><span>' + number(statuses.length) + ' 个账号</span></header>' +
                 '<div class="ak-ep-table-wrap"><table><thead><tr><th>账号</th><th>状态</th><th>轮询</th><th>挂单</th><th>成交</th><th>最近轮询</th><th>最近异常</th></tr></thead><tbody>' + renderAccountRows(statuses) + '</tbody></table></div></section>' +
             '<section class="ak-ep-section"><header><h3>订单执行记录</h3><span>' + number(summary.orders) + ' 条</span></header>' +
-                '<div class="ak-ep-table-wrap"><table><thead><tr><th>订单</th><th>抢分账号</th><th>挂卖账号</th><th>EP</th><th>结果</th><th>信息</th><th>时间</th><th>操作</th></tr></thead><tbody>' + renderOrderRows(data.orders, accountRows, state.confirmingSid) + '</tbody></table></div></section>' +
+                '<div class="ak-ep-table-wrap"><table><thead><tr><th>订单</th><th>抢分账号</th><th>挂卖账号</th><th>EP</th><th>结果</th><th>信息</th><th>时间</th><th>操作</th></tr></thead><tbody>' + renderOrderRows(data.orders, accountRows, state.confirmingSid, state.cancellingSid) + '</tbody></table></div></section>' +
         '</div>';
     }
 

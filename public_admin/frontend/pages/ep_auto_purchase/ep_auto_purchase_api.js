@@ -26,6 +26,13 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: '{}'
             });
+        },
+        cancelPurchase: function(sid) {
+            return request('/orders/' + encodeURIComponent(String(sid || '')) + '/cancel-purchase', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
         }
     };
 })();

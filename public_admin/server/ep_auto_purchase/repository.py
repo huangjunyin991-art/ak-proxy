@@ -164,6 +164,10 @@ class EPAutoPurchaseRepository:
                         payment_message TEXT NOT NULL DEFAULT '',
                         payment_started_at TIMESTAMP NULL,
                         payment_confirmed_at TIMESTAMP NULL,
+                        cancel_state TEXT NOT NULL DEFAULT 'pending',
+                        cancel_message TEXT NOT NULL DEFAULT '',
+                        cancel_started_at TIMESTAMP NULL,
+                        cancel_confirmed_at TIMESTAMP NULL,
                         claimed_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         completed_at TIMESTAMP NULL,
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -219,6 +223,18 @@ class EPAutoPurchaseRepository:
                     "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMP NULL"
                 )
                 await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS cancel_state TEXT NOT NULL DEFAULT 'pending'"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS cancel_message TEXT NOT NULL DEFAULT ''"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS cancel_started_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS cancel_confirmed_at TIMESTAMP NULL"
+                )
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_claimed_at "
                     "ON ep_auto_purchase_orders(claimed_at DESC)"
                 )
@@ -254,6 +270,18 @@ class EPAutoPurchaseRepository:
                         END,
                         updated_at = NOW()
                     WHERE payment_state = 'confirming'
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET cancel_state = 'unknown', cancel_started_at = NULL,
+                        cancel_message = CASE
+                            WHEN cancel_message = '' THEN '服务重启时取消购买结果无法确认'
+                            ELSE cancel_message
+                        END,
+                        updated_at = NOW()
+                    WHERE cancel_state = 'cancelling'
                     """
                 )
                 await conn.execute(
@@ -716,6 +744,7 @@ class EPAutoPurchaseRepository:
                 WHERE sid = $1
                   AND state = 'success'
                   AND payment_state IN ('pending', 'failed')
+                  AND cancel_state IN ('pending', 'failed')
                 RETURNING sid, buyer_account, payment_state
                 """,
                 str(sid or "").strip(),
@@ -729,7 +758,8 @@ class EPAutoPurchaseRepository:
             row = await conn.fetchrow(
                 """
                 SELECT sid, buyer_account, state, payment_state, payment_message,
-                       payment_started_at, payment_confirmed_at
+                       payment_started_at, payment_confirmed_at,
+                       cancel_state, cancel_message, cancel_started_at, cancel_confirmed_at
                 FROM ep_auto_purchase_orders
                 WHERE sid = $1
                 """,
@@ -755,6 +785,65 @@ class EPAutoPurchaseRepository:
                     END,
                     updated_at = NOW()
                 WHERE sid = $1 AND payment_state = 'confirming'
+                """,
+                str(sid or "").strip(),
+                normalized_state,
+                str(message or "")[:500],
+            )
+
+    async def begin_purchase_cancellation(self, sid: str) -> dict[str, Any] | None:
+        """Claim one successful, unpaid order before forwarding EP_Cancel_Buy."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET cancel_state = 'cancelling', cancel_message = '',
+                    cancel_started_at = NOW(), updated_at = NOW()
+                WHERE sid = $1
+                  AND state = 'success'
+                  AND payment_state IN ('pending', 'failed')
+                  AND cancel_state IN ('pending', 'failed')
+                RETURNING sid, buyer_account, payment_state, cancel_state
+                """,
+                str(sid or "").strip(),
+            )
+        return dict(row) if row else None
+
+    async def get_cancellation_order(self, sid: str) -> dict[str, Any] | None:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT sid, buyer_account, state, payment_state, payment_message,
+                       cancel_state, cancel_message, cancel_started_at, cancel_confirmed_at
+                FROM ep_auto_purchase_orders
+                WHERE sid = $1
+                """,
+                str(sid or "").strip(),
+            )
+        return dict(row) if row else None
+
+    async def finish_purchase_cancellation(self, sid: str, state: str, message: str) -> None:
+        normalized_state = str(state or "failed").strip().lower()
+        if normalized_state not in {"cancelled", "failed", "unknown", "pending"}:
+            normalized_state = "failed"
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET cancel_state = $2, cancel_message = $3,
+                    cancel_started_at = NULL,
+                    cancel_confirmed_at = CASE
+                        WHEN $2 = 'cancelled' THEN NOW()
+                        ELSE cancel_confirmed_at
+                    END,
+                    updated_at = NOW()
+                WHERE sid = $1 AND cancel_state = 'cancelling'
                 """,
                 str(sid or "").strip(),
                 normalized_state,
@@ -909,6 +998,7 @@ class EPAutoPurchaseRepository:
                 """
                 SELECT sid, buyer_account, seller_account, ep_amount, state, message,
                        payment_state, payment_message, payment_started_at, payment_confirmed_at,
+                       cancel_state, cancel_message, cancel_started_at, cancel_confirmed_at,
                        claimed_at, completed_at
                 FROM ep_auto_purchase_orders
                 ORDER BY claimed_at DESC LIMIT 100

@@ -98,6 +98,40 @@ async def test_confirm_payment_marks_login_error_for_one_auth_refresh():
 
 
 @pytest.mark.anyio
+async def test_cancel_purchase_sends_only_order_and_auth_fields():
+    client = _Client({"Error": False, "Msg": "ok"})
+    provider = EPAutoPurchaseProvider("http://local/RPC/")
+
+    result = await provider.cancel_purchase(
+        client,
+        {"key": "buyer-key", "user_id": "103"},
+        "88",
+    )
+
+    assert result == {"success": True, "message": "ok", "auth_error": False}
+    assert client.calls[0][0] == "http://local/RPC/EP_Cancel_Buy"
+    assert set(client.calls[0][1]) == {"sId", "key", "UserID", "v", "lang"}
+    assert client.calls[0][1]["sId"] == "88"
+    assert client.calls[0][1]["key"] == "buyer-key"
+    assert "password" not in client.calls[0][1]
+
+
+@pytest.mark.anyio
+async def test_cancel_purchase_marks_login_error_for_one_auth_refresh():
+    client = _Client({"Error": True, "Msg": "用户未登录"})
+    provider = EPAutoPurchaseProvider("http://local/RPC/")
+
+    result = await provider.cancel_purchase(
+        client,
+        {"key": "expired-key", "user_id": "103"},
+        "88",
+    )
+
+    assert result["success"] is False
+    assert result["auth_error"] is True
+
+
+@pytest.mark.anyio
 async def test_pending_list_uses_confirmed_market_parameters():
     client = _Client({"Error": False, "Data": {"List": [{"sId": 1}]}})
     provider = EPAutoPurchaseProvider("http://local/RPC/")
@@ -727,11 +761,22 @@ async def test_configure_persists_trading_password_for_its_account_only():
 
 
 class _PaymentRepository:
-    def __init__(self, *, trading_password="trade-secret", claimed=True, payment_state="pending"):
+    def __init__(
+        self,
+        *,
+        trading_password="trade-secret",
+        claimed=True,
+        payment_state="pending",
+        cancel_claimed=True,
+        cancel_state="pending",
+    ):
         self.trading_password = trading_password
         self.claimed = claimed
         self.payment_state = payment_state
+        self.cancel_claimed = cancel_claimed
+        self.cancel_state = cancel_state
         self.finished = []
+        self.cancel_finished = []
 
     async def get_trading_password(self, account):
         assert account == "buyer"
@@ -750,11 +795,37 @@ class _PaymentRepository:
             "buyer_account": "buyer",
             "state": "success",
             "payment_state": self.payment_state,
+            "cancel_state": self.cancel_state,
         }
 
     async def finish_payment_confirmation(self, sid, state, message):
         self.payment_state = state
         self.finished.append((sid, state, message))
+
+    async def begin_purchase_cancellation(self, sid):
+        if not self.cancel_claimed:
+            return None
+        self.cancel_claimed = False
+        self.cancel_state = "cancelling"
+        return {
+            "sid": sid,
+            "buyer_account": "buyer",
+            "payment_state": self.payment_state,
+            "cancel_state": self.cancel_state,
+        }
+
+    async def get_cancellation_order(self, sid):
+        return {
+            "sid": sid,
+            "buyer_account": "buyer",
+            "state": "success",
+            "payment_state": self.payment_state,
+            "cancel_state": self.cancel_state,
+        }
+
+    async def finish_purchase_cancellation(self, sid, state, message):
+        self.cancel_state = state
+        self.cancel_finished.append((sid, state, message))
 
 
 class _PaymentAuthStore:
@@ -777,6 +848,12 @@ class _PaymentProvider:
 
     async def confirm_payment(self, client, auth, sid, trading_password, remark=""):
         self.calls.append((dict(auth), sid, trading_password, remark))
+        if self.error is not None:
+            raise self.error
+        return dict(self.result)
+
+    async def cancel_purchase(self, client, auth, sid):
+        self.calls.append((dict(auth), sid))
         if self.error is not None:
             raise self.error
         return dict(self.result)
@@ -824,6 +901,24 @@ async def test_service_rejects_duplicate_payment_confirmation():
 
 
 @pytest.mark.anyio
+async def test_service_disallows_payment_confirmation_after_purchase_cancellation():
+    repository = _PaymentRepository(cancel_state="cancelled")
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    with pytest.raises(ValueError):
+        await service.confirm_payment("88")
+
+    assert provider.calls == []
+    assert repository.claimed is True
+
+
+@pytest.mark.anyio
 async def test_service_marks_transport_failure_as_unknown_without_retry():
     repository = _PaymentRepository()
     provider = _PaymentProvider(error=TimeoutError("timeout"))
@@ -857,6 +952,81 @@ async def test_service_requires_saved_trading_password_before_claiming_order():
 
     assert repository.claimed is True
     assert provider.calls == []
+
+
+@pytest.mark.anyio
+async def test_service_cancels_successful_unpaid_order_and_persists_state():
+    repository = _PaymentRepository()
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    result = await service.cancel_purchase("88")
+
+    assert result == {"success": True, "state": "cancelled", "message": "ok"}
+    assert provider.calls == [(
+        {"account": "buyer", "key": "buyer-key", "user_id": "103"},
+        "88",
+    )]
+    assert repository.cancel_finished == [("88", "cancelled", "ok")]
+
+
+@pytest.mark.anyio
+async def test_service_rejects_duplicate_purchase_cancellation():
+    repository = _PaymentRepository(cancel_claimed=False, cancel_state="cancelled")
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    with pytest.raises(ValueError):
+        await service.cancel_purchase("88")
+
+    assert provider.calls == []
+    assert repository.cancel_finished == []
+
+
+@pytest.mark.anyio
+async def test_service_marks_cancel_transport_failure_as_unknown_without_retry():
+    repository = _PaymentRepository()
+    provider = _PaymentProvider(error=TimeoutError("timeout"))
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    result = await service.cancel_purchase("88")
+
+    assert result["success"] is False
+    assert result["state"] == "unknown"
+    assert repository.cancel_finished == [("88", "unknown", "timeout")]
+
+
+@pytest.mark.anyio
+async def test_service_disallows_purchase_cancellation_after_payment_confirmation():
+    repository = _PaymentRepository(payment_state="confirmed")
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    with pytest.raises(ValueError):
+        await service.cancel_purchase("88")
+
+    assert provider.calls == []
+    assert repository.cancel_claimed is True
 
 
 class _WorkerIntervalRepository:
@@ -933,6 +1103,8 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "SET trading_password = ''" in sql
     assert "payment_state TEXT NOT NULL DEFAULT 'pending'" in sql
     assert "WHERE payment_state = 'confirming'" in sql
+    assert "cancel_state TEXT NOT NULL DEFAULT 'pending'" in sql
+    assert "WHERE cancel_state = 'cancelling'" in sql
     assert "ep_auto_purchase_listing_diagnostics" not in sql
 
 

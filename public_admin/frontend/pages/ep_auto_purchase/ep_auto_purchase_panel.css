@@ -728,6 +728,43 @@
     opacity: .42;
 }
 
+.ak-ep-order-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.ak-ep-cancel-purchase {
+    min-width: 72px;
+    height: 29px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 112, 122, .38);
+    border-radius: 5px;
+    outline: 0;
+    background: rgba(255, 71, 87, .08);
+    color: #ffb1b9;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 750;
+    transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+
+.ak-ep-cancel-purchase:hover {
+    border-color: rgba(255, 134, 145, .72);
+    background: rgba(255, 71, 87, .16);
+    color: #ffe2e5;
+}
+
+.ak-ep-cancel-purchase:focus-visible,
+.ak-ep-confirm-payment:focus-visible {
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, .13);
+}
+
 .ak-ep-payment.is-paid {
     border: 1px solid rgba(0, 255, 136, .3);
     outline: 0;
@@ -746,6 +783,21 @@
     color: #72dff4;
 }
 
+.ak-ep-payment.is-cancelling {
+    border: 1px solid rgba(255, 112, 122, .32);
+    background: rgba(255, 71, 87, .08);
+    color: #ffb1b9;
+}
+
+.ak-ep-payment.is-cancelling i {
+    width: 7px;
+    height: 7px;
+    border: 1px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: ak-ep-spin .75s linear infinite;
+}
+
 .ak-ep-payment.is-confirming i {
     width: 7px;
     height: 7px;
@@ -759,6 +811,12 @@
     border: 1px solid rgba(255, 165, 2, .3);
     background: rgba(255, 165, 2, .08);
     color: #ffd174;
+}
+
+.ak-ep-payment.is-cancelled {
+    border: 1px solid rgba(255, 112, 122, .28);
+    background: rgba(255, 71, 87, .07);
+    color: #ffadb6;
 }
 
 .ak-ep-payment.is-not-applicable { color: #69758c; }

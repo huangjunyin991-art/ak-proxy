@@ -2,7 +2,7 @@
     if (window.AKEPAutoPurchasePanel) return;
     var api = window.AKEPAutoPurchaseApi;
     var renderer = window.AKEPAutoPurchaseRenderer;
-    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, confirmingSid: '' };
+    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, confirmingSid: '', cancellingSid: '' };
 
     function mount() { return document.getElementById('epAutoPurchasePanelMount'); }
     function active() { return !!document.querySelector('.tab.active[data-panel="epAutoPurchase"]'); }
@@ -161,6 +161,28 @@
         });
     }
 
+    function cancelPurchase(sid) {
+        var normalizedSid = String(sid || '').trim();
+        if (!normalizedSid || state.loading || state.confirmingSid || state.cancellingSid) return;
+        var orders = state.data && state.data.orders || [];
+        var order = orders.find(function(item) { return String(item.sid || '') === normalizedSid; }) || {};
+        if (order.state !== 'success') return;
+        if (!window.confirm('\u53d6\u6d88\u8d2d\u4e70\u540e\u53ef\u80fd\u5f71\u54cd\u5e10\u53f7\u4fe1\u7528\u503c\u3002\n\n\u786e\u8ba4\u53d6\u6d88\u8ba2\u5355 #' + normalizedSid + ' \u7684\u8d2d\u4e70\u5417\uff1f')) return;
+        state.cancellingSid = normalizedSid;
+        state.error = '';
+        render();
+        api.cancelPurchase(normalizedSid).then(function(result) {
+            toast(result.message || '\u53d6\u6d88\u8d2d\u4e70\u6210\u529f', result.success ? 'success' : 'warning');
+            return refresh(true);
+        }).catch(function(error) {
+            state.error = error.message || '\u53d6\u6d88\u8d2d\u4e70\u5931\u8d25';
+            toast(state.error, 'error');
+        }).finally(function() {
+            state.cancellingSid = '';
+            render();
+        });
+    }
+
     function bind() {
         if (state.bound || !mount()) return;
         state.bound = true;
@@ -170,6 +192,7 @@
             var action = button.getAttribute('data-action');
             if (action === 'save') save();
             if (action === 'confirm-payment') confirmPayment(button.getAttribute('data-sid'));
+            if (action === 'cancel-purchase') cancelPurchase(button.getAttribute('data-sid'));
             if (action === 'add-account') {
                 state.draftAccounts = collectAccountRows();
                 state.draftAccounts.push({

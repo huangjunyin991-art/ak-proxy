@@ -184,6 +184,14 @@ class EPAutoPurchaseService:
         if current is None:
             raise ValueError("订单不存在")
         buyer_account = str(current.get("buyer_account") or "").strip().lower()
+        current_cancel_state = str(current.get("cancel_state") or "pending")
+        cancel_messages = {
+            "cancelled": "该订单已经取消购买",
+            "cancelling": "该订单正在取消购买",
+            "unknown": "取消购买结果未知，请先人工核对",
+        }
+        if current_cancel_state in cancel_messages:
+            raise ValueError(cancel_messages[current_cancel_state])
         current_payment_state = str(current.get("payment_state") or "pending")
         current_messages = {
             "confirmed": "该订单已经确认付款",
@@ -204,6 +212,9 @@ class EPAutoPurchaseService:
             if current is None:
                 raise ValueError("订单不存在")
             payment_state = str(current.get("payment_state") or "pending")
+            cancel_state = str(current.get("cancel_state") or "pending")
+            if cancel_state in cancel_messages:
+                raise ValueError(cancel_messages[cancel_state])
             raise ValueError(current_messages.get(payment_state, "该订单当前不能确认付款"))
         buyer_account = str(order.get("buyer_account") or buyer_account).strip().lower()
         try:
@@ -242,6 +253,71 @@ class EPAutoPurchaseService:
         state = "confirmed" if success else "failed"
         message = str(result.get("message") or ("确认付款成功" if success else "确认付款失败"))
         await self.repository.finish_payment_confirmation(normalized_sid, state, message)
+        return {"success": success, "state": state, "message": message}
+
+    async def cancel_purchase(self, sid: str) -> dict[str, Any]:
+        normalized_sid = str(sid or "").strip()
+        if not normalized_sid:
+            raise ValueError("订单号不能为空")
+        current = await self.repository.get_cancellation_order(normalized_sid)
+        if current is None:
+            raise ValueError("订单不存在")
+        cancel_state = str(current.get("cancel_state") or "pending")
+        cancel_messages = {
+            "cancelled": "该订单已经取消购买",
+            "cancelling": "该订单正在取消购买",
+            "unknown": "取消购买结果未知，请先人工核对",
+        }
+        if cancel_state in cancel_messages:
+            raise ValueError(cancel_messages[cancel_state])
+        if str(current.get("state") or "") != "success":
+            raise ValueError("只有抢购成功的订单可以取消购买")
+        current_payment_state = str(current.get("payment_state") or "pending")
+        if current_payment_state == "confirmed":
+            raise ValueError("已确认付款的订单不能取消购买")
+        if current_payment_state == "confirming":
+            raise ValueError("该订单正在确认付款")
+
+        order = await self.repository.begin_purchase_cancellation(normalized_sid)
+        if order is None:
+            current = await self.repository.get_cancellation_order(normalized_sid)
+            if current is None:
+                raise ValueError("订单不存在")
+            state = str(current.get("cancel_state") or "pending")
+            current_payment_state = str(current.get("payment_state") or "pending")
+            if current_payment_state == "confirmed":
+                raise ValueError("已确认付款的订单不能取消购买")
+            if current_payment_state == "confirming":
+                raise ValueError("该订单正在确认付款")
+            raise ValueError(cancel_messages.get(state, "该订单当前不能取消购买"))
+
+        buyer_account = str(order.get("buyer_account") or current.get("buyer_account") or "").strip().lower()
+        try:
+            async with self.provider.build_client() as client:
+                auth = await self._load_auth(buyer_account)
+                if not auth.get("key") or not auth.get("user_id"):
+                    auth = await self._refresh_auth(client, buyer_account)
+                result = await self.provider.cancel_purchase(client, auth, normalized_sid)
+                if result.get("auth_error"):
+                    auth = await self._refresh_auth(client, buyer_account)
+                    result = await self.provider.cancel_purchase(client, auth, normalized_sid)
+        except RpcGateBusy:
+            await self.repository.finish_purchase_cancellation(
+                normalized_sid,
+                "pending",
+                "等待用户请求优先",
+            )
+            raise
+        except Exception as exc:
+            message = str(exc) or exc.__class__.__name__
+            await self.repository.finish_purchase_cancellation(normalized_sid, "unknown", message)
+            self._log("cancel result unknown account=%s sid=%s error=%s", buyer_account, normalized_sid, message[:200])
+            return {"success": False, "state": "unknown", "message": "取消购买结果未知，请人工核对"}
+
+        success = bool(result.get("success"))
+        state = "cancelled" if success else "failed"
+        message = str(result.get("message") or ("取消购买成功" if success else "取消购买失败"))
+        await self.repository.finish_purchase_cancellation(normalized_sid, state, message)
         return {"success": success, "state": state, "message": message}
 
     async def _run(self) -> None:

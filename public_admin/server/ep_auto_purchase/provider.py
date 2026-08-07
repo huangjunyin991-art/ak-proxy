@@ -230,3 +230,33 @@ class EPAutoPurchaseProvider:
             "message": message,
             "auth_error": any(marker in lowered for marker in AUTH_ERROR_MARKERS),
         }
+
+    async def cancel_purchase(
+        self,
+        client: httpx.AsyncClient,
+        auth: Mapping[str, str],
+        sid: str,
+    ) -> dict[str, Any]:
+        payload = await self.post_rpc(
+            client,
+            "EP_Cancel_Buy",
+            {
+                "sId": str(sid or "").strip(),
+                "key": str(auth.get("key") or ""),
+                "UserID": str(auth.get("user_id") or ""),
+                "v": make_v(),
+                "lang": "cn",
+            },
+            allow_rpc_error=True,
+        )
+        message = str(
+            payload.get("Msg")
+            or payload.get("Message")
+            or ("取消购买成功" if not payload.get("Error") else "取消购买失败")
+        )
+        lowered = message.lower()
+        return {
+            "success": not bool(payload.get("Error")),
+            "message": message,
+            "auth_error": any(marker in lowered for marker in AUTH_ERROR_MARKERS),
+        }
