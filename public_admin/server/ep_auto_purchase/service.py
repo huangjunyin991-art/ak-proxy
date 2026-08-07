@@ -85,14 +85,17 @@ class EPAutoPurchaseService:
             raw_accounts = raw_accounts.replace(",", "\n").splitlines()
         accounts: list[str] = []
         password_updates: dict[str, str] = {}
+        trading_password_updates: dict[str, str] = {}
         seen: set[str] = set()
         for value in raw_accounts if isinstance(raw_accounts, list) else []:
             if isinstance(value, Mapping):
                 account = str(value.get("account") or value.get("username") or "").strip().lower()
                 password = str(value.get("password") or "")
+                trading_password = str(value.get("trading_password") or "")
             else:
                 account = str(value or "").strip().lower()
                 password = ""
+                trading_password = ""
             if not account:
                 continue
             if account in seen:
@@ -101,6 +104,12 @@ class EPAutoPurchaseService:
             accounts.append(account)
             if password.strip():
                 password_updates[account] = password
+            if trading_password:
+                if len(trading_password) < 6:
+                    raise ValueError(f"账号 {account} 的交易密码至少需要 6 位")
+                if len(trading_password) > 512:
+                    raise ValueError(f"账号 {account} 的交易密码长度超出限制")
+                trading_password_updates[account] = trading_password
         interval_milliseconds = parse_interval_milliseconds(payload.get("interval_seconds", 1))
         active_rows = await self.repository.list_active_accounts()
         active = {
@@ -118,11 +127,6 @@ class EPAutoPurchaseService:
         if missing_passwords:
             raise ValueError("以下账号没有已保存密码，请先输入密码：" + "、".join(missing_passwords[:8]))
         enabled = bool(payload.get("enabled"))
-        trading_password = str(payload.get("trading_password") or "")
-        if trading_password and len(trading_password) < 6:
-            raise ValueError("交易密码至少需要 6 位")
-        if len(trading_password) > 512:
-            raise ValueError("交易密码长度超出限制")
         if enabled and not accounts:
             raise ValueError("启用前至少配置一个抢分账号")
         for account, password in password_updates.items():
@@ -132,7 +136,7 @@ class EPAutoPurchaseService:
             accounts,
             interval_milliseconds,
             enabled,
-            trading_password,
+            trading_password_updates,
         )
         self._wake.set()
         return self._serialize(config)
@@ -152,10 +156,14 @@ class EPAutoPurchaseService:
             for item in active_accounts
         }
         config = dict(data.get("config") or {})
+        trading_password_accounts = await self.repository.list_trading_password_accounts(
+            list(config.get("accounts") or [])
+        )
         config["account_rows"] = [
             {
                 "account": account,
                 "has_password": bool(active_by_account.get(account, {}).get("has_password")),
+                "has_trading_password": account in trading_password_accounts,
             }
             for account in config.get("accounts") or []
         ]
@@ -172,9 +180,23 @@ class EPAutoPurchaseService:
         normalized_sid = str(sid or "").strip()
         if not normalized_sid:
             raise ValueError("订单号不能为空")
-        trading_password = await self.repository.get_trading_password()
+        current = await self.repository.get_payment_order(normalized_sid)
+        if current is None:
+            raise ValueError("订单不存在")
+        buyer_account = str(current.get("buyer_account") or "").strip().lower()
+        current_payment_state = str(current.get("payment_state") or "pending")
+        current_messages = {
+            "confirmed": "该订单已经确认付款",
+            "confirming": "该订单正在确认付款",
+            "unknown": "该订单付款确认结果未知，请先人工核对",
+        }
+        if current_payment_state in current_messages:
+            raise ValueError(current_messages[current_payment_state])
+        if str(current.get("state") or "") != "success":
+            raise ValueError("只有抢购成功的订单可以确认付款")
+        trading_password = await self.repository.get_trading_password(buyer_account)
         if not trading_password:
-            raise ValueError("请先在执行配置中设置交易密码")
+            raise ValueError(f"请先为抢分账号 {buyer_account} 设置交易密码")
 
         order = await self.repository.begin_payment_confirmation(normalized_sid)
         if order is None:
@@ -182,14 +204,8 @@ class EPAutoPurchaseService:
             if current is None:
                 raise ValueError("订单不存在")
             payment_state = str(current.get("payment_state") or "pending")
-            messages = {
-                "confirmed": "该订单已经确认付款",
-                "confirming": "该订单正在确认付款",
-                "unknown": "该订单付款确认结果未知，请先人工核对",
-            }
-            raise ValueError(messages.get(payment_state, "该订单当前不能确认付款"))
-
-        buyer_account = str(order.get("buyer_account") or "").strip().lower()
+            raise ValueError(current_messages.get(payment_state, "该订单当前不能确认付款"))
+        buyer_account = str(order.get("buyer_account") or buyer_account).strip().lower()
         try:
             async with self.provider.build_client() as client:
                 auth = await self._load_auth(buyer_account)

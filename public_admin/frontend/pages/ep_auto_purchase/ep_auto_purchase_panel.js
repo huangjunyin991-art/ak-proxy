@@ -13,10 +13,18 @@
         var config = data && data.config || {};
         var rows = Array.isArray(config.account_rows) ? config.account_rows : [];
         if (!rows.length && Array.isArray(config.accounts)) {
-            rows = config.accounts.map(function(account) { return { account: account, has_password: false }; });
+            rows = config.accounts.map(function(account) { return { account: account, has_password: false, has_trading_password: false }; });
         }
         return rows.map(function(item) {
-            return { account: String(item.account || ''), password: '', has_password: !!item.has_password };
+            return {
+                account: String(item.account || ''),
+                password: '',
+                trading_password: '',
+                has_password: !!item.has_password,
+                has_trading_password: !!item.has_trading_password,
+                edit_password: false,
+                edit_trading_password: false
+            };
         });
     }
 
@@ -32,10 +40,17 @@
             var previous = state.draftAccounts && state.draftAccounts[index] || {};
             var account = row.querySelector('[data-field="account"]');
             var password = row.querySelector('[data-field="password"]');
+            var tradingPassword = row.querySelector('[data-field="trading-password"]');
+            var normalizedAccount = String(account && account.value || '').trim();
+            var sameAccount = String(previous.account || '').trim().toLowerCase() === normalizedAccount.toLowerCase();
             return {
-                account: String(account && account.value || '').trim(),
-                password: String(password && password.value || ''),
-                has_password: String(previous.account || '').trim().toLowerCase() === String(account && account.value || '').trim().toLowerCase() && !!previous.has_password
+                account: normalizedAccount,
+                password: String(password ? password.value : (previous.password || '')),
+                trading_password: String(tradingPassword ? tradingPassword.value : (previous.trading_password || '')),
+                has_password: sameAccount && !!previous.has_password,
+                has_trading_password: sameAccount && !!previous.has_trading_password,
+                edit_password: !!previous.edit_password || !sameAccount,
+                edit_trading_password: !!previous.edit_trading_password || !sameAccount
             };
         });
     }
@@ -75,8 +90,6 @@
         var intervalInput = node.querySelector('[data-field="interval"]');
         var enabledInput = node.querySelector('[data-field="enabled"]');
         var intervalSeconds = Number(intervalInput && intervalInput.value);
-        var tradingPasswordInput = node.querySelector('[data-field="trading-password"]');
-        var tradingPassword = String(tradingPasswordInput && tradingPasswordInput.value || '');
         var intervalMilliseconds = intervalSeconds * 1000;
         if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
             state.error = '抢分间隔必须大于 0 秒';
@@ -91,7 +104,7 @@
             return;
         }
         var accounts = collectAccountRows().filter(function(item) { return !!item.account; }).map(function(item) {
-            return { account: item.account, password: item.password };
+            return { account: item.account, password: item.password, trading_password: item.trading_password };
         });
         state.draftAccounts = collectAccountRows();
         state.loading = true;
@@ -99,7 +112,6 @@
         api.saveConfig({
             accounts: accounts,
             interval_seconds: intervalSeconds,
-            trading_password: tradingPassword,
             enabled: !!(enabledInput && enabledInput.checked)
         }).then(function() {
             state.dirty = false;
@@ -122,8 +134,15 @@
         var normalizedSid = String(sid || '').trim();
         if (!normalizedSid || state.loading || state.confirmingSid) return;
         var config = state.data && state.data.config || {};
-        if (!config.has_trading_password) {
-            toast('请先在执行配置中设置交易密码', 'warning');
+        var orders = state.data && state.data.orders || [];
+        var order = orders.find(function(item) { return String(item.sid || '') === normalizedSid; }) || {};
+        var accountRows = Array.isArray(config.account_rows) ? config.account_rows : [];
+        var buyerAccount = String(order.buyer_account || '').trim().toLowerCase();
+        var accountRow = accountRows.find(function(item) {
+            return String(item.account || '').trim().toLowerCase() === buyerAccount;
+        });
+        if (!accountRow || !accountRow.has_trading_password) {
+            toast('请先为抢分账号 ' + (buyerAccount || '--') + ' 设置交易密码', 'warning');
             return;
         }
         if (!window.confirm('确认订单 #' + normalizedSid + ' 已完成实际付款？')) return;
@@ -153,7 +172,11 @@
             if (action === 'confirm-payment') confirmPayment(button.getAttribute('data-sid'));
             if (action === 'add-account') {
                 state.draftAccounts = collectAccountRows();
-                state.draftAccounts.push({ account: '', password: '', has_password: false });
+                state.draftAccounts.push({
+                    account: '', password: '', trading_password: '',
+                    has_password: false, has_trading_password: false,
+                    edit_password: true, edit_trading_password: true
+                });
                 state.dirty = true;
                 render();
                 var inputs = mount().querySelectorAll('[data-field="account"]');
@@ -165,35 +188,29 @@
                 state.dirty = true;
                 render();
             }
+            if (action === 'edit-login-password' || action === 'edit-trading-password') {
+                state.draftAccounts = collectAccountRows();
+                var index = Number(button.getAttribute('data-index'));
+                var field = action === 'edit-login-password' ? 'edit_password' : 'edit_trading_password';
+                var selector = action === 'edit-login-password' ? '[data-field="password"]' : '[data-field="trading-password"]';
+                if (state.draftAccounts[index]) state.draftAccounts[index][field] = true;
+                state.dirty = true;
+                render();
+                var input = mount().querySelector('[data-account-row][data-index="' + index + '"] ' + selector);
+                if (input) input.focus();
+            }
         });
         mount().addEventListener('input', function(event) {
             if (!event.target.closest('[data-field]')) return;
             state.dirty = true;
-            if (event.target.matches('[data-field="password"]')) {
-                var row = event.target.closest('[data-account-row]');
-                var badge = row && row.querySelector('[data-password-state]');
-                if (badge && event.target.value) {
-                    badge.className = 'ak-ep-credential-state is-pending';
-                    badge.innerHTML = '<i></i>待更新';
-                }
-            }
-            if (event.target.matches('[data-field="account"]')) {
-                var accountRow = event.target.closest('[data-account-row]');
-                var accountIndex = Number(accountRow && accountRow.getAttribute('data-index'));
-                var previous = state.draftAccounts && state.draftAccounts[accountIndex] || {};
-                if (String(previous.account || '').trim().toLowerCase() !== String(event.target.value || '').trim().toLowerCase()) {
-                    var passwordInput = accountRow && accountRow.querySelector('[data-field="password"]');
-                    var status = accountRow && accountRow.querySelector('[data-password-state]');
-                    if (passwordInput && !passwordInput.value) passwordInput.placeholder = '请输入登录密码';
-                    if (status && !(passwordInput && passwordInput.value)) {
-                        status.className = 'ak-ep-credential-state is-missing';
-                        status.innerHTML = '<i></i>需要密码';
-                    }
-                }
-            }
         });
         mount().addEventListener('change', function(event) {
-            if (event.target.closest('[data-field]')) state.dirty = true;
+            if (!event.target.closest('[data-field]')) return;
+            state.dirty = true;
+            if (event.target.matches('[data-field="account"]')) {
+                state.draftAccounts = collectAccountRows();
+                render();
+            }
         });
     }
 

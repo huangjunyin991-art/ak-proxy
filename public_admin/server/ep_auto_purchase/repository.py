@@ -89,6 +89,34 @@ class EPAutoPurchaseRepository:
                 )
                 await conn.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS ep_auto_purchase_account_credentials (
+                        account TEXT PRIMARY KEY,
+                        trading_password TEXT NOT NULL DEFAULT '',
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO ep_auto_purchase_account_credentials (account, trading_password)
+                    SELECT legacy_account.account, config.trading_password
+                    FROM ep_auto_purchase_config config
+                    CROSS JOIN LATERAL jsonb_array_elements_text(config.accounts_json)
+                        AS legacy_account(account)
+                    WHERE config.slot = 1 AND NULLIF(config.trading_password, '') IS NOT NULL
+                    ON CONFLICT (account) DO NOTHING
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_config
+                    SET trading_password = '', updated_at = NOW()
+                    WHERE slot = 1 AND trading_password <> ''
+                    """
+                )
+                await conn.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS ep_auto_purchase_account_status (
                         account TEXT PRIMARY KEY,
                         state TEXT NOT NULL DEFAULT 'idle',
@@ -317,7 +345,7 @@ class EPAutoPurchaseRepository:
             row = await conn.fetchrow("SELECT * FROM ep_auto_purchase_config WHERE slot = 1")
         result = dict(row or {})
         result["accounts"] = _accounts(result.pop("accounts_json", []))
-        result["has_trading_password"] = bool(str(result.pop("trading_password", "") or ""))
+        result.pop("trading_password", None)
         interval_milliseconds = max(1, int(result.get("interval_milliseconds") or 1000))
         result["interval_milliseconds"] = interval_milliseconds
         result["interval_seconds"] = (
@@ -327,21 +355,57 @@ class EPAutoPurchaseRepository:
         )
         return result
 
-    async def get_trading_password(self) -> str:
+    async def get_trading_password(self, account: str) -> str:
         await self.ensure_ready()
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             value = await conn.fetchval(
-                "SELECT trading_password FROM ep_auto_purchase_config WHERE slot = 1"
+                """
+                SELECT COALESCE(
+                    NULLIF(credentials.trading_password, ''),
+                    NULLIF(config.trading_password, ''),
+                    ''
+                )
+                FROM ep_auto_purchase_config config
+                LEFT JOIN ep_auto_purchase_account_credentials credentials
+                  ON credentials.account = $1
+                WHERE config.slot = 1
+                """,
+                str(account or "").strip().lower(),
             )
         return str(value or "")
+
+    async def list_trading_password_accounts(self, accounts: list[str]) -> set[str]:
+        normalized = _accounts(accounts)
+        if not normalized:
+            return set()
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT requested.account
+                FROM unnest($1::text[]) AS requested(account)
+                CROSS JOIN ep_auto_purchase_config config
+                LEFT JOIN ep_auto_purchase_account_credentials credentials
+                  ON credentials.account = requested.account
+                WHERE config.slot = 1
+                  AND COALESCE(
+                      NULLIF(credentials.trading_password, ''),
+                      NULLIF(config.trading_password, ''),
+                      ''
+                  ) <> ''
+                """,
+                normalized,
+            )
+        return {str(row["account"] or "").strip().lower() for row in rows}
 
     async def save_config(
         self,
         accounts: list[str],
         interval_milliseconds: int,
         enabled: bool,
-        trading_password: str = "",
+        trading_passwords: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         await self.ensure_ready()
         encoded = json.dumps(accounts, ensure_ascii=False)
@@ -354,7 +418,6 @@ class EPAutoPurchaseRepository:
                     interval_seconds = GREATEST(1, CEIL($2::numeric / 1000)::INTEGER),
                     interval_milliseconds = $2,
                     accounts_json = $3::jsonb,
-                    trading_password = CASE WHEN $4 <> '' THEN $4 ELSE trading_password END,
                     rotation_cursor = CASE WHEN accounts_json = $3::jsonb THEN rotation_cursor ELSE 0 END,
                     next_poll_at = NOW(),
                     lease_owner = '', lease_expires_at = NULL, current_account = '', updated_at = NOW()
@@ -363,7 +426,6 @@ class EPAutoPurchaseRepository:
                 bool(enabled),
                 max(1, int(interval_milliseconds)),
                 encoded,
-                str(trading_password or ""),
             )
             await conn.execute(
                 """
@@ -373,6 +435,23 @@ class EPAutoPurchaseRepository:
                 """,
                 encoded,
             )
+            updates = [
+                (str(account or "").strip().lower(), str(password or ""))
+                for account, password in (trading_passwords or {}).items()
+                if str(account or "").strip() and str(password or "")
+            ]
+            if updates:
+                await conn.executemany(
+                    """
+                    INSERT INTO ep_auto_purchase_account_credentials
+                        (account, trading_password, updated_at)
+                    VALUES ($1, $2, NOW())
+                    ON CONFLICT (account) DO UPDATE
+                    SET trading_password = EXCLUDED.trading_password,
+                        updated_at = NOW()
+                    """,
+                    updates,
+                )
         return await self.get_config()
 
     async def claim_next_poll(self, owner: str) -> dict[str, Any] | None:

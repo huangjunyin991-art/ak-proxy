@@ -596,19 +596,24 @@ class _ConfigRepository:
     def __init__(self, active_accounts):
         self.active_accounts = active_accounts
         self.saved = None
+        self.trading_password_accounts = set()
 
     async def list_active_accounts(self):
         return [dict(item) for item in self.active_accounts]
 
-    async def save_config(self, accounts, interval_milliseconds, enabled, trading_password=""):
-        self.saved = (list(accounts), interval_milliseconds, enabled, trading_password)
+    async def save_config(self, accounts, interval_milliseconds, enabled, trading_passwords=None):
+        trading_passwords = dict(trading_passwords or {})
+        self.saved = (list(accounts), interval_milliseconds, enabled, trading_passwords)
+        self.trading_password_accounts.update(trading_passwords)
         return {
             "accounts": list(accounts),
             "interval_milliseconds": interval_milliseconds,
             "interval_seconds": interval_milliseconds / 1000,
             "enabled": enabled,
-            "has_trading_password": bool(trading_password),
         }
+
+    async def list_trading_password_accounts(self, accounts):
+        return set(accounts) & self.trading_password_accounts
 
     async def get_account_password(self, account):
         item = next((row for row in self.active_accounts if row["username"] == account), {})
@@ -662,7 +667,7 @@ async def test_configure_reuses_saved_password_and_updates_only_explicit_passwor
     })
 
     assert result["accounts"] == ["buyer1", "buyer2"]
-    assert repository.saved == (["buyer1", "buyer2"], 2000, True, "")
+    assert repository.saved == (["buyer1", "buyer2"], 2000, True, {})
     assert auth_store.updated == [("buyer2", "new-password")]
     assert auth_store.cleared == ["buyer2"]
     assert invalidated == ["buyer2"]
@@ -697,8 +702,28 @@ async def test_configure_persists_sub_second_interval_as_milliseconds():
         "enabled": True,
     })
 
-    assert repository.saved == (["buyer"], 100, True, "")
+    assert repository.saved == (["buyer"], 100, True, {})
     assert result["interval_seconds"] == 0.1
+
+
+@pytest.mark.anyio
+async def test_configure_persists_trading_password_for_its_account_only():
+    repository = _ConfigRepository([
+        {"username": "buyer1", "nickname": "", "has_password": True},
+        {"username": "buyer2", "nickname": "", "has_password": True},
+    ])
+    service = EPAutoPurchaseService(repository, _AuthStore(), _Gate())
+
+    await service.configure({
+        "accounts": [
+            {"account": "buyer1", "password": "", "trading_password": "trade-1"},
+            {"account": "buyer2", "password": "", "trading_password": ""},
+        ],
+        "interval_seconds": 1,
+        "enabled": True,
+    })
+
+    assert repository.saved == (["buyer1", "buyer2"], 1000, True, {"buyer1": "trade-1"})
 
 
 class _PaymentRepository:
@@ -708,7 +733,8 @@ class _PaymentRepository:
         self.payment_state = payment_state
         self.finished = []
 
-    async def get_trading_password(self):
+    async def get_trading_password(self, account):
+        assert account == "buyer"
         return self.trading_password
 
     async def begin_payment_confirmation(self, sid):
@@ -902,6 +928,9 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "notification_next_at IS NULL" in sql
     assert "state IN ('claimed', 'sending')" in sql
     assert "trading_password TEXT NOT NULL DEFAULT ''" in sql
+    assert "ep_auto_purchase_account_credentials" in sql
+    assert "jsonb_array_elements_text(config.accounts_json)" in sql
+    assert "SET trading_password = ''" in sql
     assert "payment_state TEXT NOT NULL DEFAULT 'pending'" in sql
     assert "WHERE payment_state = 'confirming'" in sql
     assert "ep_auto_purchase_listing_diagnostics" not in sql
@@ -940,7 +969,7 @@ async def test_dashboard_returns_password_status_without_password_value():
         {"username": "buyer", "nickname": "Buyer", "has_password": True},
     ]
     assert dashboard["config"]["account_rows"] == [
-        {"account": "buyer", "has_password": True},
+        {"account": "buyer", "has_password": True, "has_trading_password": False},
     ]
     assert "must-never-leak" not in str(dashboard)
 
