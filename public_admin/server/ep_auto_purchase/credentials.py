@@ -25,17 +25,14 @@ class EPAutoPurchaseCredentials:
         if not normalized_account or not new_password.strip():
             return False
 
-        old_password = await self.repository.get_account_password(normalized_account)
         updater = getattr(self.auth_store, "update_user_saved_password", None)
         if not callable(updater) or not await updater(normalized_account, new_password):
             return False
 
-        if old_password != new_password:
-            clearer = getattr(self.auth_store, "clear_ak_auth_state", None)
-            if callable(clearer):
-                await clearer(normalized_account)
-            if callable(self.on_password_updated):
-                callback_result = self.on_password_updated(normalized_account)
-                if inspect.isawaitable(callback_result):
-                    await callback_result
+        # An AK Key remains usable independently of a later password update. Keep the
+        # persisted login state; the worker refreshes it only after an upstream auth error.
+        if callable(self.on_password_updated):
+            callback_result = self.on_password_updated(normalized_account)
+            if inspect.isawaitable(callback_result):
+                await callback_result
         return True

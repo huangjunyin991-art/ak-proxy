@@ -728,7 +728,7 @@ async def test_configure_reuses_saved_password_and_updates_only_explicit_passwor
     assert result["accounts"] == ["buyer1", "buyer2"]
     assert repository.saved == (["buyer1", "buyer2"], 2000, True, {})
     assert auth_store.updated == [("buyer2", "new-password")]
-    assert auth_store.cleared == ["buyer2"]
+    assert auth_store.cleared == []
     assert invalidated == ["buyer2"]
     assert "trading_password" not in result
     assert "new-password" not in str(result)
