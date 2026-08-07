@@ -2,7 +2,7 @@
     if (window.AKEPAutoPurchasePanel) return;
     var api = window.AKEPAutoPurchaseApi;
     var renderer = window.AKEPAutoPurchaseRenderer;
-    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null };
+    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, confirmingSid: '' };
 
     function mount() { return document.getElementById('epAutoPurchasePanelMount'); }
     function active() { return !!document.querySelector('.tab.active[data-panel="epAutoPurchase"]'); }
@@ -75,6 +75,8 @@
         var intervalInput = node.querySelector('[data-field="interval"]');
         var enabledInput = node.querySelector('[data-field="enabled"]');
         var intervalSeconds = Number(intervalInput && intervalInput.value);
+        var tradingPasswordInput = node.querySelector('[data-field="trading-password"]');
+        var tradingPassword = String(tradingPasswordInput && tradingPasswordInput.value || '');
         var intervalMilliseconds = intervalSeconds * 1000;
         if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
             state.error = '抢分间隔必须大于 0 秒';
@@ -97,6 +99,7 @@
         api.saveConfig({
             accounts: accounts,
             interval_seconds: intervalSeconds,
+            trading_password: tradingPassword,
             enabled: !!(enabledInput && enabledInput.checked)
         }).then(function() {
             state.dirty = false;
@@ -115,6 +118,30 @@
         });
     }
 
+    function confirmPayment(sid) {
+        var normalizedSid = String(sid || '').trim();
+        if (!normalizedSid || state.loading || state.confirmingSid) return;
+        var config = state.data && state.data.config || {};
+        if (!config.has_trading_password) {
+            toast('请先在执行配置中设置交易密码', 'warning');
+            return;
+        }
+        if (!window.confirm('确认订单 #' + normalizedSid + ' 已完成实际付款？')) return;
+        state.confirmingSid = normalizedSid;
+        state.error = '';
+        render();
+        api.confirmPayment(normalizedSid).then(function(result) {
+            toast(result.message || '确认付款成功', result.success ? 'success' : 'warning');
+            return refresh(true);
+        }).catch(function(error) {
+            state.error = error.message || '确认付款失败';
+            toast(state.error, 'error');
+        }).finally(function() {
+            state.confirmingSid = '';
+            render();
+        });
+    }
+
     function bind() {
         if (state.bound || !mount()) return;
         state.bound = true;
@@ -123,6 +150,7 @@
             if (!button) return;
             var action = button.getAttribute('data-action');
             if (action === 'save') save();
+            if (action === 'confirm-payment') confirmPayment(button.getAttribute('data-sid'));
             if (action === 'add-account') {
                 state.draftAccounts = collectAccountRows();
                 state.draftAccounts.push({ account: '', password: '', has_password: false });

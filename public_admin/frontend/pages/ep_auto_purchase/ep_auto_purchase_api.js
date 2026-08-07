@@ -19,6 +19,13 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload || {})
             });
+        },
+        confirmPayment: function(sid) {
+            return request('/orders/' + encodeURIComponent(String(sid || '')) + '/confirm-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
         }
     };
 })();

@@ -118,12 +118,22 @@ class EPAutoPurchaseService:
         if missing_passwords:
             raise ValueError("以下账号没有已保存密码，请先输入密码：" + "、".join(missing_passwords[:8]))
         enabled = bool(payload.get("enabled"))
+        trading_password = str(payload.get("trading_password") or "")
+        if trading_password and len(trading_password) < 6:
+            raise ValueError("交易密码至少需要 6 位")
+        if len(trading_password) > 512:
+            raise ValueError("交易密码长度超出限制")
         if enabled and not accounts:
             raise ValueError("启用前至少配置一个抢分账号")
         for account, password in password_updates.items():
             if not await self.credentials.update_password(account, password):
                 raise ValueError(f"账号 {account} 的密码更新失败")
-        config = await self.repository.save_config(accounts, interval_milliseconds, enabled)
+        config = await self.repository.save_config(
+            accounts,
+            interval_milliseconds,
+            enabled,
+            trading_password,
+        )
         self._wake.set()
         return self._serialize(config)
 
@@ -157,6 +167,66 @@ class EPAutoPurchaseService:
             "orders": self._serialize(data.get("orders") or []),
             "summary": self._serialize(data.get("summary") or {}),
         }
+
+    async def confirm_payment(self, sid: str) -> dict[str, Any]:
+        normalized_sid = str(sid or "").strip()
+        if not normalized_sid:
+            raise ValueError("订单号不能为空")
+        trading_password = await self.repository.get_trading_password()
+        if not trading_password:
+            raise ValueError("请先在执行配置中设置交易密码")
+
+        order = await self.repository.begin_payment_confirmation(normalized_sid)
+        if order is None:
+            current = await self.repository.get_payment_order(normalized_sid)
+            if current is None:
+                raise ValueError("订单不存在")
+            payment_state = str(current.get("payment_state") or "pending")
+            messages = {
+                "confirmed": "该订单已经确认付款",
+                "confirming": "该订单正在确认付款",
+                "unknown": "该订单付款确认结果未知，请先人工核对",
+            }
+            raise ValueError(messages.get(payment_state, "该订单当前不能确认付款"))
+
+        buyer_account = str(order.get("buyer_account") or "").strip().lower()
+        try:
+            async with self.provider.build_client() as client:
+                auth = await self._load_auth(buyer_account)
+                if not auth.get("key") or not auth.get("user_id"):
+                    auth = await self._refresh_auth(client, buyer_account)
+                result = await self.provider.confirm_payment(
+                    client,
+                    auth,
+                    normalized_sid,
+                    trading_password,
+                )
+                if result.get("auth_error"):
+                    auth = await self._refresh_auth(client, buyer_account)
+                    result = await self.provider.confirm_payment(
+                        client,
+                        auth,
+                        normalized_sid,
+                        trading_password,
+                    )
+        except RpcGateBusy:
+            await self.repository.finish_payment_confirmation(
+                normalized_sid,
+                "pending",
+                "等待用户请求优先",
+            )
+            raise
+        except Exception as exc:
+            message = str(exc) or exc.__class__.__name__
+            await self.repository.finish_payment_confirmation(normalized_sid, "unknown", message)
+            self._log("payment result unknown account=%s sid=%s error=%s", buyer_account, normalized_sid, message[:200])
+            return {"success": False, "state": "unknown", "message": "付款确认结果未知，请人工核对"}
+
+        success = bool(result.get("success"))
+        state = "confirmed" if success else "failed"
+        message = str(result.get("message") or ("确认付款成功" if success else "确认付款失败"))
+        await self.repository.finish_payment_confirmation(normalized_sid, state, message)
+        return {"success": success, "state": state, "message": message}
 
     async def _run(self) -> None:
         while not self._stopping.is_set():

@@ -54,11 +54,26 @@
         }).join('');
     }
 
-    function renderOrderRows(rows) {
+    function renderOrderRows(rows, hasTradingPassword, confirmingSid) {
         var items = Array.isArray(rows) ? rows : [];
-        if (!items.length) return '<tr class="ak-ep-empty-row"><td colspan="7" class="ak-ep-empty">暂无购买记录</td></tr>';
+        if (!items.length) return '<tr class="ak-ep-empty-row"><td colspan="8" class="ak-ep-empty">暂无购买记录</td></tr>';
         return items.map(function(item) {
             var meta = orderMeta(item.state);
+            var paymentState = String(item.payment_state || 'pending');
+            var action = '<span class="ak-ep-payment is-not-applicable">--</span>';
+            if (item.state === 'success') {
+                if (paymentState === 'confirmed') {
+                    action = '<button type="button" class="ak-ep-payment is-paid" disabled><i>✓</i>已付款</button>';
+                } else if (paymentState === 'confirming' || String(confirmingSid || '') === String(item.sid || '')) {
+                    action = '<span class="ak-ep-payment is-confirming"><i></i>确认中</span>';
+                } else if (paymentState === 'unknown') {
+                    action = '<span class="ak-ep-payment is-unknown">结果未知</span>';
+                } else if (!hasTradingPassword) {
+                    action = '<button type="button" class="ak-ep-confirm-payment is-disabled" disabled title="请先设置交易密码">确认付款</button>';
+                } else {
+                    action = '<button type="button" class="ak-ep-confirm-payment" data-action="confirm-payment" data-sid="' + escapeHtml(item.sid) + '">确认付款</button>';
+                }
+            }
             return '<tr>' +
                 '<td><strong>#' + escapeHtml(item.sid) + '</strong></td>' +
                 '<td>' + escapeHtml(item.buyer_account || '--') + '</td>' +
@@ -67,6 +82,7 @@
                 '<td><span class="ak-ep-state ' + meta[1] + '">' + meta[0] + '</span></td>' +
                 '<td>' + escapeHtml(item.message || '--') + '</td>' +
                 '<td>' + escapeHtml(shortTime(item.claimed_at)) + '</td>' +
+                '<td>' + action + '</td>' +
             '</tr>';
         }).join('');
     }
@@ -123,8 +139,8 @@
                             '<button type="button" class="ak-ep-add-account" data-action="add-account" ' + (loading ? 'disabled' : '') + '>' +
                                 '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加账号</span></button></div>' +
                             '<div class="ak-ep-credential-table-wrap"><table class="ak-ep-credential-table"><thead><tr><th>账号</th><th>登录密码</th><th>密码状态</th><th></th></tr></thead><tbody>' + renderCredentialRows(accountRows, loading) + '</tbody></table></div></div>' +
-                        '<div class="ak-ep-control-row"><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
-                            '<input id="akEpInterval" data-field="interval" type="number" min="0.001" step="0.001" inputmode="decimal" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
+                        '<div class="ak-ep-control-row"><div class="ak-ep-control-fields"><div class="ak-ep-field"><label for="akEpTradingPassword">交易密码</label><input id="akEpTradingPassword" data-field="trading-password" type="password" autocomplete="new-password" placeholder="' + (config.has_trading_password ? '留空使用已保存密码' : '请输入交易密码') + '" ' + (loading ? 'disabled' : '') + '><span class="ak-ep-secret-status ' + (config.has_trading_password ? 'is-set' : '') + '">' + (config.has_trading_password ? '已设置' : '未设置') + '</span></div><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
+                            '<input id="akEpInterval" data-field="interval" type="number" min="0.001" step="0.001" inputmode="decimal" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div></div>' +
                             '<div class="ak-ep-actions">' +
                                 '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
                                 '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +
@@ -148,7 +164,7 @@
             '<section class="ak-ep-section"><header><h3>账号运行状态</h3><span>' + number(statuses.length) + ' 个账号</span></header>' +
                 '<div class="ak-ep-table-wrap"><table><thead><tr><th>账号</th><th>状态</th><th>轮询</th><th>挂单</th><th>成交</th><th>最近轮询</th><th>最近异常</th></tr></thead><tbody>' + renderAccountRows(statuses) + '</tbody></table></div></section>' +
             '<section class="ak-ep-section"><header><h3>订单执行记录</h3><span>' + number(summary.orders) + ' 条</span></header>' +
-                '<div class="ak-ep-table-wrap"><table><thead><tr><th>订单</th><th>抢分账号</th><th>挂卖账号</th><th>EP</th><th>结果</th><th>信息</th><th>时间</th></tr></thead><tbody>' + renderOrderRows(data.orders) + '</tbody></table></div></section>' +
+                '<div class="ak-ep-table-wrap"><table><thead><tr><th>订单</th><th>抢分账号</th><th>挂卖账号</th><th>EP</th><th>结果</th><th>信息</th><th>时间</th><th>操作</th></tr></thead><tbody>' + renderOrderRows(data.orders, !!config.has_trading_password, state.confirmingSid) + '</tbody></table></div></section>' +
         '</div>';
     }
 

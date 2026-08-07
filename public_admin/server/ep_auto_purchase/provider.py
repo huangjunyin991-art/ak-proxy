@@ -196,3 +196,37 @@ class EPAutoPurchaseProvider:
             "success": not bool(payload.get("Error")),
             "message": str(payload.get("Msg") or payload.get("Message") or ("购买成功" if not payload.get("Error") else "购买失败")),
         }
+
+    async def confirm_payment(
+        self,
+        client: httpx.AsyncClient,
+        auth: Mapping[str, str],
+        sid: str,
+        trading_password: str,
+        remark: str = "",
+    ) -> dict[str, Any]:
+        payload = await self.post_rpc(
+            client,
+            "EP_Confirm_Payment",
+            {
+                "sId": str(sid or "").strip(),
+                "password": str(trading_password or ""),
+                "remark": str(remark or ""),
+                "key": str(auth.get("key") or ""),
+                "UserID": str(auth.get("user_id") or ""),
+                "v": make_v(),
+                "lang": "ko",
+            },
+            allow_rpc_error=True,
+        )
+        message = str(
+            payload.get("Msg")
+            or payload.get("Message")
+            or ("确认付款成功" if not payload.get("Error") else "确认付款失败")
+        )
+        lowered = message.lower()
+        return {
+            "success": not bool(payload.get("Error")),
+            "message": message,
+            "auth_error": any(marker in lowered for marker in AUTH_ERROR_MARKERS),
+        }

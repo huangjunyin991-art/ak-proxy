@@ -45,6 +45,7 @@ class EPAutoPurchaseRepository:
                         enabled BOOLEAN NOT NULL DEFAULT FALSE,
                         interval_seconds INTEGER NOT NULL DEFAULT 1,
                         interval_milliseconds BIGINT NOT NULL DEFAULT 1000,
+                        trading_password TEXT NOT NULL DEFAULT '',
                         accounts_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                         rotation_cursor INTEGER NOT NULL DEFAULT 0,
                         next_poll_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -61,6 +62,10 @@ class EPAutoPurchaseRepository:
                     ALTER TABLE ep_auto_purchase_config
                     ADD COLUMN IF NOT EXISTS interval_milliseconds BIGINT
                     """
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_config "
+                    "ADD COLUMN IF NOT EXISTS trading_password TEXT NOT NULL DEFAULT ''"
                 )
                 await conn.execute(
                     """
@@ -127,6 +132,10 @@ class EPAutoPurchaseRepository:
                         notification_started_at TIMESTAMP NULL,
                         notification_attempts INTEGER NOT NULL DEFAULT 0,
                         notification_error TEXT NOT NULL DEFAULT '',
+                        payment_state TEXT NOT NULL DEFAULT 'pending',
+                        payment_message TEXT NOT NULL DEFAULT '',
+                        payment_started_at TIMESTAMP NULL,
+                        payment_confirmed_at TIMESTAMP NULL,
                         claimed_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         completed_at TIMESTAMP NULL,
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -170,6 +179,18 @@ class EPAutoPurchaseRepository:
                     "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS notification_error TEXT NOT NULL DEFAULT ''"
                 )
                 await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS payment_state TEXT NOT NULL DEFAULT 'pending'"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS payment_message TEXT NOT NULL DEFAULT ''"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS payment_started_at TIMESTAMP NULL"
+                )
+                await conn.execute(
+                    "ALTER TABLE ep_auto_purchase_orders ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMP NULL"
+                )
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ep_auto_purchase_orders_claimed_at "
                     "ON ep_auto_purchase_orders(claimed_at DESC)"
                 )
@@ -193,6 +214,18 @@ class EPAutoPurchaseRepository:
                         completed_at = COALESCE(completed_at, NOW()),
                         updated_at = NOW()
                     WHERE state IN ('claimed', 'sending')
+                    """
+                )
+                await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_orders
+                    SET payment_state = 'unknown', payment_started_at = NULL,
+                        payment_message = CASE
+                            WHEN payment_message = '' THEN '服务重启时付款确认结果无法确认'
+                            ELSE payment_message
+                        END,
+                        updated_at = NOW()
+                    WHERE payment_state = 'confirming'
                     """
                 )
                 await conn.execute(
@@ -284,6 +317,7 @@ class EPAutoPurchaseRepository:
             row = await conn.fetchrow("SELECT * FROM ep_auto_purchase_config WHERE slot = 1")
         result = dict(row or {})
         result["accounts"] = _accounts(result.pop("accounts_json", []))
+        result["has_trading_password"] = bool(str(result.pop("trading_password", "") or ""))
         interval_milliseconds = max(1, int(result.get("interval_milliseconds") or 1000))
         result["interval_milliseconds"] = interval_milliseconds
         result["interval_seconds"] = (
@@ -293,11 +327,21 @@ class EPAutoPurchaseRepository:
         )
         return result
 
+    async def get_trading_password(self) -> str:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT trading_password FROM ep_auto_purchase_config WHERE slot = 1"
+            )
+        return str(value or "")
+
     async def save_config(
         self,
         accounts: list[str],
         interval_milliseconds: int,
         enabled: bool,
+        trading_password: str = "",
     ) -> dict[str, Any]:
         await self.ensure_ready()
         encoded = json.dumps(accounts, ensure_ascii=False)
@@ -310,6 +354,7 @@ class EPAutoPurchaseRepository:
                     interval_seconds = GREATEST(1, CEIL($2::numeric / 1000)::INTEGER),
                     interval_milliseconds = $2,
                     accounts_json = $3::jsonb,
+                    trading_password = CASE WHEN $4 <> '' THEN $4 ELSE trading_password END,
                     rotation_cursor = CASE WHEN accounts_json = $3::jsonb THEN rotation_cursor ELSE 0 END,
                     next_poll_at = NOW(),
                     lease_owner = '', lease_expires_at = NULL, current_account = '', updated_at = NOW()
@@ -318,6 +363,7 @@ class EPAutoPurchaseRepository:
                 bool(enabled),
                 max(1, int(interval_milliseconds)),
                 encoded,
+                str(trading_password or ""),
             )
             await conn.execute(
                 """
@@ -578,6 +624,64 @@ class EPAutoPurchaseRepository:
                 str(message or "")[:500],
             )
 
+    async def begin_payment_confirmation(self, sid: str) -> dict[str, Any] | None:
+        """Claim one successful purchase before forwarding EP_Confirm_Payment."""
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET payment_state = 'confirming', payment_message = '',
+                    payment_started_at = NOW(), updated_at = NOW()
+                WHERE sid = $1
+                  AND state = 'success'
+                  AND payment_state IN ('pending', 'failed')
+                RETURNING sid, buyer_account, payment_state
+                """,
+                str(sid or "").strip(),
+            )
+        return dict(row) if row else None
+
+    async def get_payment_order(self, sid: str) -> dict[str, Any] | None:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT sid, buyer_account, state, payment_state, payment_message,
+                       payment_started_at, payment_confirmed_at
+                FROM ep_auto_purchase_orders
+                WHERE sid = $1
+                """,
+                str(sid or "").strip(),
+            )
+        return dict(row) if row else None
+
+    async def finish_payment_confirmation(self, sid: str, state: str, message: str) -> None:
+        normalized_state = str(state or "failed").strip().lower()
+        if normalized_state not in {"confirmed", "failed", "unknown", "pending"}:
+            normalized_state = "failed"
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ep_auto_purchase_orders
+                SET payment_state = $2, payment_message = $3,
+                    payment_started_at = NULL,
+                    payment_confirmed_at = CASE
+                        WHEN $2 = 'confirmed' THEN NOW()
+                        ELSE payment_confirmed_at
+                    END,
+                    updated_at = NOW()
+                WHERE sid = $1 AND payment_state = 'confirming'
+                """,
+                str(sid or "").strip(),
+                normalized_state,
+                str(message or "")[:500],
+            )
+
     async def claim_next_success_notification(self) -> dict[str, Any] | None:
         """Reserve one successful order for durable, at-least-once notification delivery."""
         await self.ensure_ready()
@@ -725,6 +829,7 @@ class EPAutoPurchaseRepository:
             orders = await conn.fetch(
                 """
                 SELECT sid, buyer_account, seller_account, ep_amount, state, message,
+                       payment_state, payment_message, payment_started_at, payment_confirmed_at,
                        claimed_at, completed_at
                 FROM ep_auto_purchase_orders
                 ORDER BY claimed_at DESC LIMIT 100

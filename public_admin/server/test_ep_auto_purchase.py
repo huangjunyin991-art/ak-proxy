@@ -58,6 +58,46 @@ async def test_ep_buy_sends_only_order_and_auth_fields():
 
 
 @pytest.mark.anyio
+async def test_confirm_payment_sends_exact_order_password_and_auth_fields():
+    client = _Client({"Error": False, "Msg": "ok"})
+    provider = EPAutoPurchaseProvider("http://local/RPC/")
+
+    result = await provider.confirm_payment(
+        client,
+        {"key": "buyer-key", "user_id": "103"},
+        "88",
+        "trade-secret",
+    )
+
+    assert result == {"success": True, "message": "ok", "auth_error": False}
+    request = client.calls[0][1]
+    assert set(request) == {"sId", "password", "remark", "key", "UserID", "v", "lang"}
+    assert request["sId"] == "88"
+    assert request["password"] == "trade-secret"
+    assert request["remark"] == ""
+    assert request["key"] == "buyer-key"
+    assert request["UserID"] == "103"
+    assert request["lang"] == "ko"
+    assert "Sokey" not in request
+
+
+@pytest.mark.anyio
+async def test_confirm_payment_marks_login_error_for_one_auth_refresh():
+    client = _Client({"Error": True, "Msg": "用户未登录"})
+    provider = EPAutoPurchaseProvider("http://local/RPC/")
+
+    result = await provider.confirm_payment(
+        client,
+        {"key": "expired-key", "user_id": "103"},
+        "88",
+        "trade-secret",
+    )
+
+    assert result["success"] is False
+    assert result["auth_error"] is True
+
+
+@pytest.mark.anyio
 async def test_pending_list_uses_confirmed_market_parameters():
     client = _Client({"Error": False, "Data": {"List": [{"sId": 1}]}})
     provider = EPAutoPurchaseProvider("http://local/RPC/")
@@ -560,13 +600,14 @@ class _ConfigRepository:
     async def list_active_accounts(self):
         return [dict(item) for item in self.active_accounts]
 
-    async def save_config(self, accounts, interval_milliseconds, enabled):
-        self.saved = (list(accounts), interval_milliseconds, enabled)
+    async def save_config(self, accounts, interval_milliseconds, enabled, trading_password=""):
+        self.saved = (list(accounts), interval_milliseconds, enabled, trading_password)
         return {
             "accounts": list(accounts),
             "interval_milliseconds": interval_milliseconds,
             "interval_seconds": interval_milliseconds / 1000,
             "enabled": enabled,
+            "has_trading_password": bool(trading_password),
         }
 
     async def get_account_password(self, account):
@@ -621,11 +662,12 @@ async def test_configure_reuses_saved_password_and_updates_only_explicit_passwor
     })
 
     assert result["accounts"] == ["buyer1", "buyer2"]
-    assert repository.saved == (["buyer1", "buyer2"], 2000, True)
+    assert repository.saved == (["buyer1", "buyer2"], 2000, True, "")
     assert auth_store.updated == [("buyer2", "new-password")]
     assert auth_store.cleared == ["buyer2"]
     assert invalidated == ["buyer2"]
-    assert "password" not in str(result).lower()
+    assert "trading_password" not in result
+    assert "new-password" not in str(result)
 
 
 @pytest.mark.parametrize(
@@ -655,8 +697,140 @@ async def test_configure_persists_sub_second_interval_as_milliseconds():
         "enabled": True,
     })
 
-    assert repository.saved == (["buyer"], 100, True)
+    assert repository.saved == (["buyer"], 100, True, "")
     assert result["interval_seconds"] == 0.1
+
+
+class _PaymentRepository:
+    def __init__(self, *, trading_password="trade-secret", claimed=True, payment_state="pending"):
+        self.trading_password = trading_password
+        self.claimed = claimed
+        self.payment_state = payment_state
+        self.finished = []
+
+    async def get_trading_password(self):
+        return self.trading_password
+
+    async def begin_payment_confirmation(self, sid):
+        if not self.claimed:
+            return None
+        self.claimed = False
+        self.payment_state = "confirming"
+        return {"sid": sid, "buyer_account": "buyer", "payment_state": "confirming"}
+
+    async def get_payment_order(self, sid):
+        return {
+            "sid": sid,
+            "buyer_account": "buyer",
+            "state": "success",
+            "payment_state": self.payment_state,
+        }
+
+    async def finish_payment_confirmation(self, sid, state, message):
+        self.payment_state = state
+        self.finished.append((sid, state, message))
+
+
+class _PaymentAuthStore:
+    async def get_ak_auth_state(self, account, allow_expired=True):
+        return {
+            "userkey": "buyer-key",
+            "login_result": {"UserID": "103"},
+        }
+
+
+class _PaymentProvider:
+    def __init__(self, result=None, error=None):
+        self.result = result or {"success": True, "message": "ok", "auth_error": False}
+        self.error = error
+        self.calls = []
+
+    @asynccontextmanager
+    async def build_client(self):
+        yield object()
+
+    async def confirm_payment(self, client, auth, sid, trading_password, remark=""):
+        self.calls.append((dict(auth), sid, trading_password, remark))
+        if self.error is not None:
+            raise self.error
+        return dict(self.result)
+
+
+@pytest.mark.anyio
+async def test_service_confirms_successful_order_and_persists_paid_state():
+    repository = _PaymentRepository()
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    result = await service.confirm_payment("88")
+
+    assert result == {"success": True, "state": "confirmed", "message": "ok"}
+    assert provider.calls == [(
+        {"account": "buyer", "key": "buyer-key", "user_id": "103"},
+        "88",
+        "trade-secret",
+        "",
+    )]
+    assert repository.finished == [("88", "confirmed", "ok")]
+
+
+@pytest.mark.anyio
+async def test_service_rejects_duplicate_payment_confirmation():
+    repository = _PaymentRepository(claimed=False, payment_state="confirmed")
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    with pytest.raises(ValueError, match="已经确认付款"):
+        await service.confirm_payment("88")
+
+    assert provider.calls == []
+    assert repository.finished == []
+
+
+@pytest.mark.anyio
+async def test_service_marks_transport_failure_as_unknown_without_retry():
+    repository = _PaymentRepository()
+    provider = _PaymentProvider(error=TimeoutError("timeout"))
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    result = await service.confirm_payment("88")
+
+    assert result["success"] is False
+    assert result["state"] == "unknown"
+    assert repository.finished == [("88", "unknown", "timeout")]
+
+
+@pytest.mark.anyio
+async def test_service_requires_saved_trading_password_before_claiming_order():
+    repository = _PaymentRepository(trading_password="")
+    provider = _PaymentProvider()
+    service = EPAutoPurchaseService(
+        repository,
+        _PaymentAuthStore(),
+        _Gate(),
+        provider=provider,
+    )
+
+    with pytest.raises(ValueError, match="设置交易密码"):
+        await service.confirm_payment("88")
+
+    assert repository.claimed is True
+    assert provider.calls == []
 
 
 class _WorkerIntervalRepository:
@@ -727,6 +901,9 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "notification_state" in sql
     assert "notification_next_at IS NULL" in sql
     assert "state IN ('claimed', 'sending')" in sql
+    assert "trading_password TEXT NOT NULL DEFAULT ''" in sql
+    assert "payment_state TEXT NOT NULL DEFAULT 'pending'" in sql
+    assert "WHERE payment_state = 'confirming'" in sql
     assert "ep_auto_purchase_listing_diagnostics" not in sql
 
 
