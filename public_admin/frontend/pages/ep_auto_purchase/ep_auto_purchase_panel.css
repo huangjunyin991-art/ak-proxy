@@ -842,6 +842,172 @@
     text-align: center !important;
 }
 
+.ak-ep-confirm-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(3, 8, 20, .74);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    transition: opacity .16s ease;
+}
+
+.ak-ep-confirm-modal.is-visible { opacity: 1; }
+
+.ak-ep-confirm-card {
+    width: min(430px, 100%);
+    overflow: hidden;
+    border: 1px solid rgba(101, 121, 164, .38);
+    border-radius: 12px;
+    background: #111a2b;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .46), 0 0 0 1px rgba(255, 255, 255, .025);
+    transform: translateY(10px) scale(.98);
+    transition: transform .16s ease;
+}
+
+.ak-ep-confirm-modal.is-visible .ak-ep-confirm-card {
+    transform: translateY(0) scale(1);
+}
+
+.ak-ep-confirm-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 22px 17px;
+    border-bottom: 1px solid rgba(101, 121, 164, .18);
+}
+
+.ak-ep-confirm-icon {
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border: 1px solid rgba(0, 212, 255, .32);
+    border-radius: 10px;
+    background: rgba(0, 212, 255, .1);
+    color: #82edff;
+}
+
+.ak-ep-confirm-icon svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.ak-ep-confirm-modal.is-danger .ak-ep-confirm-icon {
+    border-color: rgba(255, 112, 122, .4);
+    background: rgba(255, 71, 87, .11);
+    color: #ffabb4;
+}
+
+.ak-ep-confirm-eyebrow {
+    display: block;
+    margin-bottom: 4px;
+    color: #8290a9;
+    font-size: 11px;
+    letter-spacing: .04em;
+}
+
+.ak-ep-confirm-head h3 {
+    margin: 0;
+    color: #f2f6ff;
+    font-size: 17px;
+    line-height: 1.25;
+    font-weight: 800;
+}
+
+.ak-ep-confirm-body {
+    padding: 19px 22px 20px;
+}
+
+.ak-ep-confirm-body p {
+    margin: 0 0 14px;
+    color: #e8eefb;
+    font-size: 14px;
+    line-height: 1.65;
+}
+
+.ak-ep-confirm-note {
+    padding: 11px 12px;
+    border: 1px solid rgba(255, 193, 7, .22);
+    border-radius: 7px;
+    background: rgba(255, 193, 7, .07);
+    color: #ffd979;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.ak-ep-confirm-modal.is-danger .ak-ep-confirm-note {
+    border-color: rgba(255, 112, 122, .25);
+    background: rgba(255, 71, 87, .07);
+    color: #ffb4bb;
+}
+
+.ak-ep-confirm-actions {
+    display: flex;
+    gap: 9px;
+    padding: 0 22px 21px;
+}
+
+.ak-ep-confirm-btn {
+    min-height: 38px;
+    flex: 1;
+    border-radius: 7px;
+    outline: 0;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    cursor: pointer;
+    transition: border-color .18s ease, background .18s ease, color .18s ease, transform .18s ease;
+}
+
+.ak-ep-confirm-btn:hover { transform: translateY(-1px); }
+
+.ak-ep-confirm-btn.is-secondary {
+    border: 1px solid rgba(101, 121, 164, .38);
+    background: rgba(101, 121, 164, .1);
+    color: #afbad0;
+}
+
+.ak-ep-confirm-btn.is-secondary:hover {
+    border-color: rgba(150, 168, 207, .55);
+    background: rgba(101, 121, 164, .18);
+    color: #e3eafa;
+}
+
+.ak-ep-confirm-btn.is-confirm {
+    border: 1px solid rgba(0, 212, 255, .62);
+    background: linear-gradient(135deg, rgba(0, 212, 255, .86), rgba(0, 255, 136, .72));
+    color: #06131d;
+    box-shadow: 0 8px 18px rgba(0, 212, 255, .12);
+}
+
+.ak-ep-confirm-btn.is-confirm:hover {
+    border-color: rgba(134, 244, 255, .9);
+    box-shadow: 0 10px 22px rgba(0, 212, 255, .2);
+}
+
+.ak-ep-confirm-modal.is-danger .ak-ep-confirm-btn.is-confirm {
+    border-color: rgba(255, 139, 148, .76);
+    background: linear-gradient(135deg, #e45e6e, #f38b74);
+    color: #260b10;
+    box-shadow: 0 8px 18px rgba(255, 71, 87, .14);
+}
+
+.ak-ep-confirm-modal.is-danger .ak-ep-confirm-btn.is-confirm:hover {
+    border-color: #ffc0c6;
+    box-shadow: 0 10px 22px rgba(255, 71, 87, .22);
+}
+
 @media (max-width: 1080px) {
     .ak-ep-workspace {
         grid-template-columns: 1fr;
@@ -854,6 +1020,21 @@
 }
 
 @media (max-width: 620px) {
+    .ak-ep-confirm-modal {
+        padding: 14px;
+    }
+
+    .ak-ep-confirm-head,
+    .ak-ep-confirm-body {
+        padding-left: 17px;
+        padding-right: 17px;
+    }
+
+    .ak-ep-confirm-actions {
+        padding-right: 17px;
+        padding-left: 17px;
+    }
+
     .ak-ep-root {
         gap: 10px;
         padding-bottom: 10px;

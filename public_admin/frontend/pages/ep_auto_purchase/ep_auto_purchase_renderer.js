@@ -58,6 +58,9 @@
         var paymentState = String(item.payment_state || 'pending');
         var cancelState = String(item.cancel_state || 'pending');
         var sid = escapeHtml(item.sid);
+        if (paymentState === 'confirmed') {
+            return '<span class="ak-ep-payment is-paid"><i>\u2713</i>\u5df2\u4ed8\u6b3e</span>';
+        }
         if (cancelState === 'cancelled') {
             return '<span class="ak-ep-payment is-cancelled">\u5df2\u53d6\u6d88\u8d2d\u4e70</span>';
         }
@@ -66,9 +69,6 @@
         }
         if (cancelState === 'cancelling' || String(cancellingSid || '') === String(item.sid || '')) {
             return '<span class="ak-ep-payment is-cancelling"><i></i>\u53d6\u6d88\u4e2d</span>';
-        }
-        if (paymentState === 'confirmed') {
-            return '<span class="ak-ep-payment is-paid"><i>\u2713</i>\u5df2\u4ed8\u6b3e</span>';
         }
         if (paymentState === 'confirming' || String(confirmingSid || '') === String(item.sid || '')) {
             return '<span class="ak-ep-payment is-confirming"><i></i>\u786e\u8ba4\u4e2d</span>';

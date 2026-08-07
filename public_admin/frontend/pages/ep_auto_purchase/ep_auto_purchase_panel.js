@@ -2,11 +2,88 @@
     if (window.AKEPAutoPurchasePanel) return;
     var api = window.AKEPAutoPurchaseApi;
     var renderer = window.AKEPAutoPurchaseRenderer;
-    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, confirmingSid: '', cancellingSid: '' };
+    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, confirmingSid: '', cancellingSid: '', confirmationOpen: false };
 
     function mount() { return document.getElementById('epAutoPurchasePanelMount'); }
     function active() { return !!document.querySelector('.tab.active[data-panel="epAutoPurchase"]'); }
     function toast(message, type) { if (window.showToast) window.showToast(message, type || 'info'); }
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function confirmOrderAction(kind, sid) {
+        if (state.confirmationOpen) return Promise.resolve(false);
+        state.confirmationOpen = true;
+        var isCancel = kind === 'cancel';
+        var title = isCancel ? '\u53d6\u6d88\u8d2d\u4e70' : '\u786e\u8ba4\u4ed8\u6b3e';
+        var description = isCancel
+            ? '\u786e\u8ba4\u53d6\u6d88\u8ba2\u5355 #' + escapeHtml(sid) + ' \u7684\u8d2d\u4e70\uff1f'
+            : '\u8bf7\u786e\u8ba4\u8ba2\u5355 #' + escapeHtml(sid) + ' \u5df2\u5b8c\u6210\u5b9e\u9645\u4ed8\u6b3e\u3002';
+        var note = isCancel
+            ? '\u53d6\u6d88\u8d2d\u4e70\u4f1a\u964d\u4f4e\u8d26\u53f7\u4fe1\u7528\u503c\uff0c\u8bf7\u4ec5\u5728\u786e\u5b9a\u65e0\u6cd5\u4ed8\u6b3e\u65f6\u64cd\u4f5c\u3002'
+            : '\u786e\u8ba4\u4ed8\u6b3e\u540e\u5c06\u65e0\u6cd5\u53d6\u6d88\u8d2d\u4e70\uff0c\u8bf7\u4ec5\u5728\u5b9e\u9645\u5b8c\u6210\u4ed8\u6b3e\u540e\u64cd\u4f5c\u3002';
+        var confirmText = isCancel ? '\u786e\u8ba4\u53d6\u6d88' : '\u786e\u8ba4\u4ed8\u6b3e';
+        var icon = isCancel
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/><path d="M5 12a7 7 0 1 0 2.05-4.95"/><path d="M5 5v4h4"/></svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 9.2 17 19 7"/><path d="M12 3.5a8.5 8.5 0 1 1-8.5 8.5"/></svg>';
+
+        return new Promise(function(resolve) {
+            var modal = document.createElement('div');
+            var previouslyFocused = document.activeElement;
+            var closed = false;
+            modal.className = 'ak-ep-confirm-modal' + (isCancel ? ' is-danger' : ' is-primary');
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-labelledby', 'akEpConfirmTitle');
+            modal.innerHTML = '<div class="ak-ep-confirm-card">' +
+                '<header class="ak-ep-confirm-head"><span class="ak-ep-confirm-icon">' + icon + '</span>' +
+                    '<div><span class="ak-ep-confirm-eyebrow">\u8ba2\u5355 #' + escapeHtml(sid) + '</span>' +
+                    '<h3 id="akEpConfirmTitle">' + title + '</h3></div></header>' +
+                '<div class="ak-ep-confirm-body"><p>' + description + '</p>' +
+                    '<div class="ak-ep-confirm-note">' + note + '</div></div>' +
+                '<footer class="ak-ep-confirm-actions">' +
+                    '<button type="button" class="ak-ep-confirm-btn is-secondary" data-ep-confirm-cancel>\u6682\u4e0d\u64cd\u4f5c</button>' +
+                    '<button type="button" class="ak-ep-confirm-btn is-confirm" data-ep-confirm-ok>' + confirmText + '</button>' +
+                '</footer></div>';
+
+            function finish(value) {
+                if (closed) return;
+                closed = true;
+                state.confirmationOpen = false;
+                document.removeEventListener('keydown', onKeydown, true);
+                modal.classList.remove('is-visible');
+                window.setTimeout(function() { modal.remove(); }, 160);
+                if (previouslyFocused && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
+                resolve(value);
+            }
+
+            function onKeydown(event) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    finish(false);
+                }
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    finish(true);
+                }
+            }
+
+            modal.addEventListener('click', function(event) {
+                if (event.target === modal) finish(false);
+            });
+            modal.querySelector('[data-ep-confirm-cancel]').addEventListener('click', function() { finish(false); });
+            modal.querySelector('[data-ep-confirm-ok]').addEventListener('click', function() { finish(true); });
+            document.addEventListener('keydown', onKeydown, true);
+            document.body.appendChild(modal);
+            window.requestAnimationFrame(function() {
+                modal.classList.add('is-visible');
+                modal.querySelector('[data-ep-confirm-ok]').focus();
+            });
+        });
+    }
+
     function render() { var node = mount(); if (node) node.innerHTML = renderer.render(state); }
 
     function rowsFromData(data) {
@@ -132,10 +209,21 @@
 
     function confirmPayment(sid) {
         var normalizedSid = String(sid || '').trim();
-        if (!normalizedSid || state.loading || state.confirmingSid) return;
+        if (!normalizedSid || state.loading || state.confirmingSid || state.cancellingSid || state.confirmationOpen) return;
         var config = state.data && state.data.config || {};
         var orders = state.data && state.data.orders || [];
         var order = orders.find(function(item) { return String(item.sid || '') === normalizedSid; }) || {};
+        var paymentState = String(order.payment_state || 'pending');
+        var cancelState = String(order.cancel_state || 'pending');
+        if (order.state !== 'success') return;
+        if (paymentState !== 'pending' && paymentState !== 'failed') {
+            toast(paymentState === 'confirmed' ? '\u8be5\u8ba2\u5355\u5df2\u786e\u8ba4\u4ed8\u6b3e' : '\u8be5\u8ba2\u5355\u5f53\u524d\u65e0\u6cd5\u786e\u8ba4\u4ed8\u6b3e', 'warning');
+            return;
+        }
+        if (cancelState !== 'pending' && cancelState !== 'failed') {
+            toast(cancelState === 'cancelled' ? '\u8be5\u8ba2\u5355\u5df2\u53d6\u6d88\u8d2d\u4e70' : '\u8be5\u8ba2\u5355\u6b63\u5728\u53d6\u6d88\u8d2d\u4e70', 'warning');
+            return;
+        }
         var accountRows = Array.isArray(config.account_rows) ? config.account_rows : [];
         var buyerAccount = String(order.buyer_account || '').trim().toLowerCase();
         var accountRow = accountRows.find(function(item) {
@@ -145,41 +233,74 @@
             toast('请先为抢分账号 ' + (buyerAccount || '--') + ' 设置交易密码', 'warning');
             return;
         }
-        if (!window.confirm('确认订单 #' + normalizedSid + ' 已完成实际付款？')) return;
-        state.confirmingSid = normalizedSid;
-        state.error = '';
-        render();
-        api.confirmPayment(normalizedSid).then(function(result) {
-            toast(result.message || '确认付款成功', result.success ? 'success' : 'warning');
-            return refresh(true);
-        }).catch(function(error) {
-            state.error = error.message || '确认付款失败';
-            toast(state.error, 'error');
-        }).finally(function() {
-            state.confirmingSid = '';
+        confirmOrderAction('payment', normalizedSid).then(function(accepted) {
+            if (!accepted) return;
+            var latest = (state.data && state.data.orders || []).find(function(item) { return String(item.sid || '') === normalizedSid; }) || {};
+            if (String(latest.payment_state || 'pending') === 'confirmed') {
+                toast('\u8be5\u8ba2\u5355\u5df2\u786e\u8ba4\u4ed8\u6b3e', 'warning');
+                return;
+            }
+            if (String(latest.cancel_state || 'pending') !== 'pending' && String(latest.cancel_state || 'pending') !== 'failed') {
+                toast('\u8be5\u8ba2\u5355\u72b6\u6001\u5df2\u53d8\u66f4\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5', 'warning');
+                return;
+            }
+            state.confirmingSid = normalizedSid;
+            state.error = '';
             render();
+            api.confirmPayment(normalizedSid).then(function(result) {
+                toast(result.message || '确认付款成功', result.success ? 'success' : 'warning');
+                return refresh(true);
+            }).catch(function(error) {
+                state.error = error.message || '确认付款失败';
+                toast(state.error, 'error');
+            }).finally(function() {
+                state.confirmingSid = '';
+                render();
+            });
         });
     }
 
     function cancelPurchase(sid) {
         var normalizedSid = String(sid || '').trim();
-        if (!normalizedSid || state.loading || state.confirmingSid || state.cancellingSid) return;
+        if (!normalizedSid || state.loading || state.confirmingSid || state.cancellingSid || state.confirmationOpen) return;
         var orders = state.data && state.data.orders || [];
         var order = orders.find(function(item) { return String(item.sid || '') === normalizedSid; }) || {};
         if (order.state !== 'success') return;
-        if (!window.confirm('\u53d6\u6d88\u8d2d\u4e70\u540e\u53ef\u80fd\u5f71\u54cd\u5e10\u53f7\u4fe1\u7528\u503c\u3002\n\n\u786e\u8ba4\u53d6\u6d88\u8ba2\u5355 #' + normalizedSid + ' \u7684\u8d2d\u4e70\u5417\uff1f')) return;
-        state.cancellingSid = normalizedSid;
-        state.error = '';
-        render();
-        api.cancelPurchase(normalizedSid).then(function(result) {
-            toast(result.message || '\u53d6\u6d88\u8d2d\u4e70\u6210\u529f', result.success ? 'success' : 'warning');
-            return refresh(true);
-        }).catch(function(error) {
-            state.error = error.message || '\u53d6\u6d88\u8d2d\u4e70\u5931\u8d25';
-            toast(state.error, 'error');
-        }).finally(function() {
-            state.cancellingSid = '';
+        var paymentState = String(order.payment_state || 'pending');
+        var cancelState = String(order.cancel_state || 'pending');
+        if (paymentState === 'confirmed') {
+            toast('\u8be5\u8ba2\u5355\u5df2\u786e\u8ba4\u4ed8\u6b3e\uff0c\u65e0\u6cd5\u53d6\u6d88\u8d2d\u4e70', 'warning');
+            return;
+        }
+        if (paymentState !== 'pending' && paymentState !== 'failed') {
+            toast('\u8be5\u8ba2\u5355\u4ed8\u6b3e\u7ed3\u679c\u672a\u660e\uff0c\u6682\u4e0d\u5141\u8bb8\u53d6\u6d88', 'warning');
+            return;
+        }
+        if (cancelState !== 'pending' && cancelState !== 'failed') return;
+        confirmOrderAction('cancel', normalizedSid).then(function(accepted) {
+            if (!accepted) return;
+            var latest = (state.data && state.data.orders || []).find(function(item) { return String(item.sid || '') === normalizedSid; }) || {};
+            if (String(latest.payment_state || 'pending') === 'confirmed') {
+                toast('\u8be5\u8ba2\u5355\u5df2\u786e\u8ba4\u4ed8\u6b3e\uff0c\u65e0\u6cd5\u53d6\u6d88\u8d2d\u4e70', 'warning');
+                return;
+            }
+            if (String(latest.payment_state || 'pending') !== 'pending' && String(latest.payment_state || 'pending') !== 'failed') {
+                toast('\u8be5\u8ba2\u5355\u4ed8\u6b3e\u7ed3\u679c\u672a\u660e\uff0c\u6682\u4e0d\u5141\u8bb8\u53d6\u6d88', 'warning');
+                return;
+            }
+            state.cancellingSid = normalizedSid;
+            state.error = '';
             render();
+            api.cancelPurchase(normalizedSid).then(function(result) {
+                toast(result.message || '\u53d6\u6d88\u8d2d\u4e70\u6210\u529f', result.success ? 'success' : 'warning');
+                return refresh(true);
+            }).catch(function(error) {
+                state.error = error.message || '\u53d6\u6d88\u8d2d\u4e70\u5931\u8d25';
+                toast(state.error, 'error');
+            }).finally(function() {
+                state.cancellingSid = '';
+                render();
+            });
         });
     }
 
