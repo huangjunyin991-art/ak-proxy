@@ -630,13 +630,25 @@ class _ConfigRepository:
     def __init__(self, active_accounts):
         self.active_accounts = active_accounts
         self.saved = None
+        self.account_enabled = {}
         self.trading_password_accounts = set()
 
     async def list_active_accounts(self):
         return [dict(item) for item in self.active_accounts]
 
-    async def save_config(self, accounts, interval_milliseconds, enabled, trading_passwords=None):
+    async def save_config(
+        self,
+        account_rows,
+        interval_milliseconds,
+        enabled,
+        trading_passwords=None,
+    ):
         trading_passwords = dict(trading_passwords or {})
+        accounts = [str(item["account"]) for item in account_rows]
+        self.account_enabled = {
+            str(item["account"]): bool(item.get("enabled", True))
+            for item in account_rows
+        }
         self.saved = (list(accounts), interval_milliseconds, enabled, trading_passwords)
         self.trading_password_accounts.update(trading_passwords)
         return {
@@ -644,6 +656,7 @@ class _ConfigRepository:
             "interval_milliseconds": interval_milliseconds,
             "interval_seconds": interval_milliseconds / 1000,
             "enabled": enabled,
+            "account_enabled": self.account_enabled,
         }
 
     async def list_trading_password_accounts(self, accounts):
@@ -758,6 +771,28 @@ async def test_configure_persists_trading_password_for_its_account_only():
     })
 
     assert repository.saved == (["buyer1", "buyer2"], 1000, True, {"buyer1": "trade-1"})
+
+
+@pytest.mark.anyio
+async def test_configure_keeps_disabled_account_without_including_it_in_rotation():
+    repository = _ConfigRepository([
+        {"username": "buyer1", "nickname": "", "has_password": True},
+        {"username": "buyer2", "nickname": "", "has_password": False},
+    ])
+    service = EPAutoPurchaseService(repository, _AuthStore(), _Gate())
+
+    result = await service.configure({
+        "accounts": [
+            {"account": "buyer1", "enabled": True},
+            {"account": "buyer2", "enabled": False},
+        ],
+        "interval_seconds": 1,
+        "enabled": True,
+    })
+
+    assert repository.saved == (["buyer1", "buyer2"], 1000, True, {})
+    assert repository.account_enabled == {"buyer1": True, "buyer2": False}
+    assert result["account_enabled"] == {"buyer1": True, "buyer2": False}
 
 
 class _PaymentRepository:
@@ -1099,7 +1134,7 @@ async def test_repository_startup_backfills_only_unmigrated_intervals():
     assert "state IN ('claimed', 'sending')" in sql
     assert "trading_password TEXT NOT NULL DEFAULT ''" in sql
     assert "ep_auto_purchase_account_credentials" in sql
-    assert "jsonb_array_elements_text(config.accounts_json)" in sql
+    assert "jsonb_array_elements(config.accounts_json)" in sql
     assert "SET trading_password = ''" in sql
     assert "payment_state TEXT NOT NULL DEFAULT 'pending'" in sql
     assert "WHERE payment_state = 'confirming'" in sql
@@ -1141,7 +1176,12 @@ async def test_dashboard_returns_password_status_without_password_value():
         {"username": "buyer", "nickname": "Buyer", "has_password": True},
     ]
     assert dashboard["config"]["account_rows"] == [
-        {"account": "buyer", "has_password": True, "has_trading_password": False},
+        {
+            "account": "buyer",
+            "enabled": True,
+            "has_password": True,
+            "has_trading_password": False,
+        },
     ]
     assert "must-never-leak" not in str(dashboard)
 

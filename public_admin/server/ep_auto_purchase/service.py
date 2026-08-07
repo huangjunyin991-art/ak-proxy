@@ -81,27 +81,30 @@ class EPAutoPurchaseService:
 
     async def configure(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         raw_accounts = payload.get("accounts")
-        if isinstance(raw_accounts, str):
-            raw_accounts = raw_accounts.replace(",", "\n").splitlines()
         accounts: list[str] = []
+        account_rows: list[dict[str, Any]] = []
         password_updates: dict[str, str] = {}
         trading_password_updates: dict[str, str] = {}
         seen: set[str] = set()
         for value in raw_accounts if isinstance(raw_accounts, list) else []:
-            if isinstance(value, Mapping):
-                account = str(value.get("account") or value.get("username") or "").strip().lower()
-                password = str(value.get("password") or "")
-                trading_password = str(value.get("trading_password") or "")
-            else:
-                account = str(value or "").strip().lower()
-                password = ""
-                trading_password = ""
+            if not isinstance(value, Mapping):
+                continue
+            account = str(value.get("account") or "").strip().lower()
+            password = str(value.get("password") or "")
+            trading_password = str(value.get("trading_password") or "")
+            raw_enabled = value.get("enabled", True)
             if not account:
                 continue
             if account in seen:
                 raise ValueError(f"抢分账号不能重复：{account}")
             seen.add(account)
             accounts.append(account)
+            account_enabled = (
+                str(raw_enabled).strip().lower() not in {"0", "false", "no", "off"}
+                if isinstance(raw_enabled, str)
+                else bool(raw_enabled)
+            )
+            account_rows.append({"account": account, "enabled": account_enabled})
             if password.strip():
                 password_updates[account] = password
             if trading_password:
@@ -119,21 +122,26 @@ class EPAutoPurchaseService:
         invalid = [account for account in accounts if account not in active]
         if invalid:
             raise ValueError("以下账号不在有效白名单中：" + "、".join(invalid[:8]))
+        enabled_accounts = [
+            str(item["account"])
+            for item in account_rows
+            if bool(item["enabled"])
+        ]
         missing_passwords = [
             account
-            for account in accounts
+            for account in enabled_accounts
             if account not in password_updates and not bool(active[account].get("has_password"))
         ]
         if missing_passwords:
             raise ValueError("以下账号没有已保存密码，请先输入密码：" + "、".join(missing_passwords[:8]))
         enabled = bool(payload.get("enabled"))
-        if enabled and not accounts:
-            raise ValueError("启用前至少配置一个抢分账号")
+        if enabled and not enabled_accounts:
+            raise ValueError("启用前至少勾选一个抢分账号")
         for account, password in password_updates.items():
             if not await self.credentials.update_password(account, password):
                 raise ValueError(f"账号 {account} 的密码更新失败")
         config = await self.repository.save_config(
-            accounts,
+            account_rows,
             interval_milliseconds,
             enabled,
             trading_password_updates,
@@ -162,6 +170,7 @@ class EPAutoPurchaseService:
         config["account_rows"] = [
             {
                 "account": account,
+                "enabled": bool((config.get("account_enabled") or {}).get(account, True)),
                 "has_password": bool(active_by_account.get(account, {}).get("has_password")),
                 "has_trading_password": account in trading_password_accounts,
             }

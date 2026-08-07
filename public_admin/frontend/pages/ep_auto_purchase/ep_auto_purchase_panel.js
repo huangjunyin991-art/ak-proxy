@@ -2,7 +2,7 @@
     if (window.AKEPAutoPurchasePanel) return;
     var api = window.AKEPAutoPurchaseApi;
     var renderer = window.AKEPAutoPurchaseRenderer;
-    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, confirmingSid: '', cancellingSid: '', confirmationOpen: false };
+    var state = { data: {}, draftAccounts: null, error: '', loading: false, dirty: false, bound: false, timer: null, autosaveTimer: null, confirmingSid: '', cancellingSid: '', confirmationOpen: false };
 
     function mount() { return document.getElementById('epAutoPurchasePanelMount'); }
     function active() { return !!document.querySelector('.tab.active[data-panel="epAutoPurchase"]'); }
@@ -89,14 +89,12 @@
     function rowsFromData(data) {
         var config = data && data.config || {};
         var rows = Array.isArray(config.account_rows) ? config.account_rows : [];
-        if (!rows.length && Array.isArray(config.accounts)) {
-            rows = config.accounts.map(function(account) { return { account: account, has_password: false, has_trading_password: false }; });
-        }
         return rows.map(function(item) {
             return {
                 account: String(item.account || ''),
                 password: '',
                 trading_password: '',
+                enabled: item.enabled !== false,
                 has_password: !!item.has_password,
                 has_trading_password: !!item.has_trading_password,
                 edit_password: false,
@@ -118,12 +116,14 @@
             var account = row.querySelector('[data-field="account"]');
             var password = row.querySelector('[data-field="password"]');
             var tradingPassword = row.querySelector('[data-field="trading-password"]');
+            var enabled = row.querySelector('[data-field="account-enabled"]');
             var normalizedAccount = String(account && account.value || '').trim();
             var sameAccount = String(previous.account || '').trim().toLowerCase() === normalizedAccount.toLowerCase();
             return {
                 account: normalizedAccount,
                 password: String(password ? password.value : (previous.password || '')),
                 trading_password: String(tradingPassword ? tradingPassword.value : (previous.trading_password || '')),
+                enabled: enabled ? !!enabled.checked : previous.enabled !== false,
                 has_password: sameAccount && !!previous.has_password,
                 has_trading_password: sameAccount && !!previous.has_trading_password,
                 edit_password: !!previous.edit_password || !sameAccount,
@@ -134,13 +134,25 @@
 
     function stop() {
         if (state.timer) clearTimeout(state.timer);
+        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
         state.timer = null;
+        state.autosaveTimer = null;
     }
 
     function schedule() {
         stop();
         if (!active()) return;
         state.timer = setTimeout(function() { refresh(false); }, 2000);
+    }
+
+    function markDirty(delay) {
+        state.dirty = true;
+        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
+        if (!active()) return;
+        state.autosaveTimer = setTimeout(function() {
+            state.autosaveTimer = null;
+            save();
+        }, typeof delay === 'number' ? delay : 550);
     }
 
     function refresh(force) {
@@ -161,9 +173,12 @@
         });
     }
 
-    function save() {
+    function save(options) {
+        options = options || {};
         var node = mount();
-        if (!node || state.loading) return;
+        if (!node || state.loading) return Promise.resolve(false);
+        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
+        state.autosaveTimer = null;
         var intervalInput = node.querySelector('[data-field="interval"]');
         var enabledInput = node.querySelector('[data-field="enabled"]');
         var intervalSeconds = Number(intervalInput && intervalInput.value);
@@ -172,34 +187,53 @@
             state.error = '抢分间隔必须大于 0 秒';
             toast(state.error, 'error');
             render();
-            return;
+            return Promise.resolve(false);
         }
         if (intervalSeconds < 0.001 || Math.abs(intervalMilliseconds - Math.round(intervalMilliseconds)) > 1e-9) {
             state.error = '抢分间隔最多支持三位小数，最小为 0.001 秒';
             toast(state.error, 'error');
             render();
-            return;
+            return Promise.resolve(false);
         }
-        var accounts = collectAccountRows().filter(function(item) { return !!item.account; }).map(function(item) {
-            return { account: item.account, password: item.password, trading_password: item.trading_password };
+        var draftAccounts = collectAccountRows();
+        var accounts = draftAccounts.filter(function(item) { return !!item.account; }).map(function(item) {
+            return { account: item.account, password: item.password, trading_password: item.trading_password, enabled: item.enabled !== false };
         });
-        state.draftAccounts = collectAccountRows();
+        var taskEnabled = !!(enabledInput && enabledInput.checked);
+        state.draftAccounts = draftAccounts;
+        var incompleteAccounts = draftAccounts.filter(function(item) {
+            return item.account && item.enabled !== false && !item.has_password && !String(item.password || '').trim();
+        });
+        if (incompleteAccounts.length) {
+            if (options.announce) {
+                toast('请先为启用账号填写登录密码', 'warning');
+            }
+            return Promise.resolve(false);
+        }
+        if (taskEnabled && !accounts.some(function(item) { return item.enabled; })) {
+            state.error = '请至少启用一个抢分账号后再开启自动抢购';
+            toast(state.error, 'warning');
+            render();
+            return Promise.resolve(false);
+        }
         state.loading = true;
         render();
-        api.saveConfig({
+        return api.saveConfig({
             accounts: accounts,
             interval_seconds: intervalSeconds,
-            enabled: !!(enabledInput && enabledInput.checked)
+            enabled: taskEnabled
         }).then(function() {
             state.dirty = false;
-            toast('EP 自动抢购配置已保存', 'success');
+            if (options.announce) toast(taskEnabled ? '自动抢购已启动' : '自动抢购已停止', 'success');
             return api.dashboard();
         }).then(function(data) {
             acceptData(data);
             state.error = '';
+            return true;
         }).catch(function(error) {
             state.error = error.message || '保存失败';
             toast(state.error, 'error');
+            return false;
         }).finally(function() {
             state.loading = false;
             render();
@@ -311,17 +345,15 @@
             var button = event.target.closest('[data-action]');
             if (!button) return;
             var action = button.getAttribute('data-action');
-            if (action === 'save') save();
             if (action === 'confirm-payment') confirmPayment(button.getAttribute('data-sid'));
             if (action === 'cancel-purchase') cancelPurchase(button.getAttribute('data-sid'));
             if (action === 'add-account') {
                 state.draftAccounts = collectAccountRows();
                 state.draftAccounts.push({
-                    account: '', password: '', trading_password: '',
+                    account: '', password: '', trading_password: '', enabled: true,
                     has_password: false, has_trading_password: false,
                     edit_password: true, edit_trading_password: true
                 });
-                state.dirty = true;
                 render();
                 var inputs = mount().querySelectorAll('[data-field="account"]');
                 if (inputs.length) inputs[inputs.length - 1].focus();
@@ -329,7 +361,12 @@
             if (action === 'remove-account') {
                 state.draftAccounts = collectAccountRows();
                 state.draftAccounts.splice(Number(button.getAttribute('data-index')), 1);
-                state.dirty = true;
+                var enabledAccounts = state.draftAccounts.filter(function(item) { return item.account && item.enabled !== false; });
+                if (state.data.config && state.data.config.enabled && !enabledAccounts.length) {
+                    state.data.config.enabled = false;
+                    toast('已无启用账号，自动抢购已停止', 'warning');
+                }
+                markDirty(0);
                 render();
             }
             if (action === 'edit-login-password' || action === 'edit-trading-password') {
@@ -338,7 +375,6 @@
                 var field = action === 'edit-login-password' ? 'edit_password' : 'edit_trading_password';
                 var selector = action === 'edit-login-password' ? '[data-field="password"]' : '[data-field="trading-password"]';
                 if (state.draftAccounts[index]) state.draftAccounts[index][field] = true;
-                state.dirty = true;
                 render();
                 var input = mount().querySelector('[data-account-row][data-index="' + index + '"] ' + selector);
                 if (input) input.focus();
@@ -346,15 +382,42 @@
         });
         mount().addEventListener('input', function(event) {
             if (!event.target.closest('[data-field]')) return;
-            state.dirty = true;
+            markDirty(650);
         });
         mount().addEventListener('change', function(event) {
             if (!event.target.closest('[data-field]')) return;
-            state.dirty = true;
+            state.draftAccounts = collectAccountRows();
+            if (event.target.matches('[data-field="enabled"]')) {
+                var hasEnabledAccount = state.draftAccounts.some(function(item) {
+                    return item.account && item.enabled !== false;
+                });
+                if (event.target.checked && !hasEnabledAccount) {
+                    event.target.checked = false;
+                    toast('请至少启用一个抢分账号后再开启自动抢购', 'warning');
+                    return;
+                }
+                markDirty(0);
+                save({ announce: true });
+                return;
+            }
+            if (event.target.matches('[data-field="account-enabled"]')) {
+                if (state.data.config && state.data.config.enabled && !state.draftAccounts.some(function(item) {
+                    return item.account && item.enabled !== false;
+                })) {
+                    state.data.config.enabled = false;
+                    toast('已无启用账号，自动抢购已停止', 'warning');
+                }
+                markDirty(0);
+                render();
+                return;
+            }
             if (event.target.matches('[data-field="account"]')) {
-                state.draftAccounts = collectAccountRows();
                 render();
             }
+            markDirty(500);
+        });
+        mount().addEventListener('focusout', function(event) {
+            if (event.target.closest('[data-field]') && state.dirty) markDirty(250);
         });
     }
 

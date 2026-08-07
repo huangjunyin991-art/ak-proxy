@@ -117,9 +117,10 @@
     function renderCredentialRows(rows, loading) {
         var items = Array.isArray(rows) ? rows : [];
         if (!items.length) {
-            return '<tr class="ak-ep-credential-empty"><td colspan="4">尚未添加抢分账号</td></tr>';
+            return '<tr class="ak-ep-credential-empty"><td colspan="5">尚未添加抢分账号</td></tr>';
         }
         return items.map(function(item, index) {
+            var accountEnabled = item.enabled !== false;
             var loginControl = item.has_password && !item.edit_password
                 ? '<button type="button" class="ak-ep-credential-set" data-action="edit-login-password" data-index="' + index + '" title="点击修改登录密码" ' + (loading ? 'disabled' : '') + '><i></i>已设置</button>'
                 : '<input class="ak-ep-row-input" data-field="password" type="password" value="' + escapeHtml(item.password || '') + '" placeholder="输入登录密码" autocomplete="new-password" aria-label="登录密码" ' + (loading ? 'disabled' : '') + '>';
@@ -130,6 +131,7 @@
                 '<td data-label="账号"><input class="ak-ep-row-input" data-field="account" type="text" value="' + escapeHtml(item.account || '') + '" placeholder="账号" autocomplete="off" spellcheck="false" aria-label="抢分账号" ' + (loading ? 'disabled' : '') + '></td>' +
                 '<td data-label="登录密码">' + loginControl + '</td>' +
                 '<td data-label="交易密码">' + tradingControl + '</td>' +
+                '<td class="ak-ep-account-enabled-cell" data-label="启用"><label class="ak-ep-account-enabled" title="' + (accountEnabled ? '停用该账号' : '启用该账号') + '"><input data-field="account-enabled" type="checkbox" ' + (accountEnabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span></label></td>' +
                 '<td class="ak-ep-row-action"><button type="button" class="ak-ep-remove-account" data-action="remove-account" data-index="' + index + '" title="删除账号" aria-label="删除账号" ' + (loading ? 'disabled' : '') + '>' +
                     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></td>' +
             '</tr>';
@@ -141,11 +143,6 @@
         var config = data.config || {};
         var savedRows = Array.isArray(config.account_rows) ? config.account_rows : [];
         var accountRows = Array.isArray(state.draftAccounts) ? state.draftAccounts : savedRows;
-        if (!accountRows.length && Array.isArray(config.accounts)) {
-            accountRows = config.accounts.map(function(account) {
-                return { account: account, password: '', trading_password: '', has_password: false, has_trading_password: false };
-            });
-        }
         var statuses = Array.isArray(data.accounts) ? data.accounts : [];
         var summary = data.summary || {};
         var totalPolls = statuses.reduce(function(total, item) { return total + Number(item.total_polls || 0); }, 0);
@@ -153,6 +150,7 @@
         var enabled = !!config.enabled;
         var loading = !!state.loading;
         var current = String(config.current_account || '');
+        var enabledAccountCount = accountRows.filter(function(item) { return item.enabled !== false; }).length;
         return '<div class="ak-ep-root">' +
             '<header class="ak-ep-toolbar">' +
                 '<div class="ak-ep-heading"><h2>EP 自动抢购</h2></div>' +
@@ -161,26 +159,21 @@
             (state.error ? '<div class="ak-ep-alert" role="alert">' + escapeHtml(state.error) + '</div>' : '') +
             '<section class="ak-ep-workspace">' +
                 '<div class="ak-ep-config-pane">' +
-                    '<div class="ak-ep-pane-title"><strong>执行配置</strong><span>全局任务</span></div>' +
+                    '<div class="ak-ep-config-header"><div><span>执行配置</span><strong>EP 自动抢购</strong></div>' +
+                        '<label class="ak-ep-master-toggle"><b>自动抢购</b><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span></label></div>' +
                     '<div class="ak-ep-config-grid">' +
-                        '<div class="ak-ep-account-editor"><div class="ak-ep-editor-heading"><div><strong>抢分账号</strong><span>按表格顺序轮转</span></div>' +
+                        '<div class="ak-ep-account-editor"><div class="ak-ep-editor-heading"><div><strong>抢分账号</strong><span>已启用 ' + number(enabledAccountCount) + ' / ' + number(accountRows.length) + '</span></div>' +
                             '<button type="button" class="ak-ep-add-account" data-action="add-account" ' + (loading ? 'disabled' : '') + '>' +
                                 '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加账号</span></button></div>' +
-                            '<div class="ak-ep-credential-table-wrap"><table class="ak-ep-credential-table"><thead><tr><th>账号</th><th>登录密码</th><th>交易密码</th><th></th></tr></thead><tbody>' + renderCredentialRows(accountRows, loading) + '</tbody></table></div></div>' +
-                        '<div class="ak-ep-control-row"><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
-                            '<input id="akEpInterval" data-field="interval" type="number" min="0.001" step="0.001" inputmode="decimal" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div>' +
-                            '<div class="ak-ep-actions">' +
-                                '<label class="ak-ep-toggle"><input type="checkbox" data-field="enabled" ' + (enabled ? 'checked' : '') + ' ' + (loading ? 'disabled' : '') + '><span></span><b>自动抢购</b></label>' +
-                                '<button type="button" class="ak-ep-save" data-action="save" ' + (loading ? 'disabled' : '') + '>' +
-                                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg><span>保存配置</span></button>' +
-                            '</div>' +
-                        '</div>' +
+                            '<div class="ak-ep-credential-table-wrap"><table class="ak-ep-credential-table"><thead><tr><th>账号</th><th>登录密码</th><th>交易密码</th><th>启用</th><th></th></tr></thead><tbody>' + renderCredentialRows(accountRows, loading) + '</tbody></table></div></div>' +
+                        '<div class="ak-ep-automation-bar"><div class="ak-ep-field ak-ep-interval-field"><label for="akEpInterval">抢分间隔</label><div class="ak-ep-number-input">' +
+                            '<input id="akEpInterval" data-field="interval" type="number" min="0.001" step="0.001" inputmode="decimal" value="' + escapeHtml(config.interval_seconds || 1) + '" ' + (loading ? 'disabled' : '') + '><span>秒</span></div></div></div>' +
                     '</div>' +
                 '</div>' +
                 '<div class="ak-ep-summary-pane">' +
                     '<div class="ak-ep-pane-title"><strong>运行摘要</strong><span>' + (enabled ? '任务已启用' : '任务未启用') + '</span></div>' +
                     '<div class="ak-ep-metrics">' +
-                        '<div class="ak-ep-metric"><span>轮转账号</span><strong>' + number(accountRows.length) + '</strong></div>' +
+                        '<div class="ak-ep-metric"><span>启用账号</span><strong>' + number(enabledAccountCount) + '</strong></div>' +
                         '<div class="ak-ep-metric is-cyan"><span>累计轮询</span><strong>' + number(totalPolls) + '</strong></div>' +
                         '<div class="ak-ep-metric is-yellow"><span>发现挂单</span><strong>' + number(listings) + '</strong></div>' +
                         '<div class="ak-ep-metric is-green"><span>购买成功</span><strong>' + number(summary.successes) + '</strong></div>' +

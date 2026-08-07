@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Callable, Mapping
 
 
-def _accounts(value: Any) -> list[str]:
+def _account_rows(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, str):
         try:
             value = json.loads(value)
@@ -14,14 +14,48 @@ def _accounts(value: Any) -> list[str]:
             value = []
     if not isinstance(value, list):
         return []
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        account = str(item.get("account") or "").strip().lower()
+        raw_enabled = item.get("enabled", True)
+        enabled = (
+            str(raw_enabled).strip().lower() not in {"0", "false", "no", "off"}
+            if isinstance(raw_enabled, str)
+            else bool(raw_enabled)
+        )
+        if account and account not in seen:
+            seen.add(account)
+            result.append({"account": account, "enabled": enabled})
+    return result
+
+
+def _accounts(value: Any) -> list[str]:
+    return [str(item["account"]) for item in _account_rows(value)]
+
+
+def _account_names(value: Any) -> list[str]:
+    """Normalize account parameters passed between repository methods."""
+    if not isinstance(value, list):
+        return []
     result: list[str] = []
     seen: set[str] = set()
     for item in value:
-        account = str(item or "").strip().lower()
+        account = (
+            str(item.get("account") or "").strip().lower()
+            if isinstance(item, Mapping)
+            else str(item or "").strip().lower()
+        )
         if account and account not in seen:
             seen.add(account)
             result.append(account)
     return result
+
+
+def _enabled_accounts(value: Any) -> list[str]:
+    return [str(item["account"]) for item in _account_rows(value) if item["enabled"]]
 
 
 class EPAutoPurchaseRepository:
@@ -100,11 +134,14 @@ class EPAutoPurchaseRepository:
                 await conn.execute(
                     """
                     INSERT INTO ep_auto_purchase_account_credentials (account, trading_password)
-                    SELECT legacy_account.account, config.trading_password
+                    SELECT legacy_account.value->>'account', config.trading_password
                     FROM ep_auto_purchase_config config
-                    CROSS JOIN LATERAL jsonb_array_elements_text(config.accounts_json)
-                        AS legacy_account(account)
-                    WHERE config.slot = 1 AND NULLIF(config.trading_password, '') IS NOT NULL
+                    CROSS JOIN LATERAL jsonb_array_elements(config.accounts_json)
+                        AS legacy_account(value)
+                    WHERE config.slot = 1
+                      AND jsonb_typeof(legacy_account.value) = 'object'
+                      AND NULLIF(legacy_account.value->>'account', '') IS NOT NULL
+                      AND NULLIF(config.trading_password, '') IS NOT NULL
                     ON CONFLICT (account) DO NOTHING
                     """
                 )
@@ -372,7 +409,15 @@ class EPAutoPurchaseRepository:
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM ep_auto_purchase_config WHERE slot = 1")
         result = dict(row or {})
-        result["accounts"] = _accounts(result.pop("accounts_json", []))
+        account_rows = _account_rows(result.pop("accounts_json", []))
+        result["accounts"] = [str(item["account"]) for item in account_rows]
+        result["enabled_accounts"] = [
+            str(item["account"]) for item in account_rows if bool(item["enabled"])
+        ]
+        result["account_enabled"] = {
+            str(item["account"]): bool(item["enabled"])
+            for item in account_rows
+        }
         result.pop("trading_password", None)
         interval_milliseconds = max(1, int(result.get("interval_milliseconds") or 1000))
         result["interval_milliseconds"] = interval_milliseconds
@@ -404,7 +449,7 @@ class EPAutoPurchaseRepository:
         return str(value or "")
 
     async def list_trading_password_accounts(self, accounts: list[str]) -> set[str]:
-        normalized = _accounts(accounts)
+        normalized = _account_names(accounts)
         if not normalized:
             return set()
         await self.ensure_ready()
@@ -430,13 +475,15 @@ class EPAutoPurchaseRepository:
 
     async def save_config(
         self,
-        accounts: list[str],
+        account_rows: list[Mapping[str, Any]],
         interval_milliseconds: int,
         enabled: bool,
         trading_passwords: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         await self.ensure_ready()
-        encoded = json.dumps(accounts, ensure_ascii=False)
+        normalized_rows = _account_rows(account_rows)
+        normalized_accounts = [str(item["account"]) for item in normalized_rows]
+        encoded = json.dumps(normalized_rows, ensure_ascii=False)
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -455,14 +502,14 @@ class EPAutoPurchaseRepository:
                 max(1, int(interval_milliseconds)),
                 encoded,
             )
-            await conn.execute(
-                """
-                INSERT INTO ep_auto_purchase_account_status (account)
-                SELECT value FROM jsonb_array_elements_text($1::jsonb)
-                ON CONFLICT (account) DO NOTHING
-                """,
-                encoded,
-            )
+            if normalized_accounts:
+                await conn.executemany(
+                    """
+                    INSERT INTO ep_auto_purchase_account_status (account)
+                    VALUES ($1) ON CONFLICT (account) DO NOTHING
+                    """,
+                    [(account,) for account in normalized_accounts],
+                )
             updates = [
                 (str(account or "").strip().lower(), str(password or ""))
                 for account, password in (trading_passwords or {}).items()
@@ -494,7 +541,7 @@ class EPAutoPurchaseRepository:
                     return None
                 if row["lease_expires_at"] and row["lease_expires_at"] > datetime.now():
                     return None
-                accounts = _accounts(row["accounts_json"])
+                accounts = _enabled_accounts(row["accounts_json"])
                 if not accounts:
                     return None
                 status_rows = await conn.fetch(
