@@ -3,11 +3,24 @@ import pytest
 
 from .outbound_dispatcher import OutboundDispatcher
 from .rpc_timeout_policy import (
+    AK_SELL_READ_TIMEOUT_SECONDS,
+    AK_SELL_WRITE_TIMEOUT_SECONDS,
     LOGIN_RPC_TIMEOUT_SECONDS,
+    NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
     REGULAR_RPC_TIMEOUT_SECONDS,
     resolve_connect_timeout,
     resolve_rpc_forward_timeout,
 )
+
+
+def test_business_rpc_forward_timeouts_are_unified():
+    assert {
+        REGULAR_RPC_TIMEOUT_SECONDS,
+        LOGIN_RPC_TIMEOUT_SECONDS,
+        AK_SELL_READ_TIMEOUT_SECONDS,
+        AK_SELL_WRITE_TIMEOUT_SECONDS,
+        NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
+    } == {20.0}
 
 
 def test_rpc_timeout_policy_keeps_login_longer_than_regular_rpc():

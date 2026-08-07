@@ -712,8 +712,8 @@ async def test_full_source_probe_callers_share_one_batch():
     assert first == second == 4
 
 
-def test_login_forward_timeout_is_five_seconds():
-    assert LOGIN_RPC_TIMEOUT_SECONDS == 5
+def test_login_forward_timeout_is_twenty_seconds():
+    assert LOGIN_RPC_TIMEOUT_SECONDS == 20
 
 
 @pytest.mark.anyio
