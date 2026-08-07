@@ -37,7 +37,7 @@ class ResolvedAKAuth:
 
 
 class AKSellService:
-    """Validates the fixed sell flow without retaining client credentials or jobs."""
+    """Validates the fixed sell flow and optionally records sanitized success summaries."""
 
     _OPERATIONS = frozenset({
         "login",
@@ -49,11 +49,12 @@ class AKSellService:
         "google-unbind",
     })
 
-    def __init__(self, *, provider=None, clock: AKSellClock | None = None, account_state=None) -> None:
+    def __init__(self, *, provider=None, clock: AKSellClock | None = None, account_state=None, ledger_recorder=None) -> None:
         self._internal_rpc_token = create_internal_rpc_token()
         self.provider = provider or AKSellProvider(internal_token=self._internal_rpc_token)
         self.clock = clock or AKSellClock()
         self.account_state = account_state
+        self.ledger_recorder = ledger_recorder
         self._refresh_locks: dict[str, asyncio.Lock] = {}
 
     def is_internal_rpc_request(self, request) -> bool:
@@ -110,6 +111,15 @@ class AKSellService:
             return self._with_server_time(self._error_response(name, exc))
 
         success = not bool(upstream.get("Error"))
+        if name == "submit" and success and self.ledger_recorder is not None:
+            await self.ledger_recorder.record_success(
+                account=auth.account or str((payload or {}).get("account") or ""),
+                endpoint=endpoint,
+                request_data=request_data,
+                payload=upstream,
+                source="ak_sell_api",
+                request_id=str((payload or {}).get("request_id") or (payload or {}).get("requestId") or ""),
+            )
         return self._with_server_time({
             "success": success,
             "state": "completed" if success else "rejected",

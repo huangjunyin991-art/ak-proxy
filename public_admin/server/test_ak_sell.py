@@ -69,6 +69,15 @@ class FakeAccountState:
         self.auth = None
 
 
+class FakeLedgerRecorder:
+    def __init__(self):
+        self.calls = []
+
+    async def record_success(self, **payload):
+        self.calls.append(payload)
+        return True
+
+
 def fixed_clock() -> AKSellClock:
     return AKSellClock(lambda: datetime(2026, 7, 30, 21, 12, 34, 567000, tzinfo=BEIJING_TIMEZONE))
 
@@ -170,6 +179,52 @@ async def test_submit_uses_subaccount_endpoint_when_son_id_is_present():
     assert provider.calls[0][0] == "ACE_Sell_Son"
     assert provider.calls[0][1]["sonId"] == "sub-8"
     assert provider.calls[0][1]["v"] == "2096"
+
+
+@pytest.mark.asyncio
+async def test_successful_submit_records_once_after_upstream_confirmation():
+    provider = FakeProvider(result={"Error": False, "Msg": "出售成功"})
+    ledger = FakeLedgerRecorder()
+    service = AKSellService(provider=provider, clock=fixed_clock(), ledger_recorder=ledger)
+
+    await service.invoke(
+        "submit",
+        {
+            "account": "buyer-1",
+            "key": "key-1",
+            "UserID": "42",
+            "mnemonicid1": "3",
+            "mnemonickey": "challenge-key",
+            "mnemonicstr1": "word",
+            "gCode": "123456",
+            "count": "200",
+            "request_id": "sell-job-1",
+        },
+    )
+
+    assert len(ledger.calls) == 1
+    assert ledger.calls[0]["account"] == "buyer-1"
+    assert ledger.calls[0]["endpoint"] == "ACE_Sell"
+    assert ledger.calls[0]["request_data"]["count"] == "200"
+    assert ledger.calls[0]["request_id"] == "sell-job-1"
+
+
+@pytest.mark.asyncio
+async def test_rejected_submit_does_not_write_ledger():
+    provider = FakeProvider(result={"Error": True, "Msg": "拒绝"})
+    ledger = FakeLedgerRecorder()
+    service = AKSellService(provider=provider, clock=fixed_clock(), ledger_recorder=ledger)
+
+    await service.invoke(
+        "submit",
+        {
+            "key": "key-1", "UserID": "42", "mnemonicid1": "3",
+            "mnemonickey": "challenge-key", "mnemonicstr1": "word",
+            "gCode": "123456", "count": "200",
+        },
+    )
+
+    assert ledger.calls == []
 
 
 @pytest.mark.asyncio

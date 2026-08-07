@@ -904,6 +904,17 @@ except Exception as e:
 ak_sell_service = None
 
 try:
+    from .ak_sell_ledger import AKSellLedgerRepository, AKSellLedgerService, create_ak_sell_ledger_router
+    _AK_SELL_LEDGER_IMPORT_ERROR = None
+except Exception as e:
+    AKSellLedgerRepository = None
+    AKSellLedgerService = None
+    create_ak_sell_ledger_router = None
+    _AK_SELL_LEDGER_IMPORT_ERROR = e
+
+ak_sell_ledger_service = None
+
+try:
     from .account_identity.admin import (
         AccountIdentityAdminService,
         AccountIdentitySyncScheduler,
@@ -7183,6 +7194,16 @@ if (
 elif _EP_AUTO_PURCHASE_IMPORT_ERROR is not None:
     logger.warning(f"[EPAutoPurchase] module unavailable, skipped: {_EP_AUTO_PURCHASE_IMPORT_ERROR}")
 
+if AKSellLedgerService is not None and AKSellLedgerRepository is not None:
+    try:
+        ak_sell_ledger_service = AKSellLedgerService(
+            AKSellLedgerRepository(db._get_pool),
+            logger=logger,
+        )
+    except Exception as e:
+        logger.warning(f"[AKSellLedger] initialization failed, skipped: {e}")
+        ak_sell_ledger_service = None
+
 if create_ak_sell_router is not None and AKSellService is not None and upstream_rpc_gate is not None:
     try:
         ak_sell_service = AKSellService(
@@ -7191,6 +7212,7 @@ if create_ak_sell_router is not None and AKSellService is not None and upstream_
                 get_password=db.get_user_password,
                 clear_auth_state=db.clear_ak_auth_state,
             ) if UserStatsAKAccountState is not None else None,
+            ledger_recorder=ak_sell_ledger_service,
         )
         app.include_router(create_ak_sell_router(
             service=ak_sell_service,
@@ -7205,6 +7227,16 @@ if create_ak_sell_router is not None and AKSellService is not None and upstream_
         ak_sell_service = None
 elif _AK_SELL_IMPORT_ERROR is not None:
     logger.warning(f"[AKSell] module unavailable, skipped: {_AK_SELL_IMPORT_ERROR}")
+
+if create_ak_sell_ledger_router is not None and ak_sell_ledger_service is not None:
+    try:
+        app.include_router(create_ak_sell_ledger_router(
+            service=ak_sell_ledger_service,
+            require_admin_identity=_require_admin_identity,
+            super_admin_role=ROLE_SUPER_ADMIN,
+        ))
+    except Exception as e:
+        logger.warning(f"[AKSellLedger] route registration failed, skipped: {e}")
 
 if create_account_identity_admin_router is not None and AccountIdentityAdminService is not None:
     try:
@@ -15024,6 +15056,29 @@ async def ep_auto_purchase_panel_asset(request: Request, asset_name: str):
     )
 
 
+@app.get("/admin/api/ak-sell-ledger-panel/{asset_name:path}")
+async def ak_sell_ledger_panel_asset(request: Request, asset_name: str):
+    allowed_assets = {
+        "ak_sell_ledger_api.js": "application/javascript",
+        "ak_sell_ledger_renderer.js": "application/javascript",
+        "ak_sell_ledger_panel.js": "application/javascript",
+        "ak_sell_ledger_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "ak_sell_ledger"))
+    asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
+    if not asset_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
+
+
 @app.get("/admin/api/point-stats-panel/{asset_name:path}")
 async def point_stats_panel_asset(request: Request, asset_name: str):
     allowed_assets = {
@@ -17946,6 +18001,21 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             account=str(session.get("username") or params.get("account") or params.get("username") or ""),
             client_ip=_extract_client_ip(request),
         )
+        if (
+            ak_sell_ledger_service is not None
+            and normalized_path in {"ace_sell", "ace_sell_son"}
+            and not _is_trusted_first_party_rpc_request(request)
+            and response.status_code < 400
+            and result.get("Error") is False
+        ):
+            await ak_sell_ledger_service.record_success(
+                account=str(session.get("username") or params.get("account") or ""),
+                endpoint="ACE_Sell_Son" if normalized_path == "ace_sell_son" else "ACE_Sell",
+                request_data=params,
+                payload=result,
+                source="admin_web",
+                request_id=str(request.headers.get("x-request-id") or ""),
+            )
         should_persist = bool(set_cookie_values)
         is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
         await _sync_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")
