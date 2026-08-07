@@ -7,9 +7,7 @@ from collections.abc import Mapping
 
 
 EP_AUTO_PURCHASE_INTERNAL_HEADER = "x-ak-ep-auto-purchase-job"
-# The worker runs beside the proxy. Keep the request on loopback so it enters
-# the same RPC dispatcher without adding a public DNS/TLS/Nginx hairpin.
-DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL = "http://127.0.0.1:8080/RPC/"
+DEFAULT_EP_AUTO_PURCHASE_RPC_BASE_URL = "https://ak2025.vip/RPC/"
 
 
 def create_internal_rpc_token() -> str:
