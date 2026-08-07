@@ -732,6 +732,24 @@ async def test_configure_reuses_saved_password_and_updates_only_explicit_passwor
     assert "new-password" not in str(result)
 
 
+@pytest.mark.anyio
+async def test_configure_rejects_partial_login_password_before_it_replaces_saved_password():
+    repository = _ConfigRepository([
+        {"username": "buyer", "nickname": "", "has_password": False},
+    ])
+    auth_store = _AuthStore()
+    service = EPAutoPurchaseService(repository, auth_store, _Gate())
+
+    with pytest.raises(ValueError, match="登录密码至少需要 6 位"):
+        await service.configure({
+            "accounts": [{"account": "buyer", "password": "12"}],
+            "interval_seconds": 1,
+            "enabled": True,
+        })
+
+    assert auth_store.updated == []
+
+
 @pytest.mark.parametrize(
     ("seconds", "milliseconds"),
     [("0.001", 1), ("0.1", 100), ("0.5", 500), (1, 1000)],

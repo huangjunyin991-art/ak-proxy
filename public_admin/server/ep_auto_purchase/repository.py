@@ -379,7 +379,7 @@ class EPAutoPurchaseRepository:
             rows = await conn.fetch(
                 """
                 SELECT aa.username, aa.nickname,
-                       COALESCE(NULLIF(us.password, ''), NULLIF(aa.password, ''), '') <> '' AS has_password
+                       LENGTH(COALESCE(NULLIF(us.password, ''), NULLIF(aa.password, ''), '')) >= 6 AS has_password
                 FROM authorized_accounts aa
                 LEFT JOIN user_stats us ON us.username = aa.username
                 WHERE aa.status = 'active' AND aa.expire_time >= NOW()

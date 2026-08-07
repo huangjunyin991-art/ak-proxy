@@ -393,6 +393,12 @@
         });
         mount().addEventListener('input', function(event) {
             if (!event.target.closest('[data-field]')) return;
+            if (event.target.matches('[data-field="password"], [data-field="trading-password"]')) {
+                state.dirty = true;
+                if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
+                state.autosaveTimer = null;
+                return;
+            }
             markDirty(650);
         });
         mount().addEventListener('change', function(event) {

@@ -3,6 +3,9 @@ from __future__ import annotations
 import inspect
 
 
+MIN_LOGIN_PASSWORD_LENGTH = 6
+
+
 class EPAutoPurchaseCredentials:
     """Keep EP configuration separate from the central account credential store."""
 
@@ -15,14 +18,15 @@ class EPAutoPurchaseCredentials:
         getter = getattr(self.auth_store, "get_user_password", None)
         if callable(getter):
             password = str(await getter(account) or "")
-            if password:
+            if len(password) >= MIN_LOGIN_PASSWORD_LENGTH:
                 return password
-        return await self.repository.get_account_password(account)
+        password = await self.repository.get_account_password(account)
+        return password if len(password) >= MIN_LOGIN_PASSWORD_LENGTH else ""
 
     async def update_password(self, account: str, password: str) -> bool:
         normalized_account = str(account or "").strip().lower()
         new_password = str(password or "")
-        if not normalized_account or not new_password.strip():
+        if not normalized_account or len(new_password) < MIN_LOGIN_PASSWORD_LENGTH:
             return False
 
         updater = getattr(self.auth_store, "update_user_saved_password", None)

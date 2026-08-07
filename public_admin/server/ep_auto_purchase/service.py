@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from ..notice_guidance.provider import make_v
 from ..upstream_rpc_gate import RpcGateBusy
-from .credentials import EPAutoPurchaseCredentials
+from .credentials import EPAutoPurchaseCredentials, MIN_LOGIN_PASSWORD_LENGTH
 from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
 from .listing import EPListing, inspect_listing_payload, parse_listing
 from .order_detail import extract_seller_account
@@ -106,6 +106,10 @@ class EPAutoPurchaseService:
             )
             account_rows.append({"account": account, "enabled": account_enabled})
             if password.strip():
+                if len(password) < MIN_LOGIN_PASSWORD_LENGTH:
+                    raise ValueError(f"账号 {account} 的登录密码至少需要 {MIN_LOGIN_PASSWORD_LENGTH} 位")
+                if len(password) > 512:
+                    raise ValueError(f"账号 {account} 的登录密码长度超出限制")
                 password_updates[account] = password
             if trading_password:
                 if len(trading_password) < 6:
