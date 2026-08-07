@@ -2512,6 +2512,18 @@ def _extract_client_ip(request: Request) -> str:
     return "unknown" if peer_ip.is_loopback else str(peer_ip)
 
 
+def _normalize_forwarded_client_ip(value: Any) -> str:
+    """Return only a real IP address for upstream forwarding headers."""
+    candidate = str(value or "").strip()
+    if not candidate or candidate.lower() in {"unknown", "none", "null", "-"}:
+        return ""
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return ""
+    return candidate
+
+
 @app.middleware("http")
 async def active_defense_response_status_middleware(request: Request, call_next):
     response = await call_next(request)
@@ -2610,7 +2622,11 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     # 从nginx传递的头中提取用户真实IP
 
-    real_ip = client_ip or headers.get("x-real-ip", "") or headers.get("x-forwarded-for", "").split(",")[0].strip()
+    real_ip = _normalize_forwarded_client_ip(
+        client_ip
+        or headers.get("x-real-ip", "")
+        or headers.get("x-forwarded-for", "").split(",")[0].strip()
+    )
 
     fwd_headers = {
 
