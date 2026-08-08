@@ -1450,6 +1450,25 @@ async def get_ak_auth_state(username: str, allow_expired: bool = False) -> Optio
     return await load_ak_auth_state(username, check_expiry=not bool(allow_expired))
 
 
+async def find_username_by_ak_userkey(userkey: str) -> str:
+    """Resolve a saved AK login key only when it belongs to one local account."""
+    normalized_key = str(userkey or '').strip()
+    if not normalized_key:
+        return ''
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT username
+            FROM user_stats
+            WHERE ak_userkey = $1
+            ORDER BY ak_auth_updated_at DESC NULLS LAST, username ASC
+            LIMIT 2
+        ''', normalized_key)
+    if len(rows) != 1:
+        return ''
+    return str(rows[0]['username'] or '').strip().lower()
+
+
 async def ensure_account_identity(username: str) -> Dict[str, Any]:
     return await _account_identity_service.ensure_identity(username)
 

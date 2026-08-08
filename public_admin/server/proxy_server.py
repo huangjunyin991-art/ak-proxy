@@ -906,15 +906,22 @@ except Exception as e:
 ak_sell_service = None
 
 try:
-    from .ak_sell_ledger import AKSellLedgerRepository, AKSellLedgerService, create_ak_sell_ledger_router
+    from .ak_sell_ledger import (
+        AKSellLedgerRepository,
+        AKSellLedgerService,
+        PublicRpcSaleRecorder,
+        create_ak_sell_ledger_router,
+    )
     _AK_SELL_LEDGER_IMPORT_ERROR = None
 except Exception as e:
     AKSellLedgerRepository = None
     AKSellLedgerService = None
+    PublicRpcSaleRecorder = None
     create_ak_sell_ledger_router = None
     _AK_SELL_LEDGER_IMPORT_ERROR = e
 
 ak_sell_ledger_service = None
+ak_sell_public_rpc_recorder = None
 
 try:
     from .account_identity.admin import (
@@ -3976,6 +3983,33 @@ async def proxy_rpc(path: str, request: Request):
         upstream_ms = _elapsed_ms(upstream_started_at)
         if stock_price_cache_key:
             await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
+        if (
+            ak_sell_public_rpc_recorder is not None
+            and normalized_path in {"ace_sell", "ace_sell_son"}
+            and not ak_sell_internal_request
+            and response.status_code < 400
+        ):
+            try:
+                result = _parse_rpc_upstream_json(
+                    response,
+                    path,
+                    "rpc_ak_sell_ledger",
+                    account=_extract_forward_account(params),
+                    client_ip=client_ip,
+                )
+                await ak_sell_public_rpc_recorder.record_if_success(
+                    normalized_path=normalized_path,
+                    params=params,
+                    payload=result,
+                    cookies=request.cookies,
+                    request_id=str(request.headers.get("x-request-id") or ""),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[AKSellLedger] public RPC sale recording failed path=%s error=%s",
+                    path,
+                    str(exc)[:300],
+                )
         if _is_login_forget_rpc(path):
             try:
                 result = _parse_rpc_upstream_json(
@@ -7218,9 +7252,16 @@ if AKSellLedgerService is not None and AKSellLedgerRepository is not None:
             AKSellLedgerRepository(db._get_pool),
             logger=logger,
         )
+        if PublicRpcSaleRecorder is not None:
+            ak_sell_public_rpc_recorder = PublicRpcSaleRecorder(
+                ak_sell_ledger_service,
+                db.find_username_by_ak_userkey,
+                logger,
+            )
     except Exception as e:
         logger.warning(f"[AKSellLedger] initialization failed, skipped: {e}")
         ak_sell_ledger_service = None
+        ak_sell_public_rpc_recorder = None
 
 if create_ak_sell_router is not None and AKSellService is not None and upstream_rpc_gate is not None:
     try:
