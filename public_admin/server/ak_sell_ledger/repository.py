@@ -38,6 +38,7 @@ class AKSellLedgerRepository:
                         endpoint TEXT NOT NULL DEFAULT '',
                         message TEXT NOT NULL DEFAULT '',
                         source TEXT NOT NULL DEFAULT '',
+                        confirmation_method TEXT NOT NULL DEFAULT 'upstream_response',
                         sold_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         upstream_payload JSONB NOT NULL DEFAULT '{}'::jsonb
@@ -45,11 +46,46 @@ class AKSellLedgerRepository:
                     """
                 )
                 await conn.execute(
+                    "ALTER TABLE ak_sell_ledger ADD COLUMN IF NOT EXISTS confirmation_method "
+                    "TEXT NOT NULL DEFAULT 'upstream_response'"
+                )
+                await conn.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_ak_sell_ledger_request_id "
                     "ON ak_sell_ledger(request_id) WHERE request_id IS NOT NULL AND request_id <> ''"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_ak_sell_ledger_sold_at ON ak_sell_ledger(sold_at DESC)"
+                )
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS ak_sell_balance_confirmation_tasks (
+                        task_id TEXT PRIMARY KEY,
+                        request_id TEXT NOT NULL DEFAULT '',
+                        account TEXT NOT NULL,
+                        endpoint TEXT NOT NULL,
+                        sub_account_id TEXT NOT NULL DEFAULT '',
+                        amount TEXT NOT NULL,
+                        initial_balance TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT '',
+                        state TEXT NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        next_attempt_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        expires_at TIMESTAMP NOT NULL,
+                        last_error TEXT NOT NULL DEFAULT '',
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        confirmed_at TIMESTAMP NULL
+                    )
+                    """
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ak_sell_balance_confirmation_due "
+                    "ON ak_sell_balance_confirmation_tasks(state, next_attempt_at)"
+                )
+                await conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ak_sell_balance_confirmation_request_id "
+                    "ON ak_sell_balance_confirmation_tasks(request_id) "
+                    "WHERE request_id <> ''"
                 )
                 await conn.execute(
                     """
@@ -79,14 +115,15 @@ class AKSellLedgerRepository:
                 """
                 INSERT INTO ak_sell_ledger (
                     event_id, request_id, account, sub_account_id, sub_account_name,
-                    amount, endpoint, message, source, upstream_payload
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+                    amount, endpoint, message, source, confirmation_method, upstream_payload
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
                 ON CONFLICT DO NOTHING
                 """,
                 event_id, request_id, str(record.get("account") or ""),
                 str(record.get("sub_account_id") or ""), str(record.get("sub_account_name") or ""),
                 str(record.get("amount") or ""), str(record.get("endpoint") or ""),
                 str(record.get("message") or ""), str(record.get("source") or ""),
+                str(record.get("confirmation_method") or "upstream_response"),
                 json.dumps(record.get("upstream_payload") or {}, ensure_ascii=False),
             )
         return result.endswith("1")
@@ -105,7 +142,7 @@ class AKSellLedgerRepository:
             conditions.append(f"source = ${len(params)}")
         params.extend([page_size, (page - 1) * page_size])
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-        sql = f"SELECT id,event_id,request_id,account,sub_account_id,sub_account_name,amount,endpoint,message,source,sold_at,created_at FROM ak_sell_ledger{where} ORDER BY sold_at DESC, id DESC LIMIT ${len(params) - 1} OFFSET ${len(params)}"
+        sql = f"SELECT id,event_id,request_id,account,sub_account_id,sub_account_name,amount,endpoint,message,source,confirmation_method,sold_at,created_at FROM ak_sell_ledger{where} ORDER BY sold_at DESC, id DESC LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
@@ -167,4 +204,123 @@ class AKSellLedgerRepository:
                 ) or DEFAULT_RETENTION_DAYS)
                 cutoff = await conn.fetchval("SELECT NOW() - make_interval(days => $1::integer)", retention_days)
                 result = await conn.execute("DELETE FROM ak_sell_ledger WHERE sold_at < $1", cutoff)
-        return {"deleted": int(result.split()[-1]), "cutoff": cutoff, "retention_days": retention_days}
+                task_result = await conn.execute(
+                    "DELETE FROM ak_sell_balance_confirmation_tasks "
+                    "WHERE state IN ('confirmed', 'expired', 'superseded') AND updated_at < $1",
+                    cutoff,
+                )
+        return {
+            "deleted": int(result.split()[-1]),
+            "deleted_confirmations": int(task_result.split()[-1]),
+            "cutoff": cutoff,
+            "retention_days": retention_days,
+        }
+
+    async def enqueue_balance_confirmation(self, task: Mapping[str, Any]) -> bool:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                INSERT INTO ak_sell_balance_confirmation_tasks (
+                    task_id, request_id, account, endpoint, sub_account_id, amount,
+                    initial_balance, source, state, next_attempt_at, expires_at, last_error
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',NOW() + INTERVAL '3 seconds',
+                          NOW() + INTERVAL '2 minutes',$9)
+                ON CONFLICT (task_id) DO NOTHING
+                """,
+                str(task.get("task_id") or ""),
+                str(task.get("request_id") or ""),
+                str(task.get("account") or "").lower(),
+                str(task.get("endpoint") or ""),
+                str(task.get("sub_account_id") or ""),
+                str(task.get("amount") or ""),
+                str(task.get("initial_balance") or ""),
+                str(task.get("source") or ""),
+                str(task.get("last_error") or "")[:500],
+            )
+        return result.endswith("1")
+
+    async def claim_due_balance_confirmations(self, limit: int = 20) -> list[dict[str, Any]]:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        size = max(1, min(int(limit or 20), 100))
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "UPDATE ak_sell_balance_confirmation_tasks SET state='pending',updated_at=NOW() "
+                    "WHERE state='checking' AND updated_at < NOW() - INTERVAL '2 minutes'"
+                )
+                await conn.execute(
+                    "UPDATE ak_sell_balance_confirmation_tasks SET state='expired',updated_at=NOW(),"
+                    "last_error=CASE WHEN last_error='' THEN 'confirmation window expired' ELSE last_error END "
+                    "WHERE state='pending' AND expires_at <= NOW()"
+                )
+                rows = await conn.fetch(
+                    """
+                    WITH due AS (
+                        SELECT task_id FROM ak_sell_balance_confirmation_tasks
+                        WHERE state='pending' AND next_attempt_at <= NOW() AND expires_at > NOW()
+                        ORDER BY next_attempt_at, created_at
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT $1
+                    )
+                    UPDATE ak_sell_balance_confirmation_tasks task
+                    SET state='checking',attempts=task.attempts+1,updated_at=NOW()
+                    FROM due
+                    WHERE task.task_id=due.task_id
+                    RETURNING task.*
+                    """,
+                    size,
+                )
+        return [dict(row) for row in rows]
+
+    async def mark_balance_confirmation_confirmed(self, task_id: str) -> None:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                task = await conn.fetchrow(
+                    """
+                    UPDATE ak_sell_balance_confirmation_tasks
+                    SET state='confirmed',confirmed_at=NOW(),updated_at=NOW(),last_error=''
+                    WHERE task_id=$1
+                    RETURNING account,endpoint,sub_account_id,amount,initial_balance,created_at
+                    """,
+                    task_id,
+                )
+                if task is None:
+                    return
+                await conn.execute(
+                    """
+                    UPDATE ak_sell_balance_confirmation_tasks
+                    SET state='superseded',updated_at=NOW(),last_error='equivalent request confirmed'
+                    WHERE state IN ('pending','checking')
+                      AND task_id <> $1
+                      AND account=$2 AND endpoint=$3 AND sub_account_id=$4
+                      AND amount=$5 AND initial_balance=$6
+                      AND created_at >= $7 - INTERVAL '2 minutes'
+                    """,
+                    task_id,
+                    task["account"], task["endpoint"], task["sub_account_id"],
+                    task["amount"], task["initial_balance"], task["created_at"],
+                )
+
+    async def retry_balance_confirmation(self, task_id: str, error: str, retry_seconds: int = 5) -> str:
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE ak_sell_balance_confirmation_tasks
+                SET state=CASE WHEN expires_at <= NOW() THEN 'expired' ELSE 'pending' END,
+                    next_attempt_at=NOW() + make_interval(secs => $3::integer),
+                    updated_at=NOW(),last_error=$2
+                WHERE task_id=$1
+                RETURNING state
+                """,
+                task_id,
+                str(error or "confirmation failed")[:500],
+                max(1, int(retry_seconds or 5)),
+            )
+        return str((row or {}).get("state") or "")

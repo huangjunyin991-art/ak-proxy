@@ -63,6 +63,7 @@ def build_record(
     payload: Mapping[str, Any] | None,
     source: str,
     request_id: str = "",
+    confirmation_method: str = "upstream_response",
 ) -> dict[str, Any] | None:
     success, message = parse_success_payload(payload)
     if not success:
@@ -80,5 +81,6 @@ def build_record(
         "message": message,
         "source": _text(source) or "unknown",
         "request_id": _text(request_id),
+        "confirmation_method": _text(confirmation_method) or "upstream_response",
         "upstream_payload": sanitize_payload(payload),
     }

@@ -14,11 +14,30 @@ class AKSellLedgerService:
         self.repository = repository
         self.logger = logger
 
-    async def record_success(self, *, account: str, endpoint: str, request_data: Mapping[str, Any], payload: Mapping[str, Any], source: str, request_id: str = "") -> bool:
-        record = build_record(account=account, endpoint=endpoint, request_data=request_data, payload=payload, source=source, request_id=request_id)
+    async def record_success(
+        self,
+        *,
+        account: str,
+        endpoint: str,
+        request_data: Mapping[str, Any],
+        payload: Mapping[str, Any],
+        source: str,
+        request_id: str = "",
+        confirmation_method: str = "upstream_response",
+        event_id: str = "",
+    ) -> bool:
+        record = build_record(
+            account=account,
+            endpoint=endpoint,
+            request_data=request_data,
+            payload=payload,
+            source=source,
+            request_id=request_id,
+            confirmation_method=confirmation_method,
+        )
         if record is None:
             return False
-        record["event_id"] = request_id.strip() or f"ak-sell:{uuid.uuid4().hex}"
+        record["event_id"] = event_id.strip() or request_id.strip() or f"ak-sell:{uuid.uuid4().hex}"
         try:
             return await self.repository.record(record)
         except Exception as exc:
