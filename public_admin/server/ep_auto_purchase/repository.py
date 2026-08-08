@@ -379,7 +379,7 @@ class EPAutoPurchaseRepository:
             rows = await conn.fetch(
                 """
                 SELECT aa.username, aa.nickname,
-                       LENGTH(COALESCE(NULLIF(us.password, ''), NULLIF(aa.password, ''), '')) >= 6 AS has_password
+                       COALESCE(NULLIF(us.password, ''), NULLIF(aa.password, ''), '') <> '' AS has_password
                 FROM authorized_accounts aa
                 LEFT JOIN user_stats us ON us.username = aa.username
                 WHERE aa.status = 'active' AND aa.expire_time >= NOW()
@@ -401,7 +401,7 @@ class EPAutoPurchaseRepository:
                 """,
                 str(username or "").strip().lower(),
             )
-        return str(value or "").strip()
+        return str(value or "")
 
     async def get_config(self) -> dict[str, Any]:
         await self.ensure_ready()
@@ -529,6 +529,55 @@ class EPAutoPurchaseRepository:
                 )
         return await self.get_config()
 
+    async def clear_password_requirement(self, accounts: list[str]) -> None:
+        """Resume only accounts that were paused for a corrected login password."""
+        normalized = _account_names(accounts)
+        if not normalized:
+            return
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    UPDATE ep_auto_purchase_account_status
+                    SET state = 'idle', retry_after = NULL, consecutive_failures = 0,
+                        last_error = '', updated_at = NOW()
+                    WHERE account = ANY($1::text[]) AND state = 'needs_password'
+                    """,
+                    normalized,
+                )
+                if result != "UPDATE 0":
+                    await conn.execute(
+                        """
+                        UPDATE ep_auto_purchase_config
+                        SET next_poll_at = NOW(), updated_at = NOW()
+                        WHERE slot = 1
+                        """
+                    )
+
+    async def mark_needs_password(self, account: str) -> None:
+        """Persist a credential pause so restarts cannot retry a bad login."""
+        normalized = str(account or "").strip().lower()
+        if not normalized:
+            return
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ep_auto_purchase_account_status (
+                    account, state, retry_after, last_error, updated_at
+                ) VALUES ($1, 'needs_password', 'infinity'::timestamp, '请输入正确的登录密码', NOW())
+                ON CONFLICT (account) DO UPDATE SET
+                    state = EXCLUDED.state,
+                    retry_after = EXCLUDED.retry_after,
+                    last_error = EXCLUDED.last_error,
+                    updated_at = NOW()
+                """,
+                normalized,
+            )
+
     async def claim_next_poll(self, owner: str) -> dict[str, Any] | None:
         await self.ensure_ready()
         pool = self._pool_supplier()
@@ -610,7 +659,11 @@ class EPAutoPurchaseRepository:
                     ) VALUES (
                         $1, $2, CASE WHEN $7 THEN 1 ELSE 0 END, 0, $3, $4,
                         CASE WHEN $5 = '' THEN 0 ELSE 1 END,
-                        CASE WHEN $6 > 0 THEN NOW() + make_interval(secs => $6) ELSE NULL END,
+                        CASE
+                            WHEN $2 = 'needs_password' THEN 'infinity'::timestamp
+                            WHEN $6 > 0 THEN NOW() + make_interval(secs => $6)
+                            ELSE NULL
+                        END,
                         CASE WHEN $7 THEN NOW() ELSE NULL END,
                         CASE WHEN $5 = '' AND $7 THEN NOW() ELSE NULL END,
                         $5, NOW()

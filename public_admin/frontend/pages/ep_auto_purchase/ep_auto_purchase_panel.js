@@ -96,6 +96,7 @@
                 trading_password: '',
                 enabled: item.enabled !== false,
                 has_password: !!item.has_password,
+                password_required: !!item.password_required,
                 has_trading_password: !!item.has_trading_password,
                 edit_password: false,
                 edit_trading_password: false
@@ -125,6 +126,7 @@
                 trading_password: String(tradingPassword ? tradingPassword.value : (previous.trading_password || '')),
                 enabled: enabled ? !!enabled.checked : previous.enabled !== false,
                 has_password: sameAccount && !!previous.has_password,
+                password_required: sameAccount && !!previous.password_required,
                 has_trading_password: sameAccount && !!previous.has_trading_password,
                 edit_password: !!previous.edit_password || !sameAccount,
                 edit_trading_password: !!previous.edit_trading_password || !sameAccount
@@ -211,7 +213,7 @@
         });
         if (incompleteAccounts.length) {
             if (options.announce) {
-                toast('请先为启用账号填写登录密码', 'warning');
+                toast('请输入正确的登录密码', 'warning');
             }
             return Promise.resolve(false);
         }

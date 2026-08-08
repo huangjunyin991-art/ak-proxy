@@ -19,6 +19,7 @@
             ready: ['正常', 'is-ok'],
             waiting: ['用户优先', 'is-wait'],
             rate_limited: ['暂缓', 'is-warn'],
+            needs_password: ['需要登录密码', 'is-warn'],
             error: ['异常', 'is-error'],
             idle: ['待运行', 'is-idle']
         };
@@ -121,9 +122,12 @@
         }
         return items.map(function(item, index) {
             var accountEnabled = item.enabled !== false;
+            var loginPasswordPlaceholder = item.password_required
+                ? '\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u767b\u5f55\u5bc6\u7801'
+                : '\u8f93\u5165\u767b\u5f55\u5bc6\u7801';
             var loginControl = item.has_password && !item.edit_password
                 ? '<button type="button" class="ak-ep-credential-set" data-action="edit-login-password" data-index="' + index + '" title="点击修改登录密码" ' + (loading ? 'disabled' : '') + '><i></i>已设置</button>'
-                : '<input class="ak-ep-row-input" data-field="password" type="password" value="' + escapeHtml(item.password || '') + '" placeholder="输入登录密码" autocomplete="new-password" aria-label="登录密码" ' + (loading ? 'disabled' : '') + '>';
+                : '<input class="ak-ep-row-input" data-field="password" type="password" value="' + escapeHtml(item.password || '') + '" placeholder="' + loginPasswordPlaceholder + '" autocomplete="new-password" aria-label="登录密码" ' + (loading ? 'disabled' : '') + '>';
             var tradingControl = item.has_trading_password && !item.edit_trading_password
                 ? '<button type="button" class="ak-ep-credential-set" data-action="edit-trading-password" data-index="' + index + '" title="点击修改交易密码" ' + (loading ? 'disabled' : '') + '><i></i>已设置</button>'
                 : '<input class="ak-ep-row-input" data-field="trading-password" type="password" value="' + escapeHtml(item.trading_password || '') + '" placeholder="输入交易密码" autocomplete="new-password" aria-label="交易密码" ' + (loading ? 'disabled' : '') + '>';

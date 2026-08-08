@@ -10,11 +10,16 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from ..notice_guidance.provider import make_v
 from ..upstream_rpc_gate import RpcGateBusy
-from .credentials import EPAutoPurchaseCredentials, MIN_LOGIN_PASSWORD_LENGTH
+from .credentials import EPAutoPurchaseCredentials
 from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
 from .listing import EPListing, inspect_listing_payload, parse_listing
 from .order_detail import extract_seller_account
-from .provider import EPAutoPurchaseProvider, EPAutoPurchaseUpstreamError, extract_auth_fields
+from .provider import (
+    EPAutoPurchaseCredentialError,
+    EPAutoPurchaseProvider,
+    EPAutoPurchaseUpstreamError,
+    extract_auth_fields,
+)
 
 
 def parse_interval_milliseconds(value: Any) -> int:
@@ -105,9 +110,7 @@ class EPAutoPurchaseService:
                 else bool(raw_enabled)
             )
             account_rows.append({"account": account, "enabled": account_enabled})
-            if password.strip():
-                if len(password) < MIN_LOGIN_PASSWORD_LENGTH:
-                    raise ValueError(f"账号 {account} 的登录密码至少需要 {MIN_LOGIN_PASSWORD_LENGTH} 位")
+            if password:
                 if len(password) > 512:
                     raise ValueError(f"账号 {account} 的登录密码长度超出限制")
                 password_updates[account] = password
@@ -137,7 +140,7 @@ class EPAutoPurchaseService:
             if account not in password_updates and not bool(active[account].get("has_password"))
         ]
         if missing_passwords:
-            raise ValueError("以下账号没有已保存密码，请先输入密码：" + "、".join(missing_passwords[:8]))
+            raise ValueError("以下账号需要输入正确的登录密码：" + "、".join(missing_passwords[:8]))
         enabled = bool(payload.get("enabled"))
         if enabled and not enabled_accounts:
             raise ValueError("启用前至少勾选一个抢分账号")
@@ -150,6 +153,9 @@ class EPAutoPurchaseService:
             enabled,
             trading_password_updates,
         )
+        clear_requirement = getattr(self.repository, "clear_password_requirement", None)
+        if password_updates and callable(clear_requirement):
+            await clear_requirement(list(password_updates))
         self._wake.set()
         return self._serialize(config)
 
@@ -167,6 +173,11 @@ class EPAutoPurchaseService:
             str(item.get("username") or "").strip().lower(): item
             for item in active_accounts
         }
+        password_required_accounts = {
+            str(item.get("account") or "").strip().lower()
+            for item in data.get("accounts") or []
+            if str(item.get("state") or "") == "needs_password"
+        }
         config = dict(data.get("config") or {})
         trading_password_accounts = await self.repository.list_trading_password_accounts(
             list(config.get("accounts") or [])
@@ -175,7 +186,9 @@ class EPAutoPurchaseService:
             {
                 "account": account,
                 "enabled": bool((config.get("account_enabled") or {}).get(account, True)),
-                "has_password": bool(active_by_account.get(account, {}).get("has_password")),
+                "has_password": bool(active_by_account.get(account, {}).get("has_password"))
+                and account not in password_required_accounts,
+                "password_required": account in password_required_accounts,
                 "has_trading_password": account in trading_password_accounts,
             }
             for account in config.get("accounts") or []
@@ -380,6 +393,9 @@ class EPAutoPurchaseService:
                 await self._enrich_one_missing_seller(client, account, auth)
         except RpcGateBusy:
             state = "waiting"
+        except EPAutoPurchaseCredentialError as exc:
+            error = str(exc)
+            state = "needs_password"
         except EPAutoPurchaseUpstreamError as exc:
             error = str(exc)
             state = "rate_limited" if exc.is_rate_limited else "error"
@@ -535,12 +551,19 @@ class EPAutoPurchaseService:
     async def _refresh_auth(self, client, account: str) -> dict[str, str]:
         password = await self.credentials.get_password(account)
         if not password:
-            raise EPAutoPurchaseUpstreamError("账号缺少可用登录密码")
-        payload = await self.provider.post_rpc(
-            client,
-            "Login",
-            {"account": account, "password": password, "v": make_v(), "lang": "cn"},
-        )
+            await self._mark_needs_password(account)
+            raise EPAutoPurchaseCredentialError("请输入正确的登录密码")
+        try:
+            payload = await self.provider.post_rpc(
+                client,
+                "Login",
+                {"account": account, "password": password, "v": make_v(), "lang": "cn"},
+            )
+        except EPAutoPurchaseUpstreamError as exc:
+            if not exc.is_password_error:
+                raise
+            await self._mark_needs_password(account)
+            raise EPAutoPurchaseCredentialError("请输入正确的登录密码") from exc
         fields = extract_auth_fields(payload)
         if not fields["key"] or not fields["user_id"]:
             raise EPAutoPurchaseUpstreamError("登录成功但未返回可用 Key 或 UserID")
@@ -552,6 +575,11 @@ class EPAutoPurchaseService:
             ttl_seconds=3600,
         )
         return {"account": account, **fields}
+
+    async def _mark_needs_password(self, account: str) -> None:
+        marker = getattr(self.repository, "mark_needs_password", None)
+        if callable(marker):
+            await marker(account)
 
     async def _gated_call(self, identity: str, callback):
         lease = await self.rpc_gate.try_reserve_background(str(identity or "unknown"))

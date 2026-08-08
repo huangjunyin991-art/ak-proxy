@@ -3,7 +3,12 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from .ep_auto_purchase.provider import EPAutoPurchaseProvider
+from .ep_auto_purchase.credentials import EPAutoPurchaseCredentials
+from .ep_auto_purchase.provider import (
+    EPAutoPurchaseCredentialError,
+    EPAutoPurchaseProvider,
+    EPAutoPurchaseUpstreamError,
+)
 from .ep_auto_purchase.repository import EPAutoPurchaseRepository
 from .ep_auto_purchase.service import EPAutoPurchaseService, parse_interval_milliseconds
 from .ep_auto_purchase.listing import inspect_listing_payload, parse_listing
@@ -204,6 +209,17 @@ async def test_proxy_gate_busy_response_is_exposed_as_gate_busy():
         await provider.list_pending(client, {"key": "buyer-key", "user_id": "103"})
 
 
+@pytest.mark.anyio
+async def test_login_password_error_is_preserved_from_json_error_response():
+    client = _Client({"Error": True, "Msg": "密码错误"}, status_code=400)
+    provider = EPAutoPurchaseProvider("http://local/RPC/")
+
+    with pytest.raises(EPAutoPurchaseUpstreamError) as caught:
+        await provider.post_rpc(client, "Login", {"account": "buyer", "password": "secret"})
+
+    assert caught.value.is_password_error is True
+
+
 def test_internal_rpc_marker_requires_loopback_and_exact_runtime_token():
     headers = {EP_AUTO_PURCHASE_INTERNAL_HEADER: "runtime-secret"}
 
@@ -393,6 +409,39 @@ async def test_repeated_listing_is_counted_once_and_bought_once():
     assert purchases == [("88", "order-secret")]
     assert repository.poll_results[0][2]["unique_listings_discovered"] == 1
     assert repository.poll_results[0][2]["purchase_successes"] == 1
+
+
+@pytest.mark.anyio
+async def test_password_failure_pauses_poll_until_credentials_are_replaced():
+    class PollRepository(_Repository):
+        def __init__(self):
+            super().__init__()
+            self.poll_results = []
+
+        async def finish_poll(self, owner, account, **values):
+            self.poll_results.append((owner, account, values))
+
+    repository = PollRepository()
+    service = EPAutoPurchaseService(repository, auth_store=None, rpc_gate=_Gate())
+
+    @asynccontextmanager
+    async def no_network_client():
+        yield object()
+
+    async def load_auth(account):
+        return {"account": account, "user_id": "103", "key": "buyer-key"}
+
+    async def list_with_refresh(client, account, auth):
+        raise EPAutoPurchaseCredentialError("请输入正确的登录密码")
+
+    service.provider.build_client = no_network_client
+    service._load_auth = load_auth
+    service._list_with_one_refresh = list_with_refresh
+
+    await service._process_poll("buyer")
+
+    assert repository.poll_results[0][2]["state"] == "needs_password"
+    assert repository.poll_results[0][2]["error"] == "请输入正确的登录密码"
 
 
 class _SuccessNotificationRepository:
@@ -642,6 +691,7 @@ class _ConfigRepository:
         self.saved = None
         self.account_enabled = {}
         self.trading_password_accounts = set()
+        self.statuses = []
 
     async def list_active_accounts(self):
         return [dict(item) for item in self.active_accounts]
@@ -679,7 +729,7 @@ class _ConfigRepository:
     async def dashboard(self):
         return {
             "config": {"accounts": [row["username"] for row in self.active_accounts]},
-            "accounts": [],
+            "accounts": list(self.statuses),
             "orders": [],
             "summary": {},
         }
@@ -733,21 +783,35 @@ async def test_configure_reuses_saved_password_and_updates_only_explicit_passwor
 
 
 @pytest.mark.anyio
-async def test_configure_rejects_partial_login_password_before_it_replaces_saved_password():
+async def test_configure_allows_a_nonempty_login_password_without_assuming_its_length():
     repository = _ConfigRepository([
         {"username": "buyer", "nickname": "", "has_password": False},
     ])
     auth_store = _AuthStore()
     service = EPAutoPurchaseService(repository, auth_store, _Gate())
 
-    with pytest.raises(ValueError, match="登录密码至少需要 6 位"):
-        await service.configure({
-            "accounts": [{"account": "buyer", "password": "12"}],
-            "interval_seconds": 1,
-            "enabled": True,
-        })
+    await service.configure({
+        "accounts": [{"account": "buyer", "password": "12"}],
+        "interval_seconds": 1,
+        "enabled": True,
+    })
 
-    assert auth_store.updated == []
+    assert auth_store.updated == [("buyer", "12")]
+
+
+@pytest.mark.anyio
+async def test_credentials_reuse_any_nonempty_saved_password():
+    class Repository:
+        async def get_account_password(self, account):
+            return "fallback-password"
+
+    class AuthStore:
+        async def get_user_password(self, account):
+            return "12"
+
+    credentials = EPAutoPurchaseCredentials(Repository(), AuthStore())
+
+    assert await credentials.get_password("buyer") == "12"
 
 
 @pytest.mark.parametrize(
@@ -1178,7 +1242,7 @@ async def test_configure_rejects_account_without_input_or_saved_password():
     ])
     service = EPAutoPurchaseService(repository, _AuthStore(), _Gate())
 
-    with pytest.raises(ValueError, match="没有已保存密码"):
+    with pytest.raises(ValueError, match="需要输入正确的登录密码"):
         await service.configure({
             "accounts": [{"account": "buyer", "password": ""}],
             "interval_seconds": 1,
@@ -1208,10 +1272,32 @@ async def test_dashboard_returns_password_status_without_password_value():
             "account": "buyer",
             "enabled": True,
             "has_password": True,
+            "password_required": False,
             "has_trading_password": False,
         },
     ]
     assert "must-never-leak" not in str(dashboard)
+
+
+@pytest.mark.anyio
+async def test_dashboard_forces_password_input_after_a_login_password_error():
+    repository = _ConfigRepository([
+        {"username": "buyer", "nickname": "Buyer", "has_password": True},
+    ])
+    repository.statuses = [{"account": "buyer", "state": "needs_password"}]
+    service = EPAutoPurchaseService(repository, _AuthStore(), _Gate())
+
+    dashboard = await service.dashboard()
+
+    assert dashboard["config"]["account_rows"] == [
+        {
+            "account": "buyer",
+            "enabled": True,
+            "has_password": False,
+            "password_required": True,
+            "has_trading_password": False,
+        },
+    ]
 
 
 @pytest.mark.anyio

@@ -17,6 +17,7 @@ from .listing import inspect_listing_payload
 
 
 AUTH_ERROR_MARKERS = ("key", "userkey", "token", "login", "登录", "未登录", "未登錄", "失效", "无效", "认证")
+PASSWORD_ERROR_MARKERS = ("password", "passwd", "密码", "密碼")
 
 
 class EPAutoPurchaseUpstreamError(RuntimeError):
@@ -32,6 +33,15 @@ class EPAutoPurchaseUpstreamError(RuntimeError):
     @property
     def is_rate_limited(self) -> bool:
         return self.status_code == 429 or "429" in str(self)
+
+    @property
+    def is_password_error(self) -> bool:
+        text = str(self).strip().lower()
+        return any(marker in text for marker in PASSWORD_ERROR_MARKERS)
+
+
+class EPAutoPurchaseCredentialError(EPAutoPurchaseUpstreamError):
+    """A login password is missing or rejected and needs administrator input."""
 
 
 def extract_auth_fields(payload: Mapping[str, Any] | None, fallback_key: str = "") -> dict[str, str]:
@@ -119,8 +129,11 @@ class EPAutoPurchaseProvider:
         if response.status_code >= 400:
             if isinstance(payload, Mapping) and str(payload.get("Code") or "") == "rpc_gate_busy":
                 raise RpcGateBusy()
+            message = ""
+            if isinstance(payload, Mapping):
+                message = str(payload.get("Msg") or payload.get("Message") or "").strip()
             raise EPAutoPurchaseUpstreamError(
-                f"HTTP {response.status_code}",
+                message or f"HTTP {response.status_code}",
                 status_code=int(response.status_code),
             )
         if not isinstance(payload, Mapping):
