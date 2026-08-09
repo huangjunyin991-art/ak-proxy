@@ -1320,29 +1320,3 @@ async def test_external_gate_retries_while_background_gate_is_one_shot():
 
     assert lease is not None
     assert repository.external_flags == [True, True]
-
-
-@pytest.mark.anyio
-async def test_ak_sell_gate_scopes_lock_to_account_without_global_lock():
-    class Repository:
-        def __init__(self):
-            self.claims = []
-            self.releases = []
-
-        async def try_claim(self, identity, holder, *, external, include_global=True):
-            self.claims.append((identity, holder, external, include_global))
-            return True
-
-        async def release(self, identity, holder, *, include_global=True):
-            self.releases.append((identity, holder, include_global))
-
-    repository = Repository()
-    gate = UpstreamRpcGate(repository)
-    lease = await gate.reserve_ak_sell("user:1", wait_seconds=1)
-
-    assert lease is not None
-    assert lease.include_global is False
-    assert repository.claims[0][2:] == (False, False)
-
-    await gate.release(lease)
-    assert repository.releases[0][2] is False

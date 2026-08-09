@@ -36,14 +36,8 @@ class ResolvedAKAuth:
     from_cache: bool = False
 
 
-@dataclass(frozen=True)
-class BalanceProbeOutcome:
-    value: int | None
-    error: str = ""
-
-
 class AKSellService:
-    """Validates the fixed sell flow and optionally records sanitized success summaries."""
+    """Validates the fixed sell flow and records confirmed sell summaries."""
 
     _OPERATIONS = frozenset({
         "login",
@@ -62,18 +56,13 @@ class AKSellService:
         clock: AKSellClock | None = None,
         account_state=None,
         ledger_recorder=None,
-        confirmation_service=None,
     ) -> None:
         self._internal_rpc_token = create_internal_rpc_token()
         self.provider = provider or AKSellProvider(internal_token=self._internal_rpc_token)
         self.clock = clock or AKSellClock()
         self.account_state = account_state
         self.ledger_recorder = ledger_recorder
-        self.confirmation_service = confirmation_service
         self._refresh_locks: dict[str, asyncio.Lock] = {}
-
-    def set_confirmation_service(self, confirmation_service) -> None:
-        self.confirmation_service = confirmation_service
 
     def is_internal_rpc_request(self, request) -> bool:
         client = getattr(request, "client", None)
@@ -100,17 +89,10 @@ class AKSellService:
         auth: ResolvedAKAuth | None = None
         request_data: dict[str, str] | None = None
         endpoint = ""
-        initial_balance: int | None = None
         try:
             async with self.provider.build_client(name) as client:
                 auth = await self._resolve_auth(client, payload or {})
                 request_data, endpoint = self._build_request(name, payload or {}, auth)
-                if name == "submit" and self.confirmation_service is not None and auth.account:
-                    try:
-                        initial_balance = await self._capture_submit_balance(client, auth, request_data)
-                    except (RpcGateBusy, AKSellUpstreamError):
-                        # A confirmation baseline is optional and must not block the write itself.
-                        initial_balance = None
                 upstream = await self.provider.post_rpc(client, endpoint, request_data)
                 if auth.from_cache and self._is_auth_rejected(upstream):
                     await self._invalidate_cached_auth(auth.account)
@@ -136,15 +118,6 @@ class AKSellService:
         except AKSellCachedLoginRejected as exc:
             return self._result(name, exc.payload)
         except AKSellUpstreamError as exc:
-            if name == "submit":
-                await self._enqueue_unknown_submit(
-                    auth=auth,
-                    endpoint=endpoint,
-                    request_data=request_data,
-                    initial_balance=initial_balance,
-                    error=exc,
-                    payload=payload or {},
-                )
             return self._with_server_time(self._error_response(name, exc))
 
         success = not bool(upstream.get("Error"))
@@ -163,101 +136,6 @@ class AKSellService:
             "operation": name,
             "payload": upstream,
         })
-
-    async def read_balance_confirmation_task(self, task: Mapping[str, Any]) -> BalanceProbeOutcome:
-        """Read the current balance for a durable unknown-result sell task."""
-        account = str(task.get("account") or "").strip().lower()
-        if not account:
-            return BalanceProbeOutcome(value=None, error="missing account")
-        try:
-            async with self.provider.build_client("balance") as client:
-                auth = await self._resolve_auth(client, {"account": account})
-                balance = await self._capture_submit_balance(
-                    client,
-                    auth,
-                    {"sonId": str(task.get("sub_account_id") or "")},
-                )
-            if balance is None:
-                return BalanceProbeOutcome(value=None, error="upstream balance payload is unavailable")
-            return BalanceProbeOutcome(value=balance)
-        except RpcGateBusy:
-            return BalanceProbeOutcome(value=None, error="upstream RPC gate is busy")
-        except AKSellUpstreamError as exc:
-            return BalanceProbeOutcome(value=None, error=str(exc))
-        except AKSellInputError as exc:
-            return BalanceProbeOutcome(value=None, error=str(exc))
-        except Exception as exc:
-            return BalanceProbeOutcome(value=None, error=f"unexpected balance probe error: {exc}")
-
-    async def _enqueue_unknown_submit(
-        self,
-        *,
-        auth: ResolvedAKAuth | None,
-        endpoint: str,
-        request_data: Mapping[str, Any] | None,
-        initial_balance: int | None,
-        error: AKSellUpstreamError,
-        payload: Mapping[str, Any],
-    ) -> None:
-        if (
-            self.confirmation_service is None
-            or auth is None
-            or not auth.account
-            or not request_data
-            or not self._is_unknown_submit_error(error)
-        ):
-            return
-        try:
-            await self.confirmation_service.enqueue_unknown(
-                account=auth.account,
-                endpoint=endpoint,
-                request_data=request_data,
-                initial_balance=initial_balance,
-                source="ak_sell_api",
-                error=str(error),
-                request_id=str(payload.get("request_id") or payload.get("requestId") or ""),
-            )
-        except Exception:
-            # A ledger confirmation failure must never change the sell API response.
-            return
-
-    async def _capture_submit_balance(
-        self,
-        client,
-        auth: ResolvedAKAuth,
-        request_data: Mapping[str, Any],
-    ) -> int | None:
-        son_id = str(request_data.get("sonId") or "").strip()
-        data = self._build_auth_request({}, auth)
-        if not son_id:
-            payload = await self.provider.post_rpc(client, "public_IndexData", data)
-            if payload.get("Error") is not False:
-                return None
-            return self._nonnegative_integer((payload.get("Data") or {}).get("ACECount"))
-
-        data.update({"account": "", "p": "1", "pageSize": "100"})
-        payload = await self.provider.post_rpc(client, "My_Subaccount", data)
-        if payload.get("Error") is not False:
-            return None
-        rows = (payload.get("Data") or {}).get("List") or []
-        if not isinstance(rows, list):
-            return None
-        for row in rows:
-            if isinstance(row, Mapping) and str(row.get("Id") or "").strip() == son_id:
-                return self._nonnegative_integer(row.get("AceAmount"))
-        return None
-
-    @staticmethod
-    def _nonnegative_integer(value: Any) -> int | None:
-        try:
-            number = int(str(value).strip())
-        except (TypeError, ValueError):
-            return None
-        return number if number >= 0 else None
-
-    @staticmethod
-    def _is_unknown_submit_error(error: AKSellUpstreamError) -> bool:
-        return bool(error.is_read_timeout or error.status_code in {502, 504})
 
     async def _invoke_login(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         request_data = self._build_login(payload)

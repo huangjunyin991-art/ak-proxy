@@ -907,7 +907,6 @@ ak_sell_service = None
 
 try:
     from .ak_sell_ledger import (
-        AKSellBalanceConfirmationService,
         AKSellLedgerRepository,
         AKSellLedgerService,
         PublicRpcSaleRecorder,
@@ -915,7 +914,6 @@ try:
     )
     _AK_SELL_LEDGER_IMPORT_ERROR = None
 except Exception as e:
-    AKSellBalanceConfirmationService = None
     AKSellLedgerRepository = None
     AKSellLedgerService = None
     PublicRpcSaleRecorder = None
@@ -925,7 +923,6 @@ except Exception as e:
 ak_sell_ledger_service = None
 ak_sell_public_rpc_recorder = None
 ak_sell_ledger_repository = None
-ak_sell_balance_confirmation_service = None
 
 try:
     from .account_identity.admin import (
@@ -3861,6 +3858,10 @@ async def proxy_rpc(path: str, request: Request):
         and ak_sell_service is not None
         and ak_sell_service.is_internal_rpc_request(request)
     )
+    ak_sell_submit_internal_request = bool(
+        ak_sell_internal_request
+        and normalized_path in {"ace_sell", "ace_sell_son"}
+    )
     upstream_rpc_lease = None
     if (
         normalized_path in {
@@ -3869,12 +3870,15 @@ async def proxy_rpc(path: str, request: Request):
             "public_indexdata", "google_secret", "google_bind", "google_unbind",
         }
         and not notice_guidance_internal_request
+        # A sell submission is a transparent client-owned operation.  Do not
+        # queue it behind an account lock before sending it upstream.
+        and not ak_sell_submit_internal_request
         and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):
         if ep_auto_purchase_internal_request and upstream_rpc_gate is not None:
             upstream_rpc_lease = await upstream_rpc_gate.try_reserve_background(build_rpc_identity(params))
         elif ak_sell_internal_request and upstream_rpc_gate is not None:
-            upstream_rpc_lease = await upstream_rpc_gate.reserve_ak_sell(build_rpc_identity(params))
+            upstream_rpc_lease = await upstream_rpc_gate.reserve_external(build_rpc_identity(params))
         elif normalized_path in {"notice_list", "my_subaccount"} and guided_sale_statistics_service is not None:
             try:
                 user_id = str(params.get("UserID") or params.get("userId") or params.get("userid") or "").strip()
@@ -7279,18 +7283,6 @@ if create_ak_sell_router is not None and AKSellService is not None and upstream_
             ) if UserStatsAKAccountState is not None else None,
             ledger_recorder=ak_sell_ledger_service,
         )
-        if (
-            AKSellBalanceConfirmationService is not None
-            and ak_sell_ledger_repository is not None
-            and ak_sell_ledger_service is not None
-        ):
-            ak_sell_balance_confirmation_service = AKSellBalanceConfirmationService(
-                ak_sell_ledger_repository,
-                ak_sell_ledger_service,
-                ak_sell_service.read_balance_confirmation_task,
-                logger,
-            )
-            ak_sell_service.set_confirmation_service(ak_sell_balance_confirmation_service)
         app.include_router(create_ak_sell_router(
             service=ak_sell_service,
             machine_authorization_validator=(
@@ -7302,7 +7294,6 @@ if create_ak_sell_router is not None and AKSellService is not None and upstream_
     except Exception as e:
         logger.warning(f"[AKSell] route registration failed, skipped: {e}")
         ak_sell_service = None
-        ak_sell_balance_confirmation_service = None
 elif _AK_SELL_IMPORT_ERROR is not None:
     logger.warning(f"[AKSell] module unavailable, skipped: {_AK_SELL_IMPORT_ERROR}")
 
@@ -7531,13 +7522,6 @@ async def admin_startup():
         except Exception as e:
             logger.warning(f"[EPAutoPurchase] worker start failed, skipped: {e}")
 
-    if ak_sell_balance_confirmation_service is not None:
-        try:
-            await ak_sell_balance_confirmation_service.start()
-            logger.info("[AKSellLedger] balance confirmation worker started")
-        except Exception as e:
-            logger.warning(f"[AKSellLedger] balance confirmation worker start failed, skipped: {e}")
-
     try:
         hydration = await _AK_WEB_STATIC_CACHE_SERVICE.hydrate_memory_from_disk(reason="startup")
         logger.info(
@@ -7644,9 +7628,6 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
-
-    if ak_sell_balance_confirmation_service is not None:
-        await ak_sell_balance_confirmation_service.stop()
 
     if ep_auto_purchase_service is not None:
         await ep_auto_purchase_service.stop()

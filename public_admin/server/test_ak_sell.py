@@ -78,15 +78,6 @@ class FakeLedgerRecorder:
         return True
 
 
-class FakeConfirmationService:
-    def __init__(self):
-        self.calls = []
-
-    async def enqueue_unknown(self, **payload):
-        self.calls.append(payload)
-        return True
-
-
 def fixed_clock() -> AKSellClock:
     return AKSellClock(lambda: datetime(2026, 7, 30, 21, 12, 34, 567000, tzinfo=BEIJING_TIMEZONE))
 
@@ -260,23 +251,13 @@ async def test_submit_read_timeout_is_unknown_and_not_retried():
 
 
 @pytest.mark.asyncio
-async def test_submit_timeout_queues_balance_confirmation_when_baseline_is_available():
+async def test_submit_timeout_does_not_read_balance_before_forwarding():
     state = FakeAccountState(CachedAKAccountAuth("demo", "cached-key", "42"))
-    confirmation = FakeConfirmationService()
-
-    class TimeoutAfterBaselineProvider(FakeProvider):
-        async def post_rpc(self, client, endpoint, data):
-            self.calls.append((endpoint, data))
-            if endpoint == "public_IndexData":
-                return {"Error": False, "Data": {"ACECount": 500}}
-            raise AKSellUpstreamError("ReadTimeout", is_read_timeout=True)
-
-    provider = TimeoutAfterBaselineProvider()
+    provider = FakeProvider(error=AKSellUpstreamError("ReadTimeout", is_read_timeout=True))
     service = AKSellService(
         provider=provider,
         clock=fixed_clock(),
         account_state=state,
-        confirmation_service=confirmation,
     )
 
     result = await service.invoke(
@@ -293,20 +274,7 @@ async def test_submit_timeout_queues_balance_confirmation_when_baseline_is_avail
     )
 
     assert result["state"] == "unknown"
-    assert [call[0] for call in provider.calls] == ["public_IndexData", "ACE_Sell"]
-    assert confirmation.calls == [{
-        "account": "demo",
-        "endpoint": "ACE_Sell",
-        "request_data": {
-            "key": "cached-key", "UserID": "42", "v": "2096", "lang": "cn",
-            "amount": "", "password": "", "sonId": "", "mnemonicid1": "3",
-            "mnemonickey": "challenge-key", "mnemonicstr1": "word", "gCode": "123456", "count": "200",
-        },
-        "initial_balance": 500,
-        "source": "ak_sell_api",
-        "error": "ReadTimeout",
-        "request_id": "timeout-job-1",
-    }]
+    assert [call[0] for call in provider.calls] == ["ACE_Sell"]
 
 
 @pytest.mark.asyncio
@@ -325,32 +293,6 @@ async def test_submit_gateway_timeout_is_unknown():
 
     assert result["state"] == "unknown"
     assert result["status_code"] == 504
-
-
-@pytest.mark.asyncio
-async def test_confirmation_reads_the_target_subaccount_balance():
-    state = FakeAccountState(CachedAKAccountAuth("demo", "cached-key", "42"))
-
-    class SubaccountBalanceProvider(FakeProvider):
-        async def post_rpc(self, client, endpoint, data):
-            self.calls.append((endpoint, data))
-            assert endpoint == "My_Subaccount"
-            return {
-                "Error": False,
-                "Data": {"List": [{"Id": "other", "AceAmount": 1}, {"Id": "sub-8", "AceAmount": 300}]},
-            }
-
-    provider = SubaccountBalanceProvider()
-    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=state)
-
-    outcome = await service.read_balance_confirmation_task({"account": "Demo", "sub_account_id": "sub-8"})
-
-    assert outcome.value == 300
-    assert outcome.error == ""
-    assert provider.calls == [(
-        "My_Subaccount",
-        {"key": "cached-key", "UserID": "42", "v": "2096", "lang": "cn", "account": "", "p": "1", "pageSize": "100"},
-    )]
 
 
 @pytest.mark.asyncio
