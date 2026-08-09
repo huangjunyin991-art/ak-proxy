@@ -15,9 +15,13 @@ class FakeLedgerService:
 class FakeLogger:
     def __init__(self):
         self.warnings = []
+        self.infos = []
 
     def warning(self, message, *args):
         self.warnings.append(message % args)
+
+    def info(self, message, *args):
+        self.infos.append(message % args)
 
 
 @pytest.mark.asyncio
@@ -86,7 +90,8 @@ async def test_cookie_identity_wins_over_a_spoofed_request_account():
 @pytest.mark.asyncio
 async def test_does_not_record_http_success_when_upstream_business_response_failed():
     ledger = FakeLedgerService()
-    recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved("main003"), FakeLogger())
+    logger = FakeLogger()
+    recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved("main003"), logger)
 
     saved = await recorder.record_if_success(
         normalized_path="ace_sell",
@@ -97,6 +102,25 @@ async def test_does_not_record_http_success_when_upstream_business_response_fail
 
     assert saved is False
     assert ledger.calls == []
+    assert "reason=upstream_rejected" in logger.infos[0]
+
+
+@pytest.mark.asyncio
+async def test_logs_unresolved_account_for_confirmed_public_sale():
+    ledger = FakeLedgerService()
+    logger = FakeLogger()
+    recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved(""), logger)
+
+    saved = await recorder.record_if_success(
+        normalized_path="ace_sell",
+        params={"key": "unmapped-key", "UserID": "44", "count": "99"},
+        payload={"Error": False, "Msg": "sold"},
+        cookies={},
+    )
+
+    assert saved is False
+    assert ledger.calls == []
+    assert "reason=unresolved_account" in logger.warnings[0]
 
 
 async def _resolved(value):
