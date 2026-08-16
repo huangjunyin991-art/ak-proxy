@@ -5,6 +5,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import logging
 import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from .account_state import CachedAKAccountAuth
 from .clock import AKSellClock
 from .internal_rpc import create_internal_rpc_token, is_trusted_internal_rpc_request
 from .provider import AKSellProvider, AKSellUpstreamError
+from . import trace as ak_sell_trace
 
 
 class AKSellInputError(ValueError):
@@ -56,9 +58,11 @@ class AKSellService:
         clock: AKSellClock | None = None,
         account_state=None,
         ledger_recorder=None,
+        logger=None,
     ) -> None:
         self._internal_rpc_token = create_internal_rpc_token()
-        self.provider = provider or AKSellProvider(internal_token=self._internal_rpc_token)
+        self.logger = logger or logging.getLogger("TransparentProxy")
+        self.provider = provider or AKSellProvider(internal_token=self._internal_rpc_token, logger=self.logger)
         self.clock = clock or AKSellClock()
         self.account_state = account_state
         self.ledger_recorder = ledger_recorder
@@ -79,48 +83,91 @@ class AKSellService:
         name = str(operation or "").strip().lower()
         if name not in self._OPERATIONS:
             raise AKSellInputError("unsupported sell operation")
+        payload = payload or {}
+        trace_id = ak_sell_trace.create_trace_id_if_needed()
+        self._trace_received(name, payload, trace_id)
         if name == "login":
-            return await self._invoke_login(payload or {})
+            return await self._invoke_login(payload, trace_id=trace_id)
         if name == "google-bind":
-            return await self._bind_google_auth(payload or {})
+            return await self._bind_google_auth(payload, trace_id=trace_id)
         if name == "google-unbind":
-            return await self._unbind_google_auth(payload or {})
+            return await self._unbind_google_auth(payload, trace_id=trace_id)
 
         auth: ResolvedAKAuth | None = None
         request_data: dict[str, str] | None = None
         endpoint = ""
         submit_dispatched = False
         try:
-            async with self.provider.build_client(name) as client:
-                auth = await self._resolve_auth(client, payload or {})
-                request_data, endpoint = self._build_request(name, payload or {}, auth)
+            async with self._build_provider_client(name, trace_id) as client:
+                auth = await self._resolve_auth(client, payload, trace_id=trace_id)
+                request_data, endpoint = self._build_request(name, payload, auth)
                 submit_dispatched = name == "submit" and endpoint in {"ACE_Sell", "ACE_Sell_Son"}
+                ak_sell_trace.emit_trace(
+                    self.logger,
+                    "submit_dispatch" if name == "submit" else "rpc_dispatch",
+                    trace_id,
+                    operation=name,
+                    endpoint=endpoint,
+                    account=auth.account or self._optional_text(payload, "account", max_length=128),
+                    is_subaccount=bool(request_data.get("sonId")) if request_data else False,
+                    count=(request_data or {}).get("count") or "",
+                )
                 upstream = await self.provider.post_rpc(client, endpoint, request_data)
                 if auth.from_cache and self._is_auth_rejected(upstream):
                     await self._invalidate_cached_auth(auth.account)
                     if name in {"mnemonic", "balance", "subaccounts"}:
-                        auth = await self._resolve_auth(client, payload or {}, force_refresh=True)
-                        request_data, endpoint = self._build_request(name, payload or {}, auth)
+                        auth = await self._resolve_auth(client, payload, force_refresh=True, trace_id=trace_id)
+                        request_data, endpoint = self._build_request(name, payload, auth)
                         upstream = await self.provider.post_rpc(client, endpoint, request_data)
                     else:
+                        ak_sell_trace.emit_trace(
+                            self.logger,
+                            "auth_expired",
+                            trace_id,
+                            operation=name,
+                            endpoint=endpoint,
+                            account=auth.account,
+                        )
                         return self._with_server_time({
                             "success": False,
                             "state": "auth_expired",
                             "operation": name,
                             "message": "账号登录态已失效，已清除缓存；请再次提交操作",
                             "payload": upstream,
-                        })
+                        }, trace_id=trace_id)
         except RpcGateBusy:
+            ak_sell_trace.emit_trace(self.logger, "rpc_gate_busy", trace_id, operation=name)
             return self._with_server_time({
                 "success": False,
                 "state": "waiting",
                 "operation": name,
                 "message": "请求正在排队，请稍后重试",
-            })
+            }, trace_id=trace_id)
         except AKSellCachedLoginRejected as exc:
-            return self._result(name, exc.payload)
+            ak_sell_trace.emit_trace(
+                self.logger,
+                "auth_refresh_rejected",
+                trace_id,
+                operation=name,
+                payload_msg=str(exc.payload.get("Msg") or exc.payload.get("Message") or ""),
+            )
+            return self._result(name, exc.payload, trace_id=trace_id)
         except AKSellUpstreamError as exc:
-            return self._with_server_time(self._error_response(name, exc, submit_dispatched=submit_dispatched))
+            ak_sell_trace.emit_trace(
+                self.logger,
+                "operation_error",
+                trace_id,
+                operation=name,
+                endpoint=endpoint,
+                submit_dispatched=submit_dispatched,
+                error=exc.__class__.__name__,
+                message=str(exc),
+                status_code=exc.status_code or "",
+            )
+            return self._with_server_time(
+                self._error_response(name, exc, submit_dispatched=submit_dispatched),
+                trace_id=trace_id,
+            )
 
         success = not bool(upstream.get("Error"))
         if name == "submit" and success and self.ledger_recorder is not None:
@@ -130,33 +177,46 @@ class AKSellService:
                 request_data=request_data,
                 payload=upstream,
                 source="ak_sell_api",
-                request_id=str((payload or {}).get("request_id") or (payload or {}).get("requestId") or ""),
+                request_id=str(payload.get("request_id") or payload.get("requestId") or ""),
             )
+        ak_sell_trace.emit_trace(
+            self.logger,
+            "operation_completed",
+            trace_id,
+            operation=name,
+            endpoint=endpoint,
+            account=auth.account if auth is not None else "",
+            success=success,
+            state="completed" if success else "rejected",
+            payload_msg=str(upstream.get("Msg") or upstream.get("Message") or ""),
+        )
         return self._with_server_time({
             "success": success,
             "state": "completed" if success else "rejected",
             "operation": name,
             "payload": upstream,
-        })
+        }, trace_id=trace_id)
 
-    async def _invoke_login(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    async def _invoke_login(self, payload: Mapping[str, Any], *, trace_id: str = "") -> dict[str, Any]:
         request_data = self._build_login(payload)
         cached = await self._cached_login(request_data["account"])
         if cached is not None:
-            return self._result("login", cached)
+            ak_sell_trace.emit_trace(self.logger, "login_cache_hit", trace_id, account=request_data["account"])
+            return self._result("login", cached, trace_id=trace_id)
         try:
-            async with self.provider.build_client("login") as client:
+            ak_sell_trace.emit_trace(self.logger, "login_forward_start", trace_id, account=request_data["account"])
+            async with self._build_provider_client("login", trace_id) as client:
                 upstream = await self.provider.post_rpc(client, "Login", request_data)
         except RpcGateBusy:
-            return self._waiting("login")
+            return self._waiting("login", trace_id=trace_id)
         except AKSellUpstreamError as exc:
-            return self._with_server_time(self._error_response("login", exc))
-        return self._result("login", upstream)
+            return self._with_server_time(self._error_response("login", exc), trace_id=trace_id)
+        return self._result("login", upstream, trace_id=trace_id)
 
-    async def _bind_google_auth(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    async def _bind_google_auth(self, payload: Mapping[str, Any], *, trace_id: str = "") -> dict[str, Any]:
         try:
-            async with self.provider.build_client("google-bind") as client:
-                auth = await self._resolve_auth(client, payload)
+            async with self._build_provider_client("google-bind", trace_id) as client:
+                auth = await self._resolve_auth(client, payload, trace_id=trace_id)
                 auth_data = self._build_auth_request(payload, auth)
                 secret_data = dict(auth_data)
                 secret_data.update({
@@ -173,8 +233,8 @@ class AKSellService:
                 secret_payload = secret_reply.payload
                 if bool(secret_payload.get("Error")):
                     if auth.from_cache and self._is_auth_rejected(secret_payload):
-                        return await self._cached_auth_expired("google-bind", auth, secret_payload)
-                    return self._result("google-bind", secret_payload)
+                        return await self._cached_auth_expired("google-bind", auth, secret_payload, trace_id=trace_id)
+                    return self._result("google-bind", secret_payload, trace_id=trace_id)
                 secret = self._google_secret(secret_payload, secret_reply.headers, secret_reply.url)
                 if not secret:
                     secret_reply = await self.provider.post_rpc_reply(
@@ -187,8 +247,8 @@ class AKSellService:
                     secret_payload = secret_reply.payload
                     if bool(secret_payload.get("Error")):
                         if auth.from_cache and self._is_auth_rejected(secret_payload):
-                            return await self._cached_auth_expired("google-bind", auth, secret_payload)
-                        return self._result("google-bind", secret_payload)
+                            return await self._cached_auth_expired("google-bind", auth, secret_payload, trace_id=trace_id)
+                        return self._result("google-bind", secret_payload, trace_id=trace_id)
                     secret = self._google_secret(secret_payload, secret_reply.headers, secret_reply.url)
                 if not secret:
                     return self._with_server_time({
@@ -196,36 +256,36 @@ class AKSellService:
                         "state": "failed",
                         "operation": "google-bind",
                         "message": "upstream did not return a Google secret",
-                    })
+                    }, trace_id=trace_id)
                 bind_data = dict(auth_data)
                 bind_data["gCode"] = self._google_code(secret)
                 upstream = await self.provider.post_rpc(client, "Google_Bind", bind_data)
         except RpcGateBusy:
-            return self._waiting("google-bind")
+            return self._waiting("google-bind", trace_id=trace_id)
         except AKSellCachedLoginRejected as exc:
-            return self._result("google-bind", exc.payload)
+            return self._result("google-bind", exc.payload, trace_id=trace_id)
         except AKSellUpstreamError as exc:
-            return self._with_server_time(self._error_response("google-bind", exc))
+            return self._with_server_time(self._error_response("google-bind", exc), trace_id=trace_id)
 
         if auth.from_cache and self._is_auth_rejected(upstream):
-            return await self._cached_auth_expired("google-bind", auth, upstream)
-        result = self._result("google-bind", upstream)
+            return await self._cached_auth_expired("google-bind", auth, upstream, trace_id=trace_id)
+        result = self._result("google-bind", upstream, trace_id=trace_id)
         if result["success"]:
             result["google_secret"] = secret
         return result
 
-    async def _unbind_google_auth(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    async def _unbind_google_auth(self, payload: Mapping[str, Any], *, trace_id: str = "") -> dict[str, Any]:
         words = self._mnemonic_words(payload)
         trade_password = self._required_text(payload, "tradePassword", aliases=("trade_password",), max_length=512)
         try:
-            async with self.provider.build_client("google-unbind") as client:
-                auth = await self._resolve_auth(client, payload)
+            async with self._build_provider_client("google-unbind", trace_id) as client:
+                auth = await self._resolve_auth(client, payload, trace_id=trace_id)
                 data = self._build_auth_request(payload, auth)
                 challenge = await self.provider.post_rpc(client, "Mnemonic_Get03", data)
                 if bool(challenge.get("Error")):
                     if auth.from_cache and self._is_auth_rejected(challenge):
-                        return await self._cached_auth_expired("google-unbind", auth, challenge)
-                    return self._result("google-unbind", challenge)
+                        return await self._cached_auth_expired("google-unbind", auth, challenge, trace_id=trace_id)
+                    return self._result("google-unbind", challenge, trace_id=trace_id)
                 try:
                     indices = [int(challenge.get(f"mnemonicid{position}", 0) or 0) - 1 for position in range(1, 4)]
                 except (TypeError, ValueError) as exc:
@@ -245,22 +305,22 @@ class AKSellService:
                 })
                 upstream = await self.provider.post_rpc(client, "Google_Unbind", unbind_data)
         except RpcGateBusy:
-            return self._waiting("google-unbind")
+            return self._waiting("google-unbind", trace_id=trace_id)
         except AKSellCachedLoginRejected as exc:
-            return self._result("google-unbind", exc.payload)
+            return self._result("google-unbind", exc.payload, trace_id=trace_id)
         except AKSellUpstreamError as exc:
-            return self._with_server_time(self._error_response("google-unbind", exc))
+            return self._with_server_time(self._error_response("google-unbind", exc), trace_id=trace_id)
 
         if auth.from_cache and self._is_auth_rejected(upstream):
-            return await self._cached_auth_expired("google-unbind", auth, upstream)
+            return await self._cached_auth_expired("google-unbind", auth, upstream, trace_id=trace_id)
         if bool(upstream.get("Error")) and self._is_google_unbound(str(upstream.get("Msg") or "")):
             return self._with_server_time({
                 "success": True,
                 "state": "completed",
                 "operation": "google-unbind",
                 "payload": upstream,
-            })
-        return self._result("google-unbind", upstream)
+            }, trace_id=trace_id)
+        return self._result("google-unbind", upstream, trace_id=trace_id)
 
     async def _resolve_auth(
         self,
@@ -268,10 +328,12 @@ class AKSellService:
         payload: Mapping[str, Any],
         *,
         force_refresh: bool = False,
+        trace_id: str = "",
     ) -> ResolvedAKAuth:
         explicit_key = self._optional_text(payload, "key", max_length=512)
         explicit_user_id = self._optional_text(payload, "UserID", aliases=("userId", "user_id"), max_length=64)
         if explicit_key and explicit_user_id:
+            ak_sell_trace.emit_trace(self.logger, "auth_explicit", trace_id, user_id=explicit_user_id)
             return ResolvedAKAuth(userkey=explicit_key, user_id=explicit_user_id)
 
         account = self._optional_text(payload, "account", max_length=128).lower()
@@ -285,27 +347,41 @@ class AKSellService:
         if not force_refresh:
             cached = await self.account_state.get_auth(account)
             if cached is not None:
+                ak_sell_trace.emit_trace(self.logger, "auth_cache_hit", trace_id, account=account)
                 return self._cached_auth(cached)
+            ak_sell_trace.emit_trace(self.logger, "auth_cache_miss", trace_id, account=account)
 
         lock = self._refresh_locks.setdefault(account, asyncio.Lock())
         async with lock:
             if not force_refresh:
                 cached = await self.account_state.get_auth(account)
                 if cached is not None:
+                    ak_sell_trace.emit_trace(self.logger, "auth_cache_hit_after_lock", trace_id, account=account)
                     return self._cached_auth(cached)
             password = await self.account_state.get_password(account)
             if not password:
+                ak_sell_trace.emit_trace(self.logger, "auth_refresh_no_password", trace_id, account=account)
                 raise AKSellInputError("该账号没有已保存密码，请先调用 login")
+            ak_sell_trace.emit_trace(self.logger, "auth_refresh_start", trace_id, account=account, force_refresh=force_refresh)
             login_payload = await self.provider.post_rpc(
                 client,
                 "Login",
                 {"account": account, "password": password, "client": "WEB"},
             )
             if bool(login_payload.get("Error")):
+                ak_sell_trace.emit_trace(
+                    self.logger,
+                    "auth_refresh_rejected",
+                    trace_id,
+                    account=account,
+                    payload_msg=str(login_payload.get("Msg") or login_payload.get("Message") or ""),
+                )
                 raise AKSellCachedLoginRejected(login_payload)
             refreshed = await self.account_state.get_auth(account)
             if refreshed is None:
+                ak_sell_trace.emit_trace(self.logger, "auth_refresh_missing_cache", trace_id, account=account)
                 raise AKSellInputError("登录成功但未写入可用登录态")
+            ak_sell_trace.emit_trace(self.logger, "auth_refresh_success", trace_id, account=account)
             return self._cached_auth(refreshed)
 
     @staticmethod
@@ -339,15 +415,25 @@ class AKSellService:
         operation: str,
         auth: ResolvedAKAuth,
         payload: Mapping[str, Any],
+        *,
+        trace_id: str = "",
     ) -> dict[str, Any]:
         await self._invalidate_cached_auth(auth.account)
+        ak_sell_trace.emit_trace(
+            self.logger,
+            "auth_expired",
+            trace_id,
+            operation=operation,
+            account=auth.account,
+            payload_msg=str(payload.get("Msg") or payload.get("Message") or ""),
+        )
         return self._with_server_time({
             "success": False,
             "state": "auth_expired",
             "operation": operation,
             "message": "账号登录态已失效，已清除缓存；请再次提交操作",
             "payload": dict(payload),
-        })
+        }, trace_id=trace_id)
 
     def _build_request(
         self,
@@ -404,22 +490,22 @@ class AKSellService:
         )
         return data, "ACE_Sell_Son" if son_id else "ACE_Sell"
 
-    def _waiting(self, operation: str) -> dict[str, Any]:
+    def _waiting(self, operation: str, *, trace_id: str = "") -> dict[str, Any]:
         return self._with_server_time({
             "success": False,
             "state": "waiting",
             "operation": operation,
             "message": "request is waiting for the shared upstream RPC lock",
-        })
+        }, trace_id=trace_id)
 
-    def _result(self, operation: str, upstream: Mapping[str, Any]) -> dict[str, Any]:
+    def _result(self, operation: str, upstream: Mapping[str, Any], *, trace_id: str = "") -> dict[str, Any]:
         success = not bool(upstream.get("Error"))
         return self._with_server_time({
             "success": success,
             "state": "completed" if success else "rejected",
             "operation": operation,
             "payload": dict(upstream),
-        })
+        }, trace_id=trace_id)
 
     @classmethod
     def _mnemonic_words(cls, payload: Mapping[str, Any]) -> list[str]:
@@ -485,8 +571,30 @@ class AKSellService:
             "登入已過期",
         ))
 
-    def _with_server_time(self, result: dict[str, Any]) -> dict[str, Any]:
-        return {**result, "server_time": self.server_time()}
+    def _build_provider_client(self, operation: str, trace_id: str = ""):
+        try:
+            return self.provider.build_client(operation, trace_id=trace_id)
+        except TypeError:
+            return self.provider.build_client(operation)
+
+    def _trace_received(self, operation: str, payload: Mapping[str, Any], trace_id: str) -> None:
+        ak_sell_trace.emit_trace(
+            self.logger,
+            "operation_received",
+            trace_id,
+            operation=operation,
+            account=self._optional_text(payload, "account", max_length=128),
+            is_subaccount=bool(self._optional_text(payload, "sonId", aliases=("son_id",), max_length=64)),
+            count=self._optional_text(payload, "count", max_length=32),
+            request_id=self._optional_text(payload, "request_id", aliases=("requestId",), max_length=128),
+        )
+
+    def _with_server_time(self, result: dict[str, Any], *, trace_id: str = "") -> dict[str, Any]:
+        data = {**result, "server_time": self.server_time()}
+        trace_id = ak_sell_trace.normalize_trace_id(trace_id)
+        if trace_id:
+            data["trace_id"] = trace_id
+        return data
 
     @classmethod
     def _required_text(

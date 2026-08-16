@@ -96,6 +96,20 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 
 `sonId` 为空时调用 `ACE_Sell`，有值时调用 `ACE_Sell_Son`。服务端固定传递空的 `amount` 和 `password`，与原客户端逻辑一致。
 
+## 限时诊断日志
+
+为避免长期刷屏，AK 挂卖只在北京时间每天 `12:00:00` 到 `12:04:59` 之间为新请求生成诊断 `trace_id`，并输出 `[AKSellTrace]` 日志。请求一旦在窗口内开始，后续即使跨过 12:05，也会继续带着同一个 `trace_id` 记录完整链路。
+
+诊断日志会覆盖请求进入、登录态缓存/刷新、提交派发、内部 RPC 出口选择、上游响应、读取超时和异常等阶段；响应体中也会带回 `trace_id`，方便把客户端截图、服务端日志和 Nginx/RPC 链路对上。
+
+日志只记录账号、接口、出口、耗时、状态码、请求编号、数量等排障字段；不会记录登录密码、Key、助记词、谷歌验证码、交易密码等敏感值。
+
+服务器排查命令：
+
+```bash
+sudo journalctl -u ak-proxy --since "today 12:00" --until "today 12:10" --no-pager | grep "AKSellTrace"
+```
+
 ## 谷歌验证绑定
 
 `POST /google-bind`

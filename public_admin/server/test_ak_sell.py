@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import logging
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from .ak_sell.internal_rpc import AK_SELL_INTERNAL_RPC_HEADER
 from .ak_sell.provider import AKSellUpstreamError, AKSellUpstreamReply
 from .ak_sell.routes import create_ak_sell_router
 from .ak_sell.service import AKSellInputError, AKSellService
+from .ak_sell import trace as ak_sell_trace
 from .rpc_timeout_policy import (
     AK_SELL_READ_TIMEOUT_SECONDS,
     AK_SELL_WRITE_TIMEOUT_SECONDS,
@@ -34,8 +36,10 @@ class FakeProvider:
         self.result = result or {"Error": False, "Msg": "ok"}
         self.error = error
         self.calls = []
+        self.build_calls = []
 
-    def build_client(self, _operation=""):
+    def build_client(self, _operation="", **kwargs):
+        self.build_calls.append((_operation, kwargs))
         return FakeClient()
 
     async def post_rpc(self, _client, endpoint, data):
@@ -86,6 +90,13 @@ def test_ak_sell_timeout_policy_keeps_reads_fast_and_submit_separate():
     assert resolve_ak_sell_forward_timeout("My_Subaccount") == AK_SELL_READ_TIMEOUT_SECONDS
     assert resolve_ak_sell_forward_timeout("ACE_Sell_Son") == AK_SELL_WRITE_TIMEOUT_SECONDS
     assert resolve_ak_sell_response_timeout("submit") > AK_SELL_WRITE_TIMEOUT_SECONDS
+
+
+def test_ak_sell_trace_window_is_limited_to_beijing_noon():
+    assert ak_sell_trace.is_trace_window(datetime(2026, 8, 16, 12, 0, 0, tzinfo=BEIJING_TIMEZONE)) is True
+    assert ak_sell_trace.is_trace_window(datetime(2026, 8, 16, 12, 4, 59, tzinfo=BEIJING_TIMEZONE)) is True
+    assert ak_sell_trace.is_trace_window(datetime(2026, 8, 16, 11, 59, 59, tzinfo=BEIJING_TIMEZONE)) is False
+    assert ak_sell_trace.is_trace_window(datetime(2026, 8, 16, 12, 5, 0, tzinfo=BEIJING_TIMEZONE)) is False
 
 
 def make_request(headers: dict[str, str] | None = None) -> Request:
@@ -316,6 +327,41 @@ async def test_submit_auth_refresh_timeout_before_write_is_retryable_failure():
     assert result["state"] == "failed"
     assert result["message"] == "上游读取超时，可稍后重试"
     assert [call[0] for call in provider.calls] == ["Login"]
+
+
+@pytest.mark.asyncio
+async def test_submit_trace_window_returns_trace_id_and_redacts_sensitive_fields(monkeypatch, caplog):
+    monkeypatch.setattr(ak_sell_trace, "is_trace_window", lambda now=None: True)
+    caplog.set_level(logging.INFO, logger="TransparentProxy")
+    provider = FakeProvider()
+    service = AKSellService(provider=provider, clock=fixed_clock(), logger=logging.getLogger("TransparentProxy"))
+
+    result = await service.invoke(
+        "submit",
+        {
+            "key": "secret-key-must-not-log",
+            "UserID": "42",
+            "mnemonicid1": "3",
+            "mnemonickey": "secret-mnemonic-key",
+            "mnemonicstr1": "secret-mnemonic-word",
+            "gCode": "654321",
+            "count": "200",
+            "sonId": "sub-8",
+            "request_id": "sell-job-trace",
+        },
+    )
+
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert result["trace_id"].startswith("ak-sell-")
+    assert provider.build_calls[0][1]["trace_id"] == result["trace_id"]
+    assert "[AKSellTrace]" in log_text
+    assert "stage=operation_received" in log_text
+    assert "stage=submit_dispatch" in log_text
+    assert "sell-job-trace" in log_text
+    assert "secret-key-must-not-log" not in log_text
+    assert "secret-mnemonic-key" not in log_text
+    assert "secret-mnemonic-word" not in log_text
+    assert "654321" not in log_text
 
 
 @pytest.mark.asyncio

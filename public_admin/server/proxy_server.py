@@ -896,11 +896,15 @@ ep_auto_purchase_service = None
 try:
     from .ak_sell import AKSellService, create_ak_sell_router
     from .ak_sell.account_state import UserStatsAKAccountState
+    from .ak_sell.trace import AK_SELL_TRACE_HEADER, emit_trace as emit_ak_sell_trace, normalize_trace_id as normalize_ak_sell_trace_id
     _AK_SELL_IMPORT_ERROR = None
 except Exception as e:
     AKSellService = None
     create_ak_sell_router = None
     UserStatsAKAccountState = None
+    AK_SELL_TRACE_HEADER = "x-ak-sell-trace-id"
+    emit_ak_sell_trace = None
+    normalize_ak_sell_trace_id = None
     _AK_SELL_IMPORT_ERROR = e
 
 ak_sell_service = None
@@ -3862,6 +3866,20 @@ async def proxy_rpc(path: str, request: Request):
         ak_sell_internal_request
         and normalized_path in {"ace_sell", "ace_sell_son"}
     )
+    ak_sell_trace_id = ""
+    if ak_sell_internal_request and normalize_ak_sell_trace_id is not None:
+        ak_sell_trace_id = normalize_ak_sell_trace_id(request.headers.get(AK_SELL_TRACE_HEADER, ""))
+    if ak_sell_trace_id and emit_ak_sell_trace is not None:
+        emit_ak_sell_trace(
+            logger,
+            "rpc_received",
+            ak_sell_trace_id,
+            endpoint=normalized_path,
+            account=_extract_forward_account(params),
+            user_id=str(params.get("UserID") or params.get("userId") or params.get("userid") or ""),
+            is_subaccount=bool(str(params.get("sonId") or params.get("son_id") or "").strip()),
+            count=str(params.get("count") or ""),
+        )
     upstream_rpc_lease = None
     if (
         normalized_path in {
@@ -3965,6 +3983,17 @@ async def proxy_rpc(path: str, request: Request):
             if ak_sell_internal_request
             else None
         )
+        if ak_sell_trace_id and emit_ak_sell_trace is not None:
+            emit_ak_sell_trace(
+                logger,
+                "rpc_exit_selected",
+                ak_sell_trace_id,
+                endpoint=normalized_path,
+                exit_name=getattr(selected_exit, "name", ""),
+                is_direct=bool(getattr(selected_exit, "is_direct", False)),
+                timeout_seconds=ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path),
+                max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
+            )
 
         upstream_started_at = time.perf_counter()
         forward_headers = dict(request.headers)
@@ -3989,6 +4018,18 @@ async def proxy_rpc(path: str, request: Request):
 
         )
         upstream_ms = _elapsed_ms(upstream_started_at)
+        if ak_sell_trace_id and emit_ak_sell_trace is not None:
+            emit_ak_sell_trace(
+                logger,
+                "rpc_response",
+                ak_sell_trace_id,
+                endpoint=normalized_path,
+                exit_name=getattr(selected_exit, "name", ""),
+                status_code=response.status_code,
+                upstream_ms=upstream_ms,
+                content_type=response.headers.get("content-type", ""),
+                response_bytes=len(response.content or b""),
+            )
         if stock_price_cache_key:
             await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
         if (
@@ -4157,6 +4198,17 @@ async def proxy_rpc(path: str, request: Request):
 
         stats.errors += 1
 
+        if ak_sell_trace_id and emit_ak_sell_trace is not None:
+            emit_ak_sell_trace(
+                logger,
+                "rpc_error",
+                ak_sell_trace_id,
+                endpoint=normalized_path,
+                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                error=type(e).__name__,
+                message=str(e),
+                total_ms=_elapsed_ms(request_started_at),
+            )
         logger.error(f"[RPC/{path}] 转发失败: {e}")
         _record_request_metric(
             kind="rpc",
