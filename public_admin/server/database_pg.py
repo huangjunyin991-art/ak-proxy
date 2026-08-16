@@ -3176,9 +3176,14 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
         data_sql = f'SELECT * FROM {quoted_table}{where_clause}{order_clause} LIMIT {normalized_limit} OFFSET {offset}'
         rows = await conn.fetch(data_sql, *sql_params)
 
+        can_reveal_sensitive = bool(
+            reveal_sensitive
+            and has_filter
+            and str(filter_val or '').strip()
+        )
         return {
             'total': total,
-            'rows': _sanitize_output_rows(rows, reveal_sensitive=reveal_sensitive),
+            'rows': _sanitize_output_rows(rows, reveal_sensitive=can_reveal_sensitive),
             'limit_capped': decision.limit_capped,
             'table_info': decision.table_info or {},
             'filter_applied': has_filter,

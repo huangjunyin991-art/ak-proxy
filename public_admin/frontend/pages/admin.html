@@ -11139,8 +11139,8 @@
                     params.append('filter_col', dbFilter.col);
                     params.append('filter_op', dbFilter.op || '=');
                     params.append('filter_val', dbFilter.val);
+                    params.append('reveal_sensitive', 'true');
                 }
-                params.append('reveal_sensitive', 'true');
                 const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?${params.toString()}`, {
                     headers: getDbHeaders()
                 });
