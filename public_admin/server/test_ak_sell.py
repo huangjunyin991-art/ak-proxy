@@ -296,6 +296,29 @@ async def test_submit_gateway_timeout_is_unknown():
 
 
 @pytest.mark.asyncio
+async def test_submit_auth_refresh_timeout_before_write_is_retryable_failure():
+    state = FakeAccountState()
+    provider = FakeProvider(error=AKSellUpstreamError("ReadTimeout", is_read_timeout=True))
+    service = AKSellService(provider=provider, clock=fixed_clock(), account_state=state)
+
+    result = await service.invoke(
+        "submit",
+        {
+            "account": "demo",
+            "mnemonicid1": "3",
+            "mnemonickey": "challenge-key",
+            "mnemonicstr1": "word",
+            "gCode": "123456",
+            "count": "200",
+        },
+    )
+
+    assert result["state"] == "failed"
+    assert result["message"] == "上游读取超时，可稍后重试"
+    assert [call[0] for call in provider.calls] == ["Login"]
+
+
+@pytest.mark.asyncio
 async def test_login_reuses_the_server_cached_identity_without_an_upstream_login():
     cached = CachedAKAccountAuth(account="account-1", userkey="cached-key", user_id="cached-user")
     provider = FakeProvider()

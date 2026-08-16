@@ -89,10 +89,12 @@ class AKSellService:
         auth: ResolvedAKAuth | None = None
         request_data: dict[str, str] | None = None
         endpoint = ""
+        submit_dispatched = False
         try:
             async with self.provider.build_client(name) as client:
                 auth = await self._resolve_auth(client, payload or {})
                 request_data, endpoint = self._build_request(name, payload or {}, auth)
+                submit_dispatched = name == "submit" and endpoint in {"ACE_Sell", "ACE_Sell_Son"}
                 upstream = await self.provider.post_rpc(client, endpoint, request_data)
                 if auth.from_cache and self._is_auth_rejected(upstream):
                     await self._invalidate_cached_auth(auth.account)
@@ -118,7 +120,7 @@ class AKSellService:
         except AKSellCachedLoginRejected as exc:
             return self._result(name, exc.payload)
         except AKSellUpstreamError as exc:
-            return self._with_server_time(self._error_response(name, exc))
+            return self._with_server_time(self._error_response(name, exc, submit_dispatched=submit_dispatched))
 
         success = not bool(upstream.get("Error"))
         if name == "submit" and success and self.ledger_recorder is not None:
@@ -537,11 +539,23 @@ class AKSellService:
         return ""
 
     @staticmethod
-    def _error_response(operation: str, exc: AKSellUpstreamError) -> dict[str, Any]:
-        if (
-            operation in {"submit", "google-bind", "google-unbind"}
-            and (exc.is_read_timeout or (operation == "submit" and exc.status_code in {502, 504}))
+    def _error_response(
+        operation: str,
+        exc: AKSellUpstreamError,
+        *,
+        submit_dispatched: bool = False,
+    ) -> dict[str, Any]:
+        if operation == "submit" and submit_dispatched and (
+            exc.is_read_timeout or exc.status_code in {502, 504}
         ):
+            return {
+                "success": False,
+                "state": "unknown",
+                "operation": operation,
+                "message": "写入操作未获得上游结果，结果未知，请勿自动重发",
+                "status_code": exc.status_code,
+            }
+        if operation in {"google-bind", "google-unbind"} and exc.is_read_timeout:
             return {
                 "success": False,
                 "state": "unknown",

@@ -438,7 +438,7 @@ class OutboundDispatcher:
     DIRECT_FALLBACK_RATE_PER_MINUTE = 30
     DIRECT_CRITICAL_FALLBACK_RATE_PER_SECOND = 8
     DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE = 240
-    WIDE_SPREAD_RPC_PATHS = {"ace_sell", "my_subaccount"}
+    WIDE_SPREAD_RPC_PATHS = {"ace_sell", "ace_sell_son", "my_subaccount"}
     CRITICAL_DIRECT_FALLBACK_RPC_PATHS = {
         "logout",
         "question_get",

@@ -209,6 +209,16 @@ def test_ace_sell_uses_wide_spread_rpc_policy():
     assert set(picked) == {"sell-tunnel-0", "sell-tunnel-1"}
 
 
+def test_ace_sell_son_uses_wide_spread_rpc_policy():
+    dispatcher = OutboundDispatcher()
+    for idx in range(2):
+        _add_ready_socks5(dispatcher, f"sell-son-tunnel-{idx}", 10001 + idx)
+
+    picked = [dispatcher.pick_api_exit("ACE_Sell_Son").name for _ in range(4)]
+
+    assert set(picked) == {"sell-son-tunnel-0", "sell-son-tunnel-1"}
+
+
 def test_my_subaccount_uses_all_eligible_exits():
     dispatcher = OutboundDispatcher()
     for idx, latency in enumerate([1, 200, 300]):
