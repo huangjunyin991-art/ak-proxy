@@ -11065,6 +11065,50 @@
                 console.error('加载表列表失败', e);
             }
         }
+
+        // 根据当前表结构填充筛选字段，避免字段下拉框为空
+        function populateDbFilterColumns() {
+            const select = document.getElementById('dbFilterCol');
+            if (!select) return;
+            const current = dbFilter.col;
+            const options = ['<option value="">选择字段...</option>']
+                .concat(dbSchema.map(column => `<option value="${escapeHtml(column.name)}">${escapeHtml(column.name)}</option>`));
+            select.innerHTML = options.join('');
+            if (dbSchema.some(column => column.name === current)) {
+                select.value = current;
+            } else {
+                dbFilter.col = '';
+            }
+        }
+
+        function applyDbFilter() {
+            const col = document.getElementById('dbFilterCol')?.value || '';
+            const op = document.getElementById('dbFilterOp')?.value || '=';
+            const val = document.getElementById('dbFilterVal')?.value.trim() || '';
+            if (!col) {
+                showAlert('请先选择筛选字段', 'warning');
+                return;
+            }
+            if (!val) {
+                showAlert('请输入筛选值', 'warning');
+                return;
+            }
+            dbFilter = { col, op, val };
+            dbCurrentPage = 0;
+            loadTableData();
+        }
+
+        function clearDbFilter() {
+            dbFilter = { col: '', op: '=', val: '' };
+            const col = document.getElementById('dbFilterCol');
+            const op = document.getElementById('dbFilterOp');
+            const val = document.getElementById('dbFilterVal');
+            if (col) col.value = '';
+            if (op) op.value = '=';
+            if (val) val.value = '';
+            dbCurrentPage = 0;
+            if (dbCurrentTable) loadTableData();
+        }
         
         // 加载表数据
         async function loadTableData() {
@@ -11080,6 +11124,7 @@
                 });
                 if (handleDbError(schemaRes)) return;
                 dbSchema = await schemaRes.json();
+                populateDbFilterColumns();
                 
                 // 找到主键列
                 const pkCol = dbSchema.find(c => c.pk === 1);
@@ -11095,6 +11140,7 @@
                     params.append('filter_op', dbFilter.op || '=');
                     params.append('filter_val', dbFilter.val);
                 }
+                params.append('reveal_sensitive', 'true');
                 const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?${params.toString()}`, {
                     headers: getDbHeaders()
                 });
@@ -11130,12 +11176,14 @@
                             </td>` : '';
                         return `<tr>${selectCell}` +
                             dbSchema.map(c => {
-                                let val = row[c.name];
-                                if (val === null) val = '<span style="color: #666;">NULL</span>';
-                                else if (c.type && c.type.toLowerCase().includes('timestamp') && val) val = fmtTime(val);
-                                else if (typeof val === 'string' && val.length > 50) val = val.substring(0, 50) + '...';
-                                if (val !== '<span style="color: #666;">NULL</span>') val = escapeHtml(val);
-                                return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(String(row[c.name] || ''))}">${val}</td>`;
+                                const rawValue = row[c.name];
+                                if (rawValue === null || rawValue === undefined) {
+                                    return '<td style="max-width: 420px; color: #666;">NULL</td>';
+                                }
+                                const displayValue = c.type && c.type.toLowerCase().includes('timestamp')
+                                    ? fmtTime(rawValue)
+                                    : String(rawValue);
+                                return `<td style="max-width: 420px; white-space: pre-wrap; word-break: break-word; vertical-align: top;" title="${escapeHtml(String(rawValue))}">${escapeHtml(displayValue)}</td>`;
                             }).join('') +
                             actionCell + '</tr>';
                     }).join('');

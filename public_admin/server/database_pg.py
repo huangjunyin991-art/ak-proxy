@@ -127,7 +127,9 @@ def _mask_sensitive_value(value: Any) -> str:
     return mask_credential(value)
 
 
-def _sanitize_output_row(row: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_output_row(row: Dict[str, Any], *, reveal_sensitive: bool = False) -> Dict[str, Any]:
+    if reveal_sensitive:
+        return dict(row)
     sanitized = dict(row)
     for key in list(sanitized.keys()):
         normalized = str(key or '').lower()
@@ -147,8 +149,8 @@ def _is_trackable_ip_address(ip_address: str) -> bool:
         return False
 
 
-def _sanitize_output_rows(rows) -> List[Dict[str, Any]]:
-    return [_sanitize_output_row(dict(row)) for row in rows]
+def _sanitize_output_rows(rows, *, reveal_sensitive: bool = False) -> List[Dict[str, Any]]:
+    return [_sanitize_output_row(dict(row), reveal_sensitive=reveal_sensitive) for row in rows]
 
 
 _SQL_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
@@ -3124,7 +3126,8 @@ async def get_table_schema(table_name: str) -> List[Dict]:
 
 async def query_table(table_name: str, limit: int = 100, offset: int = 0,
                       order_by: str = None, order_desc: bool = True,
-                      filter_col: str = None, filter_op: str = '=', filter_val: Any = None) -> Dict:
+                      filter_col: str = None, filter_op: str = '=', filter_val: Any = None,
+                      reveal_sensitive: bool = False) -> Dict:
     """查询表数据（带大表保护与单条件筛选）"""
     pool = _get_pool()
     async with pool.acquire() as conn:
@@ -3154,7 +3157,8 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
         where_clause = ''
         if has_filter:
             quoted_filter_col = _quote_existing_column(filter_col, columns, 'filter column')
-            where_clause = f" WHERE {quoted_filter_col} {op.upper()} $1"
+            # 管理页面的输入值统一是文本，转换列值后可兼容整数、布尔和时间字段。
+            where_clause = f" WHERE CAST({quoted_filter_col} AS TEXT) {op.upper()} $1"
             sql_params.append(filter_val if op != 'ilike' else f"%{filter_val}%")
         elif not decision.count_allowed:
             # 大表无筛选时拒绝
@@ -3174,7 +3178,7 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
 
         return {
             'total': total,
-            'rows': _sanitize_output_rows(rows),
+            'rows': _sanitize_output_rows(rows, reveal_sensitive=reveal_sensitive),
             'limit_capped': decision.limit_capped,
             'table_info': decision.table_info or {},
             'filter_applied': has_filter,

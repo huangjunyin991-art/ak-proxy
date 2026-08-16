@@ -9569,7 +9569,8 @@ async def admin_db_query(table_name: str, request: Request,
 
                          order_by: str = None, order_desc: bool = True,
 
-                         filter_col: str = None, filter_op: str = '=', filter_val: str = None):
+                         filter_col: str = None, filter_op: str = '=', filter_val: str = None,
+                         reveal_sensitive: bool = False):
 
     _, error_response = await _require_admin_token(request, 'database')
     if error_response is not None:
@@ -9588,6 +9589,7 @@ async def admin_db_query(table_name: str, request: Request,
             filter_col,
             filter_op,
             filter_val,
+            reveal_sensitive=reveal_sensitive,
         )
 
     except GuardError as e:
