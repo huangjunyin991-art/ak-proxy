@@ -76,9 +76,23 @@ class FakeAccountState:
 class FakeLedgerRecorder:
     def __init__(self):
         self.calls = []
+        self.attempts = []
 
     async def record_success(self, **payload):
         self.calls.append(payload)
+        return True
+
+    async def record_attempt(self, **payload):
+        self.attempts.append(payload)
+        return True
+
+
+class FakeConfirmationRecorder:
+    def __init__(self):
+        self.enqueued = []
+
+    async def enqueue_unknown(self, **payload):
+        self.enqueued.append(payload)
         return True
 
 
@@ -327,6 +341,42 @@ async def test_submit_auth_refresh_timeout_before_write_is_retryable_failure():
     assert result["state"] == "failed"
     assert result["message"] == "上游读取超时，可稍后重试"
     assert [call[0] for call in provider.calls] == ["Login"]
+
+
+@pytest.mark.asyncio
+async def test_submit_unknown_after_dispatch_records_attempt_and_enqueues_balance_confirmation():
+    state = FakeAccountState(CachedAKAccountAuth("demo", "cached-key", "42"))
+    provider = FakeProvider(error=AKSellUpstreamError("ReadTimeout", is_read_timeout=True))
+    ledger = FakeLedgerRecorder()
+    confirmation = FakeConfirmationRecorder()
+    service = AKSellService(
+        provider=provider,
+        clock=fixed_clock(),
+        account_state=state,
+        ledger_recorder=ledger,
+        confirmation_recorder=confirmation,
+    )
+
+    result = await service.invoke(
+        "submit",
+        {
+            "account": "demo",
+            "mnemonicid1": "3",
+            "mnemonickey": "challenge-key",
+            "mnemonicstr1": "word",
+            "gCode": "123456",
+            "count": "200",
+            "initial_balance": "500",
+            "request_id": "timeout-trace-1",
+        },
+    )
+
+    assert result["state"] == "unknown"
+    assert [call[0] for call in provider.calls] == ["ACE_Sell"]
+    assert ledger.attempts[0]["state"] == "unknown"
+    assert ledger.attempts[0]["event_id"] == "ak-sell-request:timeout-trace-1"
+    assert confirmation.enqueued[0]["initial_balance"] == "500"
+    assert confirmation.enqueued[0]["event_id"] == "ak-sell-request:timeout-trace-1"
 
 
 @pytest.mark.asyncio

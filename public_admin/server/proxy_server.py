@@ -911,8 +911,10 @@ ak_sell_service = None
 
 try:
     from .ak_sell_ledger import (
+        AKSellBalanceConfirmationService,
         AKSellLedgerRepository,
         AKSellLedgerService,
+        BalanceSnapshot,
         PublicRpcSaleRecorder,
         create_ak_sell_ledger_router,
     )
@@ -920,11 +922,14 @@ try:
 except Exception as e:
     AKSellLedgerRepository = None
     AKSellLedgerService = None
+    AKSellBalanceConfirmationService = None
+    BalanceSnapshot = None
     PublicRpcSaleRecorder = None
     create_ak_sell_ledger_router = None
     _AK_SELL_LEDGER_IMPORT_ERROR = e
 
 ak_sell_ledger_service = None
+ak_sell_balance_confirmation_service = None
 ak_sell_public_rpc_recorder = None
 ak_sell_ledger_repository = None
 
@@ -3734,6 +3739,51 @@ async def proxy_index_data(request: Request):
 
 # ===== 通用 RPC 代理 =====
 
+async def _record_ak_sell_internal_rpc_attempt(
+    *,
+    trace_id: str,
+    normalized_path: str,
+    params: dict,
+    stage: str,
+    state: str = "",
+    exit_name: str = "",
+    status_code: int | None = None,
+    upstream_ms: int | None = None,
+    response_bytes: int | None = None,
+    message: str = "",
+    diagnostics: dict | None = None,
+) -> None:
+    if not trace_id or normalized_path not in {"ace_sell", "ace_sell_son"}:
+        return
+    recorder = getattr(ak_sell_ledger_service, "record_attempt", None)
+    if not callable(recorder):
+        return
+    try:
+        endpoint = "ACE_Sell_Son" if normalized_path == "ace_sell_son" else "ACE_Sell"
+        request_data = {
+            "sonId": str(params.get("sonId") or params.get("son_id") or ""),
+            "count": str(params.get("count") or ""),
+        }
+        await recorder(
+            account=_extract_forward_account(params),
+            endpoint=endpoint,
+            request_data=request_data,
+            payload={},
+            source="ak_sell_api",
+            state=state,
+            message=message,
+            trace_id=trace_id,
+            event_id=f"ak-sell-trace:{trace_id}",
+            status_code=status_code,
+            exit_name=exit_name,
+            upstream_ms=upstream_ms,
+            response_bytes=response_bytes,
+            last_stage=stage,
+            diagnostics=diagnostics or {},
+        )
+    except Exception as exc:
+        logger.warning("[AKSellLedger] rpc attempt trace update failed trace=%s error=%s", trace_id, str(exc)[:200])
+
 @app.api_route("/RPC/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 
 async def proxy_rpc(path: str, request: Request):
@@ -3880,6 +3930,13 @@ async def proxy_rpc(path: str, request: Request):
             is_subaccount=bool(str(params.get("sonId") or params.get("son_id") or "").strip()),
             count=str(params.get("count") or ""),
         )
+        await _record_ak_sell_internal_rpc_attempt(
+            trace_id=ak_sell_trace_id,
+            normalized_path=normalized_path,
+            params=params,
+            stage="rpc_received",
+            state="dispatched",
+        )
     upstream_rpc_lease = None
     if (
         normalized_path in {
@@ -3994,6 +4051,18 @@ async def proxy_rpc(path: str, request: Request):
                 timeout_seconds=ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path),
                 max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
             )
+            await _record_ak_sell_internal_rpc_attempt(
+                trace_id=ak_sell_trace_id,
+                normalized_path=normalized_path,
+                params=params,
+                stage="rpc_exit_selected",
+                state="dispatched",
+                exit_name=getattr(selected_exit, "name", ""),
+                diagnostics={
+                    "is_direct": bool(getattr(selected_exit, "is_direct", False)),
+                    "timeout_seconds": ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path),
+                },
+            )
 
         upstream_started_at = time.perf_counter()
         forward_headers = dict(request.headers)
@@ -4029,6 +4098,18 @@ async def proxy_rpc(path: str, request: Request):
                 upstream_ms=upstream_ms,
                 content_type=response.headers.get("content-type", ""),
                 response_bytes=len(response.content or b""),
+            )
+            await _record_ak_sell_internal_rpc_attempt(
+                trace_id=ak_sell_trace_id,
+                normalized_path=normalized_path,
+                params=params,
+                stage="rpc_response",
+                state="rpc_response",
+                exit_name=getattr(selected_exit, "name", ""),
+                status_code=response.status_code,
+                upstream_ms=upstream_ms,
+                response_bytes=len(response.content or b""),
+                diagnostics={"content_type": response.headers.get("content-type", "")},
             )
         if stock_price_cache_key:
             await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
@@ -4208,6 +4289,16 @@ async def proxy_rpc(path: str, request: Request):
                 error=type(e).__name__,
                 message=str(e),
                 total_ms=_elapsed_ms(request_started_at),
+            )
+            await _record_ak_sell_internal_rpc_attempt(
+                trace_id=ak_sell_trace_id,
+                normalized_path=normalized_path,
+                params=params,
+                stage="rpc_error",
+                state="unknown",
+                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                message=str(e),
+                diagnostics={"error": type(e).__name__, "total_ms": _elapsed_ms(request_started_at)},
             )
         logger.error(f"[RPC/{path}] 转发失败: {e}")
         _record_request_metric(
@@ -7306,6 +7397,107 @@ if (
 elif _EP_AUTO_PURCHASE_IMPORT_ERROR is not None:
     logger.warning(f"[EPAutoPurchase] module unavailable, skipped: {_EP_AUTO_PURCHASE_IMPORT_ERROR}")
 
+
+def _coerce_ak_sell_balance_value(value) -> int | None:
+    try:
+        text = str(value).strip().replace(",", "")
+        if not text:
+            return None
+        number = float(text)
+    except (TypeError, ValueError):
+        return None
+    if number < 0:
+        return None
+    return int(number)
+
+
+def _extract_ak_sell_main_balance(payload) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("Data") if isinstance(payload.get("Data"), dict) else payload
+    if not isinstance(data, dict):
+        return None
+    for key in ("ACECount", "aceCount", "AKCount", "akCount", "Balance", "balance"):
+        value = _coerce_ak_sell_balance_value(data.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _iter_ak_sell_subaccount_rows(value):
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                yield item
+            elif isinstance(item, (list, tuple)):
+                for child in item:
+                    yield from _iter_ak_sell_subaccount_rows(child)
+        return
+    if not isinstance(value, dict):
+        return
+    for key in ("List", "list", "Rows", "rows", "Data", "data"):
+        if key in value:
+            yield from _iter_ak_sell_subaccount_rows(value.get(key))
+
+
+def _extract_ak_sell_subaccount_balance(payload, sub_account_id: str) -> int | None:
+    wanted = str(sub_account_id or "").strip()
+    if not wanted:
+        return None
+    for row in _iter_ak_sell_subaccount_rows(payload):
+        ids = (
+            row.get("Id"), row.get("ID"), row.get("id"),
+            row.get("UserID"), row.get("userId"), row.get("userid"),
+            row.get("sonId"), row.get("SonId"), row.get("sub_account_id"),
+        )
+        if wanted not in {str(item).strip() for item in ids if item is not None}:
+            continue
+        for key in ("ACECount", "aceCount", "AKCount", "akCount", "Balance", "balance", "Amount", "amount"):
+            value = _coerce_ak_sell_balance_value(row.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+async def _probe_ak_sell_balance_for_confirmation(task):
+    if BalanceSnapshot is None:
+        return None
+    account = str(task.get("account") or "").strip().lower()
+    sub_account_id = str(task.get("sub_account_id") or "").strip()
+    if not account:
+        return BalanceSnapshot(value=None, error="missing account")
+    if ak_sell_service is None:
+        return BalanceSnapshot(value=None, error="ak sell service unavailable")
+    try:
+        if not sub_account_id:
+            result = await ak_sell_service.invoke("balance", {"account": account, "lang": "cn"})
+            if result.get("success") is False:
+                return BalanceSnapshot(value=None, error=str(result.get("message") or "balance rejected"))
+            value = _extract_ak_sell_main_balance(result.get("payload") or {})
+            return BalanceSnapshot(value=value, error="" if value is not None else "main balance not found")
+
+        for page in range(1, 11):
+            result = await ak_sell_service.invoke(
+                "subaccounts",
+                {"account": account, "lang": "cn", "p": page, "pageSize": 100},
+            )
+            if result.get("success") is False:
+                return BalanceSnapshot(value=None, error=str(result.get("message") or "subaccounts rejected"))
+            payload = result.get("payload") or {}
+            value = _extract_ak_sell_subaccount_balance(payload, sub_account_id)
+            if value is not None:
+                return BalanceSnapshot(value=value)
+            data = payload.get("Data") if isinstance(payload, dict) else {}
+            if isinstance(data, dict):
+                count = _coerce_ak_sell_balance_value(data.get("Count"))
+                page_size = _coerce_ak_sell_balance_value(data.get("PageSize") or data.get("pageSize"))
+                if count is not None and page_size is not None and page * page_size >= count:
+                    break
+        return BalanceSnapshot(value=None, error="subaccount balance not found")
+    except Exception as exc:
+        return BalanceSnapshot(value=None, error=f"probe exception: {str(exc)[:200]}")
+
+
 if AKSellLedgerService is not None and AKSellLedgerRepository is not None:
     try:
         ak_sell_ledger_repository = AKSellLedgerRepository(db._get_pool)
@@ -7313,6 +7505,13 @@ if AKSellLedgerService is not None and AKSellLedgerRepository is not None:
             ak_sell_ledger_repository,
             logger=logger,
         )
+        if AKSellBalanceConfirmationService is not None:
+            ak_sell_balance_confirmation_service = AKSellBalanceConfirmationService(
+                ak_sell_ledger_repository,
+                ak_sell_ledger_service,
+                _probe_ak_sell_balance_for_confirmation,
+                logger,
+            )
         if PublicRpcSaleRecorder is not None:
             ak_sell_public_rpc_recorder = PublicRpcSaleRecorder(
                 ak_sell_ledger_service,
@@ -7322,6 +7521,7 @@ if AKSellLedgerService is not None and AKSellLedgerRepository is not None:
     except Exception as e:
         logger.warning(f"[AKSellLedger] initialization failed, skipped: {e}")
         ak_sell_ledger_service = None
+        ak_sell_balance_confirmation_service = None
         ak_sell_public_rpc_recorder = None
         ak_sell_ledger_repository = None
 
@@ -7334,6 +7534,7 @@ if create_ak_sell_router is not None and AKSellService is not None and upstream_
                 clear_auth_state=db.clear_ak_auth_state,
             ) if UserStatsAKAccountState is not None else None,
             ledger_recorder=ak_sell_ledger_service,
+            confirmation_recorder=ak_sell_balance_confirmation_service,
         )
         app.include_router(create_ak_sell_router(
             service=ak_sell_service,
@@ -7574,6 +7775,13 @@ async def admin_startup():
         except Exception as e:
             logger.warning(f"[EPAutoPurchase] worker start failed, skipped: {e}")
 
+    if ak_sell_balance_confirmation_service is not None:
+        try:
+            await ak_sell_balance_confirmation_service.start()
+            logger.info("[AKSellLedger] balance confirmation worker started")
+        except Exception as e:
+            logger.warning(f"[AKSellLedger] balance confirmation worker start failed, skipped: {e}")
+
     try:
         hydration = await _AK_WEB_STATIC_CACHE_SERVICE.hydrate_memory_from_disk(reason="startup")
         logger.info(
@@ -7680,6 +7888,9 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    if ak_sell_balance_confirmation_service is not None:
+        await ak_sell_balance_confirmation_service.stop()
 
     if ep_auto_purchase_service is not None:
         await ep_auto_purchase_service.stop()
@@ -18127,16 +18338,39 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             and normalized_path in {"ace_sell", "ace_sell_son"}
             and not _is_trusted_first_party_rpc_request(request)
             and response.status_code < 400
-            and result.get("Error") is False
         ):
-            await ak_sell_ledger_service.record_success(
-                account=str(session.get("username") or params.get("account") or ""),
-                endpoint="ACE_Sell_Son" if normalized_path == "ace_sell_son" else "ACE_Sell",
-                request_data=params,
-                payload=result,
-                source="admin_web",
-                request_id=str(request.headers.get("x-request-id") or ""),
+            endpoint_name = "ACE_Sell_Son" if normalized_path == "ace_sell_son" else "ACE_Sell"
+            admin_sale_success = (
+                result.get("Error") is False
+                or str(result.get("Error")).strip().lower() in {"false", "0"}
+                or result.get("success") is True
+                or str(result.get("success")).strip().lower() in {"true", "1"}
             )
+            if admin_sale_success:
+                await ak_sell_ledger_service.record_success(
+                    account=str(session.get("username") or params.get("account") or ""),
+                    endpoint=endpoint_name,
+                    request_data=params,
+                    payload=result,
+                    source="admin_web",
+                    request_id=str(request.headers.get("x-request-id") or ""),
+                )
+            attempt_recorder = getattr(ak_sell_ledger_service, "record_attempt", None)
+            if callable(attempt_recorder):
+                await attempt_recorder(
+                    account=str(session.get("username") or params.get("account") or ""),
+                    endpoint=endpoint_name,
+                    request_data=params,
+                    payload=result,
+                    source="admin_web",
+                    state="success" if admin_sale_success else "rejected",
+                    message=str(result.get("Msg") or result.get("Message") or ""),
+                    request_id=str(request.headers.get("x-request-id") or ""),
+                    confirmation_method="upstream_response" if admin_sale_success else "",
+                    status_code=response.status_code,
+                    exit_name=getattr(selected_exit, "name", ""),
+                    last_stage="admin_ak_rpc_response",
+                )
         should_persist = bool(set_cookie_values)
         is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
         await _sync_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")

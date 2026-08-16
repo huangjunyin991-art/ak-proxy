@@ -110,6 +110,15 @@ X-AK-Authorization: <ak_auto_sell 八小时授权码>
 sudo journalctl -u ak-proxy --since "today 12:00" --until "today 12:10" --no-pager | grep "AKSellTrace"
 ```
 
+## AK流水展示
+
+AK流水页面现在分成两层：
+
+- `挂卖追踪`：记录每次提交、出口选择、响应、超时、待确认与最终结果。
+- `确认成功流水`：只展示已确认成功的卖出记录。
+
+如果挂卖请求超时但实际可能已经成交，服务端会把它放入余额确认队列；确认成功后会回写到同一条追踪链路里，并进入成功流水。
+
 ## 谷歌验证绑定
 
 `POST /google-bind`

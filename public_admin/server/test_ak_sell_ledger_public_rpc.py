@@ -6,9 +6,14 @@ from public_admin.server.ak_sell_ledger.public_rpc import PublicRpcSaleRecorder
 class FakeLedgerService:
     def __init__(self):
         self.calls = []
+        self.attempts = []
 
     async def record_success(self, **payload):
         self.calls.append(payload)
+        return True
+
+    async def record_attempt(self, **payload):
+        self.attempts.append(payload)
         return True
 
 
@@ -46,6 +51,7 @@ async def test_records_confirmed_public_subaccount_sale_with_cookie_identity():
         "source": "public_rpc",
         "request_id": "request-1",
     }]
+    assert ledger.attempts[0]["state"] == "success"
 
 
 @pytest.mark.asyncio
@@ -102,6 +108,7 @@ async def test_does_not_record_http_success_when_upstream_business_response_fail
 
     assert saved is False
     assert ledger.calls == []
+    assert ledger.attempts[0]["state"] == "rejected"
     assert "reason=upstream_rejected" in logger.infos[0]
 
 

@@ -9,11 +9,16 @@ from public_admin.server.ak_sell_ledger.service import AKSellLedgerService
 class FakeRepository:
     def __init__(self):
         self.records = []
+        self.attempts = []
         self.config_value = {"retention_days": 365}
         self.cleaned_days = None
 
     async def record(self, record):
         self.records.append(dict(record))
+        return True
+
+    async def record_attempt(self, record):
+        self.attempts.append(dict(record))
         return True
 
     async def dashboard(self, **kwargs):
@@ -33,6 +38,9 @@ class FakeRepository:
 
 def test_parser_requires_explicit_upstream_success():
     assert parse_success_payload({"Error": False, "Msg": "出售成功"}) == (True, "出售成功")
+    assert parse_success_payload({"Error": "false", "Msg": "出售成功"}) == (True, "出售成功")
+    assert parse_success_payload({"error": False, "message": "sold"}) == (True, "sold")
+    assert parse_success_payload({"success": True, "message": "sold"}) == (True, "sold")
     assert parse_success_payload({"Error": True, "Msg": "失败"}) == (False, "失败")
     assert parse_success_payload({"Msg": "没有明确状态"})[0] is False
 
@@ -66,6 +74,36 @@ async def test_failed_sale_is_not_recorded():
     )
     assert saved is False
     assert repository.records == []
+
+
+@pytest.mark.asyncio
+async def test_attempt_record_accepts_string_success_and_strips_secrets():
+    repository = FakeRepository()
+    service = AKSellLedgerService(repository)
+
+    saved = await service.record_attempt(
+        account="Main001",
+        endpoint="ACE_Sell",
+        request_data={
+            "count": "10",
+            "key": "secret-key",
+            "mnemonickey": "secret-mnemonic-key",
+            "mnemonicstr1": "secret-word",
+            "gCode": "123456",
+        },
+        payload={"Error": "false", "Msg": "出售成功", "Sokey": "secret-sokey"},
+        source="ak_sell_api",
+        trace_id="ak-sell-test",
+    )
+
+    assert saved is True
+    assert repository.attempts[0]["state"] == "success"
+    dumped = str(repository.attempts[0])
+    assert "secret-key" not in dumped
+    assert "secret-mnemonic-key" not in dumped
+    assert "secret-word" not in dumped
+    assert "123456" not in dumped
+    assert "secret-sokey" not in dumped
 
 
 @pytest.mark.asyncio

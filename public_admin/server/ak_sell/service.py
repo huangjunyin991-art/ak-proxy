@@ -6,6 +6,7 @@ import binascii
 import hashlib
 import hmac
 import logging
+import uuid
 import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -58,6 +59,7 @@ class AKSellService:
         clock: AKSellClock | None = None,
         account_state=None,
         ledger_recorder=None,
+        confirmation_recorder=None,
         logger=None,
     ) -> None:
         self._internal_rpc_token = create_internal_rpc_token()
@@ -66,6 +68,7 @@ class AKSellService:
         self.clock = clock or AKSellClock()
         self.account_state = account_state
         self.ledger_recorder = ledger_recorder
+        self.confirmation_recorder = confirmation_recorder
         self._refresh_locks: dict[str, asyncio.Lock] = {}
 
     def is_internal_rpc_request(self, request) -> bool:
@@ -97,6 +100,9 @@ class AKSellService:
         request_data: dict[str, str] | None = None
         endpoint = ""
         submit_dispatched = False
+        submit_event_id = self._attempt_event_id(payload, trace_id) if name == "submit" else ""
+        if name == "submit" and not submit_event_id:
+            submit_event_id = f"ak-sell-attempt:{uuid.uuid4().hex}"
         try:
             async with self._build_provider_client(name, trace_id) as client:
                 auth = await self._resolve_auth(client, payload, trace_id=trace_id)
@@ -128,6 +134,19 @@ class AKSellService:
                             endpoint=endpoint,
                             account=auth.account,
                         )
+                        if name == "submit":
+                            await self._record_submit_attempt(
+                                payload=payload,
+                                auth=auth,
+                                endpoint=endpoint,
+                                request_data=request_data,
+                                upstream=upstream,
+                                state="auth_expired",
+                                message="账号登录态已失效",
+                                trace_id=trace_id,
+                                event_id=submit_event_id,
+                                last_stage="auth_expired",
+                            )
                         return self._with_server_time({
                             "success": False,
                             "state": "auth_expired",
@@ -164,21 +183,61 @@ class AKSellService:
                 message=str(exc),
                 status_code=exc.status_code or "",
             )
-            return self._with_server_time(
-                self._error_response(name, exc, submit_dispatched=submit_dispatched),
-                trace_id=trace_id,
-            )
+            error_result = self._error_response(name, exc, submit_dispatched=submit_dispatched)
+            if name == "submit" and request_data is not None:
+                await self._record_submit_attempt(
+                    payload=payload,
+                    auth=auth,
+                    endpoint=endpoint,
+                    request_data=request_data,
+                    upstream={},
+                    state=str(error_result.get("state") or "failed"),
+                    message=str(error_result.get("message") or str(exc)),
+                    trace_id=trace_id,
+                    event_id=submit_event_id,
+                    status_code=exc.status_code,
+                    last_stage="operation_error",
+                    diagnostics={
+                        "error": exc.__class__.__name__,
+                        "submit_dispatched": submit_dispatched,
+                    },
+                )
+                if str(error_result.get("state") or "") == "unknown":
+                    await self._enqueue_unknown_submit_confirmation(
+                        payload=payload,
+                        auth=auth,
+                        endpoint=endpoint,
+                        request_data=request_data,
+                        trace_id=trace_id,
+                        event_id=submit_event_id,
+                        error=str(error_result.get("message") or str(exc)),
+                    )
+            return self._with_server_time(error_result, trace_id=trace_id)
 
-        success = not bool(upstream.get("Error"))
-        if name == "submit" and success and self.ledger_recorder is not None:
-            await self.ledger_recorder.record_success(
-                account=auth.account or str((payload or {}).get("account") or ""),
-                endpoint=endpoint,
-                request_data=request_data,
-                payload=upstream,
-                source="ak_sell_api",
-                request_id=str(payload.get("request_id") or payload.get("requestId") or ""),
-            )
+        success = self._is_upstream_success_payload(upstream)
+        if name == "submit":
+            if success and self.ledger_recorder is not None:
+                await self.ledger_recorder.record_success(
+                    account=auth.account or str(payload.get("account") or ""),
+                    endpoint=endpoint,
+                    request_data=self._ledger_request_data(request_data, payload),
+                    payload=upstream,
+                    source="ak_sell_api",
+                    request_id=str(payload.get("request_id") or payload.get("requestId") or ""),
+                )
+            await self._record_submit_attempt(
+                    payload=payload,
+                    auth=auth,
+                    endpoint=endpoint,
+                    request_data=request_data,
+                    upstream=upstream,
+                    state="success" if success else "rejected",
+                    message=str(upstream.get("Msg") or upstream.get("Message") or ""),
+                    trace_id=trace_id,
+                    last_stage="operation_completed",
+                    confirmation_method="upstream_response" if success else "",
+                    event_id=submit_event_id,
+                )
         ak_sell_trace.emit_trace(
             self.logger,
             "operation_completed",
@@ -576,6 +635,139 @@ class AKSellService:
             return self.provider.build_client(operation, trace_id=trace_id)
         except TypeError:
             return self.provider.build_client(operation)
+
+    async def _record_submit_attempt(
+        self,
+        *,
+        payload: Mapping[str, Any],
+        auth: ResolvedAKAuth | None,
+        endpoint: str,
+        request_data: Mapping[str, Any] | None,
+        upstream: Mapping[str, Any] | None,
+        state: str,
+        message: str,
+        trace_id: str,
+        confirmation_method: str = "",
+        status_code: int | None = None,
+        last_stage: str = "",
+        diagnostics: Mapping[str, Any] | None = None,
+        event_id: str = "",
+    ) -> None:
+        recorder = getattr(self.ledger_recorder, "record_attempt", None)
+        if not callable(recorder):
+            return
+        try:
+            await recorder(
+                account=(auth.account if auth is not None else "") or self._optional_text(payload, "account", max_length=128),
+                endpoint=endpoint,
+                request_data=self._ledger_request_data(request_data, payload),
+                payload=upstream or {},
+                source="ak_sell_api",
+                state=state,
+                message=message,
+                trace_id=trace_id,
+                request_id=self._request_id(payload),
+                confirmation_method=confirmation_method,
+                status_code=status_code,
+                last_stage=last_stage,
+                diagnostics=diagnostics or {},
+                event_id=event_id or self._attempt_event_id(payload, trace_id),
+            )
+        except Exception as exc:
+            self.logger.warning("[AKSellLedger] submit attempt callback failed: %s", str(exc)[:300])
+
+    async def _enqueue_unknown_submit_confirmation(
+        self,
+        *,
+        payload: Mapping[str, Any],
+        auth: ResolvedAKAuth | None,
+        endpoint: str,
+        request_data: Mapping[str, Any],
+        trace_id: str,
+        event_id: str = "",
+        error: str,
+    ) -> None:
+        enqueue = getattr(self.confirmation_recorder, "enqueue_unknown", None)
+        if not callable(enqueue):
+            return
+        initial_balance = self._optional_text(
+            payload,
+            "initial_balance",
+            aliases=(
+                "initialBalance",
+                "initial_ak_balance",
+                "initialAkBalance",
+                "initialAKBalance",
+                "before_balance",
+                "balanceBefore",
+            ),
+            max_length=64,
+        )
+        if not initial_balance:
+            return
+        try:
+            await enqueue(
+                account=(auth.account if auth is not None else "") or self._optional_text(payload, "account", max_length=128),
+                endpoint=endpoint,
+                request_data=self._ledger_request_data(request_data, payload),
+                initial_balance=initial_balance,
+                source="ak_sell_api",
+                error=error,
+                request_id=self._request_id(payload),
+                trace_id=trace_id,
+                event_id=event_id or self._attempt_event_id(payload, trace_id),
+            )
+        except Exception as exc:
+            self.logger.warning("[AKSellLedger] submit unknown confirmation enqueue failed: %s", str(exc)[:300])
+
+    def _ledger_request_data(
+        self,
+        request_data: Mapping[str, Any] | None,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        data = dict(request_data or {})
+        sub_name = self._optional_text(
+            payload,
+            "subAccountName",
+            aliases=("sub_account_name", "sonName", "son_name"),
+            max_length=128,
+        )
+        if sub_name:
+            data["subAccountName"] = sub_name
+        return data
+
+    def _request_id(self, payload: Mapping[str, Any]) -> str:
+        return self._optional_text(payload, "request_id", aliases=("requestId",), max_length=128)
+
+    def _attempt_event_id(self, payload: Mapping[str, Any], trace_id: str) -> str:
+        trace_id = ak_sell_trace.normalize_trace_id(trace_id)
+        if trace_id:
+            return f"ak-sell-trace:{trace_id}"
+        request_id = self._request_id(payload)
+        if request_id:
+            return f"ak-sell-request:{request_id}"
+        return ""
+
+    @staticmethod
+    def _is_upstream_success_payload(payload: Mapping[str, Any]) -> bool:
+        folded = {str(key).casefold(): value for key, value in payload.items()}
+        has_error = "error" in folded
+        has_success = "success" in folded
+        error = folded.get("error", None)
+        if error is False:
+            return True
+        if isinstance(error, str) and error.strip().casefold() in {"false", "0", "no"}:
+            return True
+        if has_error:
+            return False
+        success = folded.get("success", None)
+        if success is True:
+            return True
+        if isinstance(success, str) and success.strip().casefold() in {"true", "1", "yes"}:
+            return True
+        if has_success:
+            return False
+        return not bool(payload.get("Error"))
 
     def _trace_received(self, operation: str, payload: Mapping[str, Any], trace_id: str) -> None:
         ak_sell_trace.emit_trace(

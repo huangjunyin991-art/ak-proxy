@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from .parser import build_record
+from .parser import build_attempt_record, build_record
 from .repository import AKSellLedgerRepository, MAX_RETENTION_DAYS, MIN_RETENTION_DAYS
 
 
@@ -43,6 +43,59 @@ class AKSellLedgerService:
         except Exception as exc:
             if self.logger:
                 self.logger.warning("[AKSellLedger] record failed: %s", str(exc)[:300])
+            return False
+
+    async def record_attempt(
+        self,
+        *,
+        account: str = "",
+        endpoint: str = "",
+        request_data: Mapping[str, Any] | None = None,
+        payload: Mapping[str, Any] | None = None,
+        source: str,
+        state: str = "",
+        message: str = "",
+        trace_id: str = "",
+        request_id: str = "",
+        confirmation_method: str = "",
+        status_code: int | None = None,
+        exit_name: str = "",
+        upstream_ms: int | None = None,
+        response_bytes: int | None = None,
+        last_stage: str = "",
+        diagnostics: Mapping[str, Any] | None = None,
+        event_id: str = "",
+    ) -> bool:
+        event_key = (
+            event_id.strip()
+            or (f"ak-sell-trace:{trace_id.strip()}" if trace_id.strip() else "")
+            or (f"ak-sell-request:{request_id.strip()}" if request_id.strip() else "")
+            or f"ak-sell-attempt:{uuid.uuid4().hex}"
+        )
+        record = build_attempt_record(
+            event_id=event_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            account=account,
+            endpoint=endpoint,
+            request_data=request_data,
+            payload=payload,
+            source=source,
+            state=state,
+            message=message,
+            confirmation_method=confirmation_method,
+            status_code=status_code,
+            exit_name=exit_name,
+            upstream_ms=upstream_ms,
+            response_bytes=response_bytes,
+            last_stage=last_stage,
+            diagnostics=diagnostics,
+        )
+        try:
+            return await self.repository.record_attempt(record)
+        except Exception as exc:
+            if self.logger:
+                self.logger.warning("[AKSellLedger] attempt record failed: %s", str(exc)[:300])
             return False
 
     async def dashboard(self, account: str = "", source: str = "", page: int = 1, page_size: int = 50) -> dict[str, Any]:

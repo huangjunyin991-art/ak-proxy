@@ -29,7 +29,12 @@
             }
             if (action === 'cleanup') {
                 if (!window.confirm('将按当前保留天数永久删除过期卖出流水，是否继续？')) return;
-                api.cleanup().then(function(result) { toast('已清理 ' + Number(result.deleted || 0).toLocaleString('zh-CN') + ' 条记录', 'success'); refresh(); }).catch(function(error) { toast(error.message || '清理失败', 'error'); });
+                api.cleanup().then(function(result) {
+                    var deleted = Number(result.deleted || 0);
+                    var deletedAttempts = Number(result.deleted_attempts || 0);
+                    toast('已清理 ' + deleted.toLocaleString('zh-CN') + ' 条流水、' + deletedAttempts.toLocaleString('zh-CN') + ' 条追踪', 'success');
+                    refresh();
+                }).catch(function(error) { toast(error.message || '清理失败', 'error'); });
             }
         });
     }

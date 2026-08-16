@@ -40,14 +40,22 @@ class AKSellBalanceConfirmationService:
         source: str,
         error: str,
         request_id: str = "",
+        trace_id: str = "",
+        event_id: str = "",
     ) -> bool:
         normalized_account = str(account or "").strip().lower()
         amount = self._positive_int(request_data.get("count"))
         baseline = self._positive_or_zero_int(initial_balance)
         if not normalized_account or amount is None or baseline is None:
             return False
-        return await self._repository.enqueue_balance_confirmation({
+        attempt_event_id = str(event_id or "").strip() or self._attempt_event_id({
+            "trace_id": trace_id,
+            "request_id": request_id,
+        })
+        queued = await self._repository.enqueue_balance_confirmation({
             "task_id": f"ak-sell-confirm:{uuid.uuid4().hex}",
+            "event_id": attempt_event_id,
+            "trace_id": str(trace_id or "").strip(),
             "request_id": str(request_id or "").strip(),
             "account": normalized_account,
             "endpoint": str(endpoint or "").strip(),
@@ -57,6 +65,25 @@ class AKSellBalanceConfirmationService:
             "source": str(source or "ak_sell_api"),
             "last_error": str(error or "unknown upstream result"),
         })
+        if queued:
+            await self._record_attempt(
+                account=normalized_account,
+                endpoint=endpoint,
+                request_data=request_data,
+                source=source,
+                state="pending_confirmation",
+                message=error,
+                trace_id=trace_id,
+                request_id=request_id,
+                event_id=attempt_event_id,
+                confirmation_method="balance_delta",
+                last_stage="confirmation_enqueued",
+                diagnostics={
+                    "initial_balance": baseline,
+                    "expected_balance": baseline - amount,
+                },
+            )
+        return queued
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -126,6 +153,27 @@ class AKSellBalanceConfirmationService:
             )
             if recorded:
                 await self._repository.mark_balance_confirmation_confirmed(task_id)
+                await self._record_attempt(
+                    account=str(task.get("account") or ""),
+                    endpoint=str(task.get("endpoint") or ""),
+                    request_data={
+                        "sonId": str(task.get("sub_account_id") or ""),
+                        "count": str(task.get("amount") or ""),
+                    },
+                    source=str(task.get("source") or "ak_sell_api"),
+                    state="success",
+                    message="余额确认挂卖成功",
+                    trace_id=str(task.get("trace_id") or ""),
+                    request_id=str(task.get("request_id") or ""),
+                    event_id=self._attempt_event_id(task),
+                    confirmation_method="balance_delta",
+                    last_stage="confirmation_succeeded",
+                    diagnostics={
+                        "initial_balance": baseline,
+                        "current_balance": snapshot.value,
+                        "expected_balance": expected,
+                    },
+                )
                 self._logger.info(
                     "[AKSellLedger] balance confirmation succeeded account=%s endpoint=%s task=%s",
                     str(task.get("account") or ""),
@@ -141,6 +189,27 @@ class AKSellBalanceConfirmationService:
         else:
             detail = f"balance={snapshot.value}, expected={expected}"
         state = await self._repository.retry_balance_confirmation(task_id, detail)
+        await self._record_attempt(
+            account=str(task.get("account") or ""),
+            endpoint=str(task.get("endpoint") or ""),
+            request_data={
+                "sonId": str(task.get("sub_account_id") or ""),
+                "count": str(task.get("amount") or ""),
+            },
+            source=str(task.get("source") or "ak_sell_api"),
+            state="expired" if state == "expired" else "pending_confirmation",
+            message=detail,
+            trace_id=str(task.get("trace_id") or ""),
+            request_id=str(task.get("request_id") or ""),
+            event_id=self._attempt_event_id(task),
+            confirmation_method="balance_delta",
+            last_stage="confirmation_retry" if state != "expired" else "confirmation_expired",
+            diagnostics={
+                "initial_balance": baseline,
+                "current_balance": snapshot.value,
+                "expected_balance": expected,
+            },
+        )
         if state == "expired":
             self._logger.info(
                 "[AKSellLedger] balance confirmation expired account=%s endpoint=%s task=%s detail=%s",
@@ -165,3 +234,26 @@ class AKSellBalanceConfirmationService:
         except (TypeError, ValueError):
             return None
         return number if number >= 0 else None
+
+    async def _record_attempt(self, **payload: Any) -> None:
+        recorder = getattr(self._ledger_service, "record_attempt", None)
+        if not callable(recorder):
+            return
+        try:
+            await recorder(**payload)
+        except Exception as exc:
+            self._logger.warning("[AKSellLedger] attempt confirmation update failed: %s", str(exc)[:300])
+
+    @staticmethod
+    def _attempt_event_id(task: Mapping[str, Any]) -> str:
+        explicit = str(task.get("event_id") or "").strip()
+        if explicit:
+            return explicit
+        trace_id = str(task.get("trace_id") or "").strip()
+        if trace_id:
+            return f"ak-sell-trace:{trace_id}"
+        request_id = str(task.get("request_id") or "").strip()
+        if request_id:
+            return f"ak-sell-request:{request_id}"
+        task_id = str(task.get("task_id") or "").strip()
+        return f"ak-sell-confirm:{task_id or uuid.uuid4().hex}"
