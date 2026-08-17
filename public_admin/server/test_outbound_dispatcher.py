@@ -296,6 +296,20 @@ def test_regular_rpc_prefers_idle_exit_before_faster_busy_exit():
     assert picked.name == "idle-slow"
 
 
+def test_regular_rpc_uses_lifetime_requests_before_latency_when_current_load_is_equal():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    _add_ready_socks5(dispatcher, "historically-busy", 10001)
+    _add_ready_socks5(dispatcher, "historically-idle", 10002)
+    dispatcher.exits[1].latency_ms = 1
+    dispatcher.exits[2].latency_ms = 500
+    dispatcher.exits[1].total = 80
+
+    picked = dispatcher.pick_api_exit("Public_ACE")
+
+    assert picked.name == "historically-idle"
+
+
 def test_regular_rpc_rotates_across_all_eligible_exits_before_reusing_one():
     dispatcher = OutboundDispatcher()
     dispatcher.policy_config.per_exit_rate_per_second = 20

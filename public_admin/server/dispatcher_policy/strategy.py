@@ -4,7 +4,7 @@ from statistics import median
 
 
 class FairLoadStrategy:
-    """Order eligible exits by current utilization, using latency as a soft tie-breaker."""
+    """Order eligible exits by current and lifetime utilization."""
 
     def pick(
         self,
@@ -59,11 +59,13 @@ class FairLoadStrategy:
         effective_rpm_limit = rpm_limit if rpm_limit > 0 else rps_limit * 60
         recent_second = max(0, int(exit_obj.count_recent_requests(1.0)))
         recent_minute = max(0, int(exit_obj.count_recent_requests(60.0)))
+        lifetime_requests = max(0, int(getattr(exit_obj, "total", 0) or 0))
         latency = self._latency(exit_obj)
         return (
             recent_second / rps_limit,
             recent_minute / max(1, effective_rpm_limit),
             max(0, int(getattr(exit_obj, "active", 0) or 0)),
+            lifetime_requests,
             latency if latency is not None else neutral_latency,
             (position - rr_counter) % max(1, pool_size),
         )
