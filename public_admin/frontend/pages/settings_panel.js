@@ -818,8 +818,12 @@
                 const isDirect = ex.type === 'direct';
                 const exitIndex = getLbExitIndex(ex, i);
                 const nodeAvailable = isLbExitDisplayAvailable(ex);
-                const healthText = nodeAvailable ? '可用' : '不可用';
-                const borderColor = nodeAvailable ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)';
+                const isIsolated = Boolean(ex.frozen);
+                const healthText = isIsolated ? '隔离中' : (nodeAvailable ? '可用' : '不可用');
+                const healthClass = isIsolated ? 'is-isolated' : (nodeAvailable ? 'is-available' : 'is-unavailable');
+                const borderColor = isIsolated
+                    ? 'rgba(255,165,2,0.42)'
+                    : (nodeAvailable ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)');
 
                 // 登录冷却进度条
                 const cd = ex.login_cooldown || {};
@@ -837,8 +841,8 @@
                 // 冻结+告警标记
                 let warnHtml = '';
                 if (ex.frozen) {
-                    const frozenReason = ex.frozen_reason || '出口临时禁用';
-                    warnHtml += `<div style="margin-top:6px;font-size:11px;color:#ff4757;">🧊 禁用中：${escapeHtml(frozenReason)} (${Math.round(ex.frozen_remaining)}s后恢复)</div>`;
+                    const frozenReason = ex.frozen_reason || '出口临时隔离';
+                    warnHtml += `<div style="margin-top:6px;font-size:11px;color:#ffa502;">隔离中：${escapeHtml(frozenReason)} (${Math.round(ex.frozen_remaining)}s后恢复)</div>`;
                 }
                 if (ex.warn_403 > 0 || ex.warn_429 > 0) {
                     const parts = [];
@@ -862,7 +866,7 @@
                             ${groupHtml}
                         </div>
                         <div class="lb-node-head-controls">
-                            <div class="lb-node-health ${nodeAvailable ? 'is-available' : 'is-unavailable'}">
+                            <div class="lb-node-health ${healthClass}">
                                 <span class="lb-node-health-dot"></span>
                                 <span>${healthText}</span>
                             </div>

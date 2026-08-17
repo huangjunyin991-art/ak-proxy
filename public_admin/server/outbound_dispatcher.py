@@ -82,6 +82,12 @@ class LoginUpstreamStatusRetryError(RuntimeError):
     pass
 
 
+class UpstreamStatusRetryError(RuntimeError):
+    """A valid upstream status should be retried through another exit."""
+
+    pass
+
+
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'core_type', 'node_type', 'local_port', 'group_id', 'group_name', 'source_url',
@@ -90,6 +96,7 @@ class OutboundExit:
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures',
+                 '_403_freeze_level',
                  'source_probe_ready', 'source_probe_protected', 'source_probing', 'source_probe_checked_at',
                  'source_probe_last_success_at', 'source_probe_failures',
                  'source_probe_last_error', 'source_probe_status_code', '_source_probe_next_at',
@@ -127,6 +134,7 @@ class OutboundExit:
         self._frozen_until: float = 0    # 403后冻结截止时间戳
         self._frozen_reason: str = ""
         self._connect_failures: int = 0
+        self._403_freeze_level: int = 0
         self.source_probe_ready: bool = proxy_url is None
         self.source_probe_protected: bool = False
         self.source_probing: bool = False
@@ -172,8 +180,26 @@ class OutboundExit:
         return max(0, self._frozen_until - time.time())
 
     def freeze_for_403(self, duration: float = 60.0):
-        """收到403后冻结该出口, 不允许发任何请求"""
+        """兼容旧调用：按指定时长冻结出口。"""
         self.freeze(duration, "收到403")
+
+    def freeze_for_403_gradient(self, schedule: tuple[float, ...]) -> int:
+        """按连续业务 403 次数递增冻结，返回本次梯度级别。"""
+        normalized = tuple(max(1.0, float(item)) for item in schedule) or (60.0,)
+        self._403_freeze_level = min(self._403_freeze_level + 1, len(normalized))
+        duration = normalized[self._403_freeze_level - 1]
+        self.freeze(duration, f"403保护×{self._403_freeze_level}")
+        return self._403_freeze_level
+
+    def reset_403_protection(self) -> bool:
+        """业务请求成功后解除 403 保护并清零连续梯度。"""
+        changed = self._403_freeze_level != 0
+        self._403_freeze_level = 0
+        if self._frozen_reason.startswith(("403保护", "收到403")):
+            self._frozen_until = 0.0
+            self._frozen_reason = ""
+            changed = True
+        return changed
 
     def freeze(self, duration: float = 60.0, reason: str = "出口异常"):
         self._frozen_until = time.time() + duration
@@ -419,7 +445,7 @@ class OutboundDispatcher:
     """出口调度器（异常安全，保证服务不中断）"""
 
     MAX_LOGIN_PER_MIN = 10
-    LOGIN_403_FREEZE_SECONDS = 60
+    BUSINESS_403_FREEZE_SCHEDULE = (60, 180, 300, 900, 3600)
     INITIAL_SOURCE_PROBE_DELAY_SECONDS = 30
     SOURCE_PROBE_INTERVAL_SECONDS = 60 * 60
     FAILED_SOURCE_PROBE_TICK_SECONDS = 60
@@ -515,23 +541,25 @@ class OutboundDispatcher:
         if not isinstance(state, dict):
             return
         last_success_at = float(state.get("source_probe_last_success_at") or 0.0)
-        if last_success_at <= 0:
-            return
-        exit_obj.source_probe_ready = bool(state.get("source_probe_ready"))
-        exit_obj.source_probe_protected = bool(state.get("source_probe_protected"))
-        exit_obj.source_probe_last_success_at = last_success_at
-        exit_obj.source_probe_checked_at = str(state.get("source_probe_checked_at") or "")
-        exit_obj.source_probe_status_code = state.get("source_probe_status_code")
-        try:
-            stored_latency = state.get("business_latency_ms")
-            exit_obj.latency_ms = max(0, int(stored_latency)) if stored_latency is not None else None
-        except (TypeError, ValueError):
-            exit_obj.latency_ms = None
-        exit_obj.latency_checked_at = str(state.get("business_latency_checked_at") or "")
+        if last_success_at > 0:
+            exit_obj.source_probe_ready = bool(state.get("source_probe_ready"))
+            exit_obj.source_probe_protected = bool(state.get("source_probe_protected"))
+            exit_obj.source_probe_last_success_at = last_success_at
+            exit_obj.source_probe_checked_at = str(state.get("source_probe_checked_at") or "")
+            exit_obj.source_probe_status_code = state.get("source_probe_status_code")
+            try:
+                stored_latency = state.get("business_latency_ms")
+                exit_obj.latency_ms = max(0, int(stored_latency)) if stored_latency is not None else None
+            except (TypeError, ValueError):
+                exit_obj.latency_ms = None
+            exit_obj.latency_checked_at = str(state.get("business_latency_checked_at") or "")
         exit_obj._connect_failures = max(0, int(state.get("connect_failures") or 0))
+        exit_obj.warn_403 = max(0, int(state.get("warn_403") or 0))
+        exit_obj.warn_429 = max(0, int(state.get("warn_429") or 0))
+        exit_obj._403_freeze_level = max(0, int(state.get("403_freeze_level") or 0))
         frozen_reason = str(state.get("frozen_reason") or "")
         frozen_until = float(state.get("frozen_until") or 0.0)
-        if frozen_reason.startswith("连接失败") and frozen_until > time.time():
+        if frozen_reason.startswith(("连接失败", "403保护", "收到403")) and frozen_until > time.time():
             exit_obj._frozen_reason = frozen_reason
             exit_obj._frozen_until = frozen_until
 
@@ -656,6 +684,7 @@ class OutboundDispatcher:
         """Keep visible upstream risk history when a node receives a new port."""
         target.warn_403 = previous.warn_403
         target.warn_429 = previous.warn_429
+        target._403_freeze_level = previous._403_freeze_level
 
     @staticmethod
     def _inherit_verified_exit_state(target: OutboundExit, previous: OutboundExit) -> None:
@@ -1472,6 +1501,7 @@ class OutboundDispatcher:
                 max_tunnel_fallbacks=max(0, int(max_tunnel_fallbacks)),
             ))
         last_error = None
+        last_403_response = None
         for attempt_index, current_exit in enumerate(attempts):
             if attempt_index > 0:
                 if not self._exit_has_dispatch_capacity(current_exit, api_path):
@@ -1520,6 +1550,15 @@ class OutboundDispatcher:
                         attempt_index + 1,
                     )
                     raise RpcUpstreamNonJsonError(UPSTREAM_NETWORK_ERROR_MESSAGE)
+                if int(resp.status_code or 0) == 403:
+                    last_403_response = resp
+                    if attempt_index + 1 < len(attempts):
+                        raise UpstreamStatusRetryError(
+                            f"upstream returned 403 from {current_exit.name}"
+                        )
+                elif 100 <= int(resp.status_code or 0) < 400:
+                    if current_exit.reset_403_protection():
+                        self._schedule_source_fleet_state_persist()
                 if 100 <= int(resp.status_code or 0) < 500 and int(resp.status_code or 0) != 429:
                     current_exit.reset_connect_failures()
                     self._schedule_source_fleet_state_persist()
@@ -1536,7 +1575,7 @@ class OutboundDispatcher:
                 last_error = e
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
-                if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError)):
+                if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError, UpstreamStatusRetryError)):
                     self._record_connect_failure(current_exit, str(e))
                 if attempt_index + 1 < len(attempts):
                     next_exit = attempts[attempt_index + 1]
@@ -1545,6 +1584,8 @@ class OutboundDispatcher:
                     logger.error(f"[Dispatcher] 出口链路全部失败，最后出口={current_exit.name}: {e}")
             finally:
                 current_exit.active -= 1
+        if last_403_response is not None:
+            return last_403_response
         if last_error:
             raise last_error
         raise RuntimeError("no available outbound exit")
@@ -1596,15 +1637,16 @@ class OutboundDispatcher:
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
-                exit_obj.freeze_for_403(self.LOGIN_403_FREEZE_SECONDS)
-                exit_obj.auto_throttle_on_403()
+                exit_obj.freeze_for_403_gradient(self.BUSINESS_403_FREEZE_SCHEDULE)
+                self._schedule_source_fleet_state_persist()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
                 exit_obj.auto_throttle_on_403()  # 429也触发限速
             logger.warning(
                 f"[Dispatcher] ⚠️ {status_code} {desc} | "
                 f"出口={exit_obj.name} | API={api_path} | "
-                f"该出口累计: 403×{exit_obj.warn_403} 429×{exit_obj.warn_429}"
+                f"该出口累计: 403×{exit_obj.warn_403} 429×{exit_obj.warn_429} | "
+                f"403梯度={exit_obj._403_freeze_level}"
             )
             # 持久化回调（由 proxy_server 注入，dispatcher 本身不依赖 db）
             if self.alert_callback is not None:
@@ -1940,6 +1982,8 @@ class OutboundDispatcher:
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,
+                    "403_freeze_level": ex._403_freeze_level,
+                    "403_freeze_schedule": list(self.BUSINESS_403_FREEZE_SCHEDULE),
                     "frozen": ex.is_frozen,
                     "frozen_remaining": round(ex.frozen_remaining, 1),
                     "frozen_reason": ex._frozen_reason,

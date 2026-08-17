@@ -142,6 +142,45 @@ def test_state_store_restores_last_known_good_metadata(tmp_path):
     assert loaded["business_latency_checked_at"] == "2026-08-05 12:00:00"
 
 
+def test_state_store_persists_403_protection_gradient(tmp_path):
+    exit_obj = _verified_exit(8)
+    exit_obj.warn_403 = 4
+    exit_obj._403_freeze_level = 2
+    exit_obj._frozen_until = time.time() + 180
+    exit_obj._frozen_reason = "403保护×2"
+    store = SourceFleetStateStore(tmp_path / "fleet.json")
+
+    store.save([exit_obj])
+    loaded = store.load()["node-8"]
+
+    assert loaded["warn_403"] == 4
+    assert loaded["403_freeze_level"] == 2
+    assert loaded["frozen_reason"] == "403保护×2"
+
+
+def test_dispatcher_restores_403_protection_gradient_for_new_exit(monkeypatch, tmp_path):
+    original = _verified_exit(10)
+    original.warn_403 = 5
+    original._403_freeze_level = 3
+    original._frozen_until = time.time() + 300
+    original._frozen_reason = "403保护×3"
+    path = tmp_path / "fleet.json"
+    SourceFleetStateStore(path).save([original])
+    monkeypatch.setenv("AK_PROXY_SOURCE_FLEET_STATE_FILE", str(path))
+
+    from ..outbound_dispatcher import OutboundDispatcher
+
+    dispatcher = OutboundDispatcher()
+    dispatcher._load_source_fleet_state()
+    index = dispatcher.add_socks5("restored-403", 12010, node_identity="node-10")
+    restored = dispatcher.exits[index]
+
+    assert restored.warn_403 == 5
+    assert restored._403_freeze_level == 3
+    assert restored._frozen_reason == "403保护×3"
+    assert restored.is_frozen is True
+
+
 def test_dispatcher_restores_persisted_state_for_new_exit(monkeypatch, tmp_path):
     original = _verified_exit(9)
     original.source_probe_protected = True

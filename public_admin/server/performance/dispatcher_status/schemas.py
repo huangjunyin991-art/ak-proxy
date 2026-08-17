@@ -25,6 +25,8 @@ LIGHT_EXIT_FIELDS = {
     "errors",
     "warn_403",
     "warn_429",
+    "403_freeze_level",
+    "403_freeze_schedule",
     "frozen",
     "frozen_remaining",
     "frozen_reason",

@@ -76,6 +76,42 @@ def test_replacing_matching_node_keeps_visible_upstream_alert_counts():
     assert dispatcher.get_status()["exits"][1]["warn_429"] == 2
 
 
+def test_business_403_freeze_ladder_is_exact_capped_and_resets():
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    schedule = OutboundDispatcher.BUSINESS_403_FREEZE_SCHEDULE
+
+    for level, seconds in enumerate([*schedule, schedule[-1]], start=1):
+        exit_obj.freeze_for_403_gradient(schedule)
+        expected_level = min(level, len(schedule))
+
+        assert exit_obj._403_freeze_level == expected_level
+        assert exit_obj._frozen_reason == f"403保护×{expected_level}"
+        assert seconds - 1 <= exit_obj.frozen_remaining <= seconds
+
+    assert exit_obj.reset_403_protection() is True
+    assert exit_obj._403_freeze_level == 0
+    assert exit_obj.is_frozen is False
+
+    exit_obj.freeze_for_403_gradient(schedule)
+    assert exit_obj._403_freeze_level == 1
+
+
+def test_replacing_matching_node_keeps_403_protection_state():
+    dispatcher = OutboundDispatcher()
+    old_index = _add_ready_socks5(dispatcher, "preserved", 10001, node_identity="node-a")
+    old_exit = dispatcher.exits[old_index]
+    old_exit.freeze_for_403_gradient(dispatcher.BUSINESS_403_FREEZE_SCHEDULE)
+
+    dispatcher.replace_socks5_exits([
+        {"name": "preserved", "port": 30001, "core_type": "singbox", "node_identity": "node-a"},
+    ])
+
+    replacement = dispatcher.exits[1]
+    assert replacement._403_freeze_level == 1
+    assert replacement._frozen_reason == "403保护×1"
+    assert replacement.is_frozen is True
+
+
 def test_replacing_unverified_node_schedules_immediate_source_probe(monkeypatch):
     dispatcher = OutboundDispatcher()
     dispatcher._started = True
@@ -840,6 +876,48 @@ async def test_login_html_403_response_retries_next_exit_freezes_and_records_cur
 
 
 @pytest.mark.anyio
+async def test_rpc_json_403_retries_another_exit_and_resets_protection_after_success():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "bad-403", 10001, group_id="g1")
+    _add_ready_socks5(dispatcher, "good-json", 10002, group_id="g2")
+    attempts = []
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "bad-403":
+            return httpx.Response(
+                403,
+                json={"Error": True, "Msg": "Forbidden"},
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200,
+            json={"Error": False, "Data": {"ok": True}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        dispatcher.exits[1],
+        "POST",
+        "https://example.test/RPC/Public_ACE",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Public_ACE",
+    )
+
+    assert attempts == ["bad-403", "good-json"]
+    assert dispatcher.exits[1].warn_403 == 1
+    assert dispatcher.exits[1]._403_freeze_level == 1
+    assert dispatcher.exits[1].is_frozen is True
+    assert dispatcher.exits[1].rate_limit == 0
+    assert response.extensions["ak_exit_name"] == "good-json"
+    assert response.json()["Data"]["ok"] is True
+
+
+@pytest.mark.anyio
 async def test_rpc_html_429_response_is_recorded_before_non_json_rejection():
     dispatcher = OutboundDispatcher()
 
@@ -977,5 +1055,37 @@ async def test_successful_response_resets_connect_failure_gradient():
     )
 
     assert recovering._connect_failures == 0
+    assert recovering._frozen_reason == ""
+    assert response.json()["Data"]["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_successful_response_resets_403_protection_gradient():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "recovering", 10001)
+    recovering = dispatcher.exits[1]
+    recovering.freeze_for_403_gradient(dispatcher.BUSINESS_403_FREEZE_SCHEDULE)
+    recovering._frozen_until = 0
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
+        return httpx.Response(
+            200,
+            json={"Error": False, "Data": {"ok": True}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        recovering,
+        "POST",
+        "https://example.test/RPC/Public_ACE",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Public_ACE",
+    )
+
+    assert recovering._403_freeze_level == 0
     assert recovering._frozen_reason == ""
     assert response.json()["Data"]["ok"] is True

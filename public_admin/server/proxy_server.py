@@ -18327,6 +18327,19 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         if "=" in kv:
             ck, cv = kv.split("=", 1)
             session["cookies"][ck.strip()] = cv.strip()
+    actual_exit_name = str(response.extensions.get("ak_exit_name") or "").strip()
+    if response.status_code == 403:
+        # 不要让浏览器会话继续粘在刚返回业务 403 的出口上。
+        previous_exit_name = str(session.get("ak_exit_name") or "").strip()
+        session.pop("ak_exit_name", None)
+        _admin_ak_trace(lambda: (
+            f"[AdminAkRpcExit/{path}] clear_pinned_on_403 "
+            f"previous={previous_exit_name or '-'} actual={actual_exit_name or '-'}"
+        ))
+    elif actual_exit_name and not _ADMIN_AK_FORCE_DIRECT:
+        if str(session.get("ak_exit_name") or "").strip() != actual_exit_name:
+            session["ak_exit_name"] = actual_exit_name
+            _admin_ak_trace(lambda: f"[AdminAkRpcExit/{path}] rebind_after_fallback={actual_exit_name}")
     try:
         result = _parse_rpc_upstream_json(
             response,

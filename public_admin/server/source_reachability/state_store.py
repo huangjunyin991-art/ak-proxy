@@ -32,7 +32,16 @@ class SourceFleetStateStore:
             identity = str(getattr(exit_obj, "node_identity", "") or "").strip()
             last_success_at = float(getattr(exit_obj, "source_probe_last_success_at", 0.0) or 0.0)
             connect_failures = int(getattr(exit_obj, "_connect_failures", 0) or 0)
-            if not identity or (last_success_at <= 0 and connect_failures <= 0):
+            warn_403 = int(getattr(exit_obj, "warn_403", 0) or 0)
+            warn_429 = int(getattr(exit_obj, "warn_429", 0) or 0)
+            freeze_403_level = int(getattr(exit_obj, "_403_freeze_level", 0) or 0)
+            if not identity or (
+                last_success_at <= 0
+                and connect_failures <= 0
+                and warn_403 <= 0
+                and warn_429 <= 0
+                and freeze_403_level <= 0
+            ):
                 continue
             records[identity] = {
                 "source_probe_ready": bool(getattr(exit_obj, "source_probe_ready", False)),
@@ -43,6 +52,9 @@ class SourceFleetStateStore:
                 "business_latency_ms": getattr(exit_obj, "latency_ms", None),
                 "business_latency_checked_at": str(getattr(exit_obj, "latency_checked_at", "") or ""),
                 "connect_failures": connect_failures,
+                "warn_403": warn_403,
+                "warn_429": warn_429,
+                "403_freeze_level": freeze_403_level,
                 "frozen_until": float(getattr(exit_obj, "_frozen_until", 0.0) or 0.0),
                 "frozen_reason": str(getattr(exit_obj, "_frozen_reason", "") or ""),
             }
