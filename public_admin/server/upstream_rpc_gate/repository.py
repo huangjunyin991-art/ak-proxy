@@ -38,11 +38,12 @@ class UpstreamRpcGateRepository:
         holder: str,
         *,
         external: bool,
-        include_global: bool = True,
     ) -> bool:
         await self.ensure_ready()
         account_key = "account:" + (str(identity or "").strip() or "unknown")
-        keys = sorted({"__global__", account_key}) if include_global else [account_key]
+        # The historical __global__ row is intentionally left in the schema
+        # for in-place upgrades, but is no longer part of the active lock.
+        keys = [account_key]
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -51,17 +52,9 @@ class UpstreamRpcGateRepository:
                         "INSERT INTO upstream_rpc_call_locks (lock_key) VALUES ($1) ON CONFLICT DO NOTHING",
                         key,
                     )
-                if external and include_global:
-                    await conn.execute(
-                        """
-                        UPDATE upstream_rpc_call_locks
-                        SET external_priority_until = NOW() + INTERVAL '2 seconds', updated_at = NOW()
-                        WHERE lock_key = '__global__'
-                        """
-                    )
                 rows = await conn.fetch(
                     """
-                    SELECT lock_key, lease_expires_at, external_priority_until
+                    SELECT lock_key, lease_expires_at
                     FROM upstream_rpc_call_locks
                     WHERE lock_key = ANY($1::text[])
                     ORDER BY lock_key
@@ -70,11 +63,6 @@ class UpstreamRpcGateRepository:
                     keys,
                 )
                 now = datetime.now()
-                if include_global and not external and any(
-                    row["external_priority_until"] and row["external_priority_until"] > now
-                    for row in rows
-                ):
-                    return False
                 if any(row["lease_expires_at"] and row["lease_expires_at"] > now for row in rows):
                     return False
                 await conn.execute(
@@ -88,10 +76,9 @@ class UpstreamRpcGateRepository:
                 )
         return True
 
-    async def release(self, identity: str, holder: str, *, include_global: bool = True) -> None:
+    async def release(self, identity: str, holder: str) -> None:
         await self.ensure_ready()
         account_key = "account:" + (str(identity or "").strip() or "unknown")
-        keys = ["__global__", account_key] if include_global else [account_key]
         pool = self._pool_supplier()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -100,6 +87,6 @@ class UpstreamRpcGateRepository:
                 SET holder = '', lease_expires_at = NULL, updated_at = NOW()
                 WHERE lock_key = ANY($1::text[]) AND holder = $2
                 """,
-                keys,
+                [account_key],
                 holder,
             )

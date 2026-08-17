@@ -16,22 +16,30 @@ class RpcGateBusy(RuntimeError):
 class RpcGateLease:
     identity: str
     holder: str
-    include_global: bool = True
 
 
 def build_rpc_identity(params: Mapping[str, Any] | None) -> str:
     values = params or {}
+    account = str(values.get("account") or values.get("Account") or "").strip().lower()
+    if account:
+        return "account:" + account
     user_id = str(values.get("UserID") or values.get("userId") or values.get("userid") or "").strip()
     if user_id:
         return "user:" + user_id
     key = str(values.get("key") or values.get("Key") or "").strip()
     if key:
         return "key:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-    account = str(values.get("account") or values.get("Account") or "").strip().lower()
-    return "account:" + (account or "unknown")
+    return "unknown"
 
 
 class UpstreamRpcGate:
+    """Serialize only requests belonging to the same upstream account.
+
+    A server-wide lock would make the outbound load balancer irrelevant: one
+    slow account could block every other user.  Cross-account concurrency is
+    intentionally controlled by the dispatcher instead.
+    """
+
     def __init__(self, repository) -> None:
         self.repository = repository
 
@@ -52,8 +60,4 @@ class UpstreamRpcGate:
 
     async def release(self, lease: RpcGateLease | None) -> None:
         if lease is not None:
-            await self.repository.release(
-                lease.identity,
-                lease.holder,
-                include_global=lease.include_global,
-            )
+            await self.repository.release(lease.identity, lease.holder)
