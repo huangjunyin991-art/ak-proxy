@@ -2673,6 +2673,10 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         exit_obj = _get_direct_exit()
 
+        if not dispatcher.try_reserve_exit(exit_obj, api_path):
+
+            raise RuntimeError("direct exit is unavailable or rate limited")
+
     else:
 
         exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
@@ -2746,10 +2750,7 @@ def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_n
 
                 continue
 
-            if getattr(ex, "is_dispatch_ready", False) and not ex.is_frozen:
-
-                ex.record_request()
-
+            if dispatcher.try_reserve_exit(ex, api_path):
                 return ex
 
             logger.warning(f"[ForwardExitFallback] api={api_path} preferred={preferred} reason=unavailable")

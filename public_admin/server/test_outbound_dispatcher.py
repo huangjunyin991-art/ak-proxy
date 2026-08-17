@@ -3,6 +3,7 @@ import httpx
 import asyncio
 
 from .outbound_dispatcher import OutboundDispatcher, OutboundExit, RpcUpstreamNonJsonError
+from .dispatcher_policy import rate_limiter as rate_limiter_module
 from .rpc_timeout_policy import LOGIN_RPC_TIMEOUT_SECONDS
 from .source_reachability import SourceProbeResult
 
@@ -160,7 +161,7 @@ def test_non_critical_rpc_still_respects_regular_direct_fallback_limit():
         dispatcher.pick_api_exit("ACE_Sell_Son")
 
 
-def test_direct_exhaustion_overflows_to_non_frozen_tunnel_instead_of_rejecting():
+def test_direct_exhaustion_does_not_bypass_tunnel_rate_capacity():
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "tunnel-1", 10001)
     tunnel = dispatcher.exits[1]
@@ -168,9 +169,8 @@ def test_direct_exhaustion_overflows_to_non_frozen_tunnel_instead_of_rejecting()
     tunnel.record_request()
     _saturate_regular_direct(dispatcher)
 
-    picked = dispatcher.pick_api_exit("ACE_Sell_Son")
-
-    assert picked is tunnel
+    with pytest.raises(RuntimeError, match="all api exits"):
+        dispatcher.pick_api_exit("ACE_Sell_Son")
 
 
 def test_api_selection_skips_tunnel_until_source_probe_succeeds():
@@ -188,7 +188,7 @@ def test_api_selection_skips_tunnel_until_source_probe_succeeds():
     assert picked.name == "pending-ip-detect"
 
 
-def test_login_direct_exhaustion_overflows_to_non_frozen_tunnel():
+def test_login_direct_exhaustion_does_not_bypass_tunnel_rate_capacity():
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "login-tunnel", 10002)
     tunnel = dispatcher.exits[1]
@@ -196,13 +196,13 @@ def test_login_direct_exhaustion_overflows_to_non_frozen_tunnel():
     tunnel.record_request()
     _saturate_regular_direct(dispatcher)
 
-    picked = dispatcher.pick_login_exit()
-
-    assert picked is tunnel
+    with pytest.raises(RuntimeError, match="all login exits"):
+        dispatcher.pick_login_exit()
 
 
 def test_critical_direct_fallback_has_own_rate_limit():
     dispatcher = OutboundDispatcher()
+    dispatcher.policy_config = None
     dispatcher.DIRECT_CRITICAL_FALLBACK_RATE_PER_SECOND = 2
     dispatcher.DIRECT_CRITICAL_FALLBACK_RATE_PER_MINUTE = 2
 
@@ -219,7 +219,7 @@ def test_wide_spread_rpc_spreads_across_more_tunnels_without_latency_priority():
         _add_ready_socks5(dispatcher, f"tunnel-{idx}", 10001 + idx)
         dispatcher.exits[idx + 1].latency_ms = idx + 1
 
-    picked = [dispatcher.pick_api_exit("My_Subaccount").name for _ in range(6)]
+    picked = [dispatcher.pick_api_exit("My_Subaccount").name for _ in range(3)]
 
     assert set(picked) == {"tunnel-0", "tunnel-1", "tunnel-2"}
 
@@ -240,7 +240,7 @@ def test_ace_sell_uses_wide_spread_rpc_policy():
     for idx in range(2):
         _add_ready_socks5(dispatcher, f"sell-tunnel-{idx}", 10001 + idx)
 
-    picked = [dispatcher.pick_api_exit("ACE_Sell").name for _ in range(4)]
+    picked = [dispatcher.pick_api_exit("ACE_Sell").name for _ in range(2)]
 
     assert set(picked) == {"sell-tunnel-0", "sell-tunnel-1"}
 
@@ -250,7 +250,7 @@ def test_ace_sell_son_uses_wide_spread_rpc_policy():
     for idx in range(2):
         _add_ready_socks5(dispatcher, f"sell-son-tunnel-{idx}", 10001 + idx)
 
-    picked = [dispatcher.pick_api_exit("ACE_Sell_Son").name for _ in range(4)]
+    picked = [dispatcher.pick_api_exit("ACE_Sell_Son").name for _ in range(2)]
 
     assert set(picked) == {"sell-son-tunnel-0", "sell-son-tunnel-1"}
 
@@ -261,7 +261,7 @@ def test_my_subaccount_uses_all_eligible_exits():
         _add_ready_socks5(dispatcher, f"tunnel-{idx}", 10001 + idx)
         dispatcher.exits[idx + 1].latency_ms = latency
 
-    picked = [dispatcher.pick_api_exit("My_Subaccount").name for _ in range(6)]
+    picked = [dispatcher.pick_api_exit("My_Subaccount").name for _ in range(3)]
 
     assert set(picked) == {"tunnel-0", "tunnel-1", "tunnel-2"}
 
@@ -306,6 +306,73 @@ def test_regular_rpc_rotates_across_all_eligible_exits_before_reusing_one():
     picked = [dispatcher.pick_api_exit("Public_EP_SellRecords1").name for _ in range(3)]
 
     assert picked == ["tunnel-0", "tunnel-1", "tunnel-2"]
+
+
+def test_dynamic_exit_pacing_rotates_then_releases_after_cooldown(monkeypatch):
+    class Clock:
+        def __init__(self):
+            self.value = 100.0
+
+        def __call__(self):
+            return self.value
+
+        def advance(self, seconds):
+            self.value += seconds
+
+    clock = Clock()
+    monkeypatch.setattr(rate_limiter_module.time, "monotonic", clock)
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 3
+    first_index = _add_ready_socks5(dispatcher, "first", 10001)
+    second_index = _add_ready_socks5(dispatcher, "second", 10002)
+
+    first = dispatcher.pick_api_exit("Public_ACE")
+    second = dispatcher.pick_api_exit("Public_ACE")
+
+    assert {first.name, second.name} == {"first", "second"}
+    assert dispatcher._exit_below_per_second_limit(dispatcher.exits[first_index]) is False
+    assert dispatcher._exit_below_per_second_limit(dispatcher.exits[second_index]) is False
+
+    clock.advance(1 / 3)
+
+    assert dispatcher._exit_below_per_second_limit(dispatcher.exits[first_index]) is True
+    assert dispatcher.try_reserve_exit(dispatcher.exits[first_index], "Public_ACE") is True
+
+
+@pytest.mark.anyio
+async def test_connection_failure_fallback_skips_exit_reserved_during_attempt():
+    dispatcher = OutboundDispatcher()
+    failed_index = _add_ready_socks5(dispatcher, "failed", 10001, group_id="g1")
+    cooling_index = _add_ready_socks5(dispatcher, "cooling", 10002, group_id="g2")
+    _add_ready_socks5(dispatcher, "ready", 10003, group_id="g3")
+    attempts = []
+
+    async def fake_request(exit_obj, *_args, **_kwargs):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "failed":
+            assert dispatcher.try_reserve_exit(dispatcher.exits[cooling_index], "Public_ACE") is True
+            raise httpx.ConnectError("proxy connection failed")
+        return httpx.Response(
+            200,
+            json={"Error": False, "Data": {"ok": True}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        dispatcher.exits[failed_index],
+        "POST",
+        "https://example.test/RPC/Public_ACE",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Public_ACE",
+        max_tunnel_fallbacks=2,
+    )
+
+    assert attempts == ["failed", "ready"]
+    assert response.json()["Data"]["ok"] is True
 
 
 def test_exit_without_latency_sample_remains_eligible_with_neutral_latency():

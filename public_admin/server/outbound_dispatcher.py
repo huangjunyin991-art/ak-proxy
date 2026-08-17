@@ -40,9 +40,9 @@ try:
     from .dispatcher_policy import (
         BusinessLatencyEstimator,
         CONNECTION_FAILURE_FREEZE_SCHEDULE,
+        DynamicExitPacer,
         DispatcherPolicyConfig,
         FairLoadStrategy,
-        PerSecondRateLimiter,
         connection_failure_freeze_seconds,
     )
     _DISPATCHER_POLICY_IMPORT_ERROR = None
@@ -50,7 +50,7 @@ except Exception as e:
     DispatcherPolicyConfig = None
     BusinessLatencyEstimator = None
     FairLoadStrategy = None
-    PerSecondRateLimiter = None
+    DynamicExitPacer = None
     CONNECTION_FAILURE_FREEZE_SCHEDULE = (10, 30, 60, 180, 300, 900, 3600)
     connection_failure_freeze_seconds = lambda level: CONNECTION_FAILURE_FREEZE_SCHEDULE[
         min(max(1, int(level or 1)) - 1, len(CONNECTION_FAILURE_FREEZE_SCHEDULE) - 1)
@@ -521,7 +521,7 @@ class OutboundDispatcher:
         self.login_non_json_callback = None
         self.rpc_non_json_callback = None
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
-        self.rate_limiter = PerSecondRateLimiter() if PerSecondRateLimiter is not None else None
+        self.dispatch_pacer = DynamicExitPacer() if DynamicExitPacer is not None else None
         self.source_probe = SourceReachabilityProbe()
         self.business_latency = BusinessLatencyEstimator() if BusinessLatencyEstimator is not None else None
         self.source_fleet_guard = SourceFleetGuard(
@@ -1004,9 +1004,10 @@ class OutboundDispatcher:
 
     def _direct_has_fallback_capacity(self, ex: OutboundExit, api_path: str = "") -> bool:
         if self._is_critical_direct_fallback_rpc(api_path):
-            return self._direct_has_critical_fallback_capacity()
+            return self._direct_has_critical_fallback_capacity() and self._exit_below_per_second_limit(ex)
         return (
             not ex.is_frozen
+            and self._exit_below_per_second_limit(ex)
             and ex.count_recent_requests(1.0) < self.DIRECT_FALLBACK_RATE_PER_SECOND
             and ex.count_recent_requests(60.0) < self.DIRECT_FALLBACK_RATE_PER_MINUTE
         )
@@ -1033,11 +1034,37 @@ class OutboundDispatcher:
         cutoff = now - window
         return sum(1 for t in self._direct_critical_timestamps if t > cutoff)
 
-    def _record_dispatch_request(self, ex: OutboundExit, api_path: str = "") -> None:
+    def _exit_pacing_key(self, ex: OutboundExit) -> str:
+        return str(ex.node_identity or ex.proxy_url or ex.name or "direct")
+
+    def _record_dispatch_request(self, ex: OutboundExit, api_path: str = "") -> bool:
+        if not self._reserve_exit_pacing_slot(ex):
+            return False
         ex.record_request()
         if ex.is_direct and self._is_critical_direct_fallback_rpc(api_path):
             self._trim_direct_critical_timestamps()
             self._direct_critical_timestamps.append(time.time())
+        return True
+
+    def _reserve_exit_pacing_slot(self, ex: OutboundExit) -> bool:
+        if self.policy_config is None or self.dispatch_pacer is None:
+            return True
+        return self.dispatch_pacer.try_reserve(
+            self._exit_pacing_key(ex),
+            self.policy_config.per_exit_rate_per_second,
+        )
+
+    def try_reserve_exit(self, ex: OutboundExit, api_path: str = "") -> bool:
+        if ex is None or not ex.is_dispatch_ready or ex.is_frozen:
+            return False
+        if not self._exit_has_dispatch_capacity(ex, api_path):
+            return False
+        return self._record_dispatch_request(ex, api_path)
+
+    def _exit_cooldown_seconds(self, ex: OutboundExit) -> float:
+        if self.dispatch_pacer is None:
+            return 0.0
+        return self.dispatch_pacer.cooldown_seconds(self._exit_pacing_key(ex))
 
     def _exit_below_per_second_limit(self, ex: OutboundExit) -> bool:
         if self.policy_config is None:
@@ -1045,6 +1072,8 @@ class OutboundDispatcher:
         limit = int(self.policy_config.per_exit_rate_per_second or 0)
         if limit <= 0:
             return True
+        if self.dispatch_pacer is not None:
+            return self.dispatch_pacer.is_available(self._exit_pacing_key(ex), limit)
         return ex.count_recent_requests(1.0) < limit
 
     def _pick_from_pool(self, pool: list[int]) -> Optional[int]:
@@ -1129,37 +1158,11 @@ class OutboundDispatcher:
         ))
         return candidates[0]
 
-    def _get_healthy_tunnels_relaxed(self) -> list[int]:
-        return [
-            i for i, ex in enumerate(self.exits)
-            if not ex.is_direct
-            and ex.is_dispatch_ready
-            and not ex.is_frozen
-        ]
-
-    def _pick_relaxed_from_pool(self, pool: list[int]) -> Optional[int]:
-        pool = self._filter_latency_failed_pool(pool)
-        if not pool:
-            return None
-        self._rr_counter += 1
-        ordered = self._order_fair_pool(pool, self._rr_counter)
-        return ordered[0] if ordered else None
-
     def _pick_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
         return self._pick_from_pool(self._get_healthy_tunnels())
 
-    def _pick_relaxed_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
-        best = self._pick_relaxed_from_pool(self._get_healthy_tunnels_relaxed())
-        if best is not None:
-            logger.warning(f"[Dispatcher] API direct fallback exhausted, relaxed overflow to tunnel: {self.exits[best].name}")
-        return best
-
     def _pick_wide_spread_tunnel_index(self) -> Optional[int]:
         pool = self._get_healthy_tunnels()
-        return self._pick_wide_spread_from_pool(pool)
-
-    def _pick_relaxed_wide_spread_tunnel_index(self) -> Optional[int]:
-        pool = self._get_healthy_tunnels_relaxed()
         return self._pick_wide_spread_from_pool(pool)
 
     def _pick_wide_spread_from_pool(self, pool: list[int]) -> Optional[int]:
@@ -1217,27 +1220,13 @@ class OutboundDispatcher:
             ordered.extend(indices)
         return ordered
 
-    def _pick_relaxed_login_tunnel_index(self) -> Optional[int]:
-        pool = self._filter_latency_failed_pool(self._get_healthy_tunnels_relaxed())
-        if not pool:
-            return None
-        pool.sort(key=lambda i: (self.exits[i].count_recent_logins(), self._latency_sort_key(i)))
-        min_logins = self.exits[pool[0]].count_recent_logins()
-        candidates = [i for i in pool if self.exits[i].count_recent_logins() == min_logins]
-        self._rr_counter += 1
-        best = candidates[self._rr_counter % len(candidates)]
-        if best is not None:
-            logger.warning(f"[Dispatcher] Login direct fallback exhausted, relaxed overflow to tunnel: {self.exits[best].name}")
-        return best
-
     def _filter_below_per_second_limit(self, pool: list[int]) -> list[int]:
         if self.policy_config is None:
             return pool
         limit = int(self.policy_config.per_exit_rate_per_second or 0)
         if limit <= 0:
             return pool
-        available = [i for i in pool if self.exits[i].count_recent_requests(1.0) < limit]
-        return available
+        return [i for i in pool if self._exit_below_per_second_limit(self.exits[i])]
 
     def _login_response_is_json(self, resp: httpx.Response) -> bool:
         return self._response_has_json_payload(resp)
@@ -1334,6 +1323,52 @@ class OutboundDispatcher:
 
     # ===== 调度（全部异常安全） =====
 
+    def _try_reserve_login_exit(self, ex: OutboundExit) -> bool:
+        """Reserve both the generic dispatch slot and the Login quota."""
+        if not self.try_reserve_exit(ex, "Login"):
+            return False
+        ex.reserve_login()
+        return True
+
+    def _pick_reserved_login_from_pool(
+        self,
+        pool: list[int],
+        *,
+        enforce_login_capacity: bool,
+    ) -> OutboundExit | None:
+        """Pick a Login exit and atomically claim its pacing slot.
+
+        Selection and reservation are intentionally separate: another request
+        can claim the chosen node in between, so retry selection from the
+        remaining candidates instead of accepting a rate-limit bypass.
+        """
+        remaining = list(dict.fromkeys(pool))
+        while remaining:
+            best = self._pick_login_from_pool(
+                remaining,
+                enforce_login_capacity=enforce_login_capacity,
+            )
+            if best is None:
+                return None
+            ex = self.exits[best]
+            if self._try_reserve_login_exit(ex):
+                return ex
+            remaining = [idx for idx in remaining if idx != best]
+        return None
+
+    def _pick_reserved_api_tunnel(self, api_path: str) -> OutboundExit | None:
+        """Pick a ready tunnel and claim it without waiting behind that node."""
+        remaining_attempts = max(1, len(self.exits) - 1)
+        while remaining_attempts > 0:
+            remaining_attempts -= 1
+            best = self._pick_api_tunnel_index(api_path)
+            if best is None:
+                return None
+            ex = self.exits[best]
+            if self.try_reserve_exit(ex, api_path):
+                return ex
+        return None
+
     def pick_login_exit(self) -> OutboundExit:
         """
         为Login请求选择出口:
@@ -1344,77 +1379,41 @@ class OutboundDispatcher:
         """
         try:
             healthy = self._get_healthy_tunnels()
-            if not healthy:
-                direct = self._safe_direct()
-                if self._direct_has_fallback_capacity(direct):
-                    logger.warning("[Dispatcher] 所有隧道出口不可用，Login降级直连")
-                    direct.reserve_login()
-                    direct.record_request()
-                    return direct
-                relaxed = self._pick_relaxed_login_tunnel_index()
-                if relaxed is not None:
-                    ex = self.exits[relaxed]
-                    ex.reserve_login()
-                    ex.record_request()
-                    return ex
-                raise RuntimeError("all login exits are unavailable or rate limited")
+            candidates = [
+                idx for idx in healthy
+                if self.exits[idx].count_recent_logins() < self.MAX_LOGIN_PER_MIN
+            ]
+            selected = self._pick_reserved_login_from_pool(
+                candidates,
+                enforce_login_capacity=True,
+            )
+            if selected is not None:
+                return selected
 
-            # 找未满的出口
-            candidates = []
-            for idx in healthy:
-                ex = self.exits[idx]
-                if ex.count_recent_logins() < self.MAX_LOGIN_PER_MIN:
-                    candidates.append(idx)
+            # Keep the existing Login quota fallback, but never bypass node
+            # pacing or its minute capacity to do so.
+            selected = self._pick_reserved_login_from_pool(
+                healthy,
+                enforce_login_capacity=False,
+            )
+            if selected is not None:
+                logger.warning(f"[Dispatcher] 所有出口Login配额已满，使用最少的: {selected.name}")
+                return selected
 
-            if candidates:
-                # Login 独立走订阅组均衡，避免低延迟或不限速出口被连续打中
-                best = self._pick_login_from_pool(candidates)
-                if best is None:
-                    direct = self._safe_direct()
-                    if not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
-                        logger.warning("[Dispatcher] Login出口均已达限流，降级直连")
-                        direct.reserve_login()
-                        direct.record_request()
-                        return direct
-                    relaxed = self._pick_relaxed_login_tunnel_index()
-                    if relaxed is not None:
-                        ex = self.exits[relaxed]
-                        ex.reserve_login()
-                        ex.record_request()
-                        return ex
-                    raise RuntimeError("all login exits are rate limited")
-                ex = self.exits[best]
-                ex.reserve_login()
-                ex.record_request()
-                return ex
-
-            # 全满了，选登录最少的
-            best = self._pick_login_from_pool(healthy, enforce_login_capacity=False)
-            if best is None:
-                direct = self._safe_direct()
-                if not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
-                    logger.warning("[Dispatcher] 所有出口Login配额或限流已满，降级直连")
-                    direct.reserve_login()
-                    direct.record_request()
-                    return direct
-                relaxed = self._pick_relaxed_login_tunnel_index()
-                if relaxed is not None:
-                    ex = self.exits[relaxed]
-                    ex.reserve_login()
-                    ex.record_request()
-                    return ex
-                raise RuntimeError("all login exits are unavailable or rate limited")
-            ex = self.exits[best]
-            ex.reserve_login()
-            ex.record_request()
-            logger.warning(f"[Dispatcher] 所有出口Login配额已满，使用最少的: {ex.name}")
-            return ex
+            direct = self._safe_direct()
+            if self._try_reserve_login_exit(direct):
+                logger.warning("[Dispatcher] Login 隧道出口不可用或冷却中，降级直连")
+                return direct
+            raise RuntimeError("all login exits are unavailable or rate limited")
         except RuntimeError as e:
             logger.warning(f"[Dispatcher] Login无可用出口: {e}")
             raise
         except Exception as e:
-            logger.error(f"[Dispatcher] Login调度异常，降级直连: {e}")
-            return self._safe_direct()
+            logger.error(f"[Dispatcher] Login调度异常: {e}")
+            direct = self._safe_direct()
+            if self._try_reserve_login_exit(direct):
+                return direct
+            raise RuntimeError("all login exits are unavailable or rate limited") from e
 
     def pick_api_exit(self, api_path: str = "") -> OutboundExit:
         """
@@ -1423,30 +1422,24 @@ class OutboundDispatcher:
         任何异常降级直连
         """
         try:
-            best = self._pick_api_tunnel_index(api_path)
-            if best is None:
-                direct = self._safe_direct()
-                if self._direct_has_fallback_capacity(direct, api_path):
-                    logger.warning("[Dispatcher] 所有隧道出口不可用，降级直连")
-                    self._record_dispatch_request(direct, api_path)
-                    return direct
-                relaxed = self._pick_relaxed_api_tunnel_index(api_path)
-                if relaxed is not None:
-                    ex = self.exits[relaxed]
-                    self._record_dispatch_request(ex, api_path)
-                    return ex
-                raise RuntimeError("all api exits are unavailable or rate limited")
+            selected = self._pick_reserved_api_tunnel(api_path)
+            if selected is not None:
+                return selected
 
-            # best 已在主路由池或溢出池中选出；直连只作为后备。
-            ex = self.exits[best]
-            self._record_dispatch_request(ex, api_path)
-            return ex
+            direct = self._safe_direct()
+            if self.try_reserve_exit(direct, api_path):
+                logger.warning("[Dispatcher] API 隧道出口不可用或冷却中，降级直连")
+                return direct
+            raise RuntimeError("all api exits are unavailable or rate limited")
         except RuntimeError as e:
             logger.warning(f"[Dispatcher] API无可用出口: {e}")
             raise
         except Exception as e:
-            logger.error(f"[Dispatcher] API调度异常，降级直连: {e}")
-            return self._safe_direct()
+            logger.error(f"[Dispatcher] API调度异常: {e}")
+            direct = self._safe_direct()
+            if self.try_reserve_exit(direct, api_path):
+                return direct
+            raise RuntimeError("all api exits are unavailable or rate limited") from e
 
     def get_subscription_fetch_tunnel_candidates(self, max_candidates: int = 2) -> list[dict[str, str]]:
         """Return a small, group-diverse snapshot for subscription fallback.
@@ -1516,18 +1509,11 @@ class OutboundDispatcher:
         last_403_response = None
         for attempt_index, current_exit in enumerate(attempts):
             if attempt_index > 0:
-                if not self._exit_has_dispatch_capacity(current_exit, api_path):
+                if not self.try_reserve_exit(current_exit, api_path):
                     last_error = RuntimeError(f"{current_exit.name} rate limited")
                     if attempt_index + 1 < len(attempts):
                         continue
                     break
-                self._record_dispatch_request(current_exit, api_path)
-            per_second_wait = await self._wait_for_per_second_rate(current_exit)
-            if per_second_wait > 0.5:
-                logger.debug(f"[RateLimit] {current_exit.name} 每秒限速等待 {per_second_wait:.1f}s")
-            wait_sec = await current_exit.wait_for_rate()
-            if wait_sec > 0.5:
-                logger.debug(f"[RateLimit] {current_exit.name} 等待 {wait_sec:.1f}s")
 
             current_exit.active += 1
             try:
@@ -1609,16 +1595,6 @@ class OutboundDispatcher:
         if last_error:
             raise last_error
         raise RuntimeError("no available outbound exit")
-
-    async def _wait_for_per_second_rate(self, exit_obj: OutboundExit) -> float:
-        if self.policy_config is None or self.rate_limiter is None:
-            return 0.0
-        try:
-            key = f"{exit_obj.name}|{exit_obj.proxy_url or 'direct'}"
-            return await self.rate_limiter.wait(key, self.policy_config.per_exit_rate_per_second)
-        except Exception as e:
-            logger.warning(f"[RateLimit] 每秒限速模块异常，已跳过: {e}")
-            return 0.0
 
     async def _do_request(self, exit_obj: OutboundExit, method: str, url: str,
                           headers: dict, content_type: str,
