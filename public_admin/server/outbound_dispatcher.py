@@ -88,6 +88,18 @@ class UpstreamStatusRetryError(RuntimeError):
     pass
 
 
+_NON_REPLAYABLE_UPSTREAM_ERRORS = (
+    # The connection was established and the request may already have reached
+    # the upstream service. Replaying it through another exit can duplicate a
+    # state-changing RPC, so let the caller handle the uncertain result.
+    httpx.ReadTimeout,
+    httpx.ReadError,
+    httpx.WriteTimeout,
+    httpx.WriteError,
+    httpx.RemoteProtocolError,
+)
+
+
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'core_type', 'node_type', 'local_port', 'group_id', 'group_name', 'source_url',
@@ -1575,8 +1587,16 @@ class OutboundDispatcher:
                 last_error = e
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
-                if not current_exit.is_direct and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError, UpstreamStatusRetryError)):
+                request_may_have_reached_upstream = isinstance(e, _NON_REPLAYABLE_UPSTREAM_ERRORS)
+                if not current_exit.is_direct and not request_may_have_reached_upstream and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError, UpstreamStatusRetryError)):
                     self._record_connect_failure(current_exit, str(e))
+                if request_may_have_reached_upstream:
+                    logger.warning(
+                        "[Dispatcher] %s 请求可能已送达上游但未取得响应(%s)，不切换出口重试",
+                        current_exit.name,
+                        e.__class__.__name__,
+                    )
+                    break
                 if attempt_index + 1 < len(attempts):
                     next_exit = attempts[attempt_index + 1]
                     logger.warning(f"[Dispatcher] {current_exit.name} 失败({e})，降级至 {next_exit.name} 重试")

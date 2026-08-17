@@ -763,6 +763,69 @@ def test_login_forward_timeout_is_twenty_seconds():
 
 
 @pytest.mark.anyio
+async def test_read_timeout_after_dispatch_does_not_retry_or_freeze_exit():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "slow-upstream", 10001)
+    _add_ready_socks5(dispatcher, "fallback", 10002)
+    attempts = []
+
+    async def fake_request(exit_obj, *_args, **_kwargs):
+        attempts.append(exit_obj.name)
+        raise httpx.ReadTimeout("upstream response timed out")
+
+    dispatcher._do_request = fake_request
+
+    with pytest.raises(httpx.ReadTimeout, match="upstream response timed out"):
+        await dispatcher.forward(
+            dispatcher.exits[1],
+            "POST",
+            "https://example.test/RPC/ACE_Sell",
+            {},
+            content_type="application/x-www-form-urlencoded",
+            params={"account": "demo"},
+            raw_body=b"",
+            api_path="ACE_Sell",
+        )
+
+    assert attempts == ["slow-upstream"]
+    assert dispatcher.exits[1]._connect_failures == 0
+    assert dispatcher.exits[1].is_frozen is False
+
+
+@pytest.mark.anyio
+async def test_connect_failure_before_dispatch_retries_another_exit():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "connect-failed", 10001)
+    _add_ready_socks5(dispatcher, "fallback", 10002)
+    attempts = []
+
+    async def fake_request(exit_obj, *_args, **_kwargs):
+        attempts.append(exit_obj.name)
+        if exit_obj.name == "connect-failed":
+            raise httpx.ConnectError("proxy connection failed")
+        return httpx.Response(
+            200,
+            json={"Error": False, "Data": {"ok": True}},
+            headers={"content-type": "application/json"},
+        )
+
+    dispatcher._do_request = fake_request
+    response = await dispatcher.forward(
+        dispatcher.exits[1],
+        "POST",
+        "https://example.test/RPC/Public_ACE",
+        {},
+        content_type="application/x-www-form-urlencoded",
+        params={"account": "demo"},
+        raw_body=b"",
+        api_path="Public_ACE",
+    )
+
+    assert attempts == ["connect-failed", "fallback"]
+    assert response.json()["Data"]["ok"] is True
+
+
+@pytest.mark.anyio
 async def test_login_non_json_response_retries_next_exit():
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "bad-html", 10001)

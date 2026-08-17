@@ -4312,6 +4312,11 @@ async def proxy_rpc(path: str, request: Request):
             error=type(e).__name__,
         )
 
+        if isinstance(e, httpx.TimeoutException):
+            return JSONResponse(
+                {"Error": True, "Code": "upstream_response_timeout", "Msg": "上游响应超时，请稍后重试"},
+                status_code=504,
+            )
         if isinstance(e, (RpcUpstreamNonJsonError, RpcUpstreamJsonParseError, LoginUpstreamNonJsonError)):
             return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
