@@ -113,6 +113,50 @@ async def test_does_not_record_http_success_when_upstream_business_response_fail
 
 
 @pytest.mark.asyncio
+async def test_records_gateway_timeout_as_unknown_attempt_without_sale_ledger():
+    ledger = FakeLedgerService()
+    recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved("main003"), FakeLogger())
+
+    saved = await recorder.record_response(
+        normalized_path="ace_sell",
+        params={"key": "key-3", "UserID": "44", "count": "99"},
+        payload={"Error": True, "Code": "upstream_response_timeout", "Msg": "timeout"},
+        cookies={"ak_username": "Main003"},
+        status_code=504,
+        exit_name="出口-A",
+        upstream_ms=20001,
+        response_bytes=96,
+    )
+
+    assert saved is False
+    assert ledger.calls == []
+    assert ledger.attempts[0]["state"] == "unknown"
+    assert ledger.attempts[0]["status_code"] == 504
+    assert ledger.attempts[0]["exit_name"] == "出口-A"
+    assert ledger.attempts[0]["upstream_ms"] == 20001
+
+
+@pytest.mark.asyncio
+async def test_keeps_http_403_as_rejected_attempt():
+    ledger = FakeLedgerService()
+    recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved("main004"), FakeLogger())
+
+    saved = await recorder.record_response(
+        normalized_path="ace_sell_son",
+        params={"key": "key-4", "UserID": "45", "sonId": "8", "count": "99"},
+        payload={"Error": True, "Msg": "Forbidden"},
+        cookies={"ak_username": "Main004"},
+        status_code=403,
+        exit_name="出口-B",
+    )
+
+    assert saved is False
+    assert ledger.calls == []
+    assert ledger.attempts[0]["state"] == "rejected"
+    assert ledger.attempts[0]["status_code"] == 403
+
+
+@pytest.mark.asyncio
 async def test_logs_unresolved_account_for_confirmed_public_sale():
     ledger = FakeLedgerService()
     logger = FakeLogger()

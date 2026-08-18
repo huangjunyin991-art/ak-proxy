@@ -47,7 +47,7 @@ def _key_from_params(params: Mapping[str, Any]) -> str:
 
 
 class PublicRpcSaleRecorder:
-    """Records confirmed browser RPC sales without coupling the public route to storage details."""
+    """Records browser sale responses and confirmed sales without coupling the route to storage."""
 
     def __init__(
         self,
@@ -68,31 +68,47 @@ class PublicRpcSaleRecorder:
         cookies: Mapping[str, Any],
         request_id: str = "",
     ) -> bool:
+        """Backward-compatible wrapper for callers that only have a JSON response."""
+        return await self.record_response(
+            normalized_path=normalized_path,
+            params=params,
+            payload=payload,
+            cookies=cookies,
+            request_id=request_id,
+            status_code=200,
+        )
+
+    async def record_response(
+        self,
+        *,
+        normalized_path: str,
+        params: Mapping[str, Any],
+        payload: Mapping[str, Any],
+        cookies: Mapping[str, Any],
+        request_id: str = "",
+        status_code: int = 200,
+        exit_name: str = "",
+        upstream_ms: int | None = None,
+        response_bytes: int | None = None,
+    ) -> bool:
+        """Persist every sale response while only creating a ledger row on success.
+
+        HTTP failures and upstream timeouts are diagnostic attempts, not confirmed
+        sales.  Keeping them here makes the ledger an accurate request audit trail
+        instead of silently dropping all gateway failures.
+        """
         endpoint = SALE_ENDPOINTS.get(str(normalized_path or "").strip().lower())
         if not endpoint:
             return False
 
+        try:
+            status_code = int(status_code or 0)
+        except (TypeError, ValueError):
+            status_code = 0
         success, message = parse_success_payload(payload)
-        if not success:
-            await self._record_attempt(
-                account=_account_from_cookies(cookies) or _account_from_params(params),
-                endpoint=endpoint,
-                params=params,
-                payload=payload,
-                state="rejected",
-                message=message or "上游拒绝",
-                request_id=request_id,
-            )
-            self._logger.info(
-                "[AKSellLedger] public sale skipped endpoint=%s reason=upstream_rejected error=%s",
-                endpoint,
-                _error_state(payload),
-            )
-            return False
-
-        account = _account_from_cookies(cookies)
-        identity_source = "cookie" if account else ""
+        account = _account_from_cookies(cookies) or _account_from_params(params)
         key = _key_from_params(params)
+        identity_source = "cookie_or_params" if account else ""
         if not account and key:
             try:
                 account = _text(await self._resolve_account_by_key(key)).lower()
@@ -103,20 +119,50 @@ class PublicRpcSaleRecorder:
                     endpoint,
                     str(exc)[:200],
                 )
-                await self._record_attempt(
-                    account=_account_from_cookies(cookies) or _account_from_params(params),
-                    endpoint=endpoint,
-                    params=params,
-                    payload=payload,
-                    state="success_unresolved_account",
-                    message="挂卖成功但账号归属解析失败",
-                    request_id=request_id,
-                    diagnostics={"identity_error": str(exc)[:200]},
-                )
-                return False
-        if not account and not key:
-            account = _account_from_params(params)
-            identity_source = "params" if account else ""
+                identity_source = "key_error"
+
+        if status_code >= 500:
+            state = "unknown"
+            response_message = message or (
+                "上游响应超时，结果未知" if status_code in {504, 598, 599}
+                else "网关未取得上游结果"
+            )
+        elif status_code >= 400 or not success:
+            state = "rejected"
+            response_message = message or "上游拒绝"
+        else:
+            state = "success"
+            response_message = message or "出售成功"
+
+        diagnostics = {
+            "http_status": status_code,
+            "identity_source": identity_source,
+            "exit_name": _text(exit_name),
+        }
+        if state != "success":
+            await self._record_attempt(
+                account=account,
+                endpoint=endpoint,
+                params=params,
+                payload=payload,
+                state=state,
+                message=response_message,
+                request_id=request_id,
+                status_code=status_code,
+                exit_name=exit_name,
+                upstream_ms=upstream_ms,
+                response_bytes=response_bytes,
+                diagnostics=diagnostics,
+            )
+            self._logger.info(
+                "[AKSellLedger] public sale skipped endpoint=%s reason=%s status=%s exit=%s",
+                endpoint,
+                "upstream_timeout" if state == "unknown" else "upstream_rejected",
+                status_code,
+                _text(exit_name) or "-",
+            )
+            return False
+
         if not account:
             user_id = _text(params.get("UserID") or params.get("userId") or params.get("userid"))
             self._logger.warning(
@@ -134,6 +180,10 @@ class PublicRpcSaleRecorder:
                 state="success_unresolved_account",
                 message="挂卖成功但无法解析账号",
                 request_id=request_id,
+                status_code=status_code,
+                exit_name=exit_name,
+                upstream_ms=upstream_ms,
+                response_bytes=response_bytes,
                 diagnostics={"user_id": user_id or ""},
             )
             return False
@@ -152,9 +202,14 @@ class PublicRpcSaleRecorder:
             params=params,
             payload=payload,
             state="success",
-            message=message or "出售成功",
+            message=response_message,
             request_id=request_id,
             confirmation_method="upstream_response",
+            status_code=status_code,
+            exit_name=exit_name,
+            upstream_ms=upstream_ms,
+            response_bytes=response_bytes,
+            diagnostics=diagnostics,
         )
         self._logger.info(
             "[AKSellLedger] public sale result=%s endpoint=%s account=%s identity_source=%s",
@@ -176,6 +231,10 @@ class PublicRpcSaleRecorder:
         message: str,
         request_id: str = "",
         confirmation_method: str = "",
+        status_code: int | None = None,
+        exit_name: str = "",
+        upstream_ms: int | None = None,
+        response_bytes: int | None = None,
         diagnostics: Mapping[str, Any] | None = None,
     ) -> None:
         recorder = getattr(self._ledger_service, "record_attempt", None)
@@ -192,17 +251,12 @@ class PublicRpcSaleRecorder:
                 message=message,
                 request_id=_text(request_id),
                 confirmation_method=confirmation_method or ("upstream_response" if state == "success" else ""),
+                status_code=status_code,
+                exit_name=exit_name,
+                upstream_ms=upstream_ms,
+                response_bytes=response_bytes,
                 last_stage="public_rpc_response",
                 diagnostics=diagnostics or {},
             )
         except Exception as exc:
             self._logger.warning("[AKSellLedger] public attempt record failed endpoint=%s error=%s", endpoint, str(exc)[:200])
-
-
-def _error_state(payload: Mapping[str, Any]) -> str:
-    if "Error" not in payload:
-        return "missing"
-    value = payload.get("Error")
-    if isinstance(value, bool):
-        return str(value).lower()
-    return f"{type(value).__name__}:{str(value)[:32]}"

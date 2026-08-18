@@ -3785,6 +3785,70 @@ async def _record_ak_sell_internal_rpc_attempt(
     except Exception as exc:
         logger.warning("[AKSellLedger] rpc attempt trace update failed trace=%s error=%s", trace_id, str(exc)[:200])
 
+
+async def _record_public_ak_sell_response(
+    *,
+    normalized_path: str,
+    params: dict,
+    request: Request,
+    response: httpx.Response | None = None,
+    status_code: int = 0,
+    message: str = "",
+    upstream_ms: int | None = None,
+    exit_name: str = "",
+) -> None:
+    """Persist every browser sell response, including gateway failures."""
+    if (
+        ak_sell_public_rpc_recorder is None
+        or normalized_path not in {"ace_sell", "ace_sell_son"}
+    ):
+        return
+    try:
+        if response is not None:
+            status_code = int(response.status_code or 0)
+            try:
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    payload = {}
+            except Exception:
+                payload = {
+                    "Error": True,
+                    "Code": "non_json_response",
+                    "Msg": message or "上游返回非 JSON 响应",
+                }
+            response_bytes = len(response.content or b"")
+            response_exit_name = str(
+                exit_name
+                or (getattr(response, "extensions", {}) or {}).get("ak_exit_name")
+                or ""
+            )
+        else:
+            payload = {
+                "Error": True,
+                "Code": "upstream_response_timeout" if status_code == 504 else "gateway_error",
+                "Msg": message or "上游未取得响应",
+            }
+            response_bytes = 0
+            response_exit_name = str(exit_name or "")
+        await ak_sell_public_rpc_recorder.record_response(
+            normalized_path=normalized_path,
+            params=params,
+            payload=payload,
+            cookies=request.cookies,
+            request_id=str(request.headers.get("x-request-id") or ""),
+            status_code=status_code,
+            exit_name=response_exit_name,
+            upstream_ms=upstream_ms,
+            response_bytes=response_bytes,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[AKSellLedger] public response record failed path=%s status=%s error=%s",
+            normalized_path,
+            status_code,
+            str(exc)[:200],
+        )
+
 @app.api_route("/RPC/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 
 async def proxy_rpc(path: str, request: Request):
@@ -4114,33 +4178,14 @@ async def proxy_rpc(path: str, request: Request):
             )
         if stock_price_cache_key:
             await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
-        if (
-            ak_sell_public_rpc_recorder is not None
-            and normalized_path in {"ace_sell", "ace_sell_son"}
-            and not ak_sell_internal_request
-            and response.status_code < 400
-        ):
-            try:
-                result = _parse_rpc_upstream_json(
-                    response,
-                    path,
-                    "rpc_ak_sell_ledger",
-                    account=_extract_forward_account(params),
-                    client_ip=client_ip,
-                )
-                await ak_sell_public_rpc_recorder.record_if_success(
-                    normalized_path=normalized_path,
-                    params=params,
-                    payload=result,
-                    cookies=request.cookies,
-                    request_id=str(request.headers.get("x-request-id") or ""),
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[AKSellLedger] public RPC sale recording failed path=%s error=%s",
-                    path,
-                    str(exc)[:300],
-                )
+        if not ak_sell_internal_request:
+            await _record_public_ak_sell_response(
+                normalized_path=normalized_path,
+                params=params,
+                request=request,
+                response=response,
+                upstream_ms=upstream_ms,
+            )
         if _is_login_forget_rpc(path):
             try:
                 result = _parse_rpc_upstream_json(
@@ -4314,12 +4359,31 @@ async def proxy_rpc(path: str, request: Request):
         )
 
         if isinstance(e, httpx.TimeoutException):
+            error_status = 504
+            error_message = "上游响应超时，请稍后重试"
+        elif isinstance(e, (RpcUpstreamNonJsonError, RpcUpstreamJsonParseError, LoginUpstreamNonJsonError)):
+            error_status = 502
+            error_message = RPC_UPSTREAM_NETWORK_ERROR_MESSAGE
+        else:
+            error_status = 500
+            error_message = f"请求失败: {str(e)}"
+        if not ak_sell_internal_request:
+            await _record_public_ak_sell_response(
+                normalized_path=normalized_path,
+                params=params,
+                request=request,
+                status_code=error_status,
+                message=error_message,
+                upstream_ms=_elapsed_ms(locals().get("upstream_started_at", request_started_at)),
+                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+            )
+        if isinstance(e, httpx.TimeoutException):
             return JSONResponse(
-                {"Error": True, "Code": "upstream_response_timeout", "Msg": "上游响应超时，请稍后重试"},
+                {"Error": True, "Code": "upstream_response_timeout", "Msg": error_message},
                 status_code=504,
             )
         if isinstance(e, (RpcUpstreamNonJsonError, RpcUpstreamJsonParseError, LoginUpstreamNonJsonError)):
-            return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE}, status_code=502)
+            return JSONResponse({"Error": True, "Msg": error_message}, status_code=502)
         return JSONResponse({"Error": True, "Msg": f"请求失败: {str(e)}"}, status_code=500)
     finally:
         if upstream_rpc_lease is not None:
