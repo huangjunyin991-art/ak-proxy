@@ -1693,22 +1693,34 @@ async def _should_verify_saved_password_with_upstream_after_failures(client_ip: 
 
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
-    """Record the observation without turning normal browser timing into a ban.
-
-    A browser is not required to call public_IndexData within a fixed number of
-    seconds after Login. Background throttling, slow assets, retries, and normal
-    page navigation can all delay that request. This signal is diagnostic only;
-    it must never enter the IP pre-ban counter or block a user.
-    """
     if await _is_ip_banned_for_penalty(client_ip):
         logger.warning(
-            f"[LoginIndexDataGuard] 已封禁IP出现延迟资产请求 ip={client_ip} account={username}"
+            f"[LoginIndexDataGuard] 裸API已封禁IP再次登录 ip={client_ip} account={username}"
         )
         return
     reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
+    result = await db.record_ip_preban_event(client_ip, reason, window_seconds=IP_PREBAN_WINDOW_SECONDS)
+    count = int(result.get("count") or 0)
+    if result.get("is_banned"):
+        logger.warning(
+            f"[LoginIndexDataGuard] 裸API异常已达到封禁状态 ip={client_ip} account={username} count={count}"
+        )
+        return
+    if count >= IP_PREBAN_AUTO_BAN_THRESHOLD:
+        ban_reason = f"{IP_PREBAN_WINDOW_SECONDS}秒内连续触发裸API异常{count}次: {reason}"
+        _remember_ip_ban(client_ip, time.time() + IP_PREBAN_AUTO_BAN_DAYS * 86400)
+        await db.ban_ip(client_ip, ban_reason, duration_days=IP_PREBAN_AUTO_BAN_DAYS)
+        try:
+            await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": client_ip, "reason": ban_reason}})
+        except Exception:
+            pass
+        logger.warning(
+            f"[LoginIndexDataGuard] 裸API自动封禁IP ip={client_ip} account={username} count={count} reason={ban_reason}"
+        )
+        return
     logger.info(
-        f"[LoginIndexDataGuard] 仅记录延迟资产请求，不执行封禁 "
-        f"ip={client_ip} account={username} reason={reason}"
+        f"[LoginIndexDataGuard] 裸API进入观察 ip={client_ip} account={username} "
+        f"count={count}/{IP_PREBAN_AUTO_BAN_THRESHOLD} reason={reason}"
     )
 
 
@@ -1730,23 +1742,29 @@ def _track_login_indexdata_followup(client_ip: str, username: str) -> None:
     asyncio.create_task(_check_login_indexdata_followup(key[0], key[1], marker))
 
 
+def _register_login_success_followup(
+    client_ip: str,
+    username: str,
+    *,
+    frontend_authenticated: bool,
+) -> None:
+    """Classify a successful login by its verified browser-flow proof.
+
+    A user-key fast path only proves that the cached upstream credentials are
+    valid. It is intentionally not a browser proof: an API script can hit the
+    same fast path without ever loading the login page. Only the signed cookie
+    plus the injected marker, validated before forwarding, can cancel the
+    follow-up observation.
+    """
+    if frontend_authenticated:
+        _mark_indexdata_followup_seen(client_ip, username)
+        return
+    _track_login_indexdata_followup(client_ip, username)
+
+
 def _mark_indexdata_followup_seen(client_ip: str, username: str) -> None:
     key = _login_indexdata_key(client_ip, username)
     stats.pending_indexdata_logins.pop(key, None)
-
-
-def _mark_login_followup_activity_seen(client_ip: str, activity: str) -> None:
-    normalized_ip = str(client_ip or "").strip()
-    if not normalized_ip:
-        return
-    removed = []
-    for key in list(stats.pending_indexdata_logins.keys()):
-        if key[0] == normalized_ip:
-            removed.append(key)
-            stats.pending_indexdata_logins.pop(key, None)
-    if removed:
-        accounts = ",".join(sorted({key[1] for key in removed if key[1]}))
-        logger.info(f"[LoginIndexDataGuard] 后续请求确认正常 ip={normalized_ip} activity={activity} accounts={accounts}")
 
 
 async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
@@ -3192,10 +3210,11 @@ async def proxy_login(request: Request):
         stats.last_login_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         logger.info(f"[Login] 登录成功: {account}")
-        if fastpath_result is not None and fastpath_result.success:
-            _mark_indexdata_followup_seen(client_ip, account)
-        else:
-            _track_login_indexdata_followup(client_ip, account)
+        _register_login_success_followup(
+            client_ip,
+            account,
+            frontend_authenticated=frontend_authenticated,
+        )
 
         if fastpath_result is not None and fastpath_result.success:
             cached = _cache_ak_auth_from_fastpath(account, password, fastpath_result)
@@ -3646,7 +3665,12 @@ async def proxy_index_data(request: Request):
 
             _mark_indexdata_followup_seen(client_ip, username)
         else:
-            _mark_login_followup_activity_seen(client_ip, "RPC/public_IndexData")
+            # Do not clear every pending account for an unauthenticated or
+            # unidentifiable asset response. A direct API caller can omit the
+            # account field; that cannot serve as proof for any login.
+            logger.debug(
+                f"[LoginIndexDataGuard] public_IndexData未解析到账号，保留待观察登录 ip={client_ip}"
+            )
 
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
 
@@ -4092,8 +4116,6 @@ async def proxy_rpc(path: str, request: Request):
                 content_type=cached_stock_response.headers.get("content-type", ""),
                 response_bytes=len(cached_stock_response.content or b""),
             )
-            if cached_stock_response.status_code < 500:
-                _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
             return _build_proxy_passthrough_response(cached_stock_response)
 
         selected_exit = _select_forward_exit(path)
@@ -4309,9 +4331,6 @@ async def proxy_rpc(path: str, request: Request):
             auth_patched=auth_patched,
             username=request.cookies.get("ak_username") or request.cookies.get("ak_im_username") or "",
         )
-        if response.status_code < 500:
-            _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
-
         proxy_response = _build_proxy_passthrough_response(response)
         if renamed_username:
             _attach_browser_login_identity_cookies(proxy_response, request, renamed_username)
