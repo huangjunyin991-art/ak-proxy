@@ -1693,26 +1693,23 @@ async def _should_verify_saved_password_with_upstream_after_failures(client_ip: 
 
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
+    """Record the observation without turning normal browser timing into a ban.
+
+    A browser is not required to call public_IndexData within a fixed number of
+    seconds after Login. Background throttling, slow assets, retries, and normal
+    page navigation can all delay that request. This signal is diagnostic only;
+    it must never enter the IP pre-ban counter or block a user.
+    """
     if await _is_ip_banned_for_penalty(client_ip):
-        logger.warning(f"[LoginIndexDataGuard] 可疑登录后续行为 ip={client_ip} account={username} already_banned=1")
+        logger.warning(
+            f"[LoginIndexDataGuard] 已封禁IP出现延迟资产请求 ip={client_ip} account={username}"
+        )
         return
     reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
-    result = await db.record_ip_preban_event(client_ip, reason, window_seconds=IP_PREBAN_WINDOW_SECONDS)
-    count = int(result.get('count') or 0)
-    if result.get('is_banned'):
-        logger.warning(f"[LoginIndexDataGuard] 可疑登录后续行为 ip={client_ip} account={username} already_banned=1 reason={reason}")
-        return
-    if count >= IP_PREBAN_AUTO_BAN_THRESHOLD:
-        ban_reason = f"{IP_PREBAN_WINDOW_SECONDS}秒内连续触发异常{count}次: {reason}"
-        _remember_ip_ban(client_ip, time.time() + IP_PREBAN_AUTO_BAN_DAYS * 86400)
-        await db.ban_ip(client_ip, ban_reason, duration_days=IP_PREBAN_AUTO_BAN_DAYS)
-        try:
-            await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": client_ip, "reason": ban_reason}})
-        except Exception:
-            pass
-        logger.warning(f"[LoginIndexDataGuard] 自动封禁IP ip={client_ip} account={username} count={count} reason={ban_reason}")
-        return
-    logger.warning(f"[LoginIndexDataGuard] IP进入预封禁观察 ip={client_ip} account={username} count={count}/{IP_PREBAN_AUTO_BAN_THRESHOLD} reason={reason}")
+    logger.info(
+        f"[LoginIndexDataGuard] 仅记录延迟资产请求，不执行封禁 "
+        f"ip={client_ip} account={username} reason={reason}"
+    )
 
 
 async def _check_login_indexdata_followup(client_ip: str, username: str, marker: float) -> None:
