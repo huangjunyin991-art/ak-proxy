@@ -898,6 +898,7 @@ try:
     from .ak_sell.account_state import UserStatsAKAccountState
     from .ak_sell.trace import (
         AK_SELL_TRACE_HEADER,
+        classify_delivery_state,
         create_trace_id_if_needed,
         emit_trace as emit_ak_sell_trace,
         exception_snapshot,
@@ -909,6 +910,7 @@ except Exception as e:
     create_ak_sell_router = None
     UserStatsAKAccountState = None
     AK_SELL_TRACE_HEADER = "x-ak-sell-trace-id"
+    classify_delivery_state = None
     create_trace_id_if_needed = None
     emit_ak_sell_trace = None
     exception_snapshot = None
@@ -4405,10 +4407,16 @@ async def proxy_rpc(path: str, request: Request):
                 error=type(e).__name__,
                 message=str(e) or repr(e),
                 total_ms=_elapsed_ms(request_started_at),
-                delivery_state=(
+                delivery_state=classify_delivery_state(e) if callable(classify_delivery_state) else "unknown_delivery",
+                retry_decision=(
+                    "blocked"
+                    if callable(classify_delivery_state) and classify_delivery_state(e) == "uncertain_delivery"
+                    else "eligible"
+                ),
+                retry_reason=(
                     "uncertain_delivery"
-                    if type(e).__name__ in {"ReadError", "ReadTimeout", "WriteError", "WriteTimeout", "RemoteProtocolError"}
-                    else "unknown_delivery"
+                    if callable(classify_delivery_state) and classify_delivery_state(e) == "uncertain_delivery"
+                    else "transport_failure"
                 ),
                 request_id=ak_sell_request_id,
                 source=ak_sell_trace_source,
@@ -4425,11 +4433,18 @@ async def proxy_rpc(path: str, request: Request):
                 diagnostics={
                     "error": type(e).__name__,
                     "total_ms": _elapsed_ms(request_started_at),
-                    "delivery_state": (
-                        "uncertain_delivery"
-                        if type(e).__name__ in {"ReadError", "ReadTimeout", "WriteError", "WriteTimeout", "RemoteProtocolError"}
-                        else "unknown_delivery"
+                    "delivery_state": classify_delivery_state(e) if callable(classify_delivery_state) else "unknown_delivery",
+                    "retry_decision": (
+                        "blocked"
+                        if callable(classify_delivery_state) and classify_delivery_state(e) == "uncertain_delivery"
+                        else "eligible"
                     ),
+                    "retry_reason": (
+                        "uncertain_delivery"
+                        if callable(classify_delivery_state) and classify_delivery_state(e) == "uncertain_delivery"
+                        else "transport_failure"
+                    ),
+                    "timeout_seconds": ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path),
                     **(exception_snapshot(e) if callable(exception_snapshot) else {}),
                 },
                 source=ak_sell_trace_source,
