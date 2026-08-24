@@ -67,6 +67,7 @@ class PublicRpcSaleRecorder:
         payload: Mapping[str, Any],
         cookies: Mapping[str, Any],
         request_id: str = "",
+        trace_id: str = "",
     ) -> bool:
         """Backward-compatible wrapper for callers that only have a JSON response."""
         return await self.record_response(
@@ -75,6 +76,7 @@ class PublicRpcSaleRecorder:
             payload=payload,
             cookies=cookies,
             request_id=request_id,
+            trace_id=trace_id,
             status_code=200,
         )
 
@@ -86,6 +88,7 @@ class PublicRpcSaleRecorder:
         payload: Mapping[str, Any],
         cookies: Mapping[str, Any],
         request_id: str = "",
+        trace_id: str = "",
         status_code: int = 200,
         exit_name: str = "",
         upstream_ms: int | None = None,
@@ -148,6 +151,7 @@ class PublicRpcSaleRecorder:
                 state=state,
                 message=response_message,
                 request_id=request_id,
+                trace_id=trace_id,
                 status_code=status_code,
                 exit_name=exit_name,
                 upstream_ms=upstream_ms,
@@ -180,6 +184,7 @@ class PublicRpcSaleRecorder:
                 state="success_unresolved_account",
                 message="挂卖成功但无法解析账号",
                 request_id=request_id,
+                trace_id=trace_id,
                 status_code=status_code,
                 exit_name=exit_name,
                 upstream_ms=upstream_ms,
@@ -204,6 +209,7 @@ class PublicRpcSaleRecorder:
             state="success",
             message=response_message,
             request_id=request_id,
+            trace_id=trace_id,
             confirmation_method="upstream_response",
             status_code=status_code,
             exit_name=exit_name,
@@ -230,6 +236,7 @@ class PublicRpcSaleRecorder:
         state: str,
         message: str,
         request_id: str = "",
+        trace_id: str = "",
         confirmation_method: str = "",
         status_code: int | None = None,
         exit_name: str = "",
@@ -250,6 +257,7 @@ class PublicRpcSaleRecorder:
                 state=state,
                 message=message,
                 request_id=_text(request_id),
+                trace_id=_text(trace_id),
                 confirmation_method=confirmation_method or ("upstream_response" if state == "success" else ""),
                 status_code=status_code,
                 exit_name=exit_name,

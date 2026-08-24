@@ -113,6 +113,20 @@ def test_ak_sell_trace_window_is_limited_to_beijing_noon():
     assert ak_sell_trace.is_trace_window(datetime(2026, 8, 16, 12, 5, 0, tzinfo=BEIJING_TIMEZONE)) is False
 
 
+def test_ak_sell_trace_classifies_transport_delivery_and_preserves_cause():
+    assert ak_sell_trace.classify_delivery_state(httpx.ReadError("read failed")) == "uncertain_delivery"
+    assert ak_sell_trace.classify_delivery_state(httpx.ConnectError("offline")) == "not_sent"
+    assert ak_sell_trace.classify_delivery_state(None) == "response_received"
+
+    cause = OSError("peer reset")
+    error = httpx.ReadError("", request=None)
+    error.__cause__ = cause
+    snapshot = ak_sell_trace.exception_snapshot(error)
+    assert snapshot["exception_type"] == "ReadError"
+    assert snapshot["cause_type"] == "OSError"
+    assert "peer reset" in snapshot["cause_repr"]
+
+
 def make_request(headers: dict[str, str] | None = None) -> Request:
     raw_headers = [(key.lower().encode("ascii"), value.encode("ascii")) for key, value in (headers or {}).items()]
     return Request({

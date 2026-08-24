@@ -896,14 +896,22 @@ ep_auto_purchase_service = None
 try:
     from .ak_sell import AKSellService, create_ak_sell_router
     from .ak_sell.account_state import UserStatsAKAccountState
-    from .ak_sell.trace import AK_SELL_TRACE_HEADER, emit_trace as emit_ak_sell_trace, normalize_trace_id as normalize_ak_sell_trace_id
+    from .ak_sell.trace import (
+        AK_SELL_TRACE_HEADER,
+        create_trace_id_if_needed,
+        emit_trace as emit_ak_sell_trace,
+        exception_snapshot,
+        normalize_trace_id as normalize_ak_sell_trace_id,
+    )
     _AK_SELL_IMPORT_ERROR = None
 except Exception as e:
     AKSellService = None
     create_ak_sell_router = None
     UserStatsAKAccountState = None
     AK_SELL_TRACE_HEADER = "x-ak-sell-trace-id"
+    create_trace_id_if_needed = None
     emit_ak_sell_trace = None
+    exception_snapshot = None
     normalize_ak_sell_trace_id = None
     _AK_SELL_IMPORT_ERROR = e
 
@@ -1013,26 +1021,31 @@ skip_console_handler = bool(LOG_TO_FILE and _stdout_targets_log_file(log_path))
 
 
 if LOG_TO_CONSOLE and not skip_console_handler:
-
-    ch = logging.StreamHandler(sys.stdout)
-
-    ch.setFormatter(formatter)
-
-    logger.addHandler(ch)
+    has_console_handler = any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, RotatingFileHandler)
+        and getattr(handler, "stream", None) is sys.stdout
+        for handler in logger.handlers
+    )
+    if not has_console_handler:
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
 
 
 
 if LOG_TO_FILE:
-
-    fh = RotatingFileHandler(
-
-        log_path, maxBytes=10*1024*1024*1024, backupCount=3, encoding='utf-8'
-
+    has_file_handler = any(
+        isinstance(handler, RotatingFileHandler)
+        and os.path.realpath(getattr(handler, "baseFilename", "")) == os.path.realpath(log_path)
+        for handler in logger.handlers
     )
-
-    fh.setFormatter(formatter)
-
-    logger.addHandler(fh)
+    if not has_file_handler:
+        fh = RotatingFileHandler(
+            log_path, maxBytes=10*1024*1024*1024, backupCount=3, encoding='utf-8'
+        )
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
 
 
 
@@ -2646,7 +2659,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                           request_timeout_seconds: float | None = None,
 
-                          max_tunnel_fallbacks: int = 3) -> httpx.Response:
+                          max_tunnel_fallbacks: int = 3,
+                          trace_id: str = "") -> httpx.Response:
 
     """转发请求到真实API服务器（通过出口调度器选择出口IP）"""
 
@@ -2725,6 +2739,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
                 client_ip=real_ip, account=account,
                 api_path=api_path,
                 max_tunnel_fallbacks=max_tunnel_fallbacks,
+                trace_id=trace_id,
 
             )
 
@@ -2748,6 +2763,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
         client_ip=real_ip, account=account,
         api_path=api_path,
         max_tunnel_fallbacks=max_tunnel_fallbacks,
+        trace_id=trace_id,
 
     )
 
@@ -3774,6 +3790,9 @@ async def _record_ak_sell_internal_rpc_attempt(
     response_bytes: int | None = None,
     message: str = "",
     diagnostics: dict | None = None,
+    source: str = "ak_sell_api",
+    request_id: str = "",
+    account: str = "",
 ) -> None:
     if not trace_id or normalized_path not in {"ace_sell", "ace_sell_son"}:
         return
@@ -3787,14 +3806,15 @@ async def _record_ak_sell_internal_rpc_attempt(
             "count": str(params.get("count") or ""),
         }
         await recorder(
-            account=_extract_forward_account(params),
+            account=account or _extract_forward_account(params),
             endpoint=endpoint,
             request_data=request_data,
             payload={},
-            source="ak_sell_api",
+            source=source,
             state=state,
             message=message,
             trace_id=trace_id,
+            request_id=request_id,
             event_id=f"ak-sell-trace:{trace_id}",
             status_code=status_code,
             exit_name=exit_name,
@@ -3817,6 +3837,8 @@ async def _record_public_ak_sell_response(
     message: str = "",
     upstream_ms: int | None = None,
     exit_name: str = "",
+    trace_id: str = "",
+    request_id: str = "",
 ) -> None:
     """Persist every browser sell response, including gateway failures."""
     if (
@@ -3856,7 +3878,8 @@ async def _record_public_ak_sell_response(
             params=params,
             payload=payload,
             cookies=request.cookies,
-            request_id=str(request.headers.get("x-request-id") or ""),
+            trace_id=trace_id,
+            request_id=request_id or str(request.headers.get("x-request-id") or ""),
             status_code=status_code,
             exit_name=response_exit_name,
             upstream_ms=upstream_ms,
@@ -4002,9 +4025,14 @@ async def proxy_rpc(path: str, request: Request):
         ak_sell_internal_request
         and normalized_path in {"ace_sell", "ace_sell_son"}
     )
+    ak_sell_public_rpc_request = normalized_path in {"ace_sell", "ace_sell_son"}
     ak_sell_trace_id = ""
-    if ak_sell_internal_request and normalize_ak_sell_trace_id is not None:
+    if ak_sell_public_rpc_request and normalize_ak_sell_trace_id is not None:
         ak_sell_trace_id = normalize_ak_sell_trace_id(request.headers.get(AK_SELL_TRACE_HEADER, ""))
+        if not ak_sell_trace_id and callable(create_trace_id_if_needed):
+            ak_sell_trace_id = create_trace_id_if_needed()
+    ak_sell_request_id = str(request.headers.get("x-request-id") or "").strip() or ak_sell_trace_id
+    ak_sell_trace_source = "ak_sell_api" if ak_sell_internal_request else "public_rpc"
     if ak_sell_trace_id and emit_ak_sell_trace is not None:
         emit_ak_sell_trace(
             logger,
@@ -4022,6 +4050,8 @@ async def proxy_rpc(path: str, request: Request):
             params=params,
             stage="rpc_received",
             state="dispatched",
+            source=ak_sell_trace_source,
+            request_id=ak_sell_request_id,
         )
     upstream_rpc_lease = None
     if (
@@ -4131,9 +4161,13 @@ async def proxy_rpc(path: str, request: Request):
                 ak_sell_trace_id,
                 endpoint=normalized_path,
                 exit_name=getattr(selected_exit, "name", ""),
+                exit_group=getattr(selected_exit, "group_name", "") or getattr(selected_exit, "group_id", "") or getattr(selected_exit, "name", ""),
+                local_port=getattr(selected_exit, "local_port", 0),
                 is_direct=bool(getattr(selected_exit, "is_direct", False)),
                 timeout_seconds=ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path),
                 max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
+                request_id=ak_sell_request_id,
+                source=ak_sell_trace_source,
             )
             await _record_ak_sell_internal_rpc_attempt(
                 trace_id=ak_sell_trace_id,
@@ -4145,7 +4179,14 @@ async def proxy_rpc(path: str, request: Request):
                 diagnostics={
                     "is_direct": bool(getattr(selected_exit, "is_direct", False)),
                     "timeout_seconds": ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path),
+                    "connect_timeout_seconds": resolve_connect_timeout(
+                        ak_sell_timeout if ak_sell_timeout is not None else resolve_rpc_forward_timeout(path)
+                    ),
+                    "request_bytes": len(raw_body or b""),
+                    "request_id": ak_sell_request_id,
                 },
+                source=ak_sell_trace_source,
+                request_id=ak_sell_request_id,
             )
 
         upstream_started_at = time.perf_counter()
@@ -4168,6 +4209,7 @@ async def proxy_rpc(path: str, request: Request):
             # gateway therefore makes one bounded server-side attempt instead
             # of holding a read request across a serial chain of exits.
             max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
+            trace_id=ak_sell_trace_id,
 
         )
         upstream_ms = _elapsed_ms(upstream_started_at)
@@ -4182,6 +4224,8 @@ async def proxy_rpc(path: str, request: Request):
                 upstream_ms=upstream_ms,
                 content_type=response.headers.get("content-type", ""),
                 response_bytes=len(response.content or b""),
+                request_id=ak_sell_request_id,
+                source=ak_sell_trace_source,
             )
             await _record_ak_sell_internal_rpc_attempt(
                 trace_id=ak_sell_trace_id,
@@ -4193,7 +4237,15 @@ async def proxy_rpc(path: str, request: Request):
                 status_code=response.status_code,
                 upstream_ms=upstream_ms,
                 response_bytes=len(response.content or b""),
-                diagnostics={"content_type": response.headers.get("content-type", "")},
+                diagnostics={
+                    "content_type": response.headers.get("content-type", ""),
+                    "request_id": ak_sell_request_id,
+                    "delivery_state": "response_received",
+                    "exit_group": getattr(selected_exit, "group_name", "") or getattr(selected_exit, "group_id", "") or getattr(selected_exit, "name", ""),
+                    "local_port": getattr(selected_exit, "local_port", 0),
+                },
+                source=ak_sell_trace_source,
+                request_id=ak_sell_request_id,
             )
         if stock_price_cache_key:
             await _store_stock_price_response(stock_price_cache_key, response, stock_price_cache_ttl)
@@ -4204,6 +4256,8 @@ async def proxy_rpc(path: str, request: Request):
                 request=request,
                 response=response,
                 upstream_ms=upstream_ms,
+                trace_id=ak_sell_trace_id,
+                request_id=ak_sell_request_id,
             )
         if _is_login_forget_rpc(path):
             try:
@@ -4349,8 +4403,16 @@ async def proxy_rpc(path: str, request: Request):
                 endpoint=normalized_path,
                 exit_name=getattr(locals().get("selected_exit"), "name", ""),
                 error=type(e).__name__,
-                message=str(e),
+                message=str(e) or repr(e),
                 total_ms=_elapsed_ms(request_started_at),
+                delivery_state=(
+                    "uncertain_delivery"
+                    if type(e).__name__ in {"ReadError", "ReadTimeout", "WriteError", "WriteTimeout", "RemoteProtocolError"}
+                    else "unknown_delivery"
+                ),
+                request_id=ak_sell_request_id,
+                source=ak_sell_trace_source,
+                **(exception_snapshot(e) if callable(exception_snapshot) else {}),
             )
             await _record_ak_sell_internal_rpc_attempt(
                 trace_id=ak_sell_trace_id,
@@ -4359,10 +4421,26 @@ async def proxy_rpc(path: str, request: Request):
                 stage="rpc_error",
                 state="unknown",
                 exit_name=getattr(locals().get("selected_exit"), "name", ""),
-                message=str(e),
-                diagnostics={"error": type(e).__name__, "total_ms": _elapsed_ms(request_started_at)},
+                message=str(e) or repr(e),
+                diagnostics={
+                    "error": type(e).__name__,
+                    "total_ms": _elapsed_ms(request_started_at),
+                    "delivery_state": (
+                        "uncertain_delivery"
+                        if type(e).__name__ in {"ReadError", "ReadTimeout", "WriteError", "WriteTimeout", "RemoteProtocolError"}
+                        else "unknown_delivery"
+                    ),
+                    **(exception_snapshot(e) if callable(exception_snapshot) else {}),
+                },
+                source=ak_sell_trace_source,
+                request_id=ak_sell_request_id,
             )
-        logger.error(f"[RPC/{path}] 转发失败: {e}")
+        logger.error(
+            "[RPC/%s] 转发失败: type=%s detail=%s",
+            path,
+            type(e).__name__,
+            str(e) or repr(e),
+        )
         _record_request_metric(
             kind="rpc",
             method=request.method,
@@ -4382,7 +4460,7 @@ async def proxy_rpc(path: str, request: Request):
             error_message = RPC_UPSTREAM_NETWORK_ERROR_MESSAGE
         else:
             error_status = 500
-            error_message = f"请求失败: {str(e)}"
+            error_message = f"请求失败: {str(e) or type(e).__name__}"
         if not ak_sell_internal_request:
             await _record_public_ak_sell_response(
                 normalized_path=normalized_path,
@@ -4392,6 +4470,8 @@ async def proxy_rpc(path: str, request: Request):
                 message=error_message,
                 upstream_ms=_elapsed_ms(locals().get("upstream_started_at", request_started_at)),
                 exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                trace_id=ak_sell_trace_id,
+                request_id=ak_sell_request_id,
             )
         if isinstance(e, httpx.TimeoutException):
             return JSONResponse(

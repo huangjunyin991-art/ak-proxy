@@ -11,6 +11,21 @@ BEIJING_TIMEZONE = timezone(timedelta(hours=8))
 TRACE_WINDOW_START = time(12, 0, 0)
 TRACE_WINDOW_END = time(12, 5, 0)
 
+_NOT_SENT_ERROR_NAMES = frozenset({
+    "ConnectError",
+    "ConnectTimeout",
+    "ProxyError",
+    "UnsupportedProtocol",
+    "InvalidURL",
+})
+_UNCERTAIN_DELIVERY_ERROR_NAMES = frozenset({
+    "ReadError",
+    "ReadTimeout",
+    "WriteError",
+    "WriteTimeout",
+    "RemoteProtocolError",
+})
+
 _TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 
@@ -47,6 +62,31 @@ def emit_trace(logger, stage: str, trace_id: str, **fields: Any) -> None:
         safe_fields.append(f"{name}={_safe_value(fields[key])}")
     suffix = " " + " ".join(safe_fields) if safe_fields else ""
     logger.info("[AKSellTrace] trace_id=%s stage=%s%s", trace_id, _safe_key(stage) or "unknown", suffix)
+
+
+def classify_delivery_state(exc: BaseException | None) -> str:
+    """Classify transport failures without claiming whether the upstream committed a write."""
+    if exc is None:
+        return "response_received"
+    name = exc.__class__.__name__
+    if name in _UNCERTAIN_DELIVERY_ERROR_NAMES:
+        return "uncertain_delivery"
+    if name in _NOT_SENT_ERROR_NAMES:
+        return "not_sent"
+    return "unknown_delivery"
+
+
+def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
+    """Return bounded, credential-free exception details for logs and diagnostics."""
+    if exc is None:
+        return {}
+    cause = exc.__cause__ or exc.__context__
+    return {
+        "exception_type": exc.__class__.__name__,
+        "exception_repr": _safe_value(repr(exc)),
+        "cause_type": cause.__class__.__name__ if cause is not None else "",
+        "cause_repr": _safe_value(repr(cause)) if cause is not None else "",
+    }
 
 
 def _safe_key(value: Any) -> str:

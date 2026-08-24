@@ -35,6 +35,7 @@ from .source_reachability import (
     SourceReachabilityProbe,
     source_probe_policy_for_protocol,
 )
+from .ak_sell.trace import classify_delivery_state, emit_trace, exception_snapshot
 
 try:
     from .dispatcher_policy import (
@@ -1491,7 +1492,8 @@ class OutboundDispatcher:
                       params: dict = None, raw_body: bytes = None,
                       timeout: float = 30, connect_timeout: float | None = None,
                       client_ip: str = "", account: str = "",
-                      api_path: str = "", max_tunnel_fallbacks: int = 3) -> httpx.Response:
+                      api_path: str = "", max_tunnel_fallbacks: int = 3,
+                      trace_id: str = "") -> httpx.Response:
         """
         通过指定出口转发HTTP请求。
         - 自动跟踪活跃连接数（进入+1，完成-1）
@@ -1511,11 +1513,48 @@ class OutboundDispatcher:
             if attempt_index > 0:
                 if not self.try_reserve_exit(current_exit, api_path):
                     last_error = RuntimeError(f"{current_exit.name} rate limited")
+                    emit_trace(
+                        logger,
+                        "dispatch_fallback_skipped",
+                        trace_id,
+                        endpoint=api_path,
+                        attempt_no=attempt_index + 1,
+                        exit_name=current_exit.name,
+                        delivery_state="not_attempted",
+                        retry_decision="skipped",
+                        retry_reason="exit_rate_limited",
+                    )
                     if attempt_index + 1 < len(attempts):
                         continue
                     break
 
             current_exit.active += 1
+            attempt_started_at = time.perf_counter()
+            emit_trace(
+                logger,
+                "dispatch_attempt_started",
+                trace_id,
+                endpoint=api_path,
+                method=method,
+                attempt_no=attempt_index + 1,
+                candidate_count=len(attempts),
+                exit_name=current_exit.name,
+                exit_group=current_exit.group_name or current_exit.group_id or current_exit.name,
+                is_direct=current_exit.is_direct,
+                local_port=current_exit.local_port,
+                timeout_seconds=timeout,
+                connect_timeout_seconds=connect_timeout,
+                request_bytes=len(raw_body or b""),
+            )
+            emit_trace(
+                logger,
+                "request_send_started",
+                trace_id,
+                endpoint=api_path,
+                attempt_no=attempt_index + 1,
+                exit_name=current_exit.name,
+                request_bytes=len(raw_body or b""),
+            )
             try:
                 resp = await self._do_request(current_exit, method, url, headers,
                                               content_type, params, raw_body, timeout, connect_timeout)
@@ -1560,6 +1599,19 @@ class OutboundDispatcher:
                 if 100 <= int(resp.status_code or 0) < 500 and int(resp.status_code or 0) != 429:
                     current_exit.reset_connect_failures()
                     self._schedule_source_fleet_state_persist()
+                emit_trace(
+                    logger,
+                    "dispatch_response_received",
+                    trace_id,
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
+                    is_direct=current_exit.is_direct,
+                    status_code=resp.status_code,
+                    response_bytes=len(resp.content or b""),
+                    elapsed_ms=int((time.perf_counter() - attempt_started_at) * 1000),
+                    delivery_state="response_received",
+                )
                 if (
                     self._is_login_rpc(api_path)
                     and resp.status_code == 403
@@ -1574,6 +1626,22 @@ class OutboundDispatcher:
                 current_exit.record_error(str(e))
                 await current_exit.close_client("request_error")
                 request_may_have_reached_upstream = isinstance(e, _NON_REPLAYABLE_UPSTREAM_ERRORS)
+                delivery_state = classify_delivery_state(e)
+                error_fields = {
+                    "endpoint": api_path,
+                    "attempt_no": attempt_index + 1,
+                    "candidate_count": len(attempts),
+                    "exit_name": current_exit.name,
+                    "exit_group": current_exit.group_name or current_exit.group_id or current_exit.name,
+                    "is_direct": current_exit.is_direct,
+                    "local_port": current_exit.local_port,
+                    "elapsed_ms": int((time.perf_counter() - attempt_started_at) * 1000),
+                    "delivery_state": delivery_state,
+                    "retry_decision": "blocked" if request_may_have_reached_upstream else "eligible",
+                    "retry_reason": "uncertain_delivery" if request_may_have_reached_upstream else "transport_failure",
+                }
+                error_fields.update(exception_snapshot(e))
+                emit_trace(logger, "dispatch_exception", trace_id, **error_fields)
                 if not current_exit.is_direct and not request_may_have_reached_upstream and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError, UpstreamStatusRetryError)):
                     self._record_connect_failure(current_exit, str(e))
                 if request_may_have_reached_upstream:
@@ -1585,6 +1653,17 @@ class OutboundDispatcher:
                     break
                 if attempt_index + 1 < len(attempts):
                     next_exit = attempts[attempt_index + 1]
+                    emit_trace(
+                        logger,
+                        "dispatch_fallback_started",
+                        trace_id,
+                        endpoint=api_path,
+                        attempt_no=attempt_index + 2,
+                        from_exit=current_exit.name,
+                        to_exit=next_exit.name,
+                        retry_decision="retry",
+                        retry_reason=type(e).__name__,
+                    )
                     logger.warning(f"[Dispatcher] {current_exit.name} 失败({e})，降级至 {next_exit.name} 重试")
                 else:
                     logger.error(f"[Dispatcher] 出口链路全部失败，最后出口={current_exit.name}: {e}")
