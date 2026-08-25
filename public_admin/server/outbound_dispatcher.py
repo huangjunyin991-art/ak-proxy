@@ -115,7 +115,8 @@ class OutboundExit:
                  'source_probe_last_error', 'source_probe_status_code', '_source_probe_next_at',
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
-                 '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason')
+                 '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason',
+                 '_client_retire_pending', '_client_retire_pending_reason', '_retired_clients')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
@@ -171,6 +172,9 @@ class OutboundExit:
         self._client_generation = 0
         self._client_retire_count = 0
         self._client_last_retire_reason = ""
+        self._client_retire_pending = False
+        self._client_retire_pending_reason = ""
+        self._retired_clients: list[httpx.AsyncClient] = []
 
     @property
     def is_direct(self) -> bool:
@@ -352,15 +356,29 @@ class OutboundExit:
     async def get_client(self) -> httpx.AsyncClient:
         """获取或创建持久 httpx.AsyncClient（带连接池，复用TCP连接）"""
         now = time.time()
-        if self._client and not self._client.is_closed and not self._client_retire_reason(now):
+        if (
+            self._client
+            and not self._client.is_closed
+            and not self._client_retire_pending
+            and not self._client_retire_reason(now)
+        ):
             self._mark_client_used(now)
             return self._client
         async with self._client_lock:
             now = time.time()
-            if self._client and not self._client.is_closed and not self._client_retire_reason(now):
+            retire_reason = self._client_retire_pending_reason or self._client_retire_reason(now)
+            if (
+                self._client
+                and not self._client.is_closed
+                and not self._client_retire_pending
+                and not retire_reason
+            ):
                 self._mark_client_used(now)
                 return self._client
-            await self._close_client_locked(self._client_retire_reason(now) or "recreate")
+            if self._client is not None:
+                self._detach_current_client_locked(retire_reason or "recreate")
+            self._client_retire_pending = False
+            self._client_retire_pending_reason = ""
             limits = httpx.Limits(
                 max_connections=40,
                 max_keepalive_connections=20,
@@ -409,22 +427,75 @@ class OutboundExit:
                 pass
             self._client_retire_count += 1
             self._client_last_retire_reason = reason
+            self._client_retire_pending = False
+            self._client_retire_pending_reason = ""
             return True
         return False
+
+    async def _close_retired_clients_locked(self, reason: str = "retired") -> int:
+        clients = self._retired_clients
+        self._retired_clients = []
+        closed = 0
+        for client in clients:
+            if client and not client.is_closed:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
+                closed += 1
+        if closed:
+            self._client_retire_count += closed
+            self._client_last_retire_reason = reason
+        return closed
+
+    def _detach_current_client_locked(self, reason: str) -> None:
+        client = self._client
+        self._client = None
+        if client and not client.is_closed:
+            self._retired_clients.append(client)
+        self._client_last_retire_reason = reason
+
+    def request_client_retire(self, reason: str = "request_error") -> None:
+        """Mark the shared client for deferred retirement.
+
+        A client is shared by concurrent requests on the same exit. Closing it
+        from one request's exception handler aborts the other requests with
+        ``ClosedResourceError``. Retirement is therefore deferred until the
+        exit has no active requests; the next request then creates a fresh
+        client normally.
+        """
+        self._client_retire_pending = True
+        self._client_retire_pending_reason = str(reason or "request_error")
+
+    async def finalize_client_retirement(self) -> bool:
+        """Close a failed shared client once no requests are using it."""
+        if (not self._client_retire_pending and not self._retired_clients) or self.active > 0:
+            return False
+        async with self._client_lock:
+            if ((not self._client_retire_pending and not self._retired_clients) or self.active > 0):
+                return False
+            reason = self._client_retire_pending_reason or "request_error"
+            closed = await self._close_retired_clients_locked(reason)
+            if self._client_retire_pending and self._client is not None:
+                closed += int(await self._close_client_locked(reason))
+            return bool(closed)
 
     async def close_client(self, reason: str = "closed"):
         """关闭持久 client"""
         async with self._client_lock:
             await self._close_client_locked(reason)
+            await self._close_retired_clients_locked(reason)
 
     async def cleanup_idle_client(self) -> bool:
         async with self._client_lock:
             if not self._client or self._client.is_closed:
-                return False
+                return bool(await self._close_retired_clients_locked("idle"))
             reason = self._client_retire_reason(time.time())
-            if reason != "idle":
-                return False
-            return await self._close_client_locked(reason)
+            closed = False
+            if reason == "idle":
+                closed = await self._close_client_locked(reason)
+            closed = bool(await self._close_retired_clients_locked("idle")) or closed
+            return closed
 
     def update_client_policy(self, policy: RuntimeHygienePolicy) -> None:
         self._client_policy = policy
@@ -441,6 +512,9 @@ class OutboundExit:
             "generation": self._client_generation,
             "retire_count": self._client_retire_count,
             "last_retire_reason": self._client_last_retire_reason,
+            "retire_pending": self._client_retire_pending,
+            "retire_pending_reason": self._client_retire_pending_reason,
+            "retired_clients": len(self._retired_clients),
         }
 
     def record_error(self, msg: str = ""):
@@ -1624,7 +1698,7 @@ class OutboundDispatcher:
             except Exception as e:
                 last_error = e
                 current_exit.record_error(str(e))
-                await current_exit.close_client("request_error")
+                current_exit.request_client_retire("request_error")
                 request_may_have_reached_upstream = isinstance(e, _NON_REPLAYABLE_UPSTREAM_ERRORS)
                 delivery_state = classify_delivery_state(e)
                 error_fields = {
@@ -1669,6 +1743,7 @@ class OutboundDispatcher:
                     logger.error(f"[Dispatcher] 出口链路全部失败，最后出口={current_exit.name}: {e}")
             finally:
                 current_exit.active -= 1
+                await current_exit.finalize_client_retirement()
         if last_403_response is not None:
             return last_403_response
         if last_error:

@@ -37,6 +37,68 @@ def test_replacing_tunnel_generation_keeps_direct_and_returns_old_exits():
     assert retired == [old_exit]
 
 
+@pytest.mark.anyio
+async def test_request_error_defers_shared_client_close_until_exit_is_idle():
+    class FakeClient:
+        def __init__(self):
+            self.is_closed = False
+            self.close_calls = 0
+
+        async def aclose(self):
+            self.close_calls += 1
+            self.is_closed = True
+
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    client = FakeClient()
+    exit_obj._client = client
+    exit_obj.active = 2
+
+    exit_obj.request_client_retire("request_error")
+    await exit_obj.finalize_client_retirement()
+    assert client.close_calls == 0
+    assert exit_obj._client_retire_pending is True
+
+    exit_obj.active = 0
+    assert await exit_obj.finalize_client_retirement() is True
+    assert client.close_calls == 1
+    assert exit_obj._client_retire_pending is False
+
+
+@pytest.mark.anyio
+async def test_pending_client_retirement_rotates_new_requests_without_closing_inflight_client(monkeypatch):
+    class FakeClient:
+        def __init__(self):
+            self.is_closed = False
+            self.close_calls = 0
+
+        async def aclose(self):
+            self.close_calls += 1
+            self.is_closed = True
+
+    clients = []
+
+    def fake_async_client(**_kwargs):
+        client = FakeClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("public_admin.server.outbound_dispatcher.httpx.AsyncClient", fake_async_client)
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    first = await exit_obj.get_client()
+    exit_obj.active = 1  # an earlier request still owns the first client
+    exit_obj.request_client_retire("request_error")
+
+    second = await exit_obj.get_client()
+    assert second is not first
+    assert first.close_calls == 0
+    assert exit_obj.client_snapshot()["retired_clients"] == 1
+
+    exit_obj.active = 0
+    assert await exit_obj.finalize_client_retirement() is True
+    assert first.close_calls == 1
+    assert second.close_calls == 0
+
+
 def test_replacing_matching_node_keeps_verified_source_state():
     dispatcher = OutboundDispatcher()
     old_index = _add_ready_socks5(dispatcher, "preserved", 10001, node_identity="node-a")
