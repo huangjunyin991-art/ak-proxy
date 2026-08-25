@@ -480,14 +480,47 @@ class OutboundExit:
                 closed += int(await self._close_client_locked(reason))
             return bool(closed)
 
-    async def close_client(self, reason: str = "closed"):
-        """关闭持久 client"""
+    async def close_client_when_idle(self, reason: str = "closed") -> bool:
+        """Close clients without aborting requests that still own the pool.
+
+        This is used by node replacement/removal and idle cleanup.  The
+        request counter is maintained by ``forward`` and is decremented in a
+        finally block, so waiting here guarantees that a local pool close
+        cannot fan out as ``ClosedResourceError`` to peer requests.
+        """
+        while self.active > 0:
+            await asyncio.sleep(0.05)
+        return await self.finalize_client_retirement() or await self._close_idle_now(reason)
+
+    async def _close_idle_now(self, reason: str) -> bool:
         async with self._client_lock:
+            if self.active > 0:
+                return False
+            closed = await self._close_client_locked(reason)
+            closed = bool(await self._close_retired_clients_locked(reason)) or closed
+            return closed
+
+    async def close_client(self, reason: str = "closed"):
+        """关闭持久 client；有在途请求时只登记延迟回收。"""
+        if self.active > 0:
+            self.request_client_retire(reason)
+            return False
+        async with self._client_lock:
+            if self.active > 0:
+                self.request_client_retire(reason)
+                return False
             await self._close_client_locked(reason)
             await self._close_retired_clients_locked(reason)
+        return True
 
     async def cleanup_idle_client(self) -> bool:
+        if self.active > 0:
+            return False
+        if self._client_retire_pending or self._retired_clients:
+            return await self.finalize_client_retirement()
         async with self._client_lock:
+            if self.active > 0:
+                return False
             if not self._client or self._client.is_closed:
                 return bool(await self._close_retired_clients_locked("idle"))
             reason = self._client_retire_reason(time.time())
@@ -515,6 +548,20 @@ class OutboundExit:
             "retire_pending": self._client_retire_pending,
             "retire_pending_reason": self._client_retire_pending_reason,
             "retired_clients": len(self._retired_clients),
+        }
+
+    def client_request_state(self, client: httpx.AsyncClient) -> dict[str, object]:
+        """Return attribution data for an exception raised by one client."""
+        is_current = self._client is client
+        is_retired = any(item is client for item in self._retired_clients)
+        return {
+            "client_closed": bool(getattr(client, "is_closed", False)),
+            "client_retired": is_retired,
+            "client_current": is_current,
+            "client_generation": self._client_generation,
+            "active_requests": self.active,
+            "retire_pending": self._client_retire_pending,
+            "retire_reason": self._client_retire_pending_reason or self._client_last_retire_reason,
         }
 
     def record_error(self, msg: str = ""):
@@ -817,7 +864,7 @@ class OutboundDispatcher:
                 await asyncio.sleep(drain_seconds)
             for exit_obj in exits:
                 try:
-                    await exit_obj.close_client()
+                    await exit_obj.close_client_when_idle("retired_exit")
                 except Exception as exc:
                     logger.debug("[Dispatcher] retired exit client close failed name=%s error=%s", exit_obj.name, exc)
 
@@ -834,7 +881,7 @@ class OutboundDispatcher:
         logger.info(f"[Dispatcher] 移除出口 #{index}: {ex.name}")
         # 异步关闭 client（best effort）
         try:
-            self._safe_create_task(ex.close_client(), f"close_client_{ex.name}")
+            self._safe_create_task(ex.close_client_when_idle("removed_exit"), f"close_client_{ex.name}")
         except RuntimeError:
             pass
         self.exits.pop(index)
@@ -946,7 +993,7 @@ class OutboundDispatcher:
         await self._persist_source_fleet_state()
         # 关闭所有出口的持久 client
         for ex in self.exits:
-            await ex.close_client()
+            await ex.close_client_when_idle("dispatcher_stop")
         logger.info("[Dispatcher] 调度器已停止，所有连接已关闭")
 
     async def _initial_source_probe(self):
@@ -1760,17 +1807,25 @@ class OutboundDispatcher:
             timeout,
             connect=resolve_connect_timeout(timeout, connect_timeout_seconds=connect_timeout),
         )
-        if method == "GET":
-            return await client.get(url, params=params, headers=headers, timeout=req_timeout)
-        else:
+        try:
+            if method == "GET":
+                return await client.get(url, params=params, headers=headers, timeout=req_timeout)
             if "application/json" in (content_type or ""):
                 if raw_body:
                     return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
                 return await client.post(url, json=params, headers=headers, timeout=req_timeout)
-            elif raw_body:
+            if raw_body:
                 return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
-            else:
-                return await client.post(url, data=params, headers=headers, timeout=req_timeout)
+            return await client.post(url, data=params, headers=headers, timeout=req_timeout)
+        except Exception as exc:
+            # httpx does not expose which shared client generation failed.
+            # Attach a small, credential-free snapshot before the dispatcher
+            # classifies delivery and writes its AK trace row.
+            try:
+                setattr(exc, "_ak_client_state", exit_obj.client_request_state(client))
+            except Exception:
+                pass
+            raise
 
     def _check_alert_status(self, exit_obj: OutboundExit, status_code: int, url: str, client_ip: str = "", account: str = ""):
         """检查响应状态码，403/429等记录告警日志"""

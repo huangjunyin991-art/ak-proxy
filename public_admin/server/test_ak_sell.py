@@ -127,6 +127,31 @@ def test_ak_sell_trace_classifies_transport_delivery_and_preserves_cause():
     assert "peer reset" in snapshot["cause_repr"]
 
 
+def test_ak_sell_trace_keeps_nested_transport_chain_and_client_attribution():
+    error = httpx.ReadError("read failed", request=None)
+    tunnel_error = OSError(104, "Connection reset by peer")
+    low_level = OSError(9, "Bad file descriptor")
+    tunnel_error.__cause__ = low_level
+    error.__cause__ = tunnel_error
+    error._ak_client_state = {
+        "client_closed": True,
+        "client_retired": True,
+        "client_current": False,
+        "client_generation": 7,
+        "active_requests": 2,
+        "retire_pending": True,
+        "retire_reason": "request_error",
+    }
+
+    snapshot = ak_sell_trace.exception_snapshot(error)
+
+    assert snapshot["exception_chain"].startswith("ReadError:")
+    assert "OSError" in snapshot["exception_chain"]
+    assert snapshot["cause_errno"] == "104"
+    assert snapshot["transport_origin"] == "local_client_close"
+    assert snapshot["client_generation"] == "7"
+
+
 def make_request(headers: dict[str, str] | None = None) -> Request:
     raw_headers = [(key.lower().encode("ascii"), value.encode("ascii")) for key, value in (headers or {}).items()]
     return Request({

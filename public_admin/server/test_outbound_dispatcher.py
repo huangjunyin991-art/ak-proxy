@@ -99,6 +99,31 @@ async def test_pending_client_retirement_rotates_new_requests_without_closing_in
     assert second.close_calls == 0
 
 
+@pytest.mark.anyio
+async def test_close_client_when_idle_waits_for_inflight_request():
+    class FakeClient:
+        def __init__(self):
+            self.is_closed = False
+            self.close_calls = 0
+
+        async def aclose(self):
+            self.close_calls += 1
+            self.is_closed = True
+
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    client = FakeClient()
+    exit_obj._client = client
+    exit_obj.active = 1
+
+    close_task = asyncio.create_task(exit_obj.close_client_when_idle("removed_exit"))
+    await asyncio.sleep(0)
+    assert client.close_calls == 0
+
+    exit_obj.active = 0
+    assert await close_task is True
+    assert client.close_calls == 1
+
+
 def test_replacing_matching_node_keeps_verified_source_state():
     dispatcher = OutboundDispatcher()
     old_index = _add_ready_socks5(dispatcher, "preserved", 10001, node_identity="node-a")
