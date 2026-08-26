@@ -1801,22 +1801,36 @@ class OutboundDispatcher:
                           headers: dict, content_type: str,
                           params: dict, raw_body: bytes,
                           timeout: float, connect_timeout: float | None = None) -> httpx.Response:
-        """执行实际HTTP请求（复用持久连接池）"""
+        """Execute one request with a deadline that starts at the send boundary."""
         client = await exit_obj.get_client()
         req_timeout = httpx.Timeout(
             timeout,
             connect=resolve_connect_timeout(timeout, connect_timeout_seconds=connect_timeout),
         )
         try:
-            if method == "GET":
-                return await client.get(url, params=params, headers=headers, timeout=req_timeout)
-            if "application/json" in (content_type or ""):
+            # httpx's read timeout is an idle timeout, not an end-to-end request
+            # deadline.  Once the shared exit client is ready, bound the whole
+            # connect/write/read exchange just like the browser XHR timeout.
+            async with asyncio.timeout(max(0.1, float(timeout or 0.0))):
+                if method == "GET":
+                    return await client.get(url, params=params, headers=headers, timeout=req_timeout)
+                if "application/json" in (content_type or ""):
+                    if raw_body:
+                        return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
+                    return await client.post(url, json=params, headers=headers, timeout=req_timeout)
                 if raw_body:
                     return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
-                return await client.post(url, json=params, headers=headers, timeout=req_timeout)
-            if raw_body:
-                return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
-            return await client.post(url, data=params, headers=headers, timeout=req_timeout)
+                return await client.post(url, data=params, headers=headers, timeout=req_timeout)
+        except TimeoutError as exc:
+            deadline = max(0.1, float(timeout or 0.0))
+            timeout_error = httpx.ReadTimeout(
+                f"total request deadline exceeded after {deadline:.3g}s"
+            )
+            timeout_error._ak_timeout_scope = "total_deadline"
+            timeout_error._ak_deadline_seconds = deadline
+            timeout_error._ak_client_state = exit_obj.client_request_state(client)
+            timeout_error.__cause__ = exc
+            raise timeout_error
         except Exception as exc:
             # httpx does not expose which shared client generation failed.
             # Attach a small, credential-free snapshot before the dispatcher

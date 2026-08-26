@@ -302,6 +302,26 @@ class AKSellLedgerRepository:
             rows = await conn.fetch(sql, *params)
         return [dict(row) for row in rows]
 
+    async def get_attempt_by_request_id(self, request_id: str) -> dict[str, Any] | None:
+        """Return the current aggregate attempt state for one client submit."""
+        normalized = str(request_id or "").strip()
+        if not normalized:
+            return None
+        await self.ensure_ready()
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT request_id,state,message,confirmation_method,updated_at
+                FROM ak_sell_attempts
+                WHERE request_id=$1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                normalized,
+            )
+        return dict(row) if row is not None else None
+
     async def dashboard(self, *, account: str = "", source: str = "", page: int = 1, page_size: int = 50) -> dict[str, Any]:
         await self.ensure_ready()
         conditions = []

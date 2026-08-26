@@ -152,6 +152,19 @@ def test_ak_sell_trace_keeps_nested_transport_chain_and_client_attribution():
     assert snapshot["client_generation"] == "7"
 
 
+def test_ak_sell_trace_distinguishes_retired_but_open_client():
+    error = httpx.ReadTimeout("deadline", request=None)
+    error._ak_client_state = {"client_closed": False, "client_retired": True}
+    error._ak_timeout_scope = "total_deadline"
+    error._ak_deadline_seconds = 20
+
+    snapshot = ak_sell_trace.exception_snapshot(error)
+
+    assert snapshot["transport_origin"] == "retired_but_open"
+    assert snapshot["timeout_scope"] == "total_deadline"
+    assert snapshot["deadline_seconds"] == "20"
+
+
 def make_request(headers: dict[str, str] | None = None) -> Request:
     raw_headers = [(key.lower().encode("ascii"), value.encode("ascii")) for key, value in (headers or {}).items()]
     return Request({
@@ -416,6 +429,28 @@ async def test_submit_unknown_after_dispatch_records_attempt_and_enqueues_balanc
     assert ledger.attempts[0]["event_id"] == "ak-sell-request:timeout-trace-1"
     assert confirmation.enqueued[0]["initial_balance"] == "500"
     assert confirmation.enqueued[0]["event_id"] == "ak-sell-request:timeout-trace-1"
+
+
+@pytest.mark.asyncio
+async def test_submit_status_returns_the_server_confirmation_state():
+    class StatusLedger:
+        async def submit_status(self, request_id):
+            assert request_id == "sell-job-10-unique"
+            return {
+                "found": True,
+                "state": "success",
+                "message": "余额确认挂卖成功",
+                "confirmation_method": "balance_delta",
+                "updated_at": "2026-08-26T12:00:03+08:00",
+            }
+
+    service = AKSellService(clock=fixed_clock(), ledger_recorder=StatusLedger())
+
+    result = await service.submit_status("sell-job-10-unique")
+
+    assert result["success"] is True
+    assert result["state"] == "success"
+    assert result["confirmation_method"] == "balance_delta"
 
 
 @pytest.mark.asyncio

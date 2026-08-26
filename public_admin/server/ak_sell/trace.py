@@ -104,6 +104,10 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
         snapshot["cause_strerror"] = _safe_value(getattr(os_error, "strerror", "") or "")
 
     client_state = getattr(exc, "_ak_client_state", None)
+    timeout_scope = str(getattr(exc, "_ak_timeout_scope", "") or "").strip()
+    if timeout_scope:
+        snapshot["timeout_scope"] = timeout_scope
+        snapshot["deadline_seconds"] = _safe_value(getattr(exc, "_ak_deadline_seconds", ""))
     if isinstance(client_state, dict):
         for key in (
             "client_closed", "client_retired", "client_current", "client_generation",
@@ -111,8 +115,10 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
         ):
             if key in client_state:
                 snapshot[key] = _safe_value(client_state[key])
-        if client_state.get("client_closed") or client_state.get("client_retired"):
+        if client_state.get("client_closed"):
             snapshot["transport_origin"] = "local_client_close"
+        elif client_state.get("client_retired"):
+            snapshot["transport_origin"] = "retired_but_open"
         elif exc.__class__.__name__ in _UNCERTAIN_DELIVERY_ERROR_NAMES:
             snapshot["transport_origin"] = "remote_or_tunnel"
         else:

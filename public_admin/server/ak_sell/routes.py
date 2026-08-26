@@ -92,6 +92,27 @@ def create_ak_sell_router(
     async def submit(request: Request):
         return await invoke(request, "submit")
 
+    @router.post("/submit-status")
+    async def submit_status(request: Request):
+        error_response = await authorize(request)
+        if error_response is not None:
+            return error_response
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        try:
+            result = await service.submit_status(payload.get("request_id") or payload.get("requestId") or "")
+        except AKSellInputError as exc:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": str(exc), "server_time": service.server_time()},
+                headers={"Cache-Control": "no-store, private"},
+            )
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store, private"})
+
     @router.post("/google-bind")
     async def google_bind(request: Request):
         return await invoke(request, "google-bind")

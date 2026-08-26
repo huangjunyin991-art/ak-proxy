@@ -82,6 +82,36 @@ class AKSellService:
     def server_time(self) -> dict[str, str | int]:
         return self.clock.snapshot()
 
+    async def submit_status(self, request_id: str) -> dict[str, Any]:
+        normalized = str(request_id or "").strip()
+        if not normalized or len(normalized) > 128:
+            raise AKSellInputError("missing or invalid request_id")
+        lookup = getattr(self.ledger_recorder, "submit_status", None)
+        if not callable(lookup):
+            return self._with_server_time({
+                "success": False,
+                "state": "unavailable",
+                "message": "挂卖结果确认服务暂不可用",
+            })
+        try:
+            status = await lookup(normalized)
+        except Exception as exc:
+            self.logger.warning("[AKSellLedger] submit status lookup failed: %s", str(exc)[:300])
+            return self._with_server_time({
+                "success": False,
+                "state": "unavailable",
+                "message": "挂卖结果确认服务暂不可用",
+            })
+        state = str(status.get("state") or "unknown")
+        return self._with_server_time({
+            "success": state == "success",
+            "state": state,
+            "message": str(status.get("message") or ""),
+            "confirmation_method": str(status.get("confirmation_method") or ""),
+            "found": bool(status.get("found")),
+            "updated_at": str(status.get("updated_at") or ""),
+        })
+
     async def invoke(self, operation: str, payload: Mapping[str, Any] | None) -> dict[str, Any]:
         name = str(operation or "").strip().lower()
         if name not in self._OPERATIONS:

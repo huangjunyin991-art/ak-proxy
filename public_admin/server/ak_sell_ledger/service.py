@@ -98,6 +98,18 @@ class AKSellLedgerService:
                 self.logger.warning("[AKSellLedger] attempt record failed: %s", str(exc)[:300])
             return False
 
+    async def submit_status(self, request_id: str) -> dict[str, Any]:
+        record = await self.repository.get_attempt_by_request_id(request_id)
+        if record is None:
+            return {"found": False, "state": "not_found", "message": "尚未记录到提交结果"}
+        return {
+            "found": True,
+            "state": str(record.get("state") or "unknown"),
+            "message": str(record.get("message") or ""),
+            "confirmation_method": str(record.get("confirmation_method") or ""),
+            "updated_at": record.get("updated_at").isoformat() if record.get("updated_at") else "",
+        }
+
     async def dashboard(self, account: str = "", source: str = "", page: int = 1, page_size: int = 50) -> dict[str, Any]:
         return {"success": True, **await self.repository.dashboard(account=account, source=source, page=page, page_size=page_size)}
 
