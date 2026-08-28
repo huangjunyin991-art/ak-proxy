@@ -165,6 +165,16 @@ def test_ak_sell_trace_distinguishes_retired_but_open_client():
     assert snapshot["deadline_seconds"] == "20"
 
 
+def test_ak_sell_trace_classifies_transport_phase_from_nested_tls_read_timeout():
+    error = httpx.ReadTimeout("deadline", request=None)
+    error.__cause__ = TimeoutError()
+    error.__cause__.__cause__ = __import__("ssl").SSLWantReadError(2, "want read")
+
+    snapshot = ak_sell_trace.exception_snapshot(error)
+
+    assert snapshot["transport_phase"] == "read"
+
+
 def make_request(headers: dict[str, str] | None = None) -> Request:
     raw_headers = [(key.lower().encode("ascii"), value.encode("ascii")) for key, value in (headers or {}).items()]
     return Request({

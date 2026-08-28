@@ -26,6 +26,16 @@ _UNCERTAIN_DELIVERY_ERROR_NAMES = frozenset({
     "RemoteProtocolError",
 })
 
+_CONNECT_ERROR_NAMES = frozenset({
+    "ConnectError",
+    "ConnectTimeout",
+    "ProxyError",
+    "UnsupportedProtocol",
+    "InvalidURL",
+})
+_WRITE_ERROR_NAMES = frozenset({"WriteError", "WriteTimeout"})
+_READ_ERROR_NAMES = frozenset({"ReadError", "ReadTimeout", "SSLWantReadError"})
+
 _TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 
@@ -96,6 +106,7 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
         "exception_chain": _safe_value(" <- ".join(
             f"{item.__class__.__name__}:{repr(item)}" for item in chain
         ), limit=1000),
+        "transport_phase": transport_phase(exc),
     }
     # Preserve errno/socket details when the nested exception exposes them.
     os_error = next((item for item in chain[1:] if isinstance(item, OSError)), None)
@@ -126,6 +137,32 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
     elif exc.__class__.__name__ in _UNCERTAIN_DELIVERY_ERROR_NAMES:
         snapshot["transport_origin"] = "unknown"
     return snapshot
+
+
+def transport_phase(exc: BaseException | None) -> str:
+    """Infer the furthest observable HTTP transport phase from an exception chain.
+
+    This is deliberately a transport observation, not a claim that the upstream
+    application committed a state-changing request.
+    """
+    if exc is None:
+        return "response"
+    explicit = str(getattr(exc, "_ak_transport_phase", "") or "").strip()
+    if explicit:
+        return explicit
+    chain = _exception_chain(exc)
+    names = [item.__class__.__name__ for item in chain]
+    if any(name in _CONNECT_ERROR_NAMES for name in names):
+        return "connect"
+    if any(name in _WRITE_ERROR_NAMES for name in names):
+        return "write"
+    if any(name in {"RemoteProtocolError", "LocalProtocolError"} for name in names):
+        return "protocol"
+    if any(name in _READ_ERROR_NAMES for name in names):
+        return "read"
+    if any(name in {"TimeoutError", "CancelledError"} for name in names):
+        return "unknown"
+    return "unknown"
 
 
 def _exception_chain(exc: BaseException, max_depth: int = 8) -> list[BaseException]:

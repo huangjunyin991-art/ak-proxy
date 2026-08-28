@@ -35,7 +35,7 @@ from .source_reachability import (
     SourceReachabilityProbe,
     source_probe_policy_for_protocol,
 )
-from .ak_sell.trace import classify_delivery_state, emit_trace, exception_snapshot
+from .ak_sell.trace import classify_delivery_state, emit_trace, exception_snapshot, transport_phase
 
 try:
     from .dispatcher_policy import (
@@ -1829,6 +1829,9 @@ class OutboundDispatcher:
             timeout_error._ak_timeout_scope = "total_deadline"
             timeout_error._ak_deadline_seconds = deadline
             timeout_error._ak_client_state = exit_obj.client_request_state(client)
+            # asyncio.timeout wraps the original socket cancellation. Preserve
+            # the furthest phase visible in that nested chain for diagnostics.
+            timeout_error._ak_transport_phase = transport_phase(exc)
             timeout_error.__cause__ = exc
             raise timeout_error
         except Exception as exc:
@@ -1837,6 +1840,7 @@ class OutboundDispatcher:
             # classifies delivery and writes its AK trace row.
             try:
                 setattr(exc, "_ak_client_state", exit_obj.client_request_state(client))
+                setattr(exc, "_ak_transport_phase", transport_phase(exc))
             except Exception:
                 pass
             raise

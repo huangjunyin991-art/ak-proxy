@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 
@@ -66,3 +68,26 @@ async def test_dispatcher_do_request_uses_short_connect_timeout(monkeypatch):
     assert timeout.connect == resolve_connect_timeout(REGULAR_RPC_TIMEOUT_SECONDS)
     assert timeout.read == REGULAR_RPC_TIMEOUT_SECONDS
     assert response.json()["Data"]["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_dispatcher_total_deadline_marks_nested_read_phase():
+    class SlowClient:
+        async def post(self, *_args, **_kwargs):
+            await asyncio.sleep(0.15)
+
+    class FakeExit:
+        async def get_client(self):
+            return SlowClient()
+
+        def client_request_state(self, _client):
+            return {"client_closed": False, "client_retired": False}
+
+    dispatcher = OutboundDispatcher()
+    with pytest.raises(httpx.ReadTimeout) as captured:
+        await dispatcher._do_request(
+            FakeExit(), "POST", "https://example.test/RPC/ACE_Sell", {},
+            "application/x-www-form-urlencoded", {}, b"", 0.01,
+        )
+
+    assert getattr(captured.value, "_ak_transport_phase") == "unknown"
