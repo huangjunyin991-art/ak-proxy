@@ -232,16 +232,6 @@ class AKSellService:
                         "submit_dispatched": submit_dispatched,
                     },
                 )
-                if str(error_result.get("state") or "") == "unknown":
-                    await self._enqueue_unknown_submit_confirmation(
-                        payload=payload,
-                        auth=auth,
-                        endpoint=endpoint,
-                        request_data=request_data,
-                        trace_id=trace_id,
-                        event_id=submit_event_id,
-                        error=str(error_result.get("message") or str(exc)),
-                    )
             return self._with_server_time(error_result, trace_id=trace_id)
 
         success = self._is_upstream_success_payload(upstream)
@@ -705,50 +695,6 @@ class AKSellService:
             )
         except Exception as exc:
             self.logger.warning("[AKSellLedger] submit attempt callback failed: %s", str(exc)[:300])
-
-    async def _enqueue_unknown_submit_confirmation(
-        self,
-        *,
-        payload: Mapping[str, Any],
-        auth: ResolvedAKAuth | None,
-        endpoint: str,
-        request_data: Mapping[str, Any],
-        trace_id: str,
-        event_id: str = "",
-        error: str,
-    ) -> None:
-        enqueue = getattr(self.confirmation_recorder, "enqueue_unknown", None)
-        if not callable(enqueue):
-            return
-        initial_balance = self._optional_text(
-            payload,
-            "initial_balance",
-            aliases=(
-                "initialBalance",
-                "initial_ak_balance",
-                "initialAkBalance",
-                "initialAKBalance",
-                "before_balance",
-                "balanceBefore",
-            ),
-            max_length=64,
-        )
-        if not initial_balance:
-            return
-        try:
-            await enqueue(
-                account=(auth.account if auth is not None else "") or self._optional_text(payload, "account", max_length=128),
-                endpoint=endpoint,
-                request_data=self._ledger_request_data(request_data, payload),
-                initial_balance=initial_balance,
-                source="ak_sell_api",
-                error=error,
-                request_id=self._request_id(payload),
-                trace_id=trace_id,
-                event_id=event_id or self._attempt_event_id(payload, trace_id),
-            )
-        except Exception as exc:
-            self.logger.warning("[AKSellLedger] submit unknown confirmation enqueue failed: %s", str(exc)[:300])
 
     def _ledger_request_data(
         self,

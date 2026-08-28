@@ -396,17 +396,15 @@ async def test_submit_auth_refresh_timeout_before_write_is_retryable_failure():
 
 
 @pytest.mark.asyncio
-async def test_submit_unknown_after_dispatch_records_attempt_and_enqueues_balance_confirmation():
+async def test_submit_unknown_after_dispatch_records_attempt_without_balance_confirmation():
     state = FakeAccountState(CachedAKAccountAuth("demo", "cached-key", "42"))
     provider = FakeProvider(error=AKSellUpstreamError("ReadTimeout", is_read_timeout=True))
     ledger = FakeLedgerRecorder()
-    confirmation = FakeConfirmationRecorder()
     service = AKSellService(
         provider=provider,
         clock=fixed_clock(),
         account_state=state,
         ledger_recorder=ledger,
-        confirmation_recorder=confirmation,
     )
 
     result = await service.invoke(
@@ -418,7 +416,6 @@ async def test_submit_unknown_after_dispatch_records_attempt_and_enqueues_balanc
             "mnemonicstr1": "word",
             "gCode": "123456",
             "count": "200",
-            "initial_balance": "500",
             "request_id": "timeout-trace-1",
         },
     )
@@ -426,33 +423,7 @@ async def test_submit_unknown_after_dispatch_records_attempt_and_enqueues_balanc
     assert result["state"] == "unknown"
     assert [call[0] for call in provider.calls] == ["ACE_Sell"]
     assert ledger.attempts[0]["state"] == "unknown"
-    assert ledger.attempts[0]["event_id"] == "ak-sell-request:timeout-trace-1"
-    assert confirmation.enqueued[0]["initial_balance"] == "500"
-    assert confirmation.enqueued[0]["event_id"] == "ak-sell-request:timeout-trace-1"
-
-
-@pytest.mark.asyncio
-async def test_submit_status_returns_the_server_confirmation_state():
-    class StatusLedger:
-        async def submit_status(self, request_id):
-            assert request_id == "sell-job-10-unique"
-            return {
-                "found": True,
-                "state": "success",
-                "message": "余额确认挂卖成功",
-                "confirmation_method": "balance_delta",
-                "updated_at": "2026-08-26T12:00:03+08:00",
-            }
-
-    service = AKSellService(clock=fixed_clock(), ledger_recorder=StatusLedger())
-
-    result = await service.submit_status("sell-job-10-unique")
-
-    assert result["success"] is True
-    assert result["state"] == "success"
-    assert result["confirmation_method"] == "balance_delta"
-
-
+    assert ledger.attempts[0]["request_id"] == "timeout-trace-1"
 @pytest.mark.asyncio
 async def test_submit_trace_window_returns_trace_id_and_redacts_sensitive_fields(monkeypatch, caplog):
     monkeypatch.setattr(ak_sell_trace, "is_trace_window", lambda now=None: True)
