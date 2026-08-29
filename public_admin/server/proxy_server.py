@@ -240,6 +240,7 @@ from .db_guard import GuardError
 from .rpc_timeout_policy import (
     resolve_ak_sell_forward_timeout,
     resolve_connect_timeout,
+    resolve_public_ak_sell_forward_timeout,
     resolve_rpc_forward_timeout,
 )
 from .security import AdminSecurityFacade
@@ -4154,7 +4155,7 @@ async def proxy_rpc(path: str, request: Request):
         ak_sell_timeout = (
             resolve_ak_sell_forward_timeout(normalized_path)
             if ak_sell_internal_request
-            else None
+            else resolve_public_ak_sell_forward_timeout(normalized_path)
         )
         if ak_sell_trace_id and emit_ak_sell_trace is not None:
             emit_ak_sell_trace(

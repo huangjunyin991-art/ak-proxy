@@ -9,8 +9,10 @@ from .rpc_timeout_policy import (
     AK_SELL_WRITE_TIMEOUT_SECONDS,
     LOGIN_RPC_TIMEOUT_SECONDS,
     NOTICE_GUIDANCE_REQUEST_TIMEOUT_SECONDS,
+    PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS,
     REGULAR_RPC_TIMEOUT_SECONDS,
     resolve_connect_timeout,
+    resolve_public_ak_sell_forward_timeout,
     resolve_rpc_forward_timeout,
 )
 
@@ -31,6 +33,12 @@ def test_rpc_timeout_policy_keeps_login_longer_than_regular_rpc():
     assert resolve_rpc_forward_timeout("Login") == LOGIN_RPC_TIMEOUT_SECONDS
     assert resolve_rpc_forward_timeout("/RPC/Login") == LOGIN_RPC_TIMEOUT_SECONDS
     assert resolve_rpc_forward_timeout("Public_ACE", is_login=True) == LOGIN_RPC_TIMEOUT_SECONDS
+
+
+def test_public_ak_sell_timeout_is_longer_without_changing_other_rpc_paths():
+    assert resolve_public_ak_sell_forward_timeout("ACE_Sell") == PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS == 30.0
+    assert resolve_public_ak_sell_forward_timeout("/RPC/ACE_Sell_Son") == PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS
+    assert resolve_public_ak_sell_forward_timeout("Public_ACE") is None
 
 
 @pytest.mark.anyio

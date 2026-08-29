@@ -21,6 +21,9 @@ NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS = max(
 )
 AK_SELL_READ_TIMEOUT_SECONDS = max(0.1, float(AK_SELL_READ_REQUEST_TIMEOUT or 20.0))
 AK_SELL_WRITE_TIMEOUT_SECONDS = max(0.1, float(AK_SELL_WRITE_REQUEST_TIMEOUT or 20.0))
+# Browser-originated sell requests should be allowed to outlive the internal
+# automated-sell budget. Nginx uses the same 30-second boundary.
+PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS = 30.0
 
 
 _AK_SELL_WRITE_OPERATIONS = frozenset({
@@ -51,6 +54,14 @@ def resolve_ak_sell_forward_timeout(api_path: str = "") -> float:
     """Keep read RPCs responsive while allowing the non-replayable submit to wait."""
     operation = normalize_rpc_api_path(api_path).replace("_", "-")
     return AK_SELL_WRITE_TIMEOUT_SECONDS if operation in _AK_SELL_WRITE_OPERATIONS else AK_SELL_READ_TIMEOUT_SECONDS
+
+
+def resolve_public_ak_sell_forward_timeout(api_path: str = "") -> float | None:
+    """Return the browser sell deadline; leave other public RPCs unchanged."""
+    operation = normalize_rpc_api_path(api_path).replace("_", "-")
+    if operation in {"ace-sell", "ace-sell-son"}:
+        return PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS
+    return None
 
 
 def resolve_ak_sell_response_timeout(operation: str = "") -> float:
