@@ -237,14 +237,19 @@ class AKSellService:
         success = self._is_upstream_success_payload(upstream)
         if name == "submit":
             if success and self.ledger_recorder is not None:
-                await self.ledger_recorder.record_success(
-                    account=auth.account or str(payload.get("account") or ""),
-                    endpoint=endpoint,
-                    request_data=self._ledger_request_data(request_data, payload),
-                    payload=upstream,
-                    source="ak_sell_api",
-                    request_id=str(payload.get("request_id") or payload.get("requestId") or ""),
-                )
+                values = {
+                    "account": auth.account or str(payload.get("account") or ""),
+                    "endpoint": endpoint,
+                    "request_data": self._ledger_request_data(request_data, payload),
+                    "payload": upstream,
+                    "source": "ak_sell_api",
+                    "request_id": str(payload.get("request_id") or payload.get("requestId") or ""),
+                }
+                enqueue_success = getattr(self.ledger_recorder, "enqueue_success", None)
+                if callable(enqueue_success):
+                    enqueue_success(**values)
+                else:
+                    await self.ledger_recorder.record_success(**values)
             await self._record_submit_attempt(
                     payload=payload,
                     auth=auth,
@@ -674,25 +679,30 @@ class AKSellService:
         event_id: str = "",
     ) -> None:
         recorder = getattr(self.ledger_recorder, "record_attempt", None)
-        if not callable(recorder):
+        enqueue_recorder = getattr(self.ledger_recorder, "enqueue_attempt", None)
+        if not callable(recorder) and not callable(enqueue_recorder):
             return
+        values = {
+            "account": (auth.account if auth is not None else "") or self._optional_text(payload, "account", max_length=128),
+            "endpoint": endpoint,
+            "request_data": self._ledger_request_data(request_data, payload),
+            "payload": upstream or {},
+            "source": "ak_sell_api",
+            "state": state,
+            "message": message,
+            "trace_id": trace_id,
+            "request_id": self._request_id(payload),
+            "confirmation_method": confirmation_method,
+            "status_code": status_code,
+            "last_stage": last_stage,
+            "diagnostics": diagnostics or {},
+            "event_id": event_id or self._attempt_event_id(payload, trace_id),
+        }
         try:
-            await recorder(
-                account=(auth.account if auth is not None else "") or self._optional_text(payload, "account", max_length=128),
-                endpoint=endpoint,
-                request_data=self._ledger_request_data(request_data, payload),
-                payload=upstream or {},
-                source="ak_sell_api",
-                state=state,
-                message=message,
-                trace_id=trace_id,
-                request_id=self._request_id(payload),
-                confirmation_method=confirmation_method,
-                status_code=status_code,
-                last_stage=last_stage,
-                diagnostics=diagnostics or {},
-                event_id=event_id or self._attempt_event_id(payload, trace_id),
-            )
+            if callable(enqueue_recorder):
+                enqueue_recorder(**values)
+            else:
+                await recorder(**values)
         except Exception as exc:
             self.logger.warning("[AKSellLedger] submit attempt callback failed: %s", str(exc)[:300])
 

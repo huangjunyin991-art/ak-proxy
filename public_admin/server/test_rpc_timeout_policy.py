@@ -79,6 +79,35 @@ async def test_dispatcher_do_request_uses_short_connect_timeout(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_dispatcher_uses_prepared_client_without_extending_request_deadline(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    exit_obj = dispatcher.exits[0]
+
+    class PreparedClient:
+        async def post(self, *_args, **_kwargs):
+            await asyncio.sleep(0.01)
+            return httpx.Response(200, json={"Error": False})
+
+    async def unexpected_get_client(_self):
+        raise AssertionError("prepared client should be reused")
+
+    monkeypatch.setattr(type(exit_obj), "get_client", unexpected_get_client)
+    response = await dispatcher._do_request(
+        exit_obj,
+        "POST",
+        "https://example.test/RPC/ACE_Sell",
+        {},
+        "application/x-www-form-urlencoded",
+        {},
+        b"",
+        timeout=0.1,
+        client=PreparedClient(),
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.anyio
 async def test_dispatcher_total_deadline_marks_nested_read_phase():
     class SlowClient:
         async def post(self, *_args, **_kwargs):

@@ -107,6 +107,33 @@ async def test_attempt_record_accepts_string_success_and_strips_secrets():
 
 
 @pytest.mark.asyncio
+async def test_queued_attempts_preserve_one_trace_order_without_waiting_for_storage():
+    repository = FakeRepository()
+    service = AKSellLedgerService(repository)
+
+    first = service.enqueue_attempt(
+        source="public_rpc",
+        trace_id="ak-sell-order",
+        state="dispatched",
+        last_stage="rpc_received",
+    )
+    second = service.enqueue_attempt(
+        source="public_rpc",
+        trace_id="ak-sell-order",
+        state="rejected",
+        last_stage="public_rpc_response",
+        status_code=200,
+    )
+
+    await second
+    assert first.done()
+    assert [item["last_stage"] for item in repository.attempts] == [
+        "rpc_received",
+        "public_rpc_response",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_cleanup_uses_saved_retention_only_when_called():
     repository = FakeRepository()
     service = AKSellLedgerService(repository)

@@ -3800,7 +3800,8 @@ async def _record_ak_sell_internal_rpc_attempt(
     if not trace_id or normalized_path not in {"ace_sell", "ace_sell_son"}:
         return
     recorder = getattr(ak_sell_ledger_service, "record_attempt", None)
-    if not callable(recorder):
+    queued_recorder = getattr(ak_sell_ledger_service, "enqueue_attempt", None)
+    if not callable(recorder) and not callable(queued_recorder):
         return
     try:
         endpoint = "ACE_Sell_Son" if normalized_path == "ace_sell_son" else "ACE_Sell"
@@ -3808,24 +3809,28 @@ async def _record_ak_sell_internal_rpc_attempt(
             "sonId": str(params.get("sonId") or params.get("son_id") or ""),
             "count": str(params.get("count") or ""),
         }
-        await recorder(
-            account=account or _extract_forward_account(params),
-            endpoint=endpoint,
-            request_data=request_data,
-            payload={},
-            source=source,
-            state=state,
-            message=message,
-            trace_id=trace_id,
-            request_id=request_id,
-            event_id=f"ak-sell-trace:{trace_id}",
-            status_code=status_code,
-            exit_name=exit_name,
-            upstream_ms=upstream_ms,
-            response_bytes=response_bytes,
-            last_stage=stage,
-            diagnostics=diagnostics or {},
-        )
+        values = {
+            "account": account or _extract_forward_account(params),
+            "endpoint": endpoint,
+            "request_data": request_data,
+            "payload": {},
+            "source": source,
+            "state": state,
+            "message": message,
+            "trace_id": trace_id,
+            "request_id": request_id,
+            "event_id": f"ak-sell-trace:{trace_id}",
+            "status_code": status_code,
+            "exit_name": exit_name,
+            "upstream_ms": upstream_ms,
+            "response_bytes": response_bytes,
+            "last_stage": stage,
+            "diagnostics": diagnostics or {},
+        }
+        if callable(queued_recorder):
+            queued_recorder(**values)
+            return
+        await recorder(**values)
     except Exception as exc:
         logger.warning("[AKSellLedger] rpc attempt trace update failed trace=%s error=%s", trace_id, str(exc)[:200])
 
@@ -4024,10 +4029,6 @@ async def proxy_rpc(path: str, request: Request):
         and ak_sell_service is not None
         and ak_sell_service.is_internal_rpc_request(request)
     )
-    ak_sell_submit_internal_request = bool(
-        ak_sell_internal_request
-        and normalized_path in {"ace_sell", "ace_sell_son"}
-    )
     ak_sell_public_rpc_request = normalized_path in {"ace_sell", "ace_sell_son"}
     ak_sell_trace_id = ""
     if ak_sell_public_rpc_request and normalize_ak_sell_trace_id is not None:
@@ -4036,6 +4037,7 @@ async def proxy_rpc(path: str, request: Request):
             ak_sell_trace_id = create_trace_id_if_needed()
     ak_sell_request_id = str(request.headers.get("x-request-id") or "").strip() or ak_sell_trace_id
     ak_sell_trace_source = "ak_sell_api" if ak_sell_internal_request else "public_rpc"
+    ak_sell_ledger_enqueue_ms = 0
     if ak_sell_trace_id and emit_ak_sell_trace is not None:
         emit_ak_sell_trace(
             logger,
@@ -4047,6 +4049,7 @@ async def proxy_rpc(path: str, request: Request):
             is_subaccount=bool(str(params.get("sonId") or params.get("son_id") or "").strip()),
             count=str(params.get("count") or ""),
         )
+        ledger_enqueue_started_at = time.perf_counter()
         await _record_ak_sell_internal_rpc_attempt(
             trace_id=ak_sell_trace_id,
             normalized_path=normalized_path,
@@ -4056,6 +4059,7 @@ async def proxy_rpc(path: str, request: Request):
             source=ak_sell_trace_source,
             request_id=ak_sell_request_id,
         )
+        ak_sell_ledger_enqueue_ms = _elapsed_ms(ledger_enqueue_started_at)
     upstream_rpc_lease = None
     if (
         normalized_path in {
@@ -4064,9 +4068,10 @@ async def proxy_rpc(path: str, request: Request):
             "public_indexdata", "google_secret", "google_bind", "google_unbind",
         }
         and not notice_guidance_internal_request
-        # A sell submission is a transparent client-owned operation.  Do not
-        # queue it behind an account lock before sending it upstream.
-        and not ak_sell_submit_internal_request
+        # A sell submission is a transparent client-owned operation. Do not
+        # put either browser or desktop submissions behind an account RPC
+        # gate before sending them upstream.
+        and not ak_sell_public_rpc_request
         and (upstream_rpc_gate is not None or guided_sale_statistics_service is not None)
     ):
         if ep_auto_purchase_internal_request and upstream_rpc_gate is not None:
@@ -4151,7 +4156,10 @@ async def proxy_rpc(path: str, request: Request):
             )
             return _build_proxy_passthrough_response(cached_stock_response)
 
+        exit_selection_started_at = time.perf_counter()
         selected_exit = _select_forward_exit(path)
+        exit_selection_ms = _elapsed_ms(exit_selection_started_at)
+        pre_dispatch_ms = _elapsed_ms(request_started_at)
         ak_sell_timeout = (
             resolve_ak_sell_forward_timeout(normalized_path)
             if ak_sell_internal_request
@@ -4171,6 +4179,10 @@ async def proxy_rpc(path: str, request: Request):
                 max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
                 request_id=ak_sell_request_id,
                 source=ak_sell_trace_source,
+                gate_wait_ms=0 if ak_sell_public_rpc_request else "",
+                ledger_enqueue_ms=ak_sell_ledger_enqueue_ms,
+                selection_ms=exit_selection_ms,
+                pre_dispatch_ms=pre_dispatch_ms,
             )
             await _record_ak_sell_internal_rpc_attempt(
                 trace_id=ak_sell_trace_id,
@@ -4187,6 +4199,10 @@ async def proxy_rpc(path: str, request: Request):
                     ),
                     "request_bytes": len(raw_body or b""),
                     "request_id": ak_sell_request_id,
+                    "gate_wait_ms": 0 if ak_sell_public_rpc_request else None,
+                    "ledger_enqueue_ms": ak_sell_ledger_enqueue_ms,
+                    "selection_ms": exit_selection_ms,
+                    "pre_dispatch_ms": pre_dispatch_ms,
                 },
                 source=ak_sell_trace_source,
                 request_id=ak_sell_request_id,
@@ -8100,6 +8116,11 @@ async def admin_shutdown():
 
     if notify_center_worker is not None:
         await notify_center_worker.stop()
+
+    if ak_sell_ledger_service is not None:
+        flush_pending = getattr(ak_sell_ledger_service, "flush_pending", None)
+        if callable(flush_pending):
+            await flush_pending()
 
     await _ak_web_client_pool.close_all()
 

@@ -1651,6 +1651,8 @@ class OutboundDispatcher:
 
             current_exit.active += 1
             attempt_started_at = time.perf_counter()
+            client_prepare_ms = 0
+            send_started_at = None
             emit_trace(
                 logger,
                 "dispatch_attempt_started",
@@ -1667,18 +1669,47 @@ class OutboundDispatcher:
                 connect_timeout_seconds=connect_timeout,
                 request_bytes=len(raw_body or b""),
             )
-            emit_trace(
-                logger,
-                "request_send_started",
-                trace_id,
-                endpoint=api_path,
-                attempt_no=attempt_index + 1,
-                exit_name=current_exit.name,
-                request_bytes=len(raw_body or b""),
-            )
             try:
-                resp = await self._do_request(current_exit, method, url, headers,
-                                              content_type, params, raw_body, timeout, connect_timeout)
+                # Creating/replacing a pooled client is local preparation, not
+                # part of the upstream request deadline.  It is separated here
+                # so the trace shows whether a delay happened before anything
+                # could have left the selected exit.
+                client = await current_exit.get_client()
+                client_prepare_ms = int((time.perf_counter() - attempt_started_at) * 1000)
+                emit_trace(
+                    logger,
+                    "dispatch_client_ready",
+                    trace_id,
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
+                    client_prepare_ms=client_prepare_ms,
+                    client_generation=current_exit.client_request_state(client).get("client_generation", ""),
+                )
+                send_started_at = time.perf_counter()
+                emit_trace(
+                    logger,
+                    "request_send_started",
+                    trace_id,
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
+                    request_bytes=len(raw_body or b""),
+                    client_prepare_ms=client_prepare_ms,
+                )
+                do_request = self._do_request
+                request_args = (
+                    current_exit, method, url, headers, content_type, params,
+                    raw_body, timeout, connect_timeout,
+                )
+                # Keep external test and extension hooks that implement the
+                # historical _do_request signature working. The production
+                # implementation receives the prepared client, so its timeout
+                # starts after pool/client setup.
+                if "client" in inspect.signature(do_request).parameters:
+                    resp = await do_request(*request_args, client=client)
+                else:
+                    resp = await do_request(*request_args)
                 resp.extensions["ak_exit_name"] = current_exit.name
                 resp.extensions["ak_exit_proxy"] = current_exit.proxy_url or "direct"
                 resp.extensions["ak_exit_is_direct"] = current_exit.is_direct
@@ -1731,6 +1762,8 @@ class OutboundDispatcher:
                     status_code=resp.status_code,
                     response_bytes=len(resp.content or b""),
                     elapsed_ms=int((time.perf_counter() - attempt_started_at) * 1000),
+                    send_wait_ms=int((time.perf_counter() - send_started_at) * 1000) if send_started_at is not None else 0,
+                    client_prepare_ms=client_prepare_ms,
                     delivery_state="response_received",
                 )
                 if (
@@ -1757,6 +1790,8 @@ class OutboundDispatcher:
                     "is_direct": current_exit.is_direct,
                     "local_port": current_exit.local_port,
                     "elapsed_ms": int((time.perf_counter() - attempt_started_at) * 1000),
+                    "send_wait_ms": int((time.perf_counter() - send_started_at) * 1000) if send_started_at is not None else 0,
+                    "client_prepare_ms": client_prepare_ms,
                     "delivery_state": delivery_state,
                     "retry_decision": "blocked" if request_may_have_reached_upstream else "eligible",
                     "retry_reason": "uncertain_delivery" if request_may_have_reached_upstream else "transport_failure",
@@ -1800,9 +1835,10 @@ class OutboundDispatcher:
     async def _do_request(self, exit_obj: OutboundExit, method: str, url: str,
                           headers: dict, content_type: str,
                           params: dict, raw_body: bytes,
-                          timeout: float, connect_timeout: float | None = None) -> httpx.Response:
-        """Execute one request with a deadline that starts at the send boundary."""
-        client = await exit_obj.get_client()
+                          timeout: float, connect_timeout: float | None = None,
+                          client: httpx.AsyncClient | None = None) -> httpx.Response:
+        """Execute one request with a deadline that starts after local client preparation."""
+        client = client or await exit_obj.get_client()
         req_timeout = httpx.Timeout(
             timeout,
             connect=resolve_connect_timeout(timeout, connect_timeout_seconds=connect_timeout),

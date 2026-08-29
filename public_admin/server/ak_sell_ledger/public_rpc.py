@@ -193,14 +193,26 @@ class PublicRpcSaleRecorder:
             )
             return False
 
-        recorded = await self._ledger_service.record_success(
-            account=account,
-            endpoint=endpoint,
-            request_data=params,
-            payload=payload,
-            source="public_rpc",
-            request_id=_text(request_id),
-        )
+        enqueue_success = getattr(self._ledger_service, "enqueue_success", None)
+        if callable(enqueue_success):
+            enqueue_success(
+                account=account,
+                endpoint=endpoint,
+                request_data=params,
+                payload=payload,
+                source="public_rpc",
+                request_id=_text(request_id),
+            )
+            recorded = True
+        else:
+            recorded = await self._ledger_service.record_success(
+                account=account,
+                endpoint=endpoint,
+                request_data=params,
+                payload=payload,
+                source="public_rpc",
+                request_id=_text(request_id),
+            )
         await self._record_attempt(
             account=account,
             endpoint=endpoint,
@@ -245,26 +257,31 @@ class PublicRpcSaleRecorder:
         diagnostics: Mapping[str, Any] | None = None,
     ) -> None:
         recorder = getattr(self._ledger_service, "record_attempt", None)
-        if not callable(recorder):
+        queued_recorder = getattr(self._ledger_service, "enqueue_attempt", None)
+        if not callable(recorder) and not callable(queued_recorder):
             return
         try:
-            await recorder(
-                account=account,
-                endpoint=endpoint,
-                request_data=params,
-                payload=payload,
-                source="public_rpc",
-                state=state,
-                message=message,
-                request_id=_text(request_id),
-                trace_id=_text(trace_id),
-                confirmation_method=confirmation_method or ("upstream_response" if state == "success" else ""),
-                status_code=status_code,
-                exit_name=exit_name,
-                upstream_ms=upstream_ms,
-                response_bytes=response_bytes,
-                last_stage="public_rpc_response",
-                diagnostics=diagnostics or {},
-            )
+            values = {
+                "account": account,
+                "endpoint": endpoint,
+                "request_data": params,
+                "payload": payload,
+                "source": "public_rpc",
+                "state": state,
+                "message": message,
+                "request_id": _text(request_id),
+                "trace_id": _text(trace_id),
+                "confirmation_method": confirmation_method or ("upstream_response" if state == "success" else ""),
+                "status_code": status_code,
+                "exit_name": exit_name,
+                "upstream_ms": upstream_ms,
+                "response_bytes": response_bytes,
+                "last_stage": "public_rpc_response",
+                "diagnostics": diagnostics or {},
+            }
+            if callable(queued_recorder):
+                queued_recorder(**values)
+                return
+            await recorder(**values)
         except Exception as exc:
             self._logger.warning("[AKSellLedger] public attempt record failed endpoint=%s error=%s", endpoint, str(exc)[:200])
