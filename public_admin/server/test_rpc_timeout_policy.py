@@ -36,7 +36,7 @@ def test_rpc_timeout_policy_keeps_login_longer_than_regular_rpc():
 
 
 def test_public_ak_sell_timeout_is_longer_without_changing_other_rpc_paths():
-    assert resolve_public_ak_sell_forward_timeout("ACE_Sell") == PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS == 30.0
+    assert resolve_public_ak_sell_forward_timeout("ACE_Sell") == PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS == 20.0
     assert resolve_public_ak_sell_forward_timeout("/RPC/ACE_Sell_Son") == PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS
     assert resolve_public_ak_sell_forward_timeout("Public_ACE") is None
 

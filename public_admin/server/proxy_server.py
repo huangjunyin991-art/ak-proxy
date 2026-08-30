@@ -4214,23 +4214,23 @@ async def proxy_rpc(path: str, request: Request):
         forward_headers.pop(EP_AUTO_PURCHASE_INTERNAL_HEADER, None)
         if auth_cookie_header:
             forward_headers["cookie"] = auth_cookie_header
-        response = await forward_request(
-
+        forward_args = (
             request.method, path, content_type, params, raw_body, forward_headers,
-
-            client_ip=client_ip,
-
-            selected_exit=selected_exit,
-
-            request_timeout_seconds=ak_sell_timeout,
-
+        )
+        forward_kwargs = {
+            "client_ip": client_ip,
+            "selected_exit": selected_exit,
+            "request_timeout_seconds": ak_sell_timeout,
             # The desktop client has no local tunnel fallback. The remote
             # gateway therefore makes one bounded server-side attempt instead
             # of holding a read request across a serial chain of exits.
-            max_tunnel_fallbacks=0 if ak_sell_internal_request else 3,
-            trace_id=ak_sell_trace_id,
-
-        )
+            "max_tunnel_fallbacks": 0 if ak_sell_internal_request else 3,
+            "trace_id": ak_sell_trace_id,
+        }
+        if ak_sell_public_rpc_request and not ak_sell_internal_request:
+            response = await _forward_with_client_disconnect(request, *forward_args, **forward_kwargs)
+        else:
+            response = await forward_request(*forward_args, **forward_kwargs)
         upstream_ms = _elapsed_ms(upstream_started_at)
         if ak_sell_trace_id and emit_ak_sell_trace is not None:
             emit_ak_sell_trace(
@@ -4410,6 +4410,56 @@ async def proxy_rpc(path: str, request: Request):
             await _activate_login_device(proxy_response, request, renamed_username)
         return proxy_response
 
+    except ClientDisconnectedError as e:
+        stats.errors += 1
+        logger.info("[RPC/%s] client disconnected during sell forwarding", path)
+        if ak_sell_trace_id and emit_ak_sell_trace is not None:
+            emit_ak_sell_trace(
+                logger,
+                "rpc_error",
+                ak_sell_trace_id,
+                endpoint=normalized_path,
+                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                error=type(e).__name__,
+                message=str(e),
+                total_ms=_elapsed_ms(request_started_at),
+                delivery_state="unknown_delivery",
+                retry_decision="blocked",
+                retry_reason="client_disconnected",
+                client_closed=1,
+                request_id=ak_sell_request_id,
+                source=ak_sell_trace_source,
+            )
+            await _record_ak_sell_internal_rpc_attempt(
+                trace_id=ak_sell_trace_id,
+                normalized_path=normalized_path,
+                params=params,
+                stage="rpc_error",
+                state="unknown",
+                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                message="客户端已断开，结果未知",
+                diagnostics={
+                    "delivery_state": "unknown_delivery",
+                    "retry_decision": "blocked",
+                    "retry_reason": "client_disconnected",
+                    "client_closed": True,
+                },
+                source=ak_sell_trace_source,
+                request_id=ak_sell_request_id,
+            )
+        if not ak_sell_internal_request:
+            await _record_public_ak_sell_response(
+                normalized_path=normalized_path,
+                params=params,
+                request=request,
+                status_code=499,
+                message="客户端已断开，结果未知",
+                upstream_ms=_elapsed_ms(locals().get("upstream_started_at", request_started_at)),
+                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                trace_id=ak_sell_trace_id,
+                request_id=ak_sell_request_id,
+            )
+        return Response(status_code=499)
     except Exception as e:
 
         stats.errors += 1
@@ -16075,6 +16125,38 @@ def _user_rpc_trace(message_or_factory):
 
 def _elapsed_ms(started_at: float) -> int:
     return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+class ClientDisconnectedError(RuntimeError):
+    """The browser closed its request while a sell was still in flight."""
+
+
+async def _watch_client_disconnect(request: Request) -> None:
+    while True:
+        try:
+            if await request.is_disconnected():
+                return
+        except Exception:
+            # A watcher failure must never cancel a valid upstream request.
+            return
+        await asyncio.sleep(0.05)
+
+
+async def _forward_with_client_disconnect(request: Request, *args, **kwargs):
+    """Cancel an in-flight browser sell as soon as the browser goes away."""
+    forward_task = asyncio.create_task(forward_request(*args, **kwargs), name="ak_sell_forward")
+    watcher_task = asyncio.create_task(_watch_client_disconnect(request), name="ak_sell_disconnect_watch")
+    done, _ = await asyncio.wait(
+        {forward_task, watcher_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    if watcher_task in done and not forward_task.done():
+        forward_task.cancel()
+        await asyncio.gather(forward_task, return_exceptions=True)
+        raise ClientDisconnectedError("client disconnected before upstream response")
+    watcher_task.cancel()
+    await asyncio.gather(watcher_task, return_exceptions=True)
+    return await forward_task
 
 
 def _is_public_stock_price_rpc(path: str) -> bool:

@@ -11,6 +11,8 @@ from .repository import AKSellLedgerRepository, MAX_RETENTION_DAYS, MIN_RETENTIO
 
 
 class AKSellLedgerService:
+    MAX_BACKGROUND_TASKS = 2000
+
     def __init__(self, repository: AKSellLedgerRepository, logger=None) -> None:
         self.repository = repository
         self.logger = logger
@@ -132,6 +134,18 @@ class AKSellLedgerService:
         upsert has one aggregate row per event, so preserving producer order
         matters when an early diagnostic write is slower than the final one.
         """
+        state = str(kwargs.get("state") or "").strip().lower()
+        terminal_states = {"success", "rejected", "unknown", "failed", "auth_expired", "success_unresolved_account"}
+        if len(self._background_tasks) >= self.MAX_BACKGROUND_TASKS and state not in terminal_states:
+            if self.logger:
+                self.logger.warning(
+                    "[AKSellLedger] dropping early diagnostic because background queue is full pending=%s",
+                    len(self._background_tasks),
+                )
+            async def dropped() -> bool:
+                return False
+            return asyncio.create_task(dropped(), name="ak_sell_ledger_attempt_dropped")
+
         event_key = self._attempt_event_key(kwargs)
         previous = self._attempt_tails.get(event_key)
 

@@ -137,6 +137,25 @@ async def test_records_gateway_timeout_as_unknown_attempt_without_sale_ledger():
 
 
 @pytest.mark.asyncio
+async def test_records_client_disconnect_as_unknown_attempt():
+    ledger = FakeLedgerService()
+    recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved("main005"), FakeLogger())
+
+    saved = await recorder.record_response(
+        normalized_path="ace_sell",
+        params={"account": "main005", "count": "10"},
+        payload={"Error": True, "Msg": "客户端已断开，结果未知"},
+        cookies={},
+        status_code=499,
+    )
+
+    assert saved is False
+    assert ledger.calls == []
+    assert ledger.attempts[0]["state"] == "unknown"
+    assert ledger.attempts[0]["status_code"] == 499
+
+
+@pytest.mark.asyncio
 async def test_keeps_http_403_as_rejected_attempt():
     ledger = FakeLedgerService()
     recorder = PublicRpcSaleRecorder(ledger, lambda _key: _resolved("main004"), FakeLogger())

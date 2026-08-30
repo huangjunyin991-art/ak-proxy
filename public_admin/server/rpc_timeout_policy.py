@@ -21,9 +21,10 @@ NOTICE_GUIDANCE_CONNECT_TIMEOUT_SECONDS = max(
 )
 AK_SELL_READ_TIMEOUT_SECONDS = max(0.1, float(AK_SELL_READ_REQUEST_TIMEOUT or 20.0))
 AK_SELL_WRITE_TIMEOUT_SECONDS = max(0.1, float(AK_SELL_WRITE_REQUEST_TIMEOUT or 20.0))
-# Browser-originated sell requests should be allowed to outlive the internal
-# automated-sell budget. Nginx uses the same 30-second boundary.
-PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS = 30.0
+# The real AK web client aborts its XHR after 20 seconds. Keep the gateway on
+# the same boundary; local preparation is measured separately before this
+# upstream budget starts.
+PUBLIC_AK_SELL_FORWARD_TIMEOUT_SECONDS = 20.0
 
 
 _AK_SELL_WRITE_OPERATIONS = frozenset({

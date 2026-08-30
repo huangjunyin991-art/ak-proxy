@@ -59,6 +59,7 @@ except Exception as e:
     _DISPATCHER_POLICY_IMPORT_ERROR = e
 
 logger = logging.getLogger("TransparentProxy")
+CLIENT_PREPARE_TIMEOUT_SECONDS = 0.5
 
 # 需要告警的HTTP状态码
 ALERT_STATUS_CODES = {
@@ -1674,7 +1675,10 @@ class OutboundDispatcher:
                 # part of the upstream request deadline.  It is separated here
                 # so the trace shows whether a delay happened before anything
                 # could have left the selected exit.
-                client = await current_exit.get_client()
+                client = await asyncio.wait_for(
+                    current_exit.get_client(),
+                    timeout=CLIENT_PREPARE_TIMEOUT_SECONDS,
+                )
                 client_prepare_ms = int((time.perf_counter() - attempt_started_at) * 1000)
                 emit_trace(
                     logger,
@@ -1779,7 +1783,13 @@ class OutboundDispatcher:
                 last_error = e
                 current_exit.record_error(str(e))
                 current_exit.request_client_retire("request_error")
-                request_may_have_reached_upstream = isinstance(e, _NON_REPLAYABLE_UPSTREAM_ERRORS)
+                request_may_have_reached_upstream = (
+                    isinstance(e, _NON_REPLAYABLE_UPSTREAM_ERRORS)
+                    or (
+                        self._normalize_api_path(api_path) in {"ace_sell", "ace_sell_son"}
+                        and isinstance(e, RpcUpstreamNonJsonError)
+                    )
+                )
                 delivery_state = classify_delivery_state(e)
                 error_fields = {
                     "endpoint": api_path,

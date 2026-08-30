@@ -1258,6 +1258,34 @@ async def test_rpc_non_json_response_raises_after_all_fallbacks_fail():
 
 
 @pytest.mark.anyio
+async def test_sell_non_json_response_is_not_replayed_after_response_arrived():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "sell-html", 10001, group_id="g1")
+    _add_ready_socks5(dispatcher, "sell-json", 10002, group_id="g2")
+    attempts = []
+
+    async def fake_request(exit_obj, method, url, headers, content_type, params, raw_body, timeout, connect_timeout=None):
+        attempts.append(exit_obj.name)
+        return httpx.Response(200, content=b"<html>processed</html>", headers={"content-type": "text/html"})
+
+    dispatcher._do_request = fake_request
+
+    with pytest.raises(RpcUpstreamNonJsonError):
+        await dispatcher.forward(
+            dispatcher.exits[1],
+            "POST",
+            "https://example.test/RPC/ACE_Sell",
+            {},
+            content_type="application/x-www-form-urlencoded",
+            params={"account": "demo"},
+            raw_body=b"count=10",
+            api_path="ACE_Sell",
+        )
+
+    assert attempts == ["sell-html"]
+
+
+@pytest.mark.anyio
 async def test_successful_response_resets_connect_failure_gradient():
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "recovering", 10001)

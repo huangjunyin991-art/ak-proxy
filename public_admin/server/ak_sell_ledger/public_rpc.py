@@ -124,7 +124,10 @@ class PublicRpcSaleRecorder:
                 )
                 identity_source = "key_error"
 
-        if status_code >= 500:
+        if status_code == 499:
+            state = "unknown"
+            response_message = message or "客户端已断开，结果未知"
+        elif status_code >= 500:
             state = "unknown"
             response_message = message or (
                 "上游响应超时，结果未知" if status_code in {504, 598, 599}
