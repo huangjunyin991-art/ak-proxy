@@ -22,11 +22,16 @@ class AkUserKeyLoginFastPath:
         save_auth_state: SaveAuthState,
         forward_request: ForwardRequest,
         ttl_seconds: int,
+        validation_timeout_seconds: float = 3.0,
     ):
         self.load_auth_state = load_auth_state
         self.save_auth_state = save_auth_state
         self.forward_request = forward_request
         self.ttl_seconds = int(ttl_seconds or 3600)
+        try:
+            self.validation_timeout_seconds = min(5.0, max(1.0, float(validation_timeout_seconds)))
+        except (TypeError, ValueError):
+            self.validation_timeout_seconds = 3.0
 
     async def try_login(
         self,
@@ -136,6 +141,7 @@ class AkUserKeyLoginFastPath:
                 client_ip=client_ip,
                 selected_exit=selected_exit,
                 force_direct=force_direct,
+                request_timeout_seconds=self.validation_timeout_seconds,
             )
         except Exception as exc:
             return AkUserKeyValidationResult(valid=False, reason=f'request_failed:{type(exc).__name__}', elapsed_ms=_elapsed_ms(started_at))

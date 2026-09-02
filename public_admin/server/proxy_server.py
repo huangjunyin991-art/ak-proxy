@@ -125,6 +125,7 @@ except ImportError:
 
     REQUEST_TIMEOUT = 20
     LOGIN_REQUEST_TIMEOUT = 20
+    LOGIN_FASTPATH_VALIDATION_TIMEOUT = 3.0
     RPC_CONNECT_TIMEOUT = 3
     NOTICE_GUIDANCE_REQUEST_TIMEOUT = 20
     NOTICE_GUIDANCE_CONNECT_TIMEOUT = 1
@@ -17650,6 +17651,7 @@ async def _try_ak_userkey_login_fastpath(username: str, password: str, headers: 
         save_auth_state=db.save_ak_auth_state,
         forward_request=forward_request,
         ttl_seconds=_BROWSE_SESSION_TTL,
+        validation_timeout_seconds=LOGIN_FASTPATH_VALIDATION_TIMEOUT,
     )
     return await service.try_login(
         username=username,
