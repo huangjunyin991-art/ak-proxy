@@ -118,7 +118,7 @@ class OutboundExit:
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
                  '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason',
                  '_client_retire_pending', '_client_retire_pending_reason', '_retired_clients',
-                 '_client_leases')
+                 '_client_leases', '_retired_budget_blocked')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
@@ -180,6 +180,7 @@ class OutboundExit:
         # Track ownership by client generation.  ``active`` is exit-wide and
         # cannot tell whether a retired pool still has a request using it.
         self._client_leases: dict[int, int] = {}
+        self._retired_budget_blocked = 0
 
     @property
     def is_direct(self) -> bool:
@@ -381,13 +382,38 @@ class OutboundExit:
                 self._mark_client_used(now)
                 return self._client
             if self._client is not None:
-                self._detach_current_client_locked(retire_reason or "recreate")
+                # Bound the number of draining generations.  Prefer closing a
+                # lease-free current pool; if every retired pool is still in
+                # use, reuse the current pool until a lease is released rather
+                # than creating another unbounded socket pool.
+                await self._close_retired_clients_locked(retire_reason or "retired")
+                max_retired = max(1, int(self._client_policy.outbound_client_max_retired_clients))
+                if len(self._retired_clients) >= max_retired:
+                    if self._client_can_close(self._client):
+                        await self._close_client_locked(retire_reason or "retired_budget")
+                    else:
+                        self._retired_budget_blocked += 1
+                        self._mark_client_used(now)
+                        logger.warning(
+                            "[Dispatcher] %s retired连接池达到上限=%s且仍有请求，暂复用当前连接池",
+                            self.name,
+                            max_retired,
+                        )
+                        return self._client
+                else:
+                    self._detach_current_client_locked(retire_reason or "recreate")
             self._client_retire_pending = False
             self._client_retire_pending_reason = ""
+            policy = self._client_policy
+            max_connections = max(1, int(policy.outbound_client_max_connections))
+            max_keepalive = min(
+                max_connections,
+                max(0, int(policy.outbound_client_max_keepalive_connections)),
+            )
             limits = httpx.Limits(
-                max_connections=40,
-                max_keepalive_connections=20,
-                keepalive_expiry=120,
+                max_connections=max_connections,
+                max_keepalive_connections=max_keepalive,
+                keepalive_expiry=max(1.0, float(policy.outbound_client_keepalive_expiry_seconds)),
             )
             self._client = httpx.AsyncClient(
                 verify=resolve_upstream_tls_verify("dispatcher", default=False),
@@ -595,6 +621,8 @@ class OutboundExit:
             "retired_clients": len(self._retired_clients),
             "leased_clients": leased_clients,
             "retired_leases": retired_leases,
+            "retired_budget_blocked": self._retired_budget_blocked,
+            "max_retired_clients": max(1, int(self._client_policy.outbound_client_max_retired_clients)),
         }
 
     def client_request_state(self, client: httpx.AsyncClient) -> dict[str, object]:

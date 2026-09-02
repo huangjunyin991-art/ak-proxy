@@ -1,10 +1,12 @@
 import pytest
 import httpx
 import asyncio
+from dataclasses import replace
 
 from .outbound_dispatcher import OutboundDispatcher, OutboundExit, RpcUpstreamNonJsonError
 from .dispatcher_policy import rate_limiter as rate_limiter_module
 from .rpc_timeout_policy import LOGIN_RPC_TIMEOUT_SECONDS
+from .runtime_hygiene import RuntimeHygienePolicy
 from .source_reachability import SourceProbeResult
 
 
@@ -133,6 +135,73 @@ async def test_retired_client_closes_when_its_generation_has_no_leases(monkeypat
     assert first.close_calls == 1
     assert second.close_calls == 0
     assert exit_obj.client_snapshot()["retired_clients"] == 0
+
+
+@pytest.mark.anyio
+async def test_client_pool_limits_follow_runtime_policy(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        is_closed = False
+
+        async def aclose(self):
+            self.is_closed = True
+
+    def fake_async_client(**kwargs):
+        captured.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr("public_admin.server.outbound_dispatcher.httpx.AsyncClient", fake_async_client)
+    policy = replace(
+        RuntimeHygienePolicy(),
+        outbound_client_max_connections=7,
+        outbound_client_max_keepalive_connections=3,
+        outbound_client_keepalive_expiry_seconds=17.0,
+    )
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001", client_policy=policy)
+
+    await exit_obj.get_client()
+
+    assert captured["limits"].max_connections == 7
+    assert captured["limits"].max_keepalive_connections == 3
+    assert captured["limits"].keepalive_expiry == 17.0
+
+
+@pytest.mark.anyio
+async def test_retired_pool_budget_prevents_unbounded_generation_creation(monkeypatch):
+    clients = []
+
+    class FakeClient:
+        def __init__(self):
+            self.is_closed = False
+
+        async def aclose(self):
+            self.is_closed = True
+
+    def fake_async_client(**_kwargs):
+        client = FakeClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("public_admin.server.outbound_dispatcher.httpx.AsyncClient", fake_async_client)
+    policy = replace(RuntimeHygienePolicy(), outbound_client_max_retired_clients=1)
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001", client_policy=policy)
+
+    first = await exit_obj.get_client()
+    exit_obj.acquire_client(first)
+    exit_obj.request_client_retire("request_error")
+    second = await exit_obj.get_client()
+    exit_obj.acquire_client(second)
+    exit_obj.request_client_retire("request_error")
+    third = await exit_obj.get_client()
+
+    # The only retired generation is still leased, so the current generation
+    # is reused instead of opening an unbounded third pool.
+    assert second is not first
+    assert third is second
+    assert len(clients) == 2
+    assert exit_obj.client_snapshot()["retired_clients"] == 1
+    assert exit_obj.client_snapshot()["retired_budget_blocked"] == 1
 
 
 @pytest.mark.anyio

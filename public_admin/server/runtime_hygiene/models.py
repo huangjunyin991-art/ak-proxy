@@ -81,6 +81,16 @@ class RuntimeHygienePolicy:
     outbound_client_max_age_seconds: float = env_float("AK_OUTBOUND_CLIENT_MAX_AGE_SECONDS", 900.0, 60.0, 86400.0)
     outbound_client_max_requests: int = env_int("AK_OUTBOUND_CLIENT_MAX_REQUESTS", 800, 10, 100000)
     outbound_client_idle_seconds: float = env_float("AK_OUTBOUND_CLIENT_IDLE_SECONDS", 300.0, 30.0, 86400.0)
+    outbound_client_max_connections: int = env_int("AK_OUTBOUND_MAX_CONNECTIONS_PER_EXIT", 16, 1, 128)
+    outbound_client_max_keepalive_connections: int = env_int(
+        "AK_OUTBOUND_MAX_KEEPALIVE_CONNECTIONS_PER_EXIT", 8, 0, 64
+    )
+    outbound_client_keepalive_expiry_seconds: float = env_float(
+        "AK_OUTBOUND_KEEPALIVE_EXPIRY_SECONDS", 60.0, 1.0, 600.0
+    )
+    outbound_client_max_retired_clients: int = env_int(
+        "AK_OUTBOUND_MAX_RETIRED_CLIENTS_PER_EXIT", 2, 1, 8
+    )
     cleanup_browse_sessions_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_BROWSE_SESSIONS", True)
     cleanup_ak_auth_cache_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_AK_AUTH_CACHE", True)
     cleanup_static_cache_locks_enabled: bool = env_bool("AK_RUNTIME_CLEANUP_STATIC_CACHE_LOCKS", True)
@@ -140,6 +150,30 @@ class RuntimeHygienePolicy:
                 30.0,
                 86400.0,
             ),
+            outbound_client_max_connections=_int_value(
+                data.get("outbound_client_max_connections"),
+                defaults.outbound_client_max_connections,
+                1,
+                128,
+            ),
+            outbound_client_max_keepalive_connections=_int_value(
+                data.get("outbound_client_max_keepalive_connections"),
+                defaults.outbound_client_max_keepalive_connections,
+                0,
+                64,
+            ),
+            outbound_client_keepalive_expiry_seconds=_float_value(
+                data.get("outbound_client_keepalive_expiry_seconds"),
+                defaults.outbound_client_keepalive_expiry_seconds,
+                1.0,
+                600.0,
+            ),
+            outbound_client_max_retired_clients=_int_value(
+                data.get("outbound_client_max_retired_clients"),
+                defaults.outbound_client_max_retired_clients,
+                1,
+                8,
+            ),
             cleanup_browse_sessions_enabled=_bool_value(
                 data.get("cleanup_browse_sessions_enabled"),
                 defaults.cleanup_browse_sessions_enabled,
@@ -169,6 +203,10 @@ class RuntimeHygienePolicy:
             "outbound_client_max_age_seconds": self.outbound_client_max_age_seconds,
             "outbound_client_max_requests": self.outbound_client_max_requests,
             "outbound_client_idle_seconds": self.outbound_client_idle_seconds,
+            "outbound_client_max_connections": self.outbound_client_max_connections,
+            "outbound_client_max_keepalive_connections": self.outbound_client_max_keepalive_connections,
+            "outbound_client_keepalive_expiry_seconds": self.outbound_client_keepalive_expiry_seconds,
+            "outbound_client_max_retired_clients": self.outbound_client_max_retired_clients,
             "cleanup_browse_sessions_enabled": self.cleanup_browse_sessions_enabled,
             "cleanup_ak_auth_cache_enabled": self.cleanup_ak_auth_cache_enabled,
             "cleanup_static_cache_locks_enabled": self.cleanup_static_cache_locks_enabled,

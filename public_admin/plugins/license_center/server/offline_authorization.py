@@ -15,7 +15,7 @@ PRIVATE_KEY_ENV = "LICENSE_AUTO_SELL_SIGNING_PRIVATE_KEY"
 PUBLIC_KEY_ENV = "LICENSE_AUTO_SELL_SIGNING_PUBLIC_KEY"
 KEY_ID_ENV = "LICENSE_AUTO_SELL_SIGNING_KEY_ID"
 DEFAULT_KEY_ID = "ak-auto-sell-v1"
-DEFAULT_ENV_FILE = "/etc/ak-proxy.env"
+DEFAULT_ENV_FILE = "/etc/ak-proxy/ak-proxy.env"
 
 
 def _b64url_encode(value: bytes) -> str:
