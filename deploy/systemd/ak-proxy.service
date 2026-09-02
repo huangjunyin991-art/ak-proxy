@@ -16,6 +16,10 @@ ExecStart=/home/ubuntu/ak-proxy/venv/bin/python -m public_admin.server.proxy_ser
 Restart=always
 RestartSec=2
 
+# Keep the process from hitting the distro default soft limit under the
+# per-exit HTTP connection pools.  Code still retires unused generations.
+LimitNOFILE=65536
+
 # Hardening (keep minimal to avoid breaking existing behavior)
 NoNewPrivileges=true
 

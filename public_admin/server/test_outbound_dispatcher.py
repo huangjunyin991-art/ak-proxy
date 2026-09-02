@@ -100,6 +100,42 @@ async def test_pending_client_retirement_rotates_new_requests_without_closing_in
 
 
 @pytest.mark.anyio
+async def test_retired_client_closes_when_its_generation_has_no_leases(monkeypatch):
+    class FakeClient:
+        def __init__(self):
+            self.is_closed = False
+            self.close_calls = 0
+
+        async def aclose(self):
+            self.close_calls += 1
+            self.is_closed = True
+
+    clients = []
+
+    def fake_async_client(**_kwargs):
+        client = FakeClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("public_admin.server.outbound_dispatcher.httpx.AsyncClient", fake_async_client)
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    first = await exit_obj.get_client()
+    exit_obj.acquire_client(first)
+    exit_obj.active = 1
+    exit_obj.request_client_retire("request_error")
+
+    second = await exit_obj.get_client()
+    exit_obj.acquire_client(second)
+    exit_obj.release_client(first)
+    # The second generation remains active, but the retired first generation
+    # is now provably unused and must not consume sockets indefinitely.
+    assert await exit_obj.finalize_client_retirement() is True
+    assert first.close_calls == 1
+    assert second.close_calls == 0
+    assert exit_obj.client_snapshot()["retired_clients"] == 0
+
+
+@pytest.mark.anyio
 async def test_close_client_when_idle_waits_for_inflight_request():
     class FakeClient:
         def __init__(self):

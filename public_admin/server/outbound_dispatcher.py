@@ -117,7 +117,8 @@ class OutboundExit:
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
                  '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason',
-                 '_client_retire_pending', '_client_retire_pending_reason', '_retired_clients')
+                 '_client_retire_pending', '_client_retire_pending_reason', '_retired_clients',
+                 '_client_leases')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
@@ -176,6 +177,9 @@ class OutboundExit:
         self._client_retire_pending = False
         self._client_retire_pending_reason = ""
         self._retired_clients: list[httpx.AsyncClient] = []
+        # Track ownership by client generation.  ``active`` is exit-wide and
+        # cannot tell whether a retired pool still has a request using it.
+        self._client_leases: dict[int, int] = {}
 
     @property
     def is_direct(self) -> bool:
@@ -398,7 +402,28 @@ class OutboundExit:
             self._client_request_count = 1
             self._client_generation += 1
             self._client_last_retire_reason = ""
+            self._client_leases[id(self._client)] = 0
             return self._client
+
+    def acquire_client(self, client: httpx.AsyncClient) -> None:
+        """Register one request's ownership of a concrete client generation."""
+        key = id(client)
+        self._client_leases[key] = self._client_leases.get(key, 0) + 1
+
+    def release_client(self, client: httpx.AsyncClient) -> None:
+        """Release one request lease without closing a peer request's pool."""
+        key = id(client)
+        if key in self._client_leases:
+            self._client_leases[key] = max(0, self._client_leases[key] - 1)
+
+    def _client_lease_count(self, client: httpx.AsyncClient) -> int | None:
+        return self._client_leases.get(id(client))
+
+    def _client_can_close(self, client: httpx.AsyncClient) -> bool:
+        leases = self._client_lease_count(client)
+        # Clients obtained by legacy/test hooks have no lease record.  Keep
+        # the old conservative exit-wide fallback for those callers.
+        return leases == 0 or (leases is None and self.active == 0)
 
     def _mark_client_used(self, now: float) -> None:
         self._client_last_used_at = now
@@ -420,6 +445,8 @@ class OutboundExit:
 
     async def _close_client_locked(self, reason: str = "closed") -> bool:
         client = self._client
+        if client and not self._client_can_close(client):
+            return False
         self._client = None
         if client and not client.is_closed:
             try:
@@ -428,6 +455,7 @@ class OutboundExit:
                 pass
             self._client_retire_count += 1
             self._client_last_retire_reason = reason
+            self._client_leases.pop(id(client), None)
             self._client_retire_pending = False
             self._client_retire_pending_reason = ""
             return True
@@ -437,13 +465,19 @@ class OutboundExit:
         clients = self._retired_clients
         self._retired_clients = []
         closed = 0
+        remaining: list[httpx.AsyncClient] = []
         for client in clients:
             if client and not client.is_closed:
+                if not self._client_can_close(client):
+                    remaining.append(client)
+                    continue
                 try:
                     await client.aclose()
                 except Exception:
                     pass
                 closed += 1
+                self._client_leases.pop(id(client), None)
+        self._retired_clients = remaining
         if closed:
             self._client_retire_count += closed
             self._client_last_retire_reason = reason
@@ -470,12 +504,16 @@ class OutboundExit:
 
     async def finalize_client_retirement(self) -> bool:
         """Close a failed shared client once no requests are using it."""
-        if (not self._client_retire_pending and not self._retired_clients) or self.active > 0:
+        if not self._client_retire_pending and not self._retired_clients:
             return False
         async with self._client_lock:
-            if ((not self._client_retire_pending and not self._retired_clients) or self.active > 0):
+            if not self._client_retire_pending and not self._retired_clients:
                 return False
             reason = self._client_retire_pending_reason or "request_error"
+            # Retired generations are tracked by their own leases.  They can
+            # be closed while a newer generation still serves requests on the
+            # same exit; using exit-wide ``active`` here leaked old pools under
+            # continuous traffic.
             closed = await self._close_retired_clients_locked(reason)
             if self._client_retire_pending and self._client is not None:
                 closed += int(await self._close_client_locked(reason))
@@ -536,6 +574,12 @@ class OutboundExit:
 
     def client_snapshot(self) -> dict:
         now = time.time()
+        leased_clients = sum(1 for leases in self._client_leases.values() if leases > 0)
+        retired_leases = sum(
+            self._client_leases.get(id(client), 0)
+            for client in self._retired_clients
+            if client and not client.is_closed
+        )
         return {
             "open": bool(self._client and not self._client.is_closed),
             "created_at": self._client_created_at,
@@ -549,6 +593,8 @@ class OutboundExit:
             "retire_pending": self._client_retire_pending,
             "retire_pending_reason": self._client_retire_pending_reason,
             "retired_clients": len(self._retired_clients),
+            "leased_clients": leased_clients,
+            "retired_leases": retired_leases,
         }
 
     def client_request_state(self, client: httpx.AsyncClient) -> dict[str, object]:
@@ -1651,6 +1697,7 @@ class OutboundDispatcher:
                     break
 
             current_exit.active += 1
+            client = None
             attempt_started_at = time.perf_counter()
             client_prepare_ms = 0
             send_started_at = None
@@ -1679,6 +1726,7 @@ class OutboundDispatcher:
                     current_exit.get_client(),
                     timeout=CLIENT_PREPARE_TIMEOUT_SECONDS,
                 )
+                current_exit.acquire_client(client)
                 client_prepare_ms = int((time.perf_counter() - attempt_started_at) * 1000)
                 emit_trace(
                     logger,
@@ -1834,6 +1882,8 @@ class OutboundDispatcher:
                 else:
                     logger.error(f"[Dispatcher] 出口链路全部失败，最后出口={current_exit.name}: {e}")
             finally:
+                if client is not None:
+                    current_exit.release_client(client)
                 current_exit.active -= 1
                 await current_exit.finalize_client_retirement()
         if last_403_response is not None:
@@ -2031,11 +2081,16 @@ class OutboundDispatcher:
 
     async def _request_source_probe(self, ex: OutboundExit, policy: SourceProbePolicy):
         client = await ex.get_client()
-        return await self.source_probe.probe(
-            client,
-            timeout_seconds=policy.request_timeout_seconds,
-            connect_timeout_seconds=policy.connect_timeout_seconds,
-        )
+        ex.acquire_client(client)
+        try:
+            return await self.source_probe.probe(
+                client,
+                timeout_seconds=policy.request_timeout_seconds,
+                connect_timeout_seconds=policy.connect_timeout_seconds,
+            )
+        finally:
+            ex.release_client(client)
+            await ex.finalize_client_retirement()
 
     async def _probe_source_exit(self, ex: OutboundExit, policy: SourceProbePolicy | None = None) -> bool:
         """Check whether an exit can reach the configured business source."""
