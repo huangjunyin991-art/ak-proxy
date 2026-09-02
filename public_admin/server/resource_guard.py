@@ -81,7 +81,7 @@ class ProcessResourceGuard:
         self._started_at = self._now()
         self._critical_since: float | None = None
         self._last_warning_at = 0.0
-        self._last_restart_at = 0.0
+        self._last_restart_at: float | None = None
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
         self._last_snapshot: dict[str, Any] = {}
@@ -119,7 +119,10 @@ class ProcessResourceGuard:
                 self._critical_since = current
             if (
                 current - self._critical_since >= self.config.critical_hold_seconds
-                and current - self._last_restart_at >= self.config.restart_cooldown_seconds
+                and (
+                    self._last_restart_at is None
+                    or current - self._last_restart_at >= self.config.restart_cooldown_seconds
+                )
                 and current - self._started_at >= self.config.minimum_uptime_seconds
             ):
                 self._last_restart_at = current

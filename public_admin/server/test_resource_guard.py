@@ -23,8 +23,8 @@ def test_resource_guard_requires_sustained_breach_and_minimum_uptime():
     assert guard.evaluate(_sample(0.80), now=0.0) == "warning"
     assert guard.evaluate(_sample(0.90), now=1.0) == "critical"
     assert guard.evaluate(_sample(0.90), now=16.0) == "critical"
-    clock[0] = 321.0
-    assert guard.evaluate(_sample(0.90), now=321.0) == "restart"
+    clock[0] = 121.0
+    assert guard.evaluate(_sample(0.90), now=121.0) == "restart"
     assert terminated == []  # evaluate is side-effect free; the loop performs termination.
     assert guard.status()["restart_requested"] is True
 
