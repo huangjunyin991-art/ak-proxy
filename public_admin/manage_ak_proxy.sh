@@ -239,6 +239,8 @@ write_systemd_service() {
 [Unit]
 Description=AK Proxy Server
 After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -248,7 +250,10 @@ EnvironmentFile=${ENV_FILE}
 Environment="PATH=${VENV_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=${VENV_BIN}/python proxy_server.py
 Restart=always
-RestartSec=10
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
 StandardOutput=append:${LOG_FILE}
 StandardError=append:${LOG_FILE}
 LimitNOFILE=65536

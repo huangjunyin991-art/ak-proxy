@@ -24,3 +24,12 @@ def test_license_center_uses_canonical_environment_path():
 
     assert f'DEFAULT_ENV_FILE = "{CANONICAL_ENV_PATH}"' in source
     assert LEGACY_ENV_PATH not in source
+
+
+def test_generated_systemd_units_have_restart_rate_limits():
+    root = Path(__file__).parents[2]
+    for relative in ("public_admin/deploy_ak_proxy.sh", "public_admin/manage_ak_proxy.sh"):
+        source = (root / relative).read_text(encoding="utf-8")
+        assert "StartLimitIntervalSec=300" in source
+        assert "StartLimitBurst=5" in source
+        assert "TimeoutStopSec=30" in source

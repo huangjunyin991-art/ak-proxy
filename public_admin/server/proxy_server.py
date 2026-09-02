@@ -282,6 +282,7 @@ from .runtime_performance import (
     stop_event_loop_probe,
 )
 from .runtime_hygiene import RuntimeHygieneConfigService, RuntimeHygienePolicy, RuntimeHygieneService
+from .resource_guard import ProcessResourceGuard
 from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes import get_admin_index_plan_status, start_admin_index_plan_run
 from .performance.dispatcher_status.service import DispatcherStatusService
@@ -7855,6 +7856,7 @@ elif _AK_DATA_IMPORT_ERROR is not None:
 async def admin_startup():
 
     start_event_loop_probe()
+    await _resource_guard.start()
 
     try:
 
@@ -8136,6 +8138,8 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    await _resource_guard.stop()
 
     if ak_sell_balance_confirmation_service is not None:
         await ak_sell_balance_confirmation_service.stop()
@@ -16947,10 +16951,12 @@ def _build_runtime_hygiene_snapshot(policy_payload: dict[str, Any] | None = None
         "browse_sessions": _snapshot_browse_sessions(),
         "ak_auth_cache": _snapshot_ak_auth_cache(),
         "static_resource_cache": _AK_WEB_STATIC_CACHE_SERVICE.snapshot(),
+        "resource_guard": _resource_guard.status(),
     }
 
 
 _runtime_hygiene_service = RuntimeHygieneService(_run_runtime_hygiene_cleanup, logger=logger)
+_resource_guard = ProcessResourceGuard(logger=logger)
 _runtime_hygiene_config_service = RuntimeHygieneConfigService(
     db.system_config,
     apply_policy=_apply_runtime_hygiene_policy,

@@ -2,6 +2,8 @@
 Description=AK Proxy Server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -17,7 +19,10 @@ Environment=PYTHONPATH=/home/ubuntu/ak-proxy/public_admin:/home/ubuntu/ak-proxy
 # venv + run entrypoint
 ExecStart=/home/ubuntu/ak-proxy/venv/bin/python -m public_admin.server.proxy_server
 Restart=always
-RestartSec=2
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
 
 # Keep the process from hitting the distro default soft limit under the
 # per-exit HTTP connection pools.  Code still retires unused generations.
