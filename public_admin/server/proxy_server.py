@@ -68,6 +68,7 @@ from .subscription_groups import (
     group_nodes_by_identity,
     subscription_node_identity,
     summarize_subscription_nodes,
+    SubscriptionRefreshService,
 )
 
 
@@ -131,6 +132,9 @@ except ImportError:
     NOTICE_GUIDANCE_CONNECT_TIMEOUT = 1
     AK_SELL_READ_REQUEST_TIMEOUT = 20
     AK_SELL_WRITE_REQUEST_TIMEOUT = 20
+    SUBSCRIPTION_REFRESH_INTERVAL_SECONDS = 60
+    SUBSCRIPTION_REFRESH_COOLDOWN_SECONDS = 300
+    SUBSCRIPTION_REFRESH_AVAILABILITY_THRESHOLD = 10.0
 
     ENABLE_LOCAL_BAN = True
     BAN_CACHE_REFRESH_SECONDS = int(os.environ.get("BAN_CACHE_REFRESH_SECONDS", "60"))
@@ -588,6 +592,59 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
         "exits_count": expected_exits,
         "reload_result": {"success": True, "message": "无需重建"},
     }
+
+
+async def _fetch_subscription_for_auto_refresh(url: str) -> dict[str, Any]:
+    """Fetch a subscription without blocking the event loop."""
+    from .sub_parser import fetch_subscription
+
+    tunnel_candidates = dispatcher.get_subscription_fetch_tunnel_candidates()
+    return await run_blocking(fetch_subscription, url, 15, tunnel_candidates)
+
+
+def _saved_subscription_nodes_for_auto_refresh() -> list[dict[str, Any]]:
+    from . import singbox_manager as sbm
+
+    nodes = sbm.load_saved_nodes()
+    return [item for item in nodes if isinstance(item, dict)] if isinstance(nodes, list) else []
+
+
+def _dispatcher_exits_for_auto_refresh() -> list[dict[str, Any]]:
+    status = dispatcher.get_status()
+    exits = status.get("exits", []) if isinstance(status, dict) else []
+    return [item for item in exits if isinstance(item, dict)]
+
+
+async def _apply_auto_refreshed_subscription_nodes(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    from .proxy_cores import prepare_nodes
+
+    groups = await db.get_subscription_groups()
+    active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
+    filtered = _filter_nodes_by_active_groups(nodes, active_group_ids)
+    prepared = prepare_nodes(filtered)
+    result = await _apply_subscription_runtime_nodes(
+        prepared,
+        _get_dispatcher_saved_base_port(),
+        allow_empty_generation=False,
+    )
+    if result.get("success"):
+        _SINGBOX_STATUS_CACHE.invalidate()
+        _DISPATCHER_STATUS_SERVICE.invalidate_meta()
+    return result
+
+
+_SUBSCRIPTION_REFRESH_SERVICE = SubscriptionRefreshService(
+    groups_loader=db.get_subscription_groups,
+    nodes_loader=_saved_subscription_nodes_for_auto_refresh,
+    exits_loader=_dispatcher_exits_for_auto_refresh,
+    fetcher=_fetch_subscription_for_auto_refresh,
+    applier=_apply_auto_refreshed_subscription_nodes,
+    group_counter_updater=db.update_subscription_group_servers,
+    logger=logger,
+    interval_seconds=SUBSCRIPTION_REFRESH_INTERVAL_SECONDS,
+    cooldown_seconds=SUBSCRIPTION_REFRESH_COOLDOWN_SECONDS,
+    availability_threshold=SUBSCRIPTION_REFRESH_AVAILABILITY_THRESHOLD,
+)
 
 
 async def _warmup_proxy_cores_after_startup(delay_seconds: float = 1.0) -> None:
@@ -7986,6 +8043,17 @@ async def admin_startup():
     await dispatcher.start()
 
     try:
+        await _SUBSCRIPTION_REFRESH_SERVICE.start()
+        logger.info(
+            "[SubRefresh] 自动订阅刷新已启动 interval=%ss cooldown=%ss threshold<%s%%",
+            SUBSCRIPTION_REFRESH_INTERVAL_SECONDS,
+            SUBSCRIPTION_REFRESH_COOLDOWN_SECONDS,
+            SUBSCRIPTION_REFRESH_AVAILABILITY_THRESHOLD,
+        )
+    except Exception as e:
+        logger.warning(f"[SubRefresh] 自动订阅刷新启动失败，继续使用当前节点: {e}")
+
+    try:
         await _ensure_runtime_hygiene_ready(force=True)
         logger.info("[RuntimeHygiene] 运行时维护任务已按配置初始化")
     except Exception as e:
@@ -8139,6 +8207,8 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    await _SUBSCRIPTION_REFRESH_SERVICE.stop()
 
     await _resource_guard.stop()
 
