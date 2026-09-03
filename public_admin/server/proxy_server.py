@@ -633,20 +633,6 @@ async def _apply_auto_refreshed_subscription_nodes(nodes: list[dict[str, Any]]) 
     return result
 
 
-_SUBSCRIPTION_REFRESH_SERVICE = SubscriptionRefreshService(
-    groups_loader=db.get_subscription_groups,
-    nodes_loader=_saved_subscription_nodes_for_auto_refresh,
-    exits_loader=_dispatcher_exits_for_auto_refresh,
-    fetcher=_fetch_subscription_for_auto_refresh,
-    applier=_apply_auto_refreshed_subscription_nodes,
-    group_counter_updater=db.update_subscription_group_servers,
-    logger=logger,
-    interval_seconds=SUBSCRIPTION_REFRESH_INTERVAL_SECONDS,
-    cooldown_seconds=SUBSCRIPTION_REFRESH_COOLDOWN_SECONDS,
-    availability_threshold=SUBSCRIPTION_REFRESH_AVAILABILITY_THRESHOLD,
-)
-
-
 async def _warmup_proxy_cores_after_startup(delay_seconds: float = 1.0) -> None:
     try:
         if delay_seconds > 0:
@@ -1109,6 +1095,20 @@ if LOG_TO_FILE:
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 
+
+
+_SUBSCRIPTION_REFRESH_SERVICE = SubscriptionRefreshService(
+    groups_loader=db.get_subscription_groups,
+    nodes_loader=_saved_subscription_nodes_for_auto_refresh,
+    exits_loader=_dispatcher_exits_for_auto_refresh,
+    fetcher=_fetch_subscription_for_auto_refresh,
+    applier=_apply_auto_refreshed_subscription_nodes,
+    group_counter_updater=db.update_subscription_group_servers,
+    logger=logger,
+    interval_seconds=SUBSCRIPTION_REFRESH_INTERVAL_SECONDS,
+    cooldown_seconds=SUBSCRIPTION_REFRESH_COOLDOWN_SECONDS,
+    availability_threshold=SUBSCRIPTION_REFRESH_AVAILABILITY_THRESHOLD,
+)
 
 
 # ===== 统计数据 =====
