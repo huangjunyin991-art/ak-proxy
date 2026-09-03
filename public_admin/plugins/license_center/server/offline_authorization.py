@@ -8,7 +8,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from public_admin.deploy.env.ensure_env import EnvFile, ensure_env
+from public_admin.deploy.env.ensure_env import (
+    DEFAULT_LEGACY_ENV_FILE,
+    EnvFile,
+    ensure_env,
+    reconcile_authorization_env,
+)
 
 
 PRIVATE_KEY_ENV = "LICENSE_AUTO_SELL_SIGNING_PRIVATE_KEY"
@@ -45,17 +50,23 @@ def _unquote_env_value(value: str) -> str:
 
 def ensure_auto_sell_signing_private_key() -> str:
     """Generate the deployment signing key once, without replacing an existing value."""
+    env_file = Path(os.environ.get("AK_PROXY_ENV_FILE") or DEFAULT_ENV_FILE)
+    legacy_file = Path(os.environ.get("AK_PROXY_LEGACY_ENV_FILE") or DEFAULT_LEGACY_ENV_FILE)
+    reconcile_authorization_env(str(env_file), str(legacy_file))
+
     configured = str(os.environ.get(PRIVATE_KEY_ENV) or "").strip()
     if configured:
+        persisted = _unquote_env_value(EnvFile(str(env_file)).get(PRIVATE_KEY_ENV))
+        if persisted and persisted != configured:
+            raise RuntimeError(f"{PRIVATE_KEY_ENV} differs between process environment and {env_file}")
         return configured
     if PRIVATE_KEY_ENV in os.environ:
         raise RuntimeError(f"{PRIVATE_KEY_ENV} is explicitly empty")
 
-    env_file = Path(os.environ.get("AK_PROXY_ENV_FILE") or DEFAULT_ENV_FILE)
     saved_env = EnvFile(str(env_file))
     if saved_env.has(PRIVATE_KEY_ENV) and not _unquote_env_value(saved_env.get(PRIVATE_KEY_ENV)):
         raise RuntimeError(f"{PRIVATE_KEY_ENV} is explicitly empty")
-    ensure_env(str(env_file), only_keys={PRIVATE_KEY_ENV})
+    ensure_env(str(env_file), only_keys={PRIVATE_KEY_ENV}, legacy_env_path=str(legacy_file))
     persisted = _unquote_env_value(EnvFile(str(env_file)).get(PRIVATE_KEY_ENV))
     if not persisted:
         raise RuntimeError(f"missing {PRIVATE_KEY_ENV} after deployment initialization")

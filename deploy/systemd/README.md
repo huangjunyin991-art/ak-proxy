@@ -26,4 +26,6 @@ sudo systemctl restart ak-proxy
   password fails at service startup instead of causing a restart loop later.
 - 进程级资源守卫会在文件描述符持续达到 85%（默认 15 秒）时发送 `SIGTERM`，
   由 systemd 自动重启；systemd 同时限制 5 分钟内最多连续启动 5 次，避免重启风暴。
+- 服务启动前会检查旧路径 `/etc/ak-proxy.env` 的授权签名配置：规范文件缺失时只迁移旧值，
+  新旧值冲突时拒绝启动并仅输出指纹，防止重新部署时静默更换授权密钥。
 - If `NOTIFY_CENTER_INTERNAL_SECRET` is missing, token verification for `/admin/api/ak_auth/switch_by_token` will fail.

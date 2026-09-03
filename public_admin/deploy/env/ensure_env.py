@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import os
 import re
 import secrets
@@ -180,6 +181,13 @@ CATEGORY_SECRET = "secret"
 CATEGORY_SWITCH = "switch"
 CATEGORY_OPTIONAL = "optional"
 
+AUTHORIZATION_KEYS = (
+    "LICENSE_AUTO_SELL_SIGNING_PRIVATE_KEY",
+    "LICENSE_AUTO_SELL_SIGNING_PUBLIC_KEY",
+    "LICENSE_AUTO_SELL_SIGNING_KEY_ID",
+)
+DEFAULT_LEGACY_ENV_FILE = "/etc/ak-proxy.env"
+
 
 def _gen_nothing() -> str:
     return ""
@@ -251,12 +259,67 @@ VARS: list[tuple[str, callable, str]] = [
 # Core logic
 # ---------------------------------------------------------------------------
 
+def _secret_fingerprint(value: str) -> str:
+    """Return a short non-reversible fingerprint for diagnostics."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _normalized_env_value(value: str) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        return text[1:-1]
+    return text
+
+
+def reconcile_authorization_env(env_path: str, legacy_env_path: str | None = None) -> list[str]:
+    """Migrate legacy signing settings and reject ambiguous key rotations.
+
+    Missing canonical values are copied from the legacy file.  Non-empty
+    values present in both files must match.  Explicitly empty canonical
+    private keys are rejected so a deployment cannot silently rotate keys.
+    """
+    canonical = EnvFile(env_path)
+    legacy_path = legacy_env_path or DEFAULT_LEGACY_ENV_FILE
+    legacy = EnvFile(legacy_path) if legacy_path != env_path else EnvFile("")
+    changed: list[str] = []
+
+    private = AUTHORIZATION_KEYS[0]
+    if canonical.has(private) and not _normalized_env_value(canonical.get(private)):
+        raise RuntimeError(f"{private} is explicitly empty in {env_path}")
+
+    conflicts: list[str] = []
+    for key in AUTHORIZATION_KEYS:
+        current = _normalized_env_value(canonical.get(key))
+        previous = _normalized_env_value(legacy.get(key))
+        if current and previous and current != previous:
+            conflicts.append(
+                f"{key}: canonical={_secret_fingerprint(current)} legacy={_secret_fingerprint(previous)}"
+            )
+            continue
+        if not current and previous:
+            canonical.upsert(key, previous)
+            changed.append(key)
+
+    if conflicts:
+        raise RuntimeError("authorization key conflict; refusing automatic rotation (" + "; ".join(conflicts) + ")")
+
+    if changed:
+        os.makedirs(os.path.dirname(env_path) or ".", exist_ok=True)
+        canonical.save(quiet=True)
+    return changed
+
+
 def ensure_env(
     env_path: str,
     dry_run: bool = False,
     only_keys: set[str] | None = None,
+    legacy_env_path: str | None = None,
 ) -> None:
     env = EnvFile(env_path)
+
+    if not dry_run:
+        reconcile_authorization_env(env_path, legacy_env_path)
+        env = EnvFile(env_path)
 
     os.makedirs(os.path.dirname(env_path), exist_ok=True)
 
@@ -328,10 +391,15 @@ def main() -> None:
         action="store_true",
         help="Print what would be generated without writing to disk",
     )
+    parser.add_argument(
+        "--legacy-env-file",
+        default=DEFAULT_LEGACY_ENV_FILE,
+        help="旧版环境文件路径（默认: /etc/ak-proxy.env）",
+    )
     args = parser.parse_args()
 
     try:
-        ensure_env(args.env_file, dry_run=args.dry_run)
+        ensure_env(args.env_file, dry_run=args.dry_run, legacy_env_path=args.legacy_env_file)
     except Exception as e:
         print(f"[ensure_env] ERROR: {e}", file=sys.stderr)
         sys.exit(1)

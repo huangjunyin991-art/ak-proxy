@@ -12,11 +12,14 @@ WorkingDirectory=/home/ubuntu/ak-proxy
 # Load the canonical deployment environment.  Required credentials must not
 # silently degrade to empty values when the file is missing.
 EnvironmentFile=/etc/ak-proxy/ak-proxy.env
+Environment=AK_PROXY_ENV_FILE=/etc/ak-proxy/ak-proxy.env
+Environment=AK_PROXY_LEGACY_ENV_FILE=/etc/ak-proxy.env
 # proxy_server imports the plugin namespace as a top-level package.
 # Keep both the repository root and plugin root on the service import path.
 Environment=PYTHONPATH=/home/ubuntu/ak-proxy/public_admin:/home/ubuntu/ak-proxy
 
 # venv + run entrypoint
+ExecStartPre=+/home/ubuntu/ak-proxy/venv/bin/python /home/ubuntu/ak-proxy/public_admin/deploy/env/ensure_env.py --env-file /etc/ak-proxy/ak-proxy.env --legacy-env-file /etc/ak-proxy.env
 ExecStart=/home/ubuntu/ak-proxy/venv/bin/python -m public_admin.server.proxy_server
 Restart=always
 RestartSec=5

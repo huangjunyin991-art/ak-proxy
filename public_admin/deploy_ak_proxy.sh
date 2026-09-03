@@ -47,8 +47,11 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=-${ENV_FILE}
+Environment="AK_PROXY_ENV_FILE=${ENV_FILE}"
+Environment="AK_PROXY_LEGACY_ENV_FILE=${AK_PROXY_LEGACY_ENV_FILE:-/etc/ak-proxy.env}"
 Environment="PATH=${VENV_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=${VENV_BIN}/python proxy_server.py
+ExecStartPre=+${VENV_BIN}/python ${APP_DIR}/deploy/env/ensure_env.py --env-file ${ENV_FILE} --legacy-env-file ${AK_PROXY_LEGACY_ENV_FILE:-/etc/ak-proxy.env}
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
@@ -72,7 +75,7 @@ echo "[OK] 日志文件权限已设置: $LOG_FILE"
 # ===== [3/8] 自动生成缺失的环境变量 =====
 echo -e "\n[3/8] 自动生成缺失的环境变量..."
 if [ -f "$ENSURE_ENV_SCRIPT" ]; then
-    bash "$ENSURE_ENV_SCRIPT" --env-file "$ENV_FILE"
+    bash "$ENSURE_ENV_SCRIPT" --env-file "$ENV_FILE" --legacy-env-file "${AK_PROXY_LEGACY_ENV_FILE:-/etc/ak-proxy.env}"
 else
     echo "[WARN] ensure_env.sh not found, skipping auto env generation"
 fi

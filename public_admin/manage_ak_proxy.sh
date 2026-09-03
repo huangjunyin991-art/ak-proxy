@@ -6,6 +6,7 @@ REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 SERVICE_NAME="${AK_PROXY_SERVICE_NAME:-ak-proxy}"
 SERVICE_USER="${AK_PROXY_SERVICE_USER:-$(id -un)}"
 APP_DIR="$REPO_DIR/public_admin"
+ENSURE_ENV_SCRIPT="$APP_DIR/deploy/env/ensure_env.sh"
 VENV_BIN="${VENV_BIN:-$REPO_DIR/venv/bin}"
 ENV_DIR="${AK_PROXY_ENV_DIR:-/etc/ak-proxy}"
 ENV_FILE="${AK_PROXY_ENV_FILE:-$ENV_DIR/ak-proxy.env}"
@@ -132,6 +133,19 @@ escape_env_value() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+upsert_env_value() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    local escaped
+    escaped="$(escape_env_value "$value" | sed 's/[&|]/\\&/g')"
+    if sudo grep -qE "^[[:space:]]*${key}=" "$file"; then
+        sudo sed -i -E "0,/^[[:space:]]*${key}=.*/s|^[[:space:]]*${key}=.*|${key}=\"${escaped}\"|" "$file"
+    else
+        printf '%s="%s"\n' "$key" "$(escape_env_value "$value")" | sudo tee -a "$file" >/dev/null
+    fi
+}
+
 generate_license_admin_key() {
     if command -v openssl >/dev/null 2>&1; then
         openssl rand -hex 32
@@ -217,17 +231,20 @@ write_env_file() {
     local db_password="$3"
     local tmp_file
     tmp_file="$(mktemp)"
-    {
-        printf 'ADMIN_PASSWORD="%s"\n' "$(escape_env_value "$admin_password")"
-        printf 'DB_SECONDARY_PASSWORD="%s"\n' "$(escape_env_value "$secondary_password")"
-        printf 'AK_PROXY_DB_PASSWORD="%s"\n' "$(escape_env_value "$db_password")"
-        if [ -n "$LICENSE_SERVER_URL_VALUE" ]; then
-            printf 'LICENSE_SERVER_URL="%s"\n' "$(escape_env_value "$LICENSE_SERVER_URL_VALUE")"
-        fi
-        if [ -n "$LICENSE_ADMIN_KEY_VALUE" ]; then
-            printf 'LICENSE_ADMIN_KEY="%s"\n' "$(escape_env_value "$LICENSE_ADMIN_KEY_VALUE")"
-        fi
-    } > "$tmp_file"
+    # Keep every existing setting (especially signing keys) when updating
+    # operator-managed credentials.  Replacing the file caused key rotation.
+    if [ -f "$ENV_FILE" ]; then
+        sudo cat "$ENV_FILE" > "$tmp_file"
+    fi
+    upsert_env_value "$tmp_file" ADMIN_PASSWORD "$admin_password"
+    upsert_env_value "$tmp_file" DB_SECONDARY_PASSWORD "$secondary_password"
+    upsert_env_value "$tmp_file" AK_PROXY_DB_PASSWORD "$db_password"
+    if [ -n "$LICENSE_SERVER_URL_VALUE" ]; then
+        upsert_env_value "$tmp_file" LICENSE_SERVER_URL "$LICENSE_SERVER_URL_VALUE"
+    fi
+    if [ -n "$LICENSE_ADMIN_KEY_VALUE" ]; then
+        upsert_env_value "$tmp_file" LICENSE_ADMIN_KEY "$LICENSE_ADMIN_KEY_VALUE"
+    fi
     sudo install -d -m 700 -o root -g root "$ENV_DIR"
     sudo install -m 600 -o root -g root "$tmp_file" "$ENV_FILE"
     rm -f "$tmp_file"
@@ -247,8 +264,11 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
+Environment="AK_PROXY_ENV_FILE=${ENV_FILE}"
+Environment="AK_PROXY_LEGACY_ENV_FILE=${AK_PROXY_LEGACY_ENV_FILE:-/etc/ak-proxy.env}"
 Environment="PATH=${VENV_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=${VENV_BIN}/python proxy_server.py
+ExecStartPre=+${VENV_BIN}/python ${APP_DIR}/deploy/env/ensure_env.py --env-file ${ENV_FILE} --legacy-env-file ${AK_PROXY_LEGACY_ENV_FILE:-/etc/ak-proxy.env}
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
@@ -302,6 +322,12 @@ validate_domain
 validate_license_url
 
 if [ "$SKIP_ENV" -eq 0 ]; then
+    if [ -f "$ENSURE_ENV_SCRIPT" ]; then
+        bash "$ENSURE_ENV_SCRIPT" --env-file "$ENV_FILE" --legacy-env-file "${AK_PROXY_LEGACY_ENV_FILE:-/etc/ak-proxy.env}"
+    else
+        echo "[ERROR] ensure_env.sh 不存在，拒绝在未保护授权密钥的情况下写环境文件" >&2
+        exit 1
+    fi
     ADMIN_PASSWORD_VALUE="$(read_secret ADMIN_PASSWORD "管理员主密码" "$ADMIN_PASSWORD_VALUE")"
     DB_SECONDARY_PASSWORD_VALUE="$(read_secret DB_SECONDARY_PASSWORD "数据库二级密码" "$DB_SECONDARY_PASSWORD_VALUE")"
     AK_PROXY_DB_PASSWORD_VALUE="$(read_secret AK_PROXY_DB_PASSWORD "PostgreSQL 数据库密码" "$AK_PROXY_DB_PASSWORD_VALUE")"
