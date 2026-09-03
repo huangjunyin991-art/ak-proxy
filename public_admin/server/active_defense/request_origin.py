@@ -9,6 +9,29 @@ from collections.abc import Iterable, Mapping
 DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8", "::1/128")
 _UNKNOWN_CLIENT_IP = "unknown"
 
+# Cloudflare publishes these edge ranges at https://www.cloudflare.com/ips/.
+# An edge address identifies a shared reverse proxy, never an individual user.
+CLOUDFLARE_EDGE_CIDRS = (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22",
+    "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+    "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22",
+    "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+    "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29",
+    "2c0f:f248::/32",
+)
+_CLOUDFLARE_EDGE_NETWORKS = tuple(ipaddress.ip_network(value) for value in CLOUDFLARE_EDGE_CIDRS)
+
+
+def is_cloudflare_edge_ip(value: str) -> bool:
+    """Return whether an address belongs to Cloudflare's shared edge fleet."""
+    try:
+        address = ipaddress.ip_address(str(value or "").strip())
+    except ValueError:
+        return False
+    return any(address in network for network in _CLOUDFLARE_EDGE_NETWORKS)
+
 
 class RequestOriginResolver:
     """Accept forwarded client headers only from the local reverse proxy.
@@ -34,6 +57,11 @@ class RequestOriginResolver:
 
         real_ip = self._normalize_ip(headers.get("x-real-ip", ""))
         if real_ip is not None and not real_ip.is_loopback:
+            if is_cloudflare_edge_ip(str(real_ip)):
+                # A missing Nginx real-IP configuration must fail closed for
+                # penalties. Otherwise unrelated users on one Cloudflare POP
+                # are placed into the same login-ban bucket.
+                return _UNKNOWN_CLIENT_IP
             return str(real_ip)
 
         # ``X-Real-IP`` is normally present because Nginx overwrites it. Keep
@@ -41,6 +69,8 @@ class RequestOriginResolver:
         for candidate in reversed(str(headers.get("x-forwarded-for", "")).split(",")):
             forwarded_ip = self._normalize_ip(candidate)
             if forwarded_ip is not None and not forwarded_ip.is_loopback:
+                if is_cloudflare_edge_ip(str(forwarded_ip)):
+                    return _UNKNOWN_CLIENT_IP
                 return str(forwarded_ip)
         return "unknown"
 
