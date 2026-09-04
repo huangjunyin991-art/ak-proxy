@@ -69,4 +69,4 @@ SOCKS5_EXITS = [
     # {"name": "新加坡_01", "port": 10003},
     # ... 请根据sing-box配置删除注释
 ]
-LOGIN_RATE_PER_EXIT = 10  # 每个出口IP每分钟最多登录次数
+LOGIN_RATE_PER_EXIT = 10  # 每个负载均衡出口节点每分钟最多登录次数
