@@ -4,6 +4,7 @@ from threading import RLock
 from typing import Any
 
 from .diagnostics import build_request_metrics_diagnostics
+from .inflight import get_inflight_count, get_inflight_snapshot
 from .models import RequestMetricEvent, RequestMetricsPolicy
 
 
@@ -82,6 +83,10 @@ class RequestMetricsService:
                 },
                 "diagnostics": diagnostics,
                 "items": items[:limit],
+                "in_flight": {
+                    "count": get_inflight_count(),
+                    "items": get_inflight_snapshot(limit=200),
+                },
             }
 
     def _reset_counters_locked(self) -> None:

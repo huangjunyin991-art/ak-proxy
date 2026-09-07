@@ -298,7 +298,13 @@ from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes import get_admin_index_plan_status, start_admin_index_plan_run
 from .performance.dispatcher_status.service import DispatcherStatusService
 from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
-from .performance.request_metrics import RequestMetricsConfigService, RequestMetricsService
+from .performance.request_metrics import (
+    RequestMetricsConfigService,
+    RequestMetricsService,
+    begin_current_request,
+    finish_current_request,
+    mark_current_request_stage,
+)
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .db.bulk_writer import get_bulk_writer_snapshot
 from .public_rpc_cache import CachedRpcResponse, StockPriceRpcCache
@@ -2641,29 +2647,54 @@ def _normalize_forwarded_client_ip(value: Any) -> str:
 
 @app.middleware("http")
 async def active_defense_response_status_middleware(request: Request, call_next):
-    response = await call_next(request)
-    if active_defense_service is None:
-        return response
-    if _is_trusted_first_party_rpc_request(request):
-        return response
+    request_id = begin_current_request(
+        request.method,
+        request.url.path,
+        request_id=str(request.headers.get("x-request-id") or ""),
+    )
+    mark_current_request_stage("handler_start", request_id=request_id)
+    response = None
+    error = ""
     try:
-        await _refresh_active_defense_policy()
-        decision = await active_defense_service.record_response_status(
-            _extract_client_ip(request),
-            request.url.path,
-            request.method,
-            int(getattr(response, "status_code", 0) or 0),
-            is_loopback=_is_loopback_ip,
-            is_banned=_is_ip_banned_for_penalty,
-            ban_ip=_ban_active_defense_ip,
+        response = await call_next(request)
+        mark_current_request_stage(
+            "handler_response_ready",
+            status_code=int(getattr(response, "status_code", 0) or 0),
         )
-        if decision.code == "recorded":
-            logger.warning(f"[ActiveDefense] 响应异常记录 ip={decision.ip} status={decision.status_code} count={decision.count}/{decision.threshold} path={request.url.path}")
-        elif decision.code == "response_anomaly_banned":
-            logger.warning(f"[ActiveDefense] 响应异常自动封禁IP ip={decision.ip} status={decision.status_code} count={decision.count} reason={decision.reason}")
-    except Exception as e:
-        logger.warning(f"[ActiveDefense] 响应异常策略检查失败，已跳过: {e}")
-    return response
+        if active_defense_service is None or request.url.path == "/api/status":
+            return response
+        if _is_trusted_first_party_rpc_request(request):
+            return response
+        try:
+            await asyncio.wait_for(_refresh_active_defense_policy(), timeout=1.0)
+            decision = await asyncio.wait_for(
+                active_defense_service.record_response_status(
+                    _extract_client_ip(request),
+                    request.url.path,
+                    request.method,
+                    int(getattr(response, "status_code", 0) or 0),
+                    is_loopback=_is_loopback_ip,
+                    is_banned=_is_ip_banned_for_penalty,
+                    ban_ip=_ban_active_defense_ip,
+                ),
+                timeout=1.0,
+            )
+            if decision.code == "recorded":
+                logger.warning(f"[ActiveDefense] 响应异常记录 ip={decision.ip} status={decision.status_code} count={decision.count}/{decision.threshold} path={request.url.path}")
+            elif decision.code == "response_anomaly_banned":
+                logger.warning(f"[ActiveDefense] 响应异常自动封禁IP ip={decision.ip} status={decision.status_code} count={decision.count} reason={decision.reason}")
+        except Exception as exc:
+            logger.warning(f"[ActiveDefense] 响应异常策略检查失败，已跳过: {exc}")
+        return response
+    except Exception as exc:
+        error = type(exc).__name__
+        mark_current_request_stage("handler_error", error=error)
+        raise
+    finally:
+        finish_current_request(
+            status_code=int(getattr(response, "status_code", 0) or 0),
+            error=error,
+        )
 
 
 
@@ -2734,6 +2765,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     """转发请求到真实API服务器（通过出口调度器选择出口IP）"""
 
+    mark_current_request_stage("forward_start", endpoint=api_path)
+
     url = AKAPI_URL + api_path
 
     # 从nginx传递的头中提取用户真实IP
@@ -2780,6 +2813,12 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
 
+    mark_current_request_stage(
+        "exit_selected",
+        endpoint=api_path,
+        exit_name=getattr(exit_obj, "name", ""),
+    )
+
     account = _extract_forward_account(params)
     request_timeout = (
         max(0.1, float(request_timeout_seconds))
@@ -2799,6 +2838,12 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         try:
 
+            mark_current_request_stage(
+                "dispatch_start",
+                endpoint=api_path,
+                exit_name=getattr(exit_obj, "name", ""),
+            )
+
             result = await dispatcher.forward(
 
                 exit_obj, method, url, fwd_headers,
@@ -2815,27 +2860,62 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
             exit_obj.confirm_login()
 
+            mark_current_request_stage(
+                "response_received",
+                endpoint=api_path,
+                exit_name=getattr(exit_obj, "name", ""),
+                status_code=getattr(result, "status_code", 0),
+            )
+
             return result
 
-        except Exception:
+        except Exception as exc:
+
+            mark_current_request_stage(
+                "forward_error",
+                endpoint=api_path,
+                exit_name=getattr(exit_obj, "name", ""),
+                error=type(exc).__name__,
+            )
 
             exit_obj.cancel_login()
 
             raise
 
-    return await dispatcher.forward(
-
-        exit_obj, method, url, fwd_headers,
-
-        content_type=content_type, params=params,
-
-        raw_body=raw_body, timeout=request_timeout, connect_timeout=connect_timeout,
-        client_ip=real_ip, account=account,
-        api_path=api_path,
-        max_tunnel_fallbacks=max_tunnel_fallbacks,
-        trace_id=trace_id,
-
+    mark_current_request_stage(
+        "dispatch_start",
+        endpoint=api_path,
+        exit_name=getattr(exit_obj, "name", ""),
     )
+    try:
+        response = await dispatcher.forward(
+
+            exit_obj, method, url, fwd_headers,
+
+            content_type=content_type, params=params,
+
+            raw_body=raw_body, timeout=request_timeout, connect_timeout=connect_timeout,
+            client_ip=real_ip, account=account,
+            api_path=api_path,
+            max_tunnel_fallbacks=max_tunnel_fallbacks,
+            trace_id=trace_id,
+
+        )
+        mark_current_request_stage(
+            "response_received",
+            endpoint=api_path,
+            exit_name=getattr(exit_obj, "name", ""),
+            status_code=getattr(response, "status_code", 0),
+        )
+        return response
+    except Exception as exc:
+        mark_current_request_stage(
+            "forward_error",
+            endpoint=api_path,
+            exit_name=getattr(exit_obj, "name", ""),
+            error=type(exc).__name__,
+        )
+        raise
 
 
 

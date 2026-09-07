@@ -15,6 +15,7 @@
 import socket
 import time
 import asyncio
+import os
 import logging
 import json
 import inspect
@@ -36,6 +37,12 @@ from .source_reachability import (
     source_probe_policy_for_protocol,
 )
 from .ak_sell.trace import classify_delivery_state, emit_trace, exception_snapshot, transport_phase
+
+try:
+    from .performance.request_metrics import mark_current_request_stage
+except Exception:  # pragma: no cover - keep dispatcher usable in isolation/tests
+    def mark_current_request_stage(stage: str, **fields):
+        return False
 
 try:
     from .dispatcher_policy import (
@@ -60,6 +67,12 @@ except Exception as e:
 
 logger = logging.getLogger("TransparentProxy")
 CLIENT_PREPARE_TIMEOUT_SECONDS = 0.5
+try:
+    CLIENT_RETIRE_TIMEOUT_SECONDS = max(
+        0.1, float(os.environ.get("AK_CLIENT_RETIRE_TIMEOUT_SECONDS", "1.0") or 1.0)
+    )
+except (TypeError, ValueError):
+    CLIENT_RETIRE_TIMEOUT_SECONDS = 1.0
 
 # 需要告警的HTTP状态码
 ALERT_STATUS_CODES = {
@@ -469,16 +482,43 @@ class OutboundExit:
                 return "idle"
         return ""
 
+    async def _aclose_client_bounded(self, client: httpx.AsyncClient, reason: str) -> bool:
+        """Close a pool without allowing a stuck transport to hold the lock."""
+        close_task = asyncio.create_task(client.aclose(), name=f"ak-close-client-{self.name}")
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(close_task),
+                timeout=CLIENT_RETIRE_TIMEOUT_SECONDS,
+            )
+            return True
+        except asyncio.TimeoutError:
+            # Do not await a transport that ignores cancellation: this method
+            # is called while holding ``_client_lock`` and must return promptly.
+            close_task.cancel()
+            close_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+            logger.error(
+                "[Dispatcher] 出口客户端关闭超时，已放弃等待 exit=%s reason=%s timeout=%.1fs",
+                self.name,
+                reason,
+                CLIENT_RETIRE_TIMEOUT_SECONDS,
+            )
+            return False
+        except Exception as exc:
+            logger.debug(
+                "[Dispatcher] 出口客户端关闭异常 exit=%s reason=%s error=%s",
+                self.name,
+                reason,
+                type(exc).__name__,
+            )
+            return False
+
     async def _close_client_locked(self, reason: str = "closed") -> bool:
         client = self._client
         if client and not self._client_can_close(client):
             return False
         self._client = None
         if client and not client.is_closed:
-            try:
-                await client.aclose()
-            except Exception:
-                pass
+            await self._aclose_client_bounded(client, reason)
             self._client_retire_count += 1
             self._client_last_retire_reason = reason
             self._client_leases.pop(id(client), None)
@@ -497,10 +537,7 @@ class OutboundExit:
                 if not self._client_can_close(client):
                     remaining.append(client)
                     continue
-                try:
-                    await client.aclose()
-                except Exception:
-                    pass
+                await self._aclose_client_bounded(client, reason)
                 closed += 1
                 self._client_leases.pop(id(client), None)
         self._retired_clients = remaining
@@ -1745,6 +1782,12 @@ class OutboundDispatcher:
                 connect_timeout_seconds=connect_timeout,
                 request_bytes=len(raw_body or b""),
             )
+            mark_current_request_stage(
+                "dispatch_attempt_started",
+                endpoint=api_path,
+                attempt_no=attempt_index + 1,
+                exit_name=current_exit.name,
+            )
             try:
                 # Creating/replacing a pooled client is local preparation, not
                 # part of the upstream request deadline.  It is separated here
@@ -1766,6 +1809,13 @@ class OutboundDispatcher:
                     client_prepare_ms=client_prepare_ms,
                     client_generation=current_exit.client_request_state(client).get("client_generation", ""),
                 )
+                mark_current_request_stage(
+                    "dispatch_client_ready",
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
+                    client_prepare_ms=client_prepare_ms,
+                )
                 send_started_at = time.perf_counter()
                 emit_trace(
                     logger,
@@ -1775,6 +1825,13 @@ class OutboundDispatcher:
                     attempt_no=attempt_index + 1,
                     exit_name=current_exit.name,
                     request_bytes=len(raw_body or b""),
+                    client_prepare_ms=client_prepare_ms,
+                )
+                mark_current_request_stage(
+                    "request_send_started",
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
                     client_prepare_ms=client_prepare_ms,
                 )
                 do_request = self._do_request
@@ -1884,6 +1941,14 @@ class OutboundDispatcher:
                 }
                 error_fields.update(exception_snapshot(e))
                 emit_trace(logger, "dispatch_exception", trace_id, **error_fields)
+                mark_current_request_stage(
+                    "dispatch_exception",
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
+                    error=type(e).__name__,
+                    delivery_state=delivery_state,
+                )
                 if not current_exit.is_direct and not request_may_have_reached_upstream and not isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, LoginUpstreamStatusRetryError, UpstreamStatusRetryError)):
                     self._record_connect_failure(current_exit, str(e))
                 if request_may_have_reached_upstream:
@@ -1913,7 +1978,42 @@ class OutboundDispatcher:
                 if client is not None:
                     current_exit.release_client(client)
                 current_exit.active -= 1
-                await current_exit.finalize_client_retirement()
+                mark_current_request_stage(
+                    "client_retire_start",
+                    endpoint=api_path,
+                    attempt_no=attempt_index + 1,
+                    exit_name=current_exit.name,
+                )
+                try:
+                    await asyncio.wait_for(
+                        current_exit.finalize_client_retirement(),
+                        timeout=CLIENT_RETIRE_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "[Dispatcher] 出口客户端回收超时，跳过本次回收 exit=%s timeout=%.1fs",
+                        current_exit.name,
+                        CLIENT_RETIRE_TIMEOUT_SECONDS,
+                    )
+                    mark_current_request_stage(
+                        "client_retire_timeout",
+                        endpoint=api_path,
+                        attempt_no=attempt_index + 1,
+                        exit_name=current_exit.name,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[Dispatcher] 出口客户端回收失败 exit=%s error=%s",
+                        current_exit.name,
+                        type(exc).__name__,
+                    )
+                else:
+                    mark_current_request_stage(
+                        "client_retire_done",
+                        endpoint=api_path,
+                        attempt_no=attempt_index + 1,
+                        exit_name=current_exit.name,
+                    )
         if last_403_response is not None:
             return last_403_response
         if last_error:
