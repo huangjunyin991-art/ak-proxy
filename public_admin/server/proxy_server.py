@@ -2652,7 +2652,7 @@ async def active_defense_response_status_middleware(request: Request, call_next)
         request.url.path,
         request_id=str(request.headers.get("x-request-id") or ""),
     )
-    mark_current_request_stage("handler_start", request_id=request_id)
+    mark_current_request_stage("handler_start")
     response = None
     error = ""
     try:

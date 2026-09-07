@@ -42,8 +42,8 @@ class InFlightRequestRegistry:
             }
         return token
 
-    def update(self, request_id: str, stage: str, **fields: Any) -> bool:
-        token = str(request_id or "").strip()
+    def update(self, token: str, stage: str, **fields: Any) -> bool:
+        token = str(token or "").strip()
         if not token:
             return False
         with self._lock:

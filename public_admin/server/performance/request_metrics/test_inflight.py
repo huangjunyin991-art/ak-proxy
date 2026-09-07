@@ -23,6 +23,13 @@ def test_inflight_registry_tracks_stage_and_age():
     assert registry.count() == 0
 
 
+def test_stage_fields_can_include_request_id():
+    registry = InFlightRequestRegistry(max_records=100)
+    token = registry.begin("GET", "/health")
+    assert registry.update(token, "handler_start", request_id=token)
+    assert registry.snapshot()[0]["request_id"] == token
+
+
 def test_inflight_registry_evicts_oldest_when_full():
     registry = InFlightRequestRegistry(max_records=100)
     registry.max_records = 1
