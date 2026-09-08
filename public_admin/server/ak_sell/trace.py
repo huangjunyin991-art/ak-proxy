@@ -87,7 +87,7 @@ def classify_delivery_state(exc: BaseException | None) -> str:
     return "unknown_delivery"
 
 
-def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
+def exception_snapshot(exc: BaseException | None) -> dict[str, Any]:
     """Return bounded, credential-free exception details for logs and diagnostics.
 
     httpx commonly wraps the useful socket/anyio exception one or more levels
@@ -136,6 +136,13 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, str]:
             snapshot["transport_origin"] = "unknown"
     elif exc.__class__.__name__ in _UNCERTAIN_DELIVERY_ERROR_NAMES:
         snapshot["transport_origin"] = "unknown"
+    http_trace = getattr(exc, "_ak_http_trace", None)
+    if isinstance(http_trace, dict):
+        snapshot["http_trace"] = {
+            str(key)[:80]: value
+            for key, value in http_trace.items()
+            if isinstance(value, (str, int, float, bool))
+        }
     return snapshot
 
 

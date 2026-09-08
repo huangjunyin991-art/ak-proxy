@@ -1901,6 +1901,7 @@ class OutboundDispatcher:
                     elapsed_ms=int((time.perf_counter() - attempt_started_at) * 1000),
                     send_wait_ms=int((time.perf_counter() - send_started_at) * 1000) if send_started_at is not None else 0,
                     client_prepare_ms=client_prepare_ms,
+                    http_trace=resp.extensions.get("ak_transport_trace", {}),
                     delivery_state="response_received",
                 )
                 if (
@@ -2031,20 +2032,92 @@ class OutboundDispatcher:
             timeout,
             connect=resolve_connect_timeout(timeout, connect_timeout_seconds=connect_timeout),
         )
+        trace_started_at = time.perf_counter()
+        transport_trace: dict[str, object] = {}
+
+        def _trace(event_name: str, info: dict) -> None:
+            """Collect httpcore phase timings without logging request data."""
+            parts = str(event_name or "").rsplit(".", 1)
+            if len(parts) != 2:
+                return
+            operation, event = parts
+            phase = operation.rsplit(".", 1)[-1]
+            if phase not in {
+                "connect_tcp", "start_tls", "send_request_headers", "send_request_body",
+                "receive_response_headers", "receive_response_body", "response_closed",
+            }:
+                return
+            now_ms = int((time.perf_counter() - trace_started_at) * 1000)
+            if event == "started":
+                transport_trace[f"{phase}_started_ms"] = now_ms
+                mark_current_request_stage(
+                    f"upstream_{phase}_started",
+                    endpoint=url.rsplit("/RPC/", 1)[-1][:80],
+                )
+            elif event == "complete":
+                transport_trace[f"{phase}_completed_ms"] = now_ms
+                started_ms = transport_trace.get(f"{phase}_started_ms")
+                if isinstance(started_ms, int):
+                    transport_trace[f"{phase}_ms"] = max(0, now_ms - started_ms)
+                mark_current_request_stage(
+                    f"upstream_{phase}_completed",
+                    endpoint=url.rsplit("/RPC/", 1)[-1][:80],
+                    phase_ms=transport_trace.get(f"{phase}_ms", 0),
+                )
+            elif event == "failed":
+                transport_trace[f"{phase}_failed_ms"] = now_ms
+                error = info.get("exception") if isinstance(info, dict) else None
+                transport_trace[f"{phase}_error"] = type(error).__name__ if error else "unknown"
+                mark_current_request_stage(
+                    f"upstream_{phase}_failed",
+                    endpoint=url.rsplit("/RPC/", 1)[-1][:80],
+                    error=transport_trace[f"{phase}_error"],
+                )
+
+        def _request_extensions() -> dict[str, object]:
+            return {"trace": _trace}
         try:
             # httpx's read timeout is an idle timeout, not an end-to-end request
             # deadline.  Once the shared exit client is ready, bound the whole
             # connect/write/read exchange just like the browser XHR timeout.
             async with asyncio.timeout(max(0.1, float(timeout or 0.0))):
-                if method == "GET":
-                    return await client.get(url, params=params, headers=headers, timeout=req_timeout)
-                if "application/json" in (content_type or ""):
+                # Keep lightweight test/extension clients compatible. Real
+                # httpx clients support build_request/send and receive the
+                # httpcore phase callback below.
+                if not hasattr(client, "build_request") or not hasattr(client, "send"):
+                    if method == "GET":
+                        return await client.get(url, params=params, headers=headers, timeout=req_timeout)
+                    if "application/json" in (content_type or ""):
+                        if raw_body:
+                            return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
+                        return await client.post(url, json=params, headers=headers, timeout=req_timeout)
                     if raw_body:
                         return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
-                    return await client.post(url, json=params, headers=headers, timeout=req_timeout)
-                if raw_body:
-                    return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
-                return await client.post(url, data=params, headers=headers, timeout=req_timeout)
+                    return await client.post(url, data=params, headers=headers, timeout=req_timeout)
+                if method == "GET":
+                    request = client.build_request(
+                        method, url, params=params, headers=headers, timeout=req_timeout,
+                        extensions=_request_extensions(),
+                    )
+                elif "application/json" in (content_type or ""):
+                    request = client.build_request(
+                        method, url, content=raw_body if raw_body else None,
+                        json=None if raw_body else params, headers=headers, timeout=req_timeout,
+                        extensions=_request_extensions(),
+                    )
+                elif raw_body:
+                    request = client.build_request(
+                        method, url, content=raw_body, headers=headers, timeout=req_timeout,
+                        extensions=_request_extensions(),
+                    )
+                else:
+                    request = client.build_request(
+                        method, url, data=params, headers=headers, timeout=req_timeout,
+                        extensions=_request_extensions(),
+                    )
+                response = await client.send(request)
+                response.extensions["ak_transport_trace"] = dict(transport_trace)
+                return response
         except TimeoutError as exc:
             deadline = max(0.1, float(timeout or 0.0))
             timeout_error = httpx.ReadTimeout(
@@ -2056,6 +2129,7 @@ class OutboundDispatcher:
             # asyncio.timeout wraps the original socket cancellation. Preserve
             # the furthest phase visible in that nested chain for diagnostics.
             timeout_error._ak_transport_phase = transport_phase(exc)
+            timeout_error._ak_http_trace = dict(transport_trace)
             timeout_error.__cause__ = exc
             raise timeout_error
         except Exception as exc:
@@ -2065,6 +2139,7 @@ class OutboundDispatcher:
             try:
                 setattr(exc, "_ak_client_state", exit_obj.client_request_state(client))
                 setattr(exc, "_ak_transport_phase", transport_phase(exc))
+                setattr(exc, "_ak_http_trace", dict(transport_trace))
             except Exception:
                 pass
             raise

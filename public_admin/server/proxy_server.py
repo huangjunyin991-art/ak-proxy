@@ -4407,6 +4407,7 @@ async def proxy_rpc(path: str, request: Request):
                     "content_type": response.headers.get("content-type", ""),
                     "request_id": ak_sell_request_id,
                     "delivery_state": "response_received",
+                    "http_trace": response.extensions.get("ak_transport_trace", {}),
                     "exit_group": getattr(selected_exit, "group_name", "") or getattr(selected_exit, "group_id", "") or getattr(selected_exit, "name", ""),
                     "local_port": getattr(selected_exit, "local_port", 0),
                 },
