@@ -2035,7 +2035,7 @@ class OutboundDispatcher:
         trace_started_at = time.perf_counter()
         transport_trace: dict[str, object] = {}
 
-        def _trace(event_name: str, info: dict) -> None:
+        async def _trace(event_name: str, info: dict) -> None:
             """Collect httpcore phase timings without logging request data."""
             parts = str(event_name or "").rsplit(".", 1)
             if len(parts) != 2:
