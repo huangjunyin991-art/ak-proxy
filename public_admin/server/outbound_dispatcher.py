@@ -73,6 +73,7 @@ try:
     )
 except (TypeError, ValueError):
     CLIENT_RETIRE_TIMEOUT_SECONDS = 1.0
+CLIENT_CANCEL_GRACE_SECONDS = 0.25
 
 # 需要告警的HTTP状态码
 ALERT_STATUS_CODES = {
@@ -1864,9 +1865,10 @@ class OutboundDispatcher:
                             account,
                             attempt_index + 1,
                         )
-                        raise LoginUpstreamNonJsonError(
-                            UPSTREAM_NETWORK_ERROR_MESSAGE
-                        )
+                        error = LoginUpstreamNonJsonError(UPSTREAM_NETWORK_ERROR_MESSAGE)
+                        error._ak_http_trace = dict(resp.extensions.get("ak_transport_trace", {}))
+                        error._ak_transport_phase = "response"
+                        raise error
                     self._record_rpc_non_json_response(
                         current_exit,
                         resp,
@@ -1875,7 +1877,10 @@ class OutboundDispatcher:
                         account,
                         attempt_index + 1,
                     )
-                    raise RpcUpstreamNonJsonError(UPSTREAM_NETWORK_ERROR_MESSAGE)
+                    error = RpcUpstreamNonJsonError(UPSTREAM_NETWORK_ERROR_MESSAGE)
+                    error._ak_http_trace = dict(resp.extensions.get("ak_transport_trace", {}))
+                    error._ak_transport_phase = "response"
+                    raise error
                 if int(resp.status_code or 0) == 403:
                     last_403_response = resp
                     if attempt_index + 1 < len(attempts):
@@ -2080,11 +2085,14 @@ class OutboundDispatcher:
             # httpx's read timeout is an idle timeout, not an end-to-end request
             # deadline.  Once the shared exit client is ready, bound the whole
             # connect/write/read exchange just like the browser XHR timeout.
-            async with asyncio.timeout(max(0.1, float(timeout or 0.0))):
+            deadline = max(0.1, float(timeout or 0.0))
+            legacy_client = not hasattr(client, "build_request") or not hasattr(client, "send")
+            outer_deadline = deadline if legacy_client else deadline + CLIENT_CANCEL_GRACE_SECONDS + 0.5
+            async with asyncio.timeout(outer_deadline):
                 # Keep lightweight test/extension clients compatible. Real
                 # httpx clients support build_request/send and receive the
                 # httpcore phase callback below.
-                if not hasattr(client, "build_request") or not hasattr(client, "send"):
+                if legacy_client:
                     if method == "GET":
                         return await client.get(url, params=params, headers=headers, timeout=req_timeout)
                     if "application/json" in (content_type or ""):
@@ -2115,7 +2123,47 @@ class OutboundDispatcher:
                         method, url, data=params, headers=headers, timeout=req_timeout,
                         extensions=_request_extensions(),
                     )
-                response = await client.send(request)
+                send_task = asyncio.create_task(client.send(request), name="ak-upstream-request")
+                done, _pending = await asyncio.wait(
+                    {send_task},
+                    timeout=max(0.1, float(timeout or 0.0)),
+                )
+                if not done:
+                    send_task.cancel()
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(send_task),
+                            timeout=CLIENT_CANCEL_GRACE_SECONDS,
+                        )
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        pass
+                    cancel_pending = not send_task.done()
+                    if cancel_pending:
+                        logger.error(
+                            "[Dispatcher] 上游请求取消未及时完成，将退休客户端 exit=%s",
+                            exit_obj.name,
+                        )
+                    timeout_error = httpx.ReadTimeout(
+                        f"total request deadline exceeded after {max(0.1, float(timeout or 0.0)):.3g}s"
+                    )
+                    timeout_error._ak_timeout_scope = "total_deadline"
+                    timeout_error._ak_deadline_seconds = max(0.1, float(timeout or 0.0))
+                    timeout_error._ak_client_state = exit_obj.client_request_state(client)
+                    if "receive_response_headers_started_ms" in transport_trace:
+                        timeout_error._ak_transport_phase = "read"
+                    elif "send_request_body_started_ms" in transport_trace:
+                        timeout_error._ak_transport_phase = "write"
+                    elif "start_tls_started_ms" in transport_trace or "connect_tcp_started_ms" in transport_trace:
+                        timeout_error._ak_transport_phase = "connect"
+                    else:
+                        timeout_error._ak_transport_phase = "unknown"
+                    timeout_error._ak_http_trace = dict(transport_trace)
+                    timeout_error._ak_cancel_pending = cancel_pending
+                    timeout_error.__cause__ = TimeoutError("hard deadline reached")
+                    raise timeout_error
+                response = await send_task
                 response.extensions["ak_transport_trace"] = dict(transport_trace)
                 return response
         except TimeoutError as exc:

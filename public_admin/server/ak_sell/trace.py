@@ -119,6 +119,8 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, Any]:
     if timeout_scope:
         snapshot["timeout_scope"] = timeout_scope
         snapshot["deadline_seconds"] = _safe_value(getattr(exc, "_ak_deadline_seconds", ""))
+    if hasattr(exc, "_ak_cancel_pending"):
+        snapshot["cancel_pending"] = _safe_value(getattr(exc, "_ak_cancel_pending"))
     if isinstance(client_state, dict):
         for key in (
             "client_closed", "client_retired", "client_current", "client_generation",
