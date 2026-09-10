@@ -1180,7 +1180,36 @@ async def test_connect_failure_before_dispatch_retries_another_exit():
     )
 
     assert attempts == ["connect-failed", "fallback"]
+    assert response.extensions["ak_exit_name"] == "fallback"
     assert response.json()["Data"]["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_exception_after_fallback_identifies_actual_exit():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "connect-failed", 10001)
+    _add_ready_socks5(dispatcher, "fallback", 10002)
+
+    async def fake_request(exit_obj, *_args, **_kwargs):
+        if exit_obj.name == "connect-failed":
+            raise httpx.ConnectError("proxy connection failed")
+        raise httpx.ReadTimeout("upstream response timed out")
+
+    dispatcher._do_request = fake_request
+
+    with pytest.raises(httpx.ReadTimeout) as captured:
+        await dispatcher.forward(
+            dispatcher.exits[1],
+            "POST",
+            "https://example.test/RPC/ACE_Sell",
+            {},
+            content_type="application/x-www-form-urlencoded",
+            params={"account": "demo"},
+            raw_body=b"count=10",
+            api_path="ACE_Sell",
+        )
+
+    assert getattr(captured.value, "_ak_exit_name") == "fallback"
 
 
 @pytest.mark.anyio

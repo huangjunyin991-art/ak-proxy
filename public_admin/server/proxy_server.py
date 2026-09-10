@@ -963,6 +963,8 @@ try:
         emit_trace as emit_ak_sell_trace,
         exception_snapshot,
         normalize_trace_id as normalize_ak_sell_trace_id,
+        resolve_attempt_exit_name,
+        transport_trace_snapshot,
     )
     _AK_SELL_IMPORT_ERROR = None
 except Exception as e:
@@ -975,6 +977,8 @@ except Exception as e:
     emit_ak_sell_trace = None
     exception_snapshot = None
     normalize_ak_sell_trace_id = None
+    resolve_attempt_exit_name = None
+    transport_trace_snapshot = None
     _AK_SELL_IMPORT_ERROR = e
 
 ak_sell_service = None
@@ -4379,19 +4383,32 @@ async def proxy_rpc(path: str, request: Request):
         else:
             response = await forward_request(*forward_args, **forward_kwargs)
         upstream_ms = _elapsed_ms(upstream_started_at)
+        actual_exit_name = (
+            resolve_attempt_exit_name(response, selected_exit)
+            if callable(resolve_attempt_exit_name)
+            else str((getattr(response, "extensions", {}) or {}).get("ak_exit_name") or getattr(selected_exit, "name", ""))
+        )
+        response_extensions = getattr(response, "extensions", {}) or {}
+        response_transport_trace = response_extensions.get("ak_transport_trace", {})
+        response_transport_fields = (
+            transport_trace_snapshot(response_transport_trace)
+            if callable(transport_trace_snapshot)
+            else {}
+        )
         if ak_sell_trace_id and emit_ak_sell_trace is not None:
             emit_ak_sell_trace(
                 logger,
                 "rpc_response",
                 ak_sell_trace_id,
                 endpoint=normalized_path,
-                exit_name=getattr(selected_exit, "name", ""),
+                exit_name=actual_exit_name,
                 status_code=response.status_code,
                 upstream_ms=upstream_ms,
                 content_type=response.headers.get("content-type", ""),
                 response_bytes=len(response.content or b""),
                 request_id=ak_sell_request_id,
                 source=ak_sell_trace_source,
+                **response_transport_fields,
             )
             await _record_ak_sell_internal_rpc_attempt(
                 trace_id=ak_sell_trace_id,
@@ -4399,7 +4416,7 @@ async def proxy_rpc(path: str, request: Request):
                 params=params,
                 stage="rpc_response",
                 state="rpc_response",
-                exit_name=getattr(selected_exit, "name", ""),
+                exit_name=actual_exit_name,
                 status_code=response.status_code,
                 upstream_ms=upstream_ms,
                 response_bytes=len(response.content or b""),
@@ -4407,9 +4424,10 @@ async def proxy_rpc(path: str, request: Request):
                     "content_type": response.headers.get("content-type", ""),
                     "request_id": ak_sell_request_id,
                     "delivery_state": "response_received",
-                    "http_trace": response.extensions.get("ak_transport_trace", {}),
-                    "exit_group": getattr(selected_exit, "group_name", "") or getattr(selected_exit, "group_id", "") or getattr(selected_exit, "name", ""),
-                    "local_port": getattr(selected_exit, "local_port", 0),
+                    "http_trace": response_transport_trace,
+                    "exit_group": response_extensions.get("ak_exit_group") or actual_exit_name,
+                    "local_port": response_extensions.get("ak_exit_local_port", 0),
+                    **response_transport_fields,
                 },
                 source=ak_sell_trace_source,
                 request_id=ak_sell_request_id,
@@ -4520,7 +4538,7 @@ async def proxy_rpc(path: str, request: Request):
             status_code=response.status_code,
             total_ms=total_ms,
             upstream_ms=upstream_ms,
-            exit_name=selected_exit.name,
+            exit_name=actual_exit_name,
             content_type=response.headers.get("content-type", ""),
             response_bytes=len(response.content or b""),
         )
@@ -4539,7 +4557,7 @@ async def proxy_rpc(path: str, request: Request):
 
             cookie_bs=cookie_bs,
 
-            picked_exit_name=selected_exit.name,
+            picked_exit_name=actual_exit_name,
 
         )
         _log_rpc_login_reject_response(
@@ -4612,13 +4630,19 @@ async def proxy_rpc(path: str, request: Request):
 
         stats.errors += 1
 
+        actual_exit_name = (
+            resolve_attempt_exit_name(e, locals().get("selected_exit"))
+            if callable(resolve_attempt_exit_name)
+            else str(getattr(e, "_ak_exit_name", "") or getattr(locals().get("selected_exit"), "name", ""))
+        )
+
         if ak_sell_trace_id and emit_ak_sell_trace is not None:
             emit_ak_sell_trace(
                 logger,
                 "rpc_error",
                 ak_sell_trace_id,
                 endpoint=normalized_path,
-                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                exit_name=actual_exit_name,
                 error=type(e).__name__,
                 message=str(e) or repr(e),
                 total_ms=_elapsed_ms(request_started_at),
@@ -4643,7 +4667,7 @@ async def proxy_rpc(path: str, request: Request):
                 params=params,
                 stage="rpc_error",
                 state="unknown",
-                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                exit_name=actual_exit_name,
                 message=str(e) or repr(e),
                 diagnostics={
                     "error": type(e).__name__,
@@ -4677,7 +4701,7 @@ async def proxy_rpc(path: str, request: Request):
             path="/RPC/" + path,
             status_code=500,
             total_ms=_elapsed_ms(request_started_at),
-            exit_name=getattr(locals().get("selected_exit"), "name", ""),
+            exit_name=actual_exit_name,
             content_type="application/json",
             error=type(e).__name__,
         )
@@ -4699,7 +4723,7 @@ async def proxy_rpc(path: str, request: Request):
                 status_code=error_status,
                 message=error_message,
                 upstream_ms=_elapsed_ms(locals().get("upstream_started_at", request_started_at)),
-                exit_name=getattr(locals().get("selected_exit"), "name", ""),
+                exit_name=actual_exit_name,
                 trace_id=ak_sell_trace_id,
                 request_id=ak_sell_request_id,
             )

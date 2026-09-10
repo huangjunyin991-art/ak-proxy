@@ -37,6 +37,21 @@ _WRITE_ERROR_NAMES = frozenset({"WriteError", "WriteTimeout"})
 _READ_ERROR_NAMES = frozenset({"ReadError", "ReadTimeout", "SSLWantReadError"})
 
 _TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+_HTTP_TRACE_PHASES = (
+    "connect_tcp",
+    "start_tls",
+    "send_request_headers",
+    "send_request_body",
+    "receive_response_headers",
+    "receive_response_body",
+    "response_closed",
+)
+_HTTP_TRACE_SUFFIXES = ("started_ms", "completed_ms", "failed_ms", "ms", "error")
+_HTTP_TRACE_DERIVED_FIELDS = (
+    "request_sent_ms",
+    "response_headers_wait_ms",
+    "transport_total_ms",
+)
 
 
 def is_trace_window(now: datetime | None = None) -> bool:
@@ -140,12 +155,65 @@ def exception_snapshot(exc: BaseException | None) -> dict[str, Any]:
         snapshot["transport_origin"] = "unknown"
     http_trace = getattr(exc, "_ak_http_trace", None)
     if isinstance(http_trace, dict):
-        snapshot["http_trace"] = {
-            str(key)[:80]: value
-            for key, value in http_trace.items()
-            if isinstance(value, (str, int, float, bool))
-        }
+        flattened_trace = transport_trace_snapshot(http_trace)
+        snapshot["http_trace"] = flattened_trace
+        # Keep each phase independently queryable and prevent the logger's
+        # bounded rendering of the compatibility dictionary from hiding the
+        # later send/receive fields.
+        snapshot.update(flattened_trace)
     return snapshot
+
+
+def finalize_transport_trace(http_trace: dict[str, Any] | None, elapsed_ms: int) -> dict[str, Any]:
+    """Add credential-free derived timings to a raw httpcore trace."""
+    trace = transport_trace_snapshot(http_trace)
+    total_ms = max(0, int(elapsed_ms or 0))
+    trace["transport_total_ms"] = total_ms
+
+    sent_candidates = (
+        trace.get("send_request_headers_completed_ms"),
+        trace.get("send_request_body_completed_ms"),
+    )
+    sent_values = [value for value in sent_candidates if isinstance(value, int)]
+    if sent_values:
+        trace["request_sent_ms"] = max(sent_values)
+
+    response_wait_started = trace.get("receive_response_headers_started_ms")
+    if isinstance(response_wait_started, int):
+        response_wait_ended = trace.get("receive_response_headers_completed_ms")
+        if not isinstance(response_wait_ended, int):
+            response_wait_ended = total_ms
+        trace["response_headers_wait_ms"] = max(0, response_wait_ended - response_wait_started)
+    return trace
+
+
+def transport_trace_snapshot(http_trace: dict[str, Any] | None) -> dict[str, Any]:
+    """Return only stable, credential-free HTTP transport timing fields."""
+    if not isinstance(http_trace, dict):
+        return {}
+    allowed = {
+        f"{phase}_{suffix}"
+        for phase in _HTTP_TRACE_PHASES
+        for suffix in _HTTP_TRACE_SUFFIXES
+    }
+    allowed.update(_HTTP_TRACE_DERIVED_FIELDS)
+    return {
+        str(key): value
+        for key, value in http_trace.items()
+        if str(key) in allowed and isinstance(value, (str, int, float, bool))
+    }
+
+
+def resolve_attempt_exit_name(carrier: Any, fallback: Any = None) -> str:
+    """Resolve the exit that produced a response/error after fallback attempts."""
+    extensions = getattr(carrier, "extensions", None)
+    extension_name = extensions.get("ak_exit_name") if isinstance(extensions, dict) else ""
+    return str(
+        getattr(carrier, "_ak_exit_name", "")
+        or extension_name
+        or getattr(fallback, "name", "")
+        or ""
+    )
 
 
 def transport_phase(exc: BaseException | None) -> str:

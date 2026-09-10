@@ -175,6 +175,43 @@ def test_ak_sell_trace_classifies_transport_phase_from_nested_tls_read_timeout()
     assert snapshot["transport_phase"] == "read"
 
 
+def test_ak_sell_trace_flattens_and_derives_http_transport_timings():
+    trace = ak_sell_trace.finalize_transport_trace(
+        {
+            "connect_tcp_started_ms": 1,
+            "connect_tcp_completed_ms": 4,
+            "connect_tcp_ms": 3,
+            "send_request_headers_completed_ms": 20,
+            "send_request_body_completed_ms": 24,
+            "receive_response_headers_started_ms": 25,
+            "secret": "must-not-be-logged",
+        },
+        elapsed_ms=20000,
+    )
+    error = httpx.ReadTimeout("deadline", request=None)
+    error._ak_http_trace = trace
+
+    snapshot = ak_sell_trace.exception_snapshot(error)
+
+    assert snapshot["request_sent_ms"] == 24
+    assert snapshot["response_headers_wait_ms"] == 19975
+    assert snapshot["transport_total_ms"] == 20000
+    assert snapshot["send_request_body_completed_ms"] == 24
+    assert "secret" not in snapshot["http_trace"]
+    assert "secret" not in snapshot
+
+
+def test_ak_sell_trace_resolves_actual_fallback_exit():
+    response = httpx.Response(200)
+    response.extensions["ak_exit_name"] = "fallback-exit"
+
+    assert ak_sell_trace.resolve_attempt_exit_name(response, type("Exit", (), {"name": "initial-exit"})()) == "fallback-exit"
+
+    error = httpx.ReadTimeout("deadline", request=None)
+    error._ak_exit_name = "failed-fallback"
+    assert ak_sell_trace.resolve_attempt_exit_name(error) == "failed-fallback"
+
+
 def make_request(headers: dict[str, str] | None = None) -> Request:
     raw_headers = [(key.lower().encode("ascii"), value.encode("ascii")) for key, value in (headers or {}).items()]
     return Request({

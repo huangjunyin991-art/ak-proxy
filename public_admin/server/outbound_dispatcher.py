@@ -36,7 +36,14 @@ from .source_reachability import (
     SourceReachabilityProbe,
     source_probe_policy_for_protocol,
 )
-from .ak_sell.trace import classify_delivery_state, emit_trace, exception_snapshot, transport_phase
+from .ak_sell.trace import (
+    classify_delivery_state,
+    emit_trace,
+    exception_snapshot,
+    finalize_transport_trace,
+    transport_phase,
+    transport_trace_snapshot,
+)
 
 try:
     from .performance.request_metrics import mark_current_request_stage
@@ -1979,6 +1986,8 @@ class OutboundDispatcher:
                 resp.extensions["ak_exit_name"] = current_exit.name
                 resp.extensions["ak_exit_proxy"] = current_exit.proxy_url or "direct"
                 resp.extensions["ak_exit_is_direct"] = current_exit.is_direct
+                resp.extensions["ak_exit_group"] = current_exit.group_name or current_exit.group_id or current_exit.name
+                resp.extensions["ak_exit_local_port"] = current_exit.local_port
                 # WAF and rate-limit pages are often HTML. Record their status
                 # before JSON validation so a visible upstream 403/429 never
                 # disappears from the exit card.
@@ -2034,8 +2043,8 @@ class OutboundDispatcher:
                     elapsed_ms=int((time.perf_counter() - attempt_started_at) * 1000),
                     send_wait_ms=int((time.perf_counter() - send_started_at) * 1000) if send_started_at is not None else 0,
                     client_prepare_ms=client_prepare_ms,
-                    http_trace=resp.extensions.get("ak_transport_trace", {}),
                     delivery_state="response_received",
+                    **transport_trace_snapshot(resp.extensions.get("ak_transport_trace", {})),
                 )
                 if (
                     self._is_login_rpc(api_path)
@@ -2048,6 +2057,13 @@ class OutboundDispatcher:
                 return resp
             except Exception as e:
                 last_error = e
+                try:
+                    e._ak_exit_name = current_exit.name
+                    e._ak_exit_group = current_exit.group_name or current_exit.group_id or current_exit.name
+                    e._ak_exit_local_port = current_exit.local_port
+                    e._ak_exit_is_direct = current_exit.is_direct
+                except Exception:
+                    pass
                 current_exit.record_error(str(e))
                 current_exit.request_client_retire("request_error")
                 request_may_have_reached_upstream = (
@@ -2168,6 +2184,10 @@ class OutboundDispatcher:
         trace_started_at = time.perf_counter()
         transport_trace: dict[str, object] = {}
 
+        def _finalize_trace() -> None:
+            elapsed_ms = int((time.perf_counter() - trace_started_at) * 1000)
+            transport_trace.update(finalize_transport_trace(transport_trace, elapsed_ms))
+
         async def _trace(event_name: str, info: dict) -> None:
             """Collect httpcore phase timings without logging request data."""
             parts = str(event_name or "").rsplit(".", 1)
@@ -2287,11 +2307,13 @@ class OutboundDispatcher:
                         timeout_error._ak_transport_phase = "connect"
                     else:
                         timeout_error._ak_transport_phase = "unknown"
+                    _finalize_trace()
                     timeout_error._ak_http_trace = dict(transport_trace)
                     timeout_error._ak_cancel_pending = cancel_pending
                     timeout_error.__cause__ = TimeoutError("hard deadline reached")
                     raise timeout_error
                 response = await send_task
+                _finalize_trace()
                 response.extensions["ak_transport_trace"] = dict(transport_trace)
                 return response
         except TimeoutError as exc:
@@ -2305,6 +2327,7 @@ class OutboundDispatcher:
             # asyncio.timeout wraps the original socket cancellation. Preserve
             # the furthest phase visible in that nested chain for diagnostics.
             timeout_error._ak_transport_phase = transport_phase(exc)
+            _finalize_trace()
             timeout_error._ak_http_trace = dict(transport_trace)
             timeout_error.__cause__ = exc
             raise timeout_error
@@ -2313,6 +2336,7 @@ class OutboundDispatcher:
             # Attach a small, credential-free snapshot before the dispatcher
             # classifies delivery and writes its AK trace row.
             try:
+                _finalize_trace()
                 setattr(exc, "_ak_client_state", exit_obj.client_request_state(client))
                 setattr(exc, "_ak_transport_phase", transport_phase(exc))
                 setattr(exc, "_ak_http_trace", dict(transport_trace))
