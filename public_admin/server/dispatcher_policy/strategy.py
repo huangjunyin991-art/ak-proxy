@@ -61,10 +61,13 @@ class FairLoadStrategy:
         recent_minute = max(0, int(exit_obj.count_recent_requests(60.0)))
         lifetime_requests = max(0, int(getattr(exit_obj, "total", 0) or 0))
         latency = self._latency(exit_obj)
+        risk_tier, recovery_weight = self._rate_limit_state(exit_obj)
+        risk_baseline = 1 if risk_tier else 0
         return (
-            recent_second / rps_limit,
-            recent_minute / max(1, effective_rpm_limit),
-            max(0, int(getattr(exit_obj, "active", 0) or 0)),
+            risk_tier,
+            (recent_second + risk_baseline) / (rps_limit * recovery_weight),
+            (recent_minute + risk_baseline) / (max(1, effective_rpm_limit) * recovery_weight),
+            max(0, int(getattr(exit_obj, "active", 0) or 0)) / recovery_weight,
             lifetime_requests,
             latency if latency is not None else neutral_latency,
             (position - rr_counter) % max(1, pool_size),
@@ -79,6 +82,17 @@ class FairLoadStrategy:
             return int(value)
         except Exception:
             return None
+
+    @staticmethod
+    def _rate_limit_state(exit_obj) -> tuple[int, float]:
+        scheduling_state = getattr(exit_obj, "rate_limit_scheduling_state", None)
+        if not callable(scheduling_state):
+            return 0, 1.0
+        try:
+            value = scheduling_state()
+            return int(value[0]), max(0.05, float(value[1]))
+        except (IndexError, TypeError, ValueError):
+            return 0, 1.0
 
 
 # Preserve the old import name for external extensions while changing its semantics.

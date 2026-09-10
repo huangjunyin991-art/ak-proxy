@@ -1,6 +1,7 @@
 import pytest
 import httpx
 import asyncio
+import time
 from dataclasses import replace
 
 from .outbound_dispatcher import OutboundDispatcher, OutboundExit, RpcUpstreamNonJsonError
@@ -257,6 +258,7 @@ def test_replacing_matching_node_keeps_visible_upstream_alert_counts():
     old_exit = dispatcher.exits[old_index]
     old_exit.warn_403 = 3
     old_exit.warn_429 = 2
+    old_exit._rate_limit_feedback.record_429(now=time.time() - 10)
 
     dispatcher.replace_socks5_exits([
         {"name": "preserved", "port": 30001, "core_type": "singbox", "node_identity": "node-a"},
@@ -265,6 +267,7 @@ def test_replacing_matching_node_keeps_visible_upstream_alert_counts():
     replacement = dispatcher.exits[1]
     assert replacement.warn_403 == 3
     assert replacement.warn_429 == 2
+    assert replacement.rate_limit_feedback_status()["active"] is True
     assert dispatcher.get_status()["exits"][1]["warn_403"] == 3
     assert dispatcher.get_status()["exits"][1]["warn_429"] == 2
 
@@ -416,6 +419,21 @@ def test_wide_spread_rpc_spreads_across_more_tunnels_without_latency_priority():
     assert set(picked) == {"tunnel-0", "tunnel-1", "tunnel-2"}
 
 
+def test_wide_spread_rpc_uses_dedicated_selector(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    selected_index = _add_ready_socks5(dispatcher, "selected", 10001)
+    calls = []
+
+    def pick_wide_spread():
+        calls.append(True)
+        return selected_index
+
+    monkeypatch.setattr(dispatcher, "_pick_wide_spread_tunnel_index", pick_wide_spread)
+
+    assert dispatcher._pick_api_tunnel_index("ACE_Sell") == selected_index
+    assert calls == [True]
+
+
 def test_wide_spread_rpc_does_not_change_regular_latency_strategy():
     dispatcher = OutboundDispatcher()
     for idx, latency in enumerate([300, 10, 200]):
@@ -471,6 +489,56 @@ def test_wide_spread_rpc_prefers_lower_recent_rate_over_latency():
     picked = dispatcher.pick_api_exit("ACE_Sell")
 
     assert picked.name == "idle-slow"
+
+
+def test_wide_spread_rpc_immediately_avoids_recent_429_exit():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    clean_index = _add_ready_socks5(dispatcher, "clean-busy", 10001, group_id="g1")
+    limited_index = _add_ready_socks5(dispatcher, "limited-idle", 10002, group_id="g2")
+    for _ in range(5):
+        dispatcher.exits[clean_index].record_request()
+    dispatcher.exits[limited_index]._rate_limit_feedback.record_429()
+
+    picked = dispatcher.pick_api_exit("ACE_Sell")
+
+    assert picked.name == "clean-busy"
+
+
+def test_wide_spread_rpc_prefers_earlier_429_when_all_exits_are_limited():
+    dispatcher = OutboundDispatcher()
+    dispatcher.policy_config.per_exit_rate_per_second = 20
+    earlier_index = _add_ready_socks5(dispatcher, "earlier", 10001, group_id="g1")
+    recent_index = _add_ready_socks5(dispatcher, "recent", 10002, group_id="g2")
+    now = time.time()
+    dispatcher.exits[earlier_index]._rate_limit_feedback.record_429(now=now - 45)
+    dispatcher.exits[recent_index]._rate_limit_feedback.record_429(now=now - 5)
+
+    picked = dispatcher.pick_api_exit("ACE_Sell_Son")
+
+    assert picked.name == "earlier"
+
+    dispatcher.exits[earlier_index]._rate_limit_feedback.record_429(now=now)
+    next_index = dispatcher._pick_wide_spread_from_pool([earlier_index, recent_index])
+
+    assert next_index == recent_index
+
+
+def test_all_limited_exits_share_traffic_by_recovery_weight():
+    dispatcher = OutboundDispatcher()
+    earlier_index = _add_ready_socks5(dispatcher, "earlier", 10001, group_id="g1")
+    recent_index = _add_ready_socks5(dispatcher, "recent", 10002, group_id="g2")
+    now = time.time()
+    dispatcher.exits[earlier_index]._rate_limit_feedback.record_429(now=now - 45)
+    dispatcher.exits[recent_index]._rate_limit_feedback.record_429(now=now - 5)
+    counts = {earlier_index: 0, recent_index: 0}
+
+    for _ in range(30):
+        selected = dispatcher._pick_wide_spread_from_pool([earlier_index, recent_index])
+        counts[selected] += 1
+        dispatcher.exits[selected].record_request()
+
+    assert counts[earlier_index] > counts[recent_index] > 0
 
 
 def test_regular_rpc_prefers_idle_exit_before_faster_busy_exit():
@@ -543,6 +611,23 @@ def test_dynamic_exit_pacing_rotates_then_releases_after_cooldown(monkeypatch):
 
     assert dispatcher._exit_below_per_second_limit(dispatcher.exits[first_index]) is True
     assert dispatcher.try_reserve_exit(dispatcher.exits[first_index], "Public_ACE") is True
+
+
+def test_healthy_tunnel_scan_uses_batch_pacing_snapshot(monkeypatch):
+    dispatcher = OutboundDispatcher()
+    first_index = _add_ready_socks5(dispatcher, "first", 10001, node_identity="first")
+    second_index = _add_ready_socks5(dispatcher, "second", 10002, node_identity="second")
+    calls = []
+
+    def available_keys(keys, rate):
+        calls.append((list(keys), rate))
+        return {"second"}
+
+    monkeypatch.setattr(dispatcher.dispatch_pacer, "available_keys", available_keys)
+
+    assert dispatcher._get_healthy_tunnels() == [second_index]
+    assert calls == [(["first", "second"], dispatcher.policy_config.per_exit_rate_per_second)]
+    assert first_index not in dispatcher._get_healthy_tunnels()
 
 
 @pytest.mark.anyio
@@ -1256,6 +1341,7 @@ async def test_rpc_json_403_retries_another_exit_and_resets_protection_after_suc
 @pytest.mark.anyio
 async def test_rpc_html_429_response_is_recorded_before_non_json_rejection():
     dispatcher = OutboundDispatcher()
+    dispatcher.exits[0].rate_limit = 42
 
     async def fake_request(*_args, **_kwargs):
         return httpx.Response(
@@ -1279,6 +1365,10 @@ async def test_rpc_html_429_response_is_recorded_before_non_json_rejection():
         )
 
     assert dispatcher.exits[0].warn_429 == 1
+    feedback = dispatcher.get_status()["exits"][0]["rate_limit_feedback"]
+    assert feedback["active"] is True
+    assert feedback["responses_429_1m"] == 1
+    assert dispatcher.exits[0].rate_limit == 42
 
 
 @pytest.mark.anyio

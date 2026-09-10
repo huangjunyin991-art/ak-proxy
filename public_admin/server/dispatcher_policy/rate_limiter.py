@@ -75,6 +75,19 @@ class DynamicExitPacer:
         with self._lock:
             return self._next_available.get(str(key or "default"), 0.0) <= now
 
+    def available_keys(self, keys, rate_per_second: float) -> set[str]:
+        """Return one atomic availability snapshot for a candidate batch."""
+        normalized = [str(key or "default") for key in keys]
+        interval = self._interval_seconds(rate_per_second)
+        if interval <= 0:
+            return set(normalized)
+        now = time.monotonic()
+        with self._lock:
+            return {
+                key for key in normalized
+                if self._next_available.get(key, 0.0) <= now
+            }
+
     def try_reserve(self, key: str, rate_per_second: float) -> bool:
         interval = self._interval_seconds(rate_per_second)
         if interval <= 0:

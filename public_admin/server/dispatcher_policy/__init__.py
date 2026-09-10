@@ -2,6 +2,7 @@ from .config import DispatcherPolicyConfig
 from .business_latency import BusinessLatencyEstimator
 from .failure_ladder import CONNECTION_FAILURE_FREEZE_SCHEDULE, connection_failure_freeze_seconds
 from .rate_limiter import DynamicExitPacer, PerSecondRateLimiter
+from .rate_limit_feedback import RateLimitFeedback
 from .strategy import FairLoadStrategy, LatencyAwareStrategy
 from .login_limit import (
     DEFAULT_MAX_LOGIN_PER_MIN,
@@ -18,6 +19,7 @@ __all__ = [
     'connection_failure_freeze_seconds',
     'PerSecondRateLimiter',
     'DynamicExitPacer',
+    'RateLimitFeedback',
     'LatencyAwareStrategy',
     'FairLoadStrategy',
     'DEFAULT_MAX_LOGIN_PER_MIN',

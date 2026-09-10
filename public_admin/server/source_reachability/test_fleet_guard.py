@@ -158,6 +158,20 @@ def test_state_store_persists_403_protection_gradient(tmp_path):
     assert loaded["frozen_reason"] == "403保护×2"
 
 
+def test_state_store_persists_recent_429_feedback(tmp_path):
+    exit_obj = _verified_exit(11)
+    exit_obj.warn_429 = 1
+    exit_obj.record_request()
+    exit_obj.record_rate_limited()
+    store = SourceFleetStateStore(tmp_path / "fleet.json")
+
+    store.save([exit_obj])
+    loaded = store.load()["node-11"]
+
+    assert loaded["rate_limit_feedback"]["last_429_at"] > 0
+    assert loaded["rate_limit_feedback"]["response_429_buckets"]
+
+
 def test_dispatcher_restores_403_protection_gradient_for_new_exit(monkeypatch, tmp_path):
     original = _verified_exit(10)
     original.warn_403 = 5
@@ -203,3 +217,23 @@ def test_dispatcher_restores_persisted_state_for_new_exit(monkeypatch, tmp_path)
     assert restored._connect_failures == 4
     assert restored.latency_ms == 76
     assert restored.latency_checked_at == "2026-08-05 12:00:00"
+
+
+def test_dispatcher_restores_live_429_feedback_for_new_exit(monkeypatch, tmp_path):
+    original = _verified_exit(12)
+    original.warn_429 = 1
+    original.record_request()
+    original.record_rate_limited()
+    path = tmp_path / "fleet.json"
+    SourceFleetStateStore(path).save([original])
+    monkeypatch.setenv("AK_PROXY_SOURCE_FLEET_STATE_FILE", str(path))
+
+    from ..outbound_dispatcher import OutboundDispatcher
+
+    dispatcher = OutboundDispatcher()
+    dispatcher._load_source_fleet_state()
+    index = dispatcher.add_socks5("restored-429", 12012, node_identity="node-12")
+    feedback = dispatcher.exits[index].rate_limit_feedback_status()
+
+    assert feedback["active"] is True
+    assert feedback["responses_429_1m"] == 1

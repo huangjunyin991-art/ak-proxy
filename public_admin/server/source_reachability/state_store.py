@@ -35,6 +35,8 @@ class SourceFleetStateStore:
             warn_403 = int(getattr(exit_obj, "warn_403", 0) or 0)
             warn_429 = int(getattr(exit_obj, "warn_429", 0) or 0)
             freeze_403_level = int(getattr(exit_obj, "_403_freeze_level", 0) or 0)
+            dump_rate_limit_feedback = getattr(exit_obj, "dump_rate_limit_feedback", None)
+            rate_limit_feedback = dump_rate_limit_feedback() if callable(dump_rate_limit_feedback) else {}
             if not identity or (
                 last_success_at <= 0
                 and connect_failures <= 0
@@ -54,6 +56,7 @@ class SourceFleetStateStore:
                 "connect_failures": connect_failures,
                 "warn_403": warn_403,
                 "warn_429": warn_429,
+                "rate_limit_feedback": rate_limit_feedback,
                 "403_freeze_level": freeze_403_level,
                 "frozen_until": float(getattr(exit_obj, "_frozen_until", 0.0) or 0.0),
                 "frozen_reason": str(getattr(exit_obj, "_frozen_reason", "") or ""),

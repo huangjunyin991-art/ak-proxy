@@ -33,3 +33,14 @@ def test_fair_load_strategy_assigns_missing_latency_the_measured_median():
     ordered = FairLoadStrategy().order(exits, [0, 1, 2], rr_counter=0, per_second_limit=3)
 
     assert ordered == [0, 1, 2]
+
+
+def test_fair_load_strategy_prefers_clean_exit_before_lower_load_limited_exit():
+    clean = _exit(rps=2, rpm=10, latency_ms=500)
+    limited = _exit(rps=0, rpm=0, latency_ms=10)
+    clean.rate_limit_scheduling_state = lambda: (0, 1.0)
+    limited.rate_limit_scheduling_state = lambda: (1, 0.1)
+
+    picked = FairLoadStrategy().pick([clean, limited], [0, 1], rr_counter=0, per_second_limit=20)
+
+    assert picked == 0

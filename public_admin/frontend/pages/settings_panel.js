@@ -838,6 +838,15 @@
                         ? `${cdUsed}/${cdMax} (${cdRemaining}个可用)`
                         : `${cdUsed}/${cdMax}`;
 
+                const rateFeedback = ex.rate_limit_feedback || {};
+                const recent4291m = Number(rateFeedback.responses_429_1m || 0);
+                const recent4295m = Number(rateFeedback.responses_429_5m || 0);
+                const recentRequests1m = Number(rateFeedback.requests_1m || 0);
+                const recentRequests5m = Number(rateFeedback.requests_5m || 0);
+                const recoveryWeight = Math.max(0, Math.min(1, Number(rateFeedback.weight == null ? 1 : rateFeedback.weight)));
+                const recoveryWeightPct = Math.round(recoveryWeight * 100);
+                const recoveryRemaining = Math.max(0, Number(rateFeedback.recovery_remaining || 0));
+
                 // 冻结+告警标记
                 let warnHtml = '';
                 if (ex.frozen) {
@@ -849,6 +858,11 @@
                     if (ex.warn_403 > 0) parts.push(`<span style="color:#ff4757;">403×${ex.warn_403}</span>`);
                     if (ex.warn_429 > 0) parts.push(`<span style="color:#ffa502;">429×${ex.warn_429}</span>`);
                     warnHtml += `<div style="margin-top:6px;font-size:11px;">⚠️ ${parts.join(' ')}</div>`;
+                }
+                if (rateFeedback.active) {
+                    warnHtml += `<div style="margin-top:4px;font-size:11px;color:#ffa502;" title="近1分钟 请求${recentRequests1m}/429×${recent4291m}；近5分钟 请求${recentRequests5m}/429×${recent4295m}">429降权 ${recoveryWeightPct}% · ${Math.ceil(recoveryRemaining)}s后恢复</div>`;
+                } else if (recent4295m > 0) {
+                    warnHtml += `<div style="margin-top:4px;font-size:11px;color:var(--text-secondary);">近5分钟429×${recent4295m} · 权重已恢复</div>`;
                 }
 
                 const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${exitIndex}`;
@@ -885,7 +899,7 @@
                             <div style="font-size:10px;color:var(--text-secondary);">并发</div>
                             <div style="font-size:15px;font-weight:bold;color:#667eea;">${ex.active}</div>
                         </div>
-                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;">
+                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;" title="当前节点实例累计请求；服务重启或节点重载后重新统计">
                             <div style="font-size:10px;color:var(--text-secondary);">请求</div>
                             <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
                         </div>

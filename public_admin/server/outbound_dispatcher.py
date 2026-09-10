@@ -51,6 +51,7 @@ try:
         DynamicExitPacer,
         DispatcherPolicyConfig,
         FairLoadStrategy,
+        RateLimitFeedback,
         connection_failure_freeze_seconds,
     )
     _DISPATCHER_POLICY_IMPORT_ERROR = None
@@ -58,6 +59,7 @@ except Exception as e:
     DispatcherPolicyConfig = None
     BusinessLatencyEstimator = None
     FairLoadStrategy = None
+    RateLimitFeedback = None
     DynamicExitPacer = None
     CONNECTION_FAILURE_FREEZE_SCHEDULE = (10, 30, 60, 180, 300, 900, 3600)
     connection_failure_freeze_seconds = lambda level: CONNECTION_FAILURE_FREEZE_SCHEDULE[
@@ -123,6 +125,7 @@ class OutboundExit:
                  'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
+                 '_rate_limit_feedback',
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures',
                  '_403_freeze_level',
                  'source_probe_ready', 'source_probe_protected', 'source_probing', 'source_probe_checked_at',
@@ -160,6 +163,7 @@ class OutboundExit:
         self._req_timestamps = deque()  # 最近60秒请求时间戳
         self.rate_limit: int = 0  # 每分钟最大请求数, 0=不限速
         self._rate_lock = asyncio.Lock()
+        self._rate_limit_feedback = RateLimitFeedback() if RateLimitFeedback is not None else None
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
         self._frozen_until: float = 0    # 403后冻结截止时间戳
         self._frozen_reason: str = ""
@@ -312,6 +316,48 @@ class OutboundExit:
     def record_request(self):
         self.total += 1
         self._req_timestamps.append(time.time())
+        if self._rate_limit_feedback is not None:
+            self._rate_limit_feedback.record_request()
+
+    def record_rate_limited(self):
+        if self._rate_limit_feedback is not None:
+            self._rate_limit_feedback.record_429()
+
+    def rate_limit_scheduling_state(self, now: float | None = None) -> tuple[int, float]:
+        if self._rate_limit_feedback is None:
+            return 0, 1.0
+        return self._rate_limit_feedback.scheduling_state(now)
+
+    def rate_limit_feedback_status(self) -> dict[str, object]:
+        if self._rate_limit_feedback is None:
+            return {
+                "active": False,
+                "weight": 1.0,
+                "recovery_seconds": 0.0,
+                "recovery_remaining": 0.0,
+                "last_429_at": None,
+                "last_429_seconds_ago": None,
+                "requests_1m": self.count_recent_requests(60.0),
+                "requests_5m": self.count_recent_requests(60.0),
+                "responses_429_1m": 0,
+                "responses_429_5m": 0,
+            }
+        return self._rate_limit_feedback.status()
+
+    def dump_rate_limit_feedback(self) -> dict[str, object]:
+        if self._rate_limit_feedback is None:
+            return {}
+        return self._rate_limit_feedback.dump_state()
+
+    def restore_rate_limit_feedback(self, state: object) -> None:
+        if self._rate_limit_feedback is not None:
+            self._rate_limit_feedback.restore_state(state)
+
+    def recent_request_counts(self, now: float | None = None) -> tuple[int, int]:
+        current = time.time() if now is None else float(now)
+        self._trim_request_timestamps(current - 60.0)
+        recent_second = sum(1 for timestamp in self._req_timestamps if timestamp > current - 1.0)
+        return recent_second, len(self._req_timestamps)
 
     def count_recent_requests(self, window: float = 1.0) -> int:
         """统计最近 window 秒内请求数"""
@@ -803,6 +849,7 @@ class OutboundDispatcher:
         exit_obj._connect_failures = max(0, int(state.get("connect_failures") or 0))
         exit_obj.warn_403 = max(0, int(state.get("warn_403") or 0))
         exit_obj.warn_429 = max(0, int(state.get("warn_429") or 0))
+        exit_obj.restore_rate_limit_feedback(state.get("rate_limit_feedback"))
         exit_obj._403_freeze_level = max(0, int(state.get("403_freeze_level") or 0))
         frozen_reason = str(state.get("frozen_reason") or "")
         frozen_until = float(state.get("frozen_until") or 0.0)
@@ -931,6 +978,8 @@ class OutboundDispatcher:
         """Keep visible upstream risk history when a node receives a new port."""
         target.warn_403 = previous.warn_403
         target.warn_429 = previous.warn_429
+        if target._rate_limit_feedback is not None and previous._rate_limit_feedback is not None:
+            target._rate_limit_feedback.copy_from(previous._rate_limit_feedback)
         target._403_freeze_level = previous._403_freeze_level
 
     @staticmethod
@@ -1224,12 +1273,27 @@ class OutboundDispatcher:
         return [i for i, ex in enumerate(self.exits) if ex.is_dispatch_ready and not ex.is_frozen]
 
     def _get_healthy_tunnels(self) -> list[int]:
-        return [
+        candidates = [
             i for i, ex in enumerate(self.exits)
             if not ex.is_direct
             and ex.is_dispatch_ready
             and not ex.is_frozen
-            and self._exit_has_dispatch_capacity(ex)
+            and ex.has_minute_rate_capacity()
+        ]
+        if not candidates or self.policy_config is None or self.dispatch_pacer is None:
+            return [i for i in candidates if self._exit_below_per_second_limit(self.exits[i])]
+        rate = self.policy_config.per_exit_rate_per_second
+        keyed_candidates = [
+            (i, self._exit_pacing_key(self.exits[i]))
+            for i in candidates
+        ]
+        available_keys = self.dispatch_pacer.available_keys(
+            (key for _, key in keyed_candidates),
+            rate,
+        )
+        return [
+            i for i, key in keyed_candidates
+            if key in available_keys
         ]
 
     def _exit_has_dispatch_capacity(self, ex: OutboundExit, api_path: str = "") -> bool:
@@ -1354,6 +1418,10 @@ class OutboundDispatcher:
         active = sum(self.exits[i].active for i in indices)
         return recent_logins, recent_requests, active, size
 
+    @staticmethod
+    def _rate_limit_scheduling_state(ex: OutboundExit, now: float | None = None) -> tuple[int, float]:
+        return ex.rate_limit_scheduling_state(now)
+
     def _pick_login_from_pool(self, pool: list[int], enforce_login_capacity: bool = True) -> Optional[int]:
         if not pool:
             return None
@@ -1375,16 +1443,29 @@ class OutboundDispatcher:
         self._login_group_rr_counter += 1
         group_rr_counter = self._login_group_rr_counter
         group_items = []
-        for key in sorted_keys:
+        risk_snapshot_at = time.time()
+        risk_states = {
+            i: self._rate_limit_scheduling_state(self.exits[i], risk_snapshot_at)
+            for i in pool
+        }
+        for group_position, key in enumerate(sorted_keys):
             recent_logins, recent_requests, active, _size = self._login_group_stats(key)
-            rr_offset = (sorted_keys.index(key) - group_rr_counter) % len(sorted_keys)
-            group_items.append((recent_logins, recent_requests, active, rr_offset, key))
+            rr_offset = (group_position - group_rr_counter) % len(sorted_keys)
+            best_risk = min(
+                (risk_tier, -weight)
+                for risk_tier, weight in (
+                    risk_states[i] for i in groups[key]
+                )
+            )
+            group_items.append((*best_risk, recent_logins, recent_requests, active, rr_offset, key))
         group_items.sort()
         selected_group = group_items[0][-1]
 
         self._rr_counter += 1
         candidates = list(groups[selected_group])
         candidates.sort(key=lambda i: (
+            risk_states[i][0],
+            -risk_states[i][1],
             self.exits[i].count_recent_logins(),
             self.exits[i].count_recent_requests(60.0),
             self.exits[i].count_recent_requests(1.0),
@@ -1394,6 +1475,8 @@ class OutboundDispatcher:
         return candidates[0]
 
     def _pick_api_tunnel_index(self, api_path: str = "") -> Optional[int]:
+        if self.is_wide_spread_rpc(api_path):
+            return self._pick_wide_spread_tunnel_index()
         return self._pick_from_pool(self._get_healthy_tunnels())
 
     def _pick_wide_spread_tunnel_index(self) -> Optional[int]:
@@ -1404,54 +1487,99 @@ class OutboundDispatcher:
         if not pool:
             return None
         pool = self._filter_latency_failed_pool(pool)
-        ordered = self._order_wide_spread_pool(pool)
-        if not ordered:
+        groups, node_stats, group_items = self._wide_spread_rank_data(pool)
+        if not group_items:
             return None
-        return ordered[0]
+        selected_group = min(group_items)[-1]
+        self._wide_spread_rr_counter += 1
+        rr_counter = self._wide_spread_rr_counter
+        return min(
+            groups[selected_group],
+            key=lambda i: (
+                node_stats[i][0],
+                self._weighted_risk_load(node_stats[i][2], node_stats[i][0], node_stats[i][1]),
+                self._weighted_risk_load(node_stats[i][3], node_stats[i][0], node_stats[i][1]),
+                self._weighted_risk_load(node_stats[i][4], node_stats[i][0], node_stats[i][1]),
+                (i - rr_counter) % max(1, len(self.exits)),
+            ),
+        )
 
     def _wide_spread_group_key(self, idx: int) -> str:
         ex = self.exits[idx]
         return str(ex.group_id or ex.group_name or ex.source_url or ex.name or idx).strip()
 
-    def _order_wide_spread_pool(self, pool: list[int]) -> list[int]:
-        if not pool:
-            return []
+    @staticmethod
+    def _weighted_risk_load(value: int | float, risk_tier: int, recovery_weight: float) -> float:
+        baseline = 1.0 if risk_tier else 0.0
+        return (max(0.0, float(value)) + baseline) / max(0.05, float(recovery_weight))
+
+    def _wide_spread_rank_data(self, pool: list[int]) -> tuple[dict, dict, list[tuple]]:
         groups: dict[str, list[int]] = {}
         for idx in pool:
             groups.setdefault(self._wide_spread_group_key(idx), []).append(idx)
         if not groups:
-            return []
+            return {}, {}, []
 
         group_items = []
-        sorted_keys = sorted(groups.keys())
+        group_keys = list(groups)
         group_rr_counter = self._wide_spread_group_rr_counter
         self._wide_spread_group_rr_counter += 1
-        for key in sorted_keys:
+        snapshot_at = time.time()
+        node_stats = {}
+        for idx in pool:
+            recent_second, recent_minute = self.exits[idx].recent_request_counts(snapshot_at)
+            risk_tier, recovery_weight = self._rate_limit_scheduling_state(self.exits[idx], snapshot_at)
+            node_stats[idx] = (
+                risk_tier,
+                recovery_weight,
+                recent_minute,
+                recent_second,
+                self.exits[idx].active,
+            )
+        for group_position, key in enumerate(group_keys):
             indices = groups[key]
-            size = max(1, len(indices))
-            rpm_sum = sum(self.exits[i].count_recent_requests(60.0) for i in indices)
-            rps_sum = sum(self.exits[i].count_recent_requests(1.0) for i in indices)
-            active_sum = sum(self.exits[i].active for i in indices)
-            rr_offset = (sorted_keys.index(key) - group_rr_counter) % len(sorted_keys)
+            if len(indices) == 1:
+                best_risk_tier, capacity, rpm_sum, rps_sum, active_sum = node_stats[indices[0]]
+            else:
+                best_risk_tier = min(node_stats[i][0] for i in indices)
+                ranked_indices = [i for i in indices if node_stats[i][0] == best_risk_tier]
+                capacity = sum(node_stats[i][1] for i in ranked_indices)
+                rpm_sum = sum(node_stats[i][2] for i in ranked_indices)
+                rps_sum = sum(node_stats[i][3] for i in ranked_indices)
+                active_sum = sum(node_stats[i][4] for i in ranked_indices)
+            baseline = 1.0 if best_risk_tier else 0.0
+            rr_offset = (group_position - group_rr_counter) % len(group_keys)
             group_items.append((
-                rpm_sum / size,
-                rps_sum / size,
-                active_sum / size,
+                best_risk_tier,
+                (rpm_sum + baseline) / max(0.05, capacity),
+                (rps_sum + baseline) / max(0.05, capacity),
+                (active_sum + baseline) / max(0.05, capacity),
                 rr_offset,
                 key,
             ))
+        return groups, node_stats, group_items
+
+    def _order_wide_spread_pool(self, pool: list[int]) -> list[int]:
+        if not pool:
+            return []
+        groups, node_stats, group_items = self._wide_spread_rank_data(pool)
+        if not group_items:
+            return []
         group_items.sort()
 
         ordered: list[int] = []
-        for _, _, _, _, key in group_items:
+        for item in group_items:
+            key = item[-1]
             indices = list(groups[key])
             self._wide_spread_rr_counter += 1
-            indices.sort(key=lambda i: (
-                self.exits[i].count_recent_requests(60.0),
-                self.exits[i].count_recent_requests(1.0),
-                self.exits[i].active,
-                (i - self._wide_spread_rr_counter) % max(1, len(self.exits)),
-            ))
+            if len(indices) > 1:
+                indices.sort(key=lambda i: (
+                    node_stats[i][0],
+                    self._weighted_risk_load(node_stats[i][2], node_stats[i][0], node_stats[i][1]),
+                    self._weighted_risk_load(node_stats[i][3], node_stats[i][0], node_stats[i][1]),
+                    self._weighted_risk_load(node_stats[i][4], node_stats[i][0], node_stats[i][1]),
+                    (i - self._wide_spread_rr_counter) % max(1, len(self.exits)),
+                ))
             ordered.extend(indices)
         return ordered
 
@@ -2204,6 +2332,7 @@ class OutboundDispatcher:
             return
         if status_code in ALERT_STATUS_CODES:
             desc = ALERT_STATUS_CODES[status_code]
+            rate_limit_detail = ""
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
@@ -2211,12 +2340,18 @@ class OutboundDispatcher:
                 self._schedule_source_fleet_state_persist()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
-                exit_obj.auto_throttle_on_403()  # 429也触发限速
+                exit_obj.record_rate_limited()
+                self._schedule_source_fleet_state_persist()
+                feedback = exit_obj.rate_limit_feedback_status()
+                rate_limit_detail = (
+                    f" | 近1分钟429×{feedback['responses_429_1m']}"
+                    f" 恢复权重={float(feedback['weight']) * 100:.0f}%"
+                )
             logger.warning(
                 f"[Dispatcher] ⚠️ {status_code} {desc} | "
                 f"出口={exit_obj.name} | API={api_path} | "
                 f"该出口累计: 403×{exit_obj.warn_403} 429×{exit_obj.warn_429} | "
-                f"403梯度={exit_obj._403_freeze_level}"
+                f"403梯度={exit_obj._403_freeze_level}{rate_limit_detail}"
             )
             # 持久化回调（由 proxy_server 注入，dispatcher 本身不依赖 db）
             if self.alert_callback is not None:
@@ -2527,6 +2662,7 @@ class OutboundDispatcher:
         try:
             exits_info = []
             for i, ex in enumerate(self.exits):
+                rate_limit_feedback = ex.rate_limit_feedback_status()
                 exits_info.append({
                     "index": i,
                     "name": ex.name,
@@ -2557,6 +2693,7 @@ class OutboundDispatcher:
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,
+                    "rate_limit_feedback": rate_limit_feedback,
                     "403_freeze_level": ex._403_freeze_level,
                     "403_freeze_schedule": list(self.BUSINESS_403_FREEZE_SCHEDULE),
                     "frozen": ex.is_frozen,
