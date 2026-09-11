@@ -204,11 +204,15 @@ async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port:
             if inspect.isawaitable(callback_result):
                 await callback_result
     except Exception as exc:
-        logger.exception("[ProxyCore] candidate activation failed: %s", exc)
+        retry_nodes = getattr(exc, "retry_nodes", None)
+        if isinstance(retry_nodes, list) and isinstance(getattr(exc, "details", None), dict):
+            logger.info("[ProxyCore] candidate requires filtered rebuild: %s", exc)
+        else:
+            logger.exception("[ProxyCore] candidate activation failed: %s", exc)
         for core_type, stage in reversed(stages):
             core = singbox_core if core_type == SINGBOX_CORE else mihomo_core
             await asyncio.to_thread(core.discard_stage, stage)
-        return {
+        result = {
             "success": False,
             "message": str(exc),
             "nodes": runtime_nodes,
@@ -218,6 +222,12 @@ async def _apply_nodes_locked(nodes: list[dict[str, Any]], *, singbox_base_port:
             "core_counts": dict(Counter(str(node.get("core_type") or UNSUPPORTED_CORE) for node in runtime_nodes)),
             "cores": public_results,
         }
+        if isinstance(retry_nodes, list) and isinstance(getattr(exc, "details", None), dict):
+            result["dedup_required"] = {
+                "nodes": retry_nodes,
+                "details": getattr(exc, "details"),
+            }
+        return result
 
     for core_type, stage in stages:
         try:

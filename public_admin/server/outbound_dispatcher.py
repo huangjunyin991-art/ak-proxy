@@ -146,7 +146,7 @@ class OutboundExit:
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
-                 source_url: str = "", node_identity: str = "", node_type: str = ""):
+                 source_url: str = "", node_identity: str = "", node_type: str = "", exit_ip: str = ""):
         self.name = name
         self.core_type = core_type or ("direct" if proxy_url is None else "singbox")
         self.node_type = str(node_type or "").strip().lower()
@@ -164,7 +164,7 @@ class OutboundExit:
         self.warn_403 = 0       # 403次数
         self.warn_429 = 0       # 429次数
         self.active = 0         # 当前正在处理的并发请求数
-        self.exit_ip = ""       # 兼容告警/详情字段；不再作为自动调度探测结果
+        self.exit_ip = str(exit_ip or "").strip()
         self._login_timestamps = deque()
         self._error_logs: list[dict] = []  # [{time, msg}] 最多保留50条
         self._req_timestamps = deque()  # 最近60秒请求时间戳
@@ -909,7 +909,7 @@ class OutboundDispatcher:
 
     def add_socks5(self, name: str, port: int, core_type: str = "singbox", group_id: str = "",
                    group_name: str = "", source_url: str = "", node_identity: str = "",
-                   node_type: str = "") -> int:
+                   node_type: str = "", exit_ip: str = "") -> int:
         """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
         exit_obj = OutboundExit(
@@ -923,6 +923,7 @@ class OutboundDispatcher:
             group_name=group_name,
             source_url=source_url,
             node_identity=node_identity,
+            exit_ip=exit_ip,
         )
         self._restore_exit_state(exit_obj)
         self.exits.append(exit_obj)
@@ -954,6 +955,7 @@ class OutboundDispatcher:
                 group_name=str(item.get("group_name") or ""),
                 source_url=str(item.get("source_url") or ""),
                 node_identity=str(item.get("node_identity") or ""),
+                exit_ip=str(item.get("exit_ip") or ""),
             )
             self._restore_exit_state(new_exit)
             previous_exit = previous_by_identity.get(new_exit.node_identity)
@@ -2698,6 +2700,7 @@ class OutboundDispatcher:
                     "group_name": ex.group_name,
                     "source_url": ex.source_url,
                     "node_identity": ex.node_identity,
+                    "exit_ip": ex.exit_ip,
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
                     "dispatch_ready": ex.is_dispatch_ready,

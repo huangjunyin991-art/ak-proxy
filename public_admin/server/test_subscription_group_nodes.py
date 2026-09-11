@@ -64,9 +64,10 @@ def test_subscription_node_summary_deduplicates_only_identical_routes():
 
 
 def test_dispatcher_exit_spec_keeps_node_protocol_for_probe_policy():
-    specs = proxy_server._build_dispatcher_exit_specs([_node()], 10001)
+    specs = proxy_server._build_dispatcher_exit_specs([_node(public_exit_ip="157.254.20.4")], 10001)
 
     assert specs[0]["node_type"] == "vless"
+    assert specs[0]["exit_ip"] == "157.254.20.4"
 
 
 def test_group_availability_uses_logical_node_identity():

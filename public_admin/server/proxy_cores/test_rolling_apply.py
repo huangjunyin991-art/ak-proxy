@@ -298,3 +298,44 @@ async def test_rollover_stops_after_bounded_port_conflict_retries(monkeypatch):
     assert result["success"] is False
     assert singbox_attempts == [30001, 31001, 32001, 33001, 34001]
     assert discarded == [MIHOMO_CORE]
+
+
+@pytest.mark.asyncio
+async def test_activation_can_request_a_filtered_candidate_rebuild(monkeypatch):
+    discarded = []
+
+    async def stage_singbox(nodes, base_port):
+        return {"success": True, "message": "ready", "nodes_count": len(nodes), "stage": _stage(SINGBOX_CORE, base_port)}
+
+    async def stage_mihomo(nodes, base_port):
+        return {"success": True, "message": "empty", "nodes_count": 0, "stage": _stage(MIHOMO_CORE, base_port, 0)}
+
+    class RebuildRequired(RuntimeError):
+        retry_nodes = [{"name": "representative"}]
+        details = {"duplicate_count": 1}
+
+    async def activate(runtime_nodes):
+        raise RebuildRequired("deduplicate")
+
+    monkeypatch.setattr(manager.singbox_core, "stage_nodes", stage_singbox)
+    monkeypatch.setattr(manager.mihomo_core, "stage_nodes", stage_mihomo)
+    monkeypatch.setattr(manager.singbox_core, "promote_stage", lambda stage: None)
+    monkeypatch.setattr(manager.mihomo_core, "promote_stage", lambda stage: None)
+    monkeypatch.setattr(manager.singbox_core, "discard_stage", lambda stage: discarded.append(stage.core_type))
+    monkeypatch.setattr(manager.mihomo_core, "discard_stage", lambda stage: discarded.append(stage.core_type))
+    monkeypatch.setattr(manager, "candidate_base_port", lambda core, default, required_ports=1, reserved_ranges=(): default)
+
+    result = await manager.apply_nodes([{
+        "name": "SS",
+        "type": "ss",
+        "server": "node.example.com",
+        "port": 443,
+        "raw": {"cipher": "aes-128-gcm", "password": "secret"},
+    }], activation_callback=activate)
+
+    assert result["success"] is False
+    assert result["dedup_required"] == {
+        "nodes": [{"name": "representative"}],
+        "details": {"duplicate_count": 1},
+    }
+    assert discarded == [MIHOMO_CORE, SINGBOX_CORE]

@@ -8,6 +8,7 @@ LIGHT_EXIT_FIELDS = {
     "core_type",
     "node_type",
     "local_port",
+    "exit_ip",
     "proxy",
     "healthy",
     "dispatch_ready",

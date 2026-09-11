@@ -470,6 +470,7 @@ def _build_dispatcher_exit_specs(nodes: list[dict[str, Any]], base_port: int) ->
             "group_name": node.get("group_name", ""),
             "source_url": node.get("source_url", ""),
             "node_identity": _subscription_node_identity(node),
+            "exit_ip": str(node.get("public_exit_ip") or ""),
         })
     return specs
 
@@ -504,6 +505,7 @@ async def _apply_subscription_runtime_nodes(
     from . import singbox_manager as sbm
     from .proxy_cores import apply_nodes as apply_proxy_core_nodes
     from .proxy_cores.rolling import DRAIN_SECONDS, atomic_write_bytes
+    from .subscription_groups.public_ip_dedup import PublicIpDeduplicator, PublicIpDedupRequired
 
     activation: dict[str, Any] = {"exits_added": []}
     snapshot_path = Path(PUBLIC_ADMIN_DIR) / "dispatcher_exits.json"
@@ -511,6 +513,20 @@ async def _apply_subscription_runtime_nodes(
     old_nodes = sbm.load_saved_nodes()
 
     async def activate(runtime_nodes: list[dict[str, Any]]) -> None:
+        # Probe only after the candidate proxy cores are listening, so the
+        # result represents the real public egress and not the subscription host.
+        dedup = PublicIpDeduplicator()
+        dedup_result = await dedup.deduplicate(runtime_nodes)
+        if dedup_result.get("duplicate_count", 0) > 0:
+            logger.warning(
+                "[PublicIpDedup] duplicate public IPs detected; rebuilding candidate "
+                "nodes=%s duplicates=%s unique_ips=%s unknown=%s",
+                len(runtime_nodes),
+                dedup_result.get("duplicate_count", 0),
+                dedup_result.get("unique_public_ips", 0),
+                dedup_result.get("unknown_count", 0),
+            )
+            raise PublicIpDedupRequired(dedup_result["nodes"], dedup_result)
         specs = _build_dispatcher_exit_specs(runtime_nodes, base_port)
         before_publish_completed = False
         try:
@@ -557,6 +573,20 @@ async def _apply_subscription_runtime_nodes(
         activation_callback=activate,
         allow_empty=allow_empty_generation,
     )
+    # A duplicate-IP candidate was intentionally rejected before publication.
+    # Re-run the normal atomic pipeline with its reduced node set. The second
+    # pass is bounded by the deduplicator's stable representative cache.
+    dedup_required = result.get("dedup_required") if isinstance(result, dict) else None
+    if dedup_required:
+        result = await _apply_subscription_runtime_nodes(
+            dedup_required["nodes"],
+            base_port,
+            before_publish=before_publish,
+            rollback_before_publish=rollback_before_publish,
+            allow_empty_generation=allow_empty_generation,
+        )
+        result["public_ip_dedup"] = dedup_required["details"]
+        return result
     return {
         **result,
         **activation,
@@ -5322,6 +5352,7 @@ async def api_dispatcher_apply_sub(request: Request):
 
     nodes_saved = False
     added_exits = []
+    reload_result: dict[str, Any] = {}
     try:
         reload_result = await _apply_subscription_runtime_nodes(all_nodes, base_port)
         nodes_saved = bool(reload_result.get("success"))
@@ -5354,7 +5385,12 @@ async def api_dispatcher_apply_sub(request: Request):
 
     if nodes_saved:
         try:
-            node_summary = summarize_subscription_nodes(nodes_to_add)
+            effective_nodes = reload_result.get("nodes") if isinstance(reload_result, dict) else None
+            effective_group_nodes = [
+                node for node in (effective_nodes if isinstance(effective_nodes, list) else nodes_to_add)
+                if isinstance(node, dict) and str(node.get("group_id") or "") == group_id
+            ]
+            node_summary = summarize_subscription_nodes(effective_group_nodes)
             await db.create_subscription_group(
                 group_id=group_id,
                 name=group_name,
@@ -5368,7 +5404,12 @@ async def api_dispatcher_apply_sub(request: Request):
         except Exception as e:
             logger.warning(f"[SubGroup] 新增订阅组记录失败: {e}")
 
-    applied_nodes_count = len(nodes_to_add) if apply_result["success"] else 0
+    effective_nodes = reload_result.get("nodes") if isinstance(reload_result, dict) else None
+    effective_group_nodes = [
+        node for node in (effective_nodes if isinstance(effective_nodes, list) else nodes_to_add)
+        if isinstance(node, dict) and str(node.get("group_id") or "") == group_id
+    ]
+    applied_nodes_count = len(effective_group_nodes) if apply_result["success"] else 0
 
     return {
 

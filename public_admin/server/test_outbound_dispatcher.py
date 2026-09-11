@@ -29,7 +29,7 @@ def test_replacing_tunnel_generation_keeps_direct_and_returns_old_exits():
     old_exit = dispatcher.exits[old_index]
 
     retired = dispatcher.replace_socks5_exits([
-        {"name": "new-a", "port": 30001, "core_type": "singbox", "node_type": "hysteria2"},
+        {"name": "new-a", "port": 30001, "core_type": "singbox", "node_type": "hysteria2", "exit_ip": "157.254.20.4"},
         {"name": "new-b", "port": 30002, "core_type": "singbox"},
     ])
 
@@ -37,6 +37,7 @@ def test_replacing_tunnel_generation_keeps_direct_and_returns_old_exits():
     assert [item.name for item in dispatcher.exits[1:]] == ["new-a", "new-b"]
     assert dispatcher.exits[1].node_type == "hysteria2"
     assert dispatcher.get_status()["exits"][1]["node_type"] == "hysteria2"
+    assert dispatcher.get_status()["exits"][1]["exit_ip"] == "157.254.20.4"
     assert retired == [old_exit]
 
 
