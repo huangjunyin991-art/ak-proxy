@@ -1,6 +1,8 @@
 from datetime import date
 from typing import Any, Dict, List
 
+from ...account_grouping import account_group_sql
+
 
 async def fetch_traffic_dashboard_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
     row = await _try_fetch_traffic_dashboard_rollup_row(conn, start_day)
@@ -52,6 +54,7 @@ async def _try_fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, 
 
 
 async def _fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]:
+    account_group = account_group_sql("username")
     row = await conn.fetchrow('''
         WITH summary AS (
             SELECT total_count AS total,
@@ -59,11 +62,19 @@ async def _fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]
             FROM login_rollup_daily
             WHERE login_day = $1
         ),
-        active_users AS (
-            SELECT COUNT(*) AS count
+        user_rollup_groups AS (
+            SELECT {account_group} AS account_group_key,
+                   login_day,
+                   SUM(total_count) AS total_count,
+                   MAX(last_login) AS last_login
             FROM user_login_rollup_daily
             WHERE login_day = $1
-              AND total_count > 0
+            GROUP BY {account_group}, login_day
+        ),
+        active_users AS (
+            SELECT COUNT(*) AS count
+            FROM user_rollup_groups
+            WHERE total_count > 0
         ),
         peak AS (
             SELECT COALESCE(MAX(total_count), 0) AS count
@@ -76,9 +87,8 @@ async def _fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]
             WHERE login_day = $1
         ),
         top_users AS (
-            SELECT username, total_count AS count, last_login
-            FROM user_login_rollup_daily
-            WHERE login_day = $1
+            SELECT account_group_key AS username, total_count AS count, last_login
+            FROM user_rollup_groups
             ORDER BY total_count DESC, last_login DESC NULLS LAST
             LIMIT 10
         ),
@@ -99,14 +109,15 @@ async def _fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]
         FROM active_users
         CROSS JOIN peak
         LEFT JOIN summary ON TRUE
-    ''', day)
+    '''.format(account_group=account_group), day)
     return dict(row) if row else {}
 
 
 async def _fetch_traffic_dashboard_legacy_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
+    account_group = account_group_sql("username")
     row = await conn.fetchrow('''
         WITH daily AS (
-            SELECT username, ip_address, login_time,
+            SELECT {account_group} AS account_group_key, ip_address, login_time,
                    CASE
                        WHEN login_success IS TRUE THEN 1
                        WHEN login_success IS FALSE THEN 0
@@ -122,7 +133,7 @@ async def _fetch_traffic_dashboard_legacy_row(conn, start_day: date, end_day: da
         summary AS (
             SELECT COUNT(*) AS total,
                    COALESCE(SUM(success_flag), 0) AS success,
-                   COUNT(DISTINCT username) AS active_users
+                   COUNT(DISTINCT account_group_key) AS active_users
             FROM daily
         ),
         peak AS (
@@ -138,9 +149,9 @@ async def _fetch_traffic_dashboard_legacy_row(conn, start_day: date, end_day: da
             GROUP BY hour
         ),
         top_users AS (
-            SELECT username, COUNT(*) AS count, MAX(login_time) AS last_login
+            SELECT account_group_key AS username, COUNT(*) AS count, MAX(login_time) AS last_login
             FROM daily
-            GROUP BY username
+            GROUP BY account_group_key
             ORDER BY count DESC, last_login DESC
             LIMIT 10
         ),
@@ -159,12 +170,13 @@ async def _fetch_traffic_dashboard_legacy_row(conn, start_day: date, end_day: da
                COALESCE((SELECT jsonb_agg(jsonb_build_object('username', username, 'count', count, 'last_login', last_login) ORDER BY count DESC, last_login DESC) FROM top_users), '[]'::jsonb)::text AS top_users_json,
                COALESCE((SELECT jsonb_agg(jsonb_build_object('ip', ip, 'count', count) ORDER BY count DESC) FROM top_ips), '[]'::jsonb)::text AS top_ips_json
         FROM summary
-    ''', start_day, end_day)
+    '''.format(account_group=account_group), start_day, end_day)
     return dict(row) if row else {}
 
 
 async def fetch_user_growth_rows(conn, days: int = 30) -> List[Dict[str, Any]]:
     normalized_days = max(1, min(int(days or 30), 365))
+    account_group = account_group_sql("username")
     rows = await conn.fetch('''
         WITH bounds AS (
             SELECT (CURRENT_DATE - (($1::int - 1) * INTERVAL '1 day'))::date AS start_day,
@@ -176,14 +188,19 @@ async def fetch_user_growth_rows(conn, days: int = 30) -> List[Dict[str, Any]]:
             SELECT generate_series(start_day, end_day, INTERVAL '1 day')::date AS day
             FROM bounds
         ),
+        accounts AS (
+            SELECT {account_group} AS account_group_key, MIN(first_login) AS first_login
+            FROM user_stats
+            GROUP BY {account_group}
+        ),
         baseline AS (
             SELECT COUNT(*) AS count
-            FROM user_stats, bounds
+            FROM accounts, bounds
             WHERE first_login IS NULL OR first_login < start_ts
         ),
         daily AS (
             SELECT first_login::date AS day, COUNT(*) AS count
-            FROM user_stats, bounds
+            FROM accounts, bounds
             WHERE first_login IS NOT NULL
               AND first_login >= start_ts
               AND first_login < end_ts
@@ -196,7 +213,7 @@ async def fetch_user_growth_rows(conn, days: int = 30) -> List[Dict[str, Any]]:
         CROSS JOIN baseline
         LEFT JOIN daily USING(day)
         ORDER BY day
-    ''', normalized_days)
+    '''.format(account_group=account_group), normalized_days)
     return [dict(row) for row in rows]
 
 
@@ -211,6 +228,7 @@ async def fetch_user_growth_bucket_rows(conn, period: str, count: int) -> List[D
 
 async def _fetch_user_growth_week_rows(conn, count: int) -> List[Dict[str, Any]]:
     normalized_count = max(1, min(int(count or 12), 104))
+    account_group = account_group_sql("username")
     rows = await conn.fetch('''
         WITH bounds AS (
             SELECT date_trunc('week', CURRENT_DATE)::date AS current_bucket,
@@ -221,14 +239,19 @@ async def _fetch_user_growth_week_rows(conn, count: int) -> List[Dict[str, Any]]
             SELECT generate_series(start_bucket, current_bucket, INTERVAL '1 week')::date AS bucket_start
             FROM bounds
         ),
+        accounts AS (
+            SELECT {account_group} AS account_group_key, MIN(first_login) AS first_login
+            FROM user_stats
+            GROUP BY {account_group}
+        ),
         baseline AS (
             SELECT COUNT(*) AS count
-            FROM user_stats, bounds
+            FROM accounts, bounds
             WHERE first_login IS NULL OR first_login < start_bucket::timestamp
         ),
         weekly AS (
             SELECT date_trunc('week', first_login)::date AS bucket_start, COUNT(*) AS count
-            FROM user_stats, bounds
+            FROM accounts, bounds
             WHERE first_login IS NOT NULL
               AND first_login >= start_bucket::timestamp
               AND first_login < end_ts
@@ -243,12 +266,13 @@ async def _fetch_user_growth_week_rows(conn, count: int) -> List[Dict[str, Any]]
         CROSS JOIN baseline
         LEFT JOIN weekly USING(bucket_start)
         ORDER BY bucket_start
-    ''', normalized_count)
+    '''.format(account_group=account_group), normalized_count)
     return [dict(row) for row in rows]
 
 
 async def _fetch_user_growth_month_rows(conn, count: int) -> List[Dict[str, Any]]:
     normalized_count = max(1, min(int(count or 12), 60))
+    account_group = account_group_sql("username")
     rows = await conn.fetch('''
         WITH bounds AS (
             SELECT date_trunc('month', CURRENT_DATE)::date AS current_bucket,
@@ -259,14 +283,19 @@ async def _fetch_user_growth_month_rows(conn, count: int) -> List[Dict[str, Any]
             SELECT generate_series(start_bucket, current_bucket, INTERVAL '1 month')::date AS bucket_start
             FROM bounds
         ),
+        accounts AS (
+            SELECT {account_group} AS account_group_key, MIN(first_login) AS first_login
+            FROM user_stats
+            GROUP BY {account_group}
+        ),
         baseline AS (
             SELECT COUNT(*) AS count
-            FROM user_stats, bounds
+            FROM accounts, bounds
             WHERE first_login IS NULL OR first_login < start_bucket::timestamp
         ),
         monthly AS (
             SELECT date_trunc('month', first_login)::date AS bucket_start, COUNT(*) AS count
-            FROM user_stats, bounds
+            FROM accounts, bounds
             WHERE first_login IS NOT NULL
               AND first_login >= start_bucket::timestamp
               AND first_login < end_ts
@@ -281,5 +310,5 @@ async def _fetch_user_growth_month_rows(conn, count: int) -> List[Dict[str, Any]
         CROSS JOIN baseline
         LEFT JOIN monthly USING(bucket_start)
         ORDER BY bucket_start
-    ''', normalized_count)
+    '''.format(account_group=account_group), normalized_count)
     return [dict(row) for row in rows]

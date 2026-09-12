@@ -1,6 +1,8 @@
 from datetime import date
 from typing import Any, Dict
 
+from ...account_grouping import account_group_sql
+
 
 async def fetch_admin_summary_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
     row = await _try_fetch_admin_summary_rollup_row(conn, start_day)
@@ -45,19 +47,26 @@ async def _try_fetch_admin_summary_rollup_row(conn, start_day: date) -> Dict[str
 
 
 async def _fetch_admin_summary_rollup_row(conn, start_day: date) -> Dict[str, Any]:
+    account_group = account_group_sql("username")
     row = await conn.fetchrow('''
-        WITH user_counts AS (
-            SELECT COUNT(*) AS total_users,
-                   COUNT(*) FILTER (
-                       WHERE is_banned = TRUE
-                         AND NOT EXISTS (
-                             SELECT 1
-                             FROM ban_list bl
-                             WHERE bl.ban_type = 'username'
-                               AND bl.ban_value = user_stats.username
-                         )
-                   ) AS stat_user_bans
+        WITH user_accounts AS (
+            SELECT {account_group} AS account_group_key,
+                   BOOL_OR(
+                       COALESCE(user_stats.is_banned, FALSE)
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM ban_list bl
+                           WHERE bl.ban_type = 'username'
+                             AND bl.ban_value = user_stats.username
+                       )
+                   ) AS stat_user_banned
             FROM user_stats
+            GROUP BY {account_group}
+        ),
+        user_counts AS (
+            SELECT COUNT(*) AS total_users,
+                   COUNT(*) FILTER (WHERE stat_user_banned) AS stat_user_bans
+            FROM user_accounts
         ),
         ip_counts AS (
             SELECT COUNT(*) AS total_ips,
@@ -106,24 +115,31 @@ async def _fetch_admin_summary_rollup_row(conn, start_day: date) -> Dict[str, An
         CROSS JOIN login_counts
         CROSS JOIN visible_bans
         CROSS JOIN asset_totals
-    ''', start_day)
+    '''.format(account_group=account_group), start_day)
     return dict(row) if row else {}
 
 
 async def _fetch_admin_summary_legacy_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
+    account_group = account_group_sql("username")
     row = await conn.fetchrow('''
-        WITH user_counts AS (
-            SELECT COUNT(*) AS total_users,
-                   COUNT(*) FILTER (
-                       WHERE is_banned = TRUE
-                         AND NOT EXISTS (
-                             SELECT 1
-                             FROM ban_list bl
-                             WHERE bl.ban_type = 'username'
-                               AND bl.ban_value = user_stats.username
-                         )
-                   ) AS stat_user_bans
+        WITH user_accounts AS (
+            SELECT {account_group} AS account_group_key,
+                   BOOL_OR(
+                       COALESCE(user_stats.is_banned, FALSE)
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM ban_list bl
+                           WHERE bl.ban_type = 'username'
+                             AND bl.ban_value = user_stats.username
+                       )
+                   ) AS stat_user_banned
             FROM user_stats
+            GROUP BY {account_group}
+        ),
+        user_counts AS (
+            SELECT COUNT(*) AS total_users,
+                   COUNT(*) FILTER (WHERE stat_user_banned) AS stat_user_bans
+            FROM user_accounts
         ),
         ip_counts AS (
             SELECT COUNT(*) AS total_ips,
@@ -172,5 +188,5 @@ async def _fetch_admin_summary_legacy_row(conn, start_day: date, end_day: date) 
         CROSS JOIN login_counts
         CROSS JOIN visible_bans
         CROSS JOIN asset_totals
-    ''', start_day, end_day)
+    '''.format(account_group=account_group), start_day, end_day)
     return dict(row) if row else {}

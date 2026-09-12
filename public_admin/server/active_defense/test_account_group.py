@@ -1,4 +1,5 @@
 from .account_group import normalize_account_group_key
+from ..account_grouping import account_group_sql
 from .runtime_store import ActiveDefenseRuntimeStore
 
 
@@ -21,3 +22,10 @@ def test_distinct_account_counter_does_not_double_count_subaccounts():
     assert store.record_login_403_account("198.51.100.1", "cyh6699-1", 60) == 1
     assert store.record_login_403_account("198.51.100.1", "cyh6699-55", 60) == 1
     assert store.record_login_403_account("198.51.100.1", "other6699", 60) == 2
+
+
+def test_sql_grouping_expression_matches_numeric_subaccount_rule():
+    expression = account_group_sql("us.username")
+    assert "us.username" in expression
+    assert "regexp_replace" in expression
+    assert "^.+[0-9]-[0-9]+$" in expression
