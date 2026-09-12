@@ -79,3 +79,18 @@ def test_state_restore_keeps_live_feedback_and_discards_stale_feedback():
     stale.restore_state(state)
     assert stale.status()["active"] is False
     assert stale.status()["responses_429_5m"] == 0
+
+
+def test_reset_clears_all_429_feedback_and_recent_request_windows():
+    clock = Clock(5000.0)
+    feedback = RateLimitFeedback(clock=clock)
+    feedback.record_request()
+    feedback.record_429()
+
+    feedback.reset()
+
+    status = feedback.status()
+    assert status["active"] is False
+    assert status["last_429_at"] is None
+    assert status["requests_5m"] == 0
+    assert status["responses_429_5m"] == 0

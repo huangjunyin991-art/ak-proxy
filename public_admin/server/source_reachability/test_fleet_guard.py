@@ -5,7 +5,7 @@ from ..dispatcher_policy.failure_ladder import (
     CONNECTION_FAILURE_FREEZE_SCHEDULE,
     connection_failure_freeze_seconds,
 )
-from ..outbound_dispatcher import OutboundExit
+from ..outbound_dispatcher import OutboundDispatcher, OutboundExit
 from .fleet_guard import SourceFleetGuard
 from .state_store import SourceFleetStateStore
 
@@ -172,6 +172,28 @@ def test_state_store_persists_recent_429_feedback(tmp_path):
     assert loaded["rate_limit_feedback"]["response_429_buckets"]
 
 
+def test_state_store_clears_previous_day_risk_before_persisting(tmp_path):
+    exit_obj = _verified_exit(13)
+    exit_obj.warn_403 = 4
+    exit_obj.warn_429 = 2
+    exit_obj._403_freeze_level = 2
+    exit_obj._frozen_until = time.time() + 60
+    exit_obj._frozen_reason = "403保护×2"
+    exit_obj.record_rate_limited()
+    exit_obj._risk_stat_date = "2000-01-01"
+    store = SourceFleetStateStore(tmp_path / "fleet.json")
+
+    store.save([exit_obj])
+    loaded = store.load()["node-13"]
+
+    assert loaded["risk_stat_date"] == exit_obj._risk_stat_date
+    assert loaded["warn_403"] == 0
+    assert loaded["warn_429"] == 0
+    assert loaded["403_freeze_level"] == 0
+    assert loaded["frozen_reason"] == ""
+    assert loaded["rate_limit_feedback"]["last_429_at"] == 0.0
+
+
 def test_dispatcher_restores_403_protection_gradient_for_new_exit(monkeypatch, tmp_path):
     original = _verified_exit(10)
     original.warn_403 = 5
@@ -237,3 +259,34 @@ def test_dispatcher_restores_live_429_feedback_for_new_exit(monkeypatch, tmp_pat
 
     assert feedback["active"] is True
     assert feedback["responses_429_1m"] == 1
+
+
+def test_dispatcher_discards_previous_day_risk_on_exit_restore():
+    original = _verified_exit(14)
+    original.record_request()
+    original.record_rate_limited()
+    dispatcher = OutboundDispatcher()
+    dispatcher._persisted_source_fleet_state = {
+        "node-14": {
+            "source_probe_last_success_at": original.source_probe_last_success_at,
+            "source_probe_ready": True,
+            "source_probe_protected": False,
+            "connect_failures": 0,
+            "warn_403": 5,
+            "warn_429": 2,
+            "risk_stat_date": "2000-01-01",
+            "rate_limit_feedback": original.dump_rate_limit_feedback(),
+            "403_freeze_level": 3,
+            "frozen_until": time.time() + 60,
+            "frozen_reason": "403保护×3",
+        }
+    }
+
+    index = dispatcher.add_socks5("old-risk", 12014, node_identity="node-14")
+    restored = dispatcher.exits[index]
+
+    assert restored.warn_403 == 0
+    assert restored.warn_429 == 0
+    assert restored._403_freeze_level == 0
+    assert restored.is_frozen is False
+    assert restored.rate_limit_feedback_status()["active"] is False

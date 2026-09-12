@@ -29,12 +29,16 @@ class SourceFleetStateStore:
     def save(self, exits: Iterable[Any]) -> None:
         records: dict[str, dict[str, Any]] = {}
         for exit_obj in exits:
+            ensure_current_risk_day = getattr(exit_obj, "ensure_current_risk_day", None)
+            if callable(ensure_current_risk_day):
+                ensure_current_risk_day()
             identity = str(getattr(exit_obj, "node_identity", "") or "").strip()
             last_success_at = float(getattr(exit_obj, "source_probe_last_success_at", 0.0) or 0.0)
             connect_failures = int(getattr(exit_obj, "_connect_failures", 0) or 0)
             warn_403 = int(getattr(exit_obj, "warn_403", 0) or 0)
             warn_429 = int(getattr(exit_obj, "warn_429", 0) or 0)
             freeze_403_level = int(getattr(exit_obj, "_403_freeze_level", 0) or 0)
+            risk_stat_date = str(getattr(exit_obj, "_risk_stat_date", "") or "").strip()
             dump_rate_limit_feedback = getattr(exit_obj, "dump_rate_limit_feedback", None)
             rate_limit_feedback = dump_rate_limit_feedback() if callable(dump_rate_limit_feedback) else {}
             if not identity or (
@@ -56,6 +60,7 @@ class SourceFleetStateStore:
                 "connect_failures": connect_failures,
                 "warn_403": warn_403,
                 "warn_429": warn_429,
+                "risk_stat_date": risk_stat_date,
                 "rate_limit_feedback": rate_limit_feedback,
                 "403_freeze_level": freeze_403_level,
                 "frozen_until": float(getattr(exit_obj, "_frozen_until", 0.0) or 0.0),

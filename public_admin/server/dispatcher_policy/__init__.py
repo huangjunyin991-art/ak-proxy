@@ -3,6 +3,7 @@ from .business_latency import BusinessLatencyEstimator
 from .failure_ladder import CONNECTION_FAILURE_FREEZE_SCHEDULE, connection_failure_freeze_seconds
 from .rate_limiter import DynamicExitPacer, PerSecondRateLimiter
 from .rate_limit_feedback import RateLimitFeedback
+from .daily_risk import current_local_day, is_current_local_day
 from .strategy import FairLoadStrategy, LatencyAwareStrategy
 from .login_limit import (
     DEFAULT_MAX_LOGIN_PER_MIN,
@@ -20,6 +21,8 @@ __all__ = [
     'PerSecondRateLimiter',
     'DynamicExitPacer',
     'RateLimitFeedback',
+    'current_local_day',
+    'is_current_local_day',
     'LatencyAwareStrategy',
     'FairLoadStrategy',
     'DEFAULT_MAX_LOGIN_PER_MIN',

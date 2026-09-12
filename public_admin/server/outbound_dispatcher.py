@@ -59,6 +59,8 @@ try:
         DispatcherPolicyConfig,
         FairLoadStrategy,
         RateLimitFeedback,
+        current_local_day,
+        is_current_local_day,
         connection_failure_freeze_seconds,
     )
     _DISPATCHER_POLICY_IMPORT_ERROR = None
@@ -68,6 +70,8 @@ except Exception as e:
     FairLoadStrategy = None
     RateLimitFeedback = None
     DynamicExitPacer = None
+    current_local_day = lambda now=None: datetime.fromtimestamp(time.time() if now is None else float(now)).astimezone().date().isoformat()
+    is_current_local_day = lambda value, now=None: str(value or "").strip() == current_local_day(now)
     CONNECTION_FAILURE_FREEZE_SCHEDULE = (10, 30, 60, 180, 300, 900, 3600)
     connection_failure_freeze_seconds = lambda level: CONNECTION_FAILURE_FREEZE_SCHEDULE[
         min(max(1, int(level or 1)) - 1, len(CONNECTION_FAILURE_FREEZE_SCHEDULE) - 1)
@@ -135,6 +139,7 @@ class OutboundExit:
                  '_rate_limit_feedback',
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures',
                  '_403_freeze_level',
+                 '_risk_stat_date',
                  'source_probe_ready', 'source_probe_protected', 'source_probing', 'source_probe_checked_at',
                  'source_probe_last_success_at', 'source_probe_failures',
                  'source_probe_last_error', 'source_probe_status_code', '_source_probe_next_at',
@@ -176,6 +181,7 @@ class OutboundExit:
         self._frozen_reason: str = ""
         self._connect_failures: int = 0
         self._403_freeze_level: int = 0
+        self._risk_stat_date: str = current_local_day()
         self.source_probe_ready: bool = proxy_url is None
         self.source_probe_protected: bool = False
         self.source_probing: bool = False
@@ -220,19 +226,39 @@ class OutboundExit:
     @property
     def is_frozen(self) -> bool:
         """403后是否处于冻结期(硬性等待1分钟)"""
+        self.ensure_current_risk_day()
         return time.time() < self._frozen_until
 
     @property
     def frozen_remaining(self) -> float:
         """冻结剩余秒数"""
+        self.ensure_current_risk_day()
         return max(0, self._frozen_until - time.time())
+
+    def ensure_current_risk_day(self, day_key: str | None = None) -> bool:
+        """Reset only 403/429-derived state when the local date changes."""
+        current = str(day_key or current_local_day())
+        if self._risk_stat_date == current:
+            return False
+        self._risk_stat_date = current
+        self.warn_403 = 0
+        self.warn_429 = 0
+        self._403_freeze_level = 0
+        if self._frozen_reason.startswith(("403保护", "收到403")):
+            self._frozen_until = 0.0
+            self._frozen_reason = ""
+        if self._rate_limit_feedback is not None:
+            self._rate_limit_feedback.reset()
+        return True
 
     def freeze_for_403(self, duration: float = 60.0):
         """兼容旧调用：按指定时长冻结出口。"""
+        self.ensure_current_risk_day()
         self.freeze(duration, "收到403")
 
     def freeze_for_403_gradient(self, schedule: tuple[float, ...]) -> int:
         """按连续业务 403 次数递增冻结，返回本次梯度级别。"""
+        self.ensure_current_risk_day()
         normalized = tuple(max(1.0, float(item)) for item in schedule) or (60.0,)
         self._403_freeze_level = min(self._403_freeze_level + 1, len(normalized))
         duration = normalized[self._403_freeze_level - 1]
@@ -241,6 +267,7 @@ class OutboundExit:
 
     def reset_403_protection(self) -> bool:
         """业务请求成功后解除 403 保护并清零连续梯度。"""
+        self.ensure_current_risk_day()
         changed = self._403_freeze_level != 0
         self._403_freeze_level = 0
         if self._frozen_reason.startswith(("403保护", "收到403")):
@@ -327,15 +354,18 @@ class OutboundExit:
             self._rate_limit_feedback.record_request()
 
     def record_rate_limited(self):
+        self.ensure_current_risk_day()
         if self._rate_limit_feedback is not None:
             self._rate_limit_feedback.record_429()
 
     def rate_limit_scheduling_state(self, now: float | None = None) -> tuple[int, float]:
+        self.ensure_current_risk_day(current_local_day(now))
         if self._rate_limit_feedback is None:
             return 0, 1.0
         return self._rate_limit_feedback.scheduling_state(now)
 
     def rate_limit_feedback_status(self) -> dict[str, object]:
+        self.ensure_current_risk_day()
         if self._rate_limit_feedback is None:
             return {
                 "active": False,
@@ -352,6 +382,7 @@ class OutboundExit:
         return self._rate_limit_feedback.status()
 
     def dump_rate_limit_feedback(self) -> dict[str, object]:
+        self.ensure_current_risk_day()
         if self._rate_limit_feedback is None:
             return {}
         return self._rate_limit_feedback.dump_state()
@@ -840,6 +871,8 @@ class OutboundDispatcher:
         state = self._persisted_source_fleet_state.get(identity) if identity else None
         if not isinstance(state, dict):
             return
+        risk_stat_date = str(state.get("risk_stat_date") or "").strip()
+        risk_is_current = is_current_local_day(risk_stat_date)
         last_success_at = float(state.get("source_probe_last_success_at") or 0.0)
         if last_success_at > 0:
             exit_obj.source_probe_ready = bool(state.get("source_probe_ready"))
@@ -854,13 +887,19 @@ class OutboundDispatcher:
                 exit_obj.latency_ms = None
             exit_obj.latency_checked_at = str(state.get("business_latency_checked_at") or "")
         exit_obj._connect_failures = max(0, int(state.get("connect_failures") or 0))
-        exit_obj.warn_403 = max(0, int(state.get("warn_403") or 0))
-        exit_obj.warn_429 = max(0, int(state.get("warn_429") or 0))
-        exit_obj.restore_rate_limit_feedback(state.get("rate_limit_feedback"))
-        exit_obj._403_freeze_level = max(0, int(state.get("403_freeze_level") or 0))
+        exit_obj._risk_stat_date = current_local_day()
+        if risk_is_current:
+            exit_obj.warn_403 = max(0, int(state.get("warn_403") or 0))
+            exit_obj.warn_429 = max(0, int(state.get("warn_429") or 0))
+            exit_obj.restore_rate_limit_feedback(state.get("rate_limit_feedback"))
+            exit_obj._403_freeze_level = max(0, int(state.get("403_freeze_level") or 0))
         frozen_reason = str(state.get("frozen_reason") or "")
         frozen_until = float(state.get("frozen_until") or 0.0)
-        if frozen_reason.startswith(("连接失败", "403保护", "收到403")) and frozen_until > time.time():
+        is_risk_freeze = frozen_reason.startswith(("403保护", "收到403"))
+        if frozen_reason.startswith("连接失败") and frozen_until > time.time():
+            exit_obj._frozen_reason = frozen_reason
+            exit_obj._frozen_until = frozen_until
+        elif risk_is_current and is_risk_freeze and frozen_until > time.time():
             exit_obj._frozen_reason = frozen_reason
             exit_obj._frozen_until = frozen_until
 
@@ -985,8 +1024,11 @@ class OutboundDispatcher:
     @staticmethod
     def _inherit_alert_state(target: OutboundExit, previous: OutboundExit) -> None:
         """Keep visible upstream risk history when a node receives a new port."""
+        previous.ensure_current_risk_day()
+        target.ensure_current_risk_day()
         target.warn_403 = previous.warn_403
         target.warn_429 = previous.warn_429
+        target._risk_stat_date = previous._risk_stat_date
         if target._rate_limit_feedback is not None and previous._rate_limit_feedback is not None:
             target._rate_limit_feedback.copy_from(previous._rate_limit_feedback)
         target._403_freeze_level = previous._403_freeze_level
@@ -2357,6 +2399,8 @@ class OutboundDispatcher:
             )
             return
         if status_code in ALERT_STATUS_CODES:
+            if exit_obj.ensure_current_risk_day():
+                self._schedule_source_fleet_state_persist()
             desc = ALERT_STATUS_CODES[status_code]
             rate_limit_detail = ""
             # 更新统计
@@ -2688,6 +2732,8 @@ class OutboundDispatcher:
         try:
             exits_info = []
             for i, ex in enumerate(self.exits):
+                if ex.ensure_current_risk_day():
+                    self._schedule_source_fleet_state_persist()
                 rate_limit_feedback = ex.rate_limit_feedback_status()
                 exits_info.append({
                     "index": i,
@@ -2720,6 +2766,7 @@ class OutboundDispatcher:
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,
+                    "risk_stat_date": ex._risk_stat_date,
                     "rate_limit_feedback": rate_limit_feedback,
                     "403_freeze_level": ex._403_freeze_level,
                     "403_freeze_schedule": list(self.BUSINESS_403_FREEZE_SCHEDULE),

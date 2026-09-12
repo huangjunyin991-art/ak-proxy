@@ -80,6 +80,12 @@ class RateLimitFeedback:
         self._last_429_at = current
         self._responses_429.record(current)
 
+    def reset(self) -> None:
+        """Clear all 429-derived scheduling and reporting state."""
+        self._last_429_at = 0.0
+        self._requests = _RollingCounter(self.HISTORY_SECONDS)
+        self._responses_429 = _RollingCounter(self.HISTORY_SECONDS)
+
     def scheduling_state(self, now: float | None = None) -> tuple[int, float]:
         """Return the risk tier and capacity weight used by schedulers."""
         current = self._now(now)

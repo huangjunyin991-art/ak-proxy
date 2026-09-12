@@ -273,6 +273,61 @@ def test_replacing_matching_node_keeps_visible_upstream_alert_counts():
     assert dispatcher.get_status()["exits"][1]["warn_429"] == 2
 
 
+def test_cross_day_resets_only_403_and_429_risk_state():
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    exit_obj.warn_403 = 3
+    exit_obj.warn_429 = 2
+    exit_obj._403_freeze_level = 2
+    exit_obj._frozen_until = time.time() + 60
+    exit_obj._frozen_reason = "403保护×2"
+    exit_obj.record_request()
+    exit_obj.record_rate_limited()
+    exit_obj._risk_stat_date = "2000-01-01"
+
+    assert exit_obj.ensure_current_risk_day() is True
+    assert exit_obj.warn_403 == 0
+    assert exit_obj.warn_429 == 0
+    assert exit_obj._403_freeze_level == 0
+    assert exit_obj.is_frozen is False
+    feedback = exit_obj.rate_limit_feedback_status()
+    assert feedback["active"] is False
+    assert feedback["requests_5m"] == 0
+    assert feedback["responses_429_5m"] == 0
+
+
+def test_cross_day_keeps_connection_failure_freeze():
+    exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
+    exit_obj._connect_failures = 3
+    exit_obj._frozen_until = time.time() + 60
+    exit_obj._frozen_reason = "连接失败×3"
+    exit_obj._risk_stat_date = "2000-01-01"
+
+    assert exit_obj.ensure_current_risk_day() is True
+    assert exit_obj._connect_failures == 3
+    assert exit_obj.is_frozen is True
+
+
+def test_replacing_node_discards_previous_day_403_and_429_state():
+    dispatcher = OutboundDispatcher()
+    old_index = _add_ready_socks5(dispatcher, "preserved", 10001, node_identity="node-a")
+    old_exit = dispatcher.exits[old_index]
+    old_exit.warn_403 = 3
+    old_exit.warn_429 = 2
+    old_exit._403_freeze_level = 2
+    old_exit.record_rate_limited()
+    old_exit._risk_stat_date = "2000-01-01"
+
+    dispatcher.replace_socks5_exits([
+        {"name": "preserved", "port": 30001, "core_type": "singbox", "node_identity": "node-a"},
+    ])
+
+    replacement = dispatcher.exits[1]
+    assert replacement.warn_403 == 0
+    assert replacement.warn_429 == 0
+    assert replacement._403_freeze_level == 0
+    assert replacement.rate_limit_feedback_status()["active"] is False
+
+
 def test_business_403_freeze_ladder_is_exact_capped_and_resets():
     exit_obj = OutboundExit("exit", "socks5://127.0.0.1:10001")
     schedule = OutboundDispatcher.BUSINESS_403_FREEZE_SCHEDULE
