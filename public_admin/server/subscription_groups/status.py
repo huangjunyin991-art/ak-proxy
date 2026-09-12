@@ -67,12 +67,15 @@ def _fallback_runtime_exits(
 def _availability_state(
     duplicates: list[dict[str, Any]],
     runtime_exits: list[dict[str, Any]],
+    public_ip_role: str = "",
 ) -> str:
     enabled_nodes = [node for node in duplicates if node.get("enabled", True) is not False]
     if not enabled_nodes:
         return "disabled"
     if not any(node.get("core_supported", True) is not False for node in enabled_nodes):
         return "unsupported"
+    if public_ip_role == "standby_shared_ip":
+        return "standby_shared_ip"
     if any(item.get("dispatch_ready") and not item.get("frozen") for item in runtime_exits):
         return "available"
     if not runtime_exits:
@@ -97,11 +100,17 @@ def build_group_node_views(
     exits: Iterable[dict[str, Any]],
     group_id: str,
 ) -> list[dict[str, Any]]:
+    node_items = [item for item in nodes if isinstance(item, dict)]
     runtime_items = [item for item in exits if isinstance(item, dict)]
     runtime_by_identity = _exits_by_identity(runtime_items)
     runtime_by_locator = _exits_by_locator(runtime_items)
+    try:
+        from .public_ip_dedup import PublicIpObservationStore
+        public_ip_roles = PublicIpObservationStore().select_runtime_nodes(node_items).get("roles", {})
+    except Exception:
+        public_ip_roles = {}
     views = []
-    for identity, duplicates in group_nodes_by_identity(nodes, group_id).items():
+    for identity, duplicates in group_nodes_by_identity(node_items, group_id).items():
         representative = duplicates[0]
         runtime_exits = runtime_by_identity.get(identity, [])
         if not runtime_exits:
@@ -112,6 +121,7 @@ def build_group_node_views(
             for node in duplicates
             if node.get("enabled", True) is not False
         ) if enabled else any(node.get("core_supported", True) is not False for node in duplicates)
+        public_ip = public_ip_roles.get(identity, {}) if isinstance(public_ip_roles, dict) else {}
         views.append({
             "node_identity": identity,
             "name": str(representative.get("display_name") or representative.get("name") or "").strip(),
@@ -122,7 +132,9 @@ def build_group_node_views(
             "core_supported": supported,
             "core_unsupported_reason": str(representative.get("core_unsupported_reason") or "").strip(),
             "duplicate_count": len(duplicates),
-            "availability_state": _availability_state(duplicates, runtime_exits),
+            "availability_state": _availability_state(duplicates, runtime_exits, str(public_ip.get("role") or "")),
+            "public_exit_ip": str(public_ip.get("public_exit_ip") or ""),
+            "public_ip_runtime_role": str(public_ip.get("role") or "unconfirmed"),
         })
     return views
 
@@ -131,7 +143,8 @@ def _availability_summary(views: list[dict[str, Any]]) -> dict[str, Any]:
     enabled = [item for item in views if item.get("enabled")]
     available = sum(1 for item in enabled if item.get("availability_state") == "available")
     pending = sum(1 for item in enabled if item.get("availability_state") == "pending")
-    unavailable = len(enabled) - available - pending
+    standby = sum(1 for item in enabled if item.get("availability_state") == "standby_shared_ip")
+    unavailable = len(enabled) - available - pending - standby
     ratio = round((available / len(enabled)) * 100, 1) if enabled else 0.0
     return {
         "available_nodes": available,
@@ -139,6 +152,7 @@ def _availability_summary(views: list[dict[str, Any]]) -> dict[str, Any]:
         "pending_nodes": pending,
         "availability_total": len(enabled),
         "availability_ratio": ratio,
+        "standby_shared_ip_nodes": standby,
     }
 
 

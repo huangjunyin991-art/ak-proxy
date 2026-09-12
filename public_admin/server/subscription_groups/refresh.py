@@ -166,12 +166,7 @@ class SubscriptionRefreshService:
                     return SubscriptionRefreshResult(group_id, True, False, reason, **{
                         key: health[key] for key in ("available_ratio", "available_nodes", "total_nodes")
                     })
-                applied_nodes = applied.get("runtime_nodes") if isinstance(applied, dict) else None
-                effective_nodes = applied_nodes if isinstance(applied_nodes, list) else candidate
-                summary = summarize_subscription_nodes([
-                    node for node in effective_nodes
-                    if isinstance(node, dict) and str(node.get("group_id") or "").strip() == group_id
-                ])
+                summary = summarize_subscription_nodes([node for node in candidate if str(node.get("group_id") or "").strip() == group_id])
                 await self._group_counter_updater(group_id, summary["total"], summary["active"])
                 self._logger.info("[SubRefresh] group=%s refreshed nodes=%s available_ratio=%.1f", group_id, summary["total"], health["available_ratio"])
                 return SubscriptionRefreshResult(group_id, True, True, "refreshed", **{

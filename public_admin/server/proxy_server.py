@@ -387,6 +387,18 @@ def _filter_nodes_by_active_groups(nodes: list[dict[str, Any]], active_group_ids
     ]
 
 
+def _select_public_ip_runtime_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Select a runtime set from the catalogue without network I/O."""
+    from .subscription_groups.public_ip_dedup import PublicIpObservationStore
+
+    try:
+        return PublicIpObservationStore().select_runtime_nodes(nodes)["nodes"]
+    except Exception as exc:
+        # Diagnostic state is optional. Its corruption must not remove routes.
+        logger.warning("[PublicIpScan] selection state unavailable; retaining full node set: %s", exc)
+        return [dict(node) for node in nodes if isinstance(node, dict)]
+
+
 def _load_saved_subscription_nodes_for_status() -> list[dict[str, Any]]:
     from . import singbox_manager as sbm
     nodes = sbm.load_saved_nodes()
@@ -505,34 +517,19 @@ async def _apply_subscription_runtime_nodes(
     from . import singbox_manager as sbm
     from .proxy_cores import apply_nodes as apply_proxy_core_nodes
     from .proxy_cores.rolling import DRAIN_SECONDS, atomic_write_bytes
-    from .subscription_groups.public_ip_dedup import PublicIpDeduplicator, PublicIpDedupRequired
 
     activation: dict[str, Any] = {"exits_added": []}
     snapshot_path = Path(PUBLIC_ADMIN_DIR) / "dispatcher_exits.json"
     old_snapshot = snapshot_path.read_bytes() if snapshot_path.exists() else None
-    old_nodes = sbm.load_saved_nodes()
+    old_runtime_nodes = sbm.load_runtime_nodes()
 
     async def activate(runtime_nodes: list[dict[str, Any]]) -> None:
-        # Probe only after the candidate proxy cores are listening, so the
-        # result represents the real public egress and not the subscription host.
-        dedup = PublicIpDeduplicator()
-        dedup_result = await dedup.deduplicate(runtime_nodes)
-        if dedup_result.get("duplicate_count", 0) > 0:
-            logger.warning(
-                "[PublicIpDedup] duplicate public IPs detected; rebuilding candidate "
-                "nodes=%s duplicates=%s unique_ips=%s unknown=%s",
-                len(runtime_nodes),
-                dedup_result.get("duplicate_count", 0),
-                dedup_result.get("unique_public_ips", 0),
-                dedup_result.get("unknown_count", 0),
-            )
-            raise PublicIpDedupRequired(dedup_result["nodes"], dedup_result)
         specs = _build_dispatcher_exit_specs(runtime_nodes, base_port)
         before_publish_completed = False
         try:
             # Persist before publishing the new exits. Every write is atomic;
             # a failed persistence step leaves the old process generation live.
-            sbm.save_nodes(runtime_nodes)
+            sbm.save_runtime_nodes(runtime_nodes)
             _save_dispatcher_exits_snapshot(runtime_nodes, base_port)
             if before_publish is not None:
                 await before_publish()
@@ -540,7 +537,7 @@ async def _apply_subscription_runtime_nodes(
             previous_exits = dispatcher.replace_socks5_exits(specs)
         except Exception:
             try:
-                sbm.save_nodes(old_nodes if isinstance(old_nodes, list) else [])
+                sbm.save_runtime_nodes(old_runtime_nodes if isinstance(old_runtime_nodes, list) else [])
                 if old_snapshot is None:
                     snapshot_path.unlink(missing_ok=True)
                 else:
@@ -573,25 +570,11 @@ async def _apply_subscription_runtime_nodes(
         activation_callback=activate,
         allow_empty=allow_empty_generation,
     )
-    # A duplicate-IP candidate was intentionally rejected before publication.
-    # Re-run the normal atomic pipeline with its reduced node set. The second
-    # pass is bounded by the deduplicator's stable representative cache.
-    dedup_required = result.get("dedup_required") if isinstance(result, dict) else None
-    if dedup_required:
-        result = await _apply_subscription_runtime_nodes(
-            dedup_required["nodes"],
-            base_port,
-            before_publish=before_publish,
-            rollback_before_publish=rollback_before_publish,
-            allow_empty_generation=allow_empty_generation,
-        )
-        result["public_ip_dedup"] = dedup_required["details"]
-        return result
     return {
         **result,
         **activation,
         "generation_preserved": not bool(result.get("success")),
-        "previous_nodes_count": len(old_nodes) if isinstance(old_nodes, list) else 0,
+        "previous_nodes_count": len(old_runtime_nodes) if isinstance(old_runtime_nodes, list) else 0,
     }
 
 
@@ -606,18 +589,19 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
         nodes = []
     node_items = [item for item in nodes if isinstance(item, dict)]
     filtered = _filter_nodes_by_active_groups(node_items, active_group_ids)
+    selected = _select_public_ip_runtime_nodes(filtered)
     changed = len(filtered) != len(node_items)
-    expected_exits = len(_get_enabled_subscription_nodes(filtered))
+    expected_exits = len(_get_enabled_subscription_nodes(selected))
     current_exits = max(0, len(dispatcher.exits) - 1)
     if changed or force_rebuild or current_exits != expected_exits:
         base_port = _get_dispatcher_saved_base_port()
-        prepared = prepare_nodes(filtered)
+        prepared = prepare_nodes(selected)
         if reload_singbox:
             reload_result = await _apply_subscription_runtime_nodes(prepared, base_port)
             added_exits = reload_result.get("exits_added") if reload_result.get("success") else []
         else:
             reload_result = {"success": True, "message": "skip proxy core reload"}
-            sbm.save_nodes(prepared)
+            sbm.save_runtime_nodes(prepared)
             _save_dispatcher_exits_snapshot(prepared, base_port)
             added_exits = _rebuild_dispatcher_exits_from_nodes(prepared, base_port)
         if reload_singbox:
@@ -631,7 +615,7 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
         }
     return {
         "changed": False,
-        "nodes_count": len(filtered),
+        "nodes_count": len(selected),
         "removed_count": 0,
         "exits_count": expected_exits,
         "reload_result": {"success": True, "message": "无需重建"},
@@ -660,18 +644,20 @@ def _dispatcher_exits_for_auto_refresh() -> list[dict[str, Any]]:
 
 
 async def _apply_auto_refreshed_subscription_nodes(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    from . import singbox_manager as sbm
     from .proxy_cores import prepare_nodes
 
     groups = await db.get_subscription_groups()
     active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
     filtered = _filter_nodes_by_active_groups(nodes, active_group_ids)
-    prepared = prepare_nodes(filtered)
+    prepared = prepare_nodes(_select_public_ip_runtime_nodes(filtered))
     result = await _apply_subscription_runtime_nodes(
         prepared,
         _get_dispatcher_saved_base_port(),
         allow_empty_generation=False,
     )
     if result.get("success"):
+        sbm.save_nodes(nodes)
         _SINGBOX_STATUS_CACHE.invalidate()
         _DISPATCHER_STATUS_SERVICE.invalidate_meta()
     return result
@@ -705,6 +691,71 @@ async def _warmup_proxy_cores_after_startup(delay_seconds: float = 1.0) -> None:
         )
     except Exception as e:
         logger.warning("[ProxyCore] startup warmup failed, dispatcher keeps existing exits: %s", e)
+
+
+_PUBLIC_IP_SCAN_TASK: asyncio.Task | None = None
+_PUBLIC_IP_RUNTIME_APPLY_LOCK = asyncio.Lock()
+
+
+async def _publish_public_ip_runtime_selection() -> bool:
+    """Atomically publish a completed selection; preserve the old generation on failure."""
+    from . import singbox_manager as sbm
+    from .proxy_cores import prepare_nodes
+    from .subscription_groups.identity import subscription_node_identity
+    from .subscription_groups.public_ip_dedup import PublicIpObservationStore
+
+    async with _PUBLIC_IP_RUNTIME_APPLY_LOCK:
+        groups = await db.get_subscription_groups()
+        active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
+        catalog = sbm.load_saved_nodes()
+        active_nodes = _filter_nodes_by_active_groups(catalog if isinstance(catalog, list) else [], active_group_ids)
+        observation_store = PublicIpObservationStore()
+        selected = observation_store.select_runtime_nodes(active_nodes)["nodes"]
+        # Persist the stable representative before publishing the candidate so
+        # a subscription reorder cannot silently choose a different route.
+        observation_store.save()
+        current = sbm.load_runtime_nodes()
+        selected_ids = sorted(subscription_node_identity(node) for node in selected if node.get("enabled", True) is not False)
+        current_ids = sorted(subscription_node_identity(node) for node in current if isinstance(node, dict) and node.get("enabled", True) is not False)
+        if selected_ids == current_ids:
+            return False
+        result = await _apply_subscription_runtime_nodes(
+            prepare_nodes(selected), _get_dispatcher_saved_base_port(), allow_empty_generation=False,
+        )
+        if not result.get("success"):
+            logger.warning("[PublicIpScan] candidate selection rejected; current exits retained: %s", result.get("message"))
+            return False
+        _SINGBOX_STATUS_CACHE.invalidate()
+        _DISPATCHER_STATUS_SERVICE.invalidate_meta()
+        logger.info("[PublicIpScan] atomically published deduplicated exits=%s", result.get("nodes_count", 0))
+        return True
+
+
+async def _public_ip_scanner_after_startup() -> None:
+    """Observe live exits after startup; it never probes in a core activation callback."""
+    from .subscription_groups.public_ip_dedup import PublicIpScanner
+
+    scanner = PublicIpScanner(timeout_seconds=5.0, concurrency=5)
+    try:
+        await asyncio.sleep(30.0)
+        while True:
+            try:
+                status = dispatcher.get_status()
+                exits = status.get("exits", []) if isinstance(status, dict) else []
+                result = await scanner.scan_once(exits)
+                logger.info("[PublicIpScan] observation cycle scanned=%s success=%s failed=%s", result["scanned"], result["success"], result["failed"])
+                if result["success"]:
+                    await _publish_public_ip_runtime_selection()
+            except Exception as exc:
+                # Scanner availability is auxiliary. Keep serving traffic and
+                # retry on the next gradual cycle after a transient failure.
+                logger.exception("[PublicIpScan] observation cycle failed: %s", exc)
+            # A second successful cycle confirms an IP. A short pause after a
+            # long gradual batch avoids continuous diagnostic pressure.
+            await asyncio.sleep(60.0)
+    except asyncio.CancelledError:
+        logger.info("[PublicIpScan] background scanner stopped")
+        raise
 
 
 async def _wait_proxy_core_downloads(timeout_seconds: float = 180.0) -> None:
@@ -758,7 +809,7 @@ def _restore_dispatcher_exits_from_disk() -> int:
 
         if not nodes_to_restore:
 
-            saved_nodes = sbm.load_saved_nodes()
+            saved_nodes = sbm.load_runtime_nodes()
 
             if isinstance(saved_nodes, list):
 
@@ -5347,12 +5398,12 @@ async def api_dispatcher_apply_sub(request: Request):
         saved_nodes = []
     existing_groups = await db.get_subscription_groups()
     active_group_ids = {str(group.get("id") or "").strip() for group in existing_groups if isinstance(group, dict)}
-    all_nodes = prepare_nodes(_filter_nodes_by_active_groups(saved_nodes, active_group_ids) + nodes_to_add)
+    catalogue_candidate = _filter_nodes_by_active_groups(saved_nodes, active_group_ids) + nodes_to_add
+    all_nodes = prepare_nodes(_select_public_ip_runtime_nodes(catalogue_candidate))
     enabled_nodes = _get_enabled_subscription_nodes(all_nodes)
 
     nodes_saved = False
     added_exits = []
-    reload_result: dict[str, Any] = {}
     try:
         reload_result = await _apply_subscription_runtime_nodes(all_nodes, base_port)
         nodes_saved = bool(reload_result.get("success"))
@@ -5382,15 +5433,13 @@ async def api_dispatcher_apply_sub(request: Request):
 
     if nodes_saved:
         logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
+        # Keep the complete subscription catalogue. The runtime generation may
+        # intentionally contain fewer exits after confirmed-IP selection.
+        sbm.save_nodes(saved_nodes + nodes_to_add)
 
     if nodes_saved:
         try:
-            effective_nodes = reload_result.get("nodes") if isinstance(reload_result, dict) else None
-            effective_group_nodes = [
-                node for node in (effective_nodes if isinstance(effective_nodes, list) else nodes_to_add)
-                if isinstance(node, dict) and str(node.get("group_id") or "") == group_id
-            ]
-            node_summary = summarize_subscription_nodes(effective_group_nodes)
+            node_summary = summarize_subscription_nodes(nodes_to_add)
             await db.create_subscription_group(
                 group_id=group_id,
                 name=group_name,
@@ -5404,12 +5453,7 @@ async def api_dispatcher_apply_sub(request: Request):
         except Exception as e:
             logger.warning(f"[SubGroup] 新增订阅组记录失败: {e}")
 
-    effective_nodes = reload_result.get("nodes") if isinstance(reload_result, dict) else None
-    effective_group_nodes = [
-        node for node in (effective_nodes if isinstance(effective_nodes, list) else nodes_to_add)
-        if isinstance(node, dict) and str(node.get("group_id") or "") == group_id
-    ]
-    applied_nodes_count = len(effective_group_nodes) if apply_result["success"] else 0
+    applied_nodes_count = len(nodes_to_add) if apply_result["success"] else 0
 
     return {
 
@@ -8227,6 +8271,13 @@ async def admin_startup():
 
     await dispatcher.start()
 
+    global _PUBLIC_IP_SCAN_TASK
+    if _PUBLIC_IP_SCAN_TASK is None or _PUBLIC_IP_SCAN_TASK.done():
+        _PUBLIC_IP_SCAN_TASK = asyncio.create_task(
+            _public_ip_scanner_after_startup(), name="public-ip-observation-scanner"
+        )
+        logger.info("[PublicIpScan] background observation scanner scheduled")
+
     try:
         await _SUBSCRIPTION_REFRESH_SERVICE.start()
         logger.info(
@@ -8392,6 +8443,12 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    global _PUBLIC_IP_SCAN_TASK
+    public_ip_task, _PUBLIC_IP_SCAN_TASK = _PUBLIC_IP_SCAN_TASK, None
+    if public_ip_task is not None:
+        public_ip_task.cancel()
+        await asyncio.gather(public_ip_task, return_exceptions=True)
 
     await _SUBSCRIPTION_REFRESH_SERVICE.stop()
 
@@ -12247,7 +12304,7 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
                     logger.error("[SubGroup] failed to restore subscription group after runtime rollback: %s", group_id)
 
             result = await _apply_subscription_runtime_nodes(
-                remaining_nodes,
+                _select_public_ip_runtime_nodes(remaining_nodes),
                 _get_dispatcher_saved_base_port(),
                 before_publish=delete_group_after_candidate_ready,
                 rollback_before_publish=restore_group_after_failed_publish,
@@ -12256,6 +12313,7 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
             if not result.get("success"):
                 return {"success": False, "message": f"删除失败: {result.get('message') or '候选节点切换失败'}"}
 
+            sbm.save_nodes(remaining_nodes)
             _SINGBOX_STATUS_CACHE.invalidate()
             _DISPATCHER_STATUS_SERVICE.invalidate_meta()
             return {"success": True, "message": f"订阅组已删除，已移除{removed_count}个节点"}
@@ -12318,13 +12376,14 @@ async def admin_toggle_subscription_node(group_id: str, request: Request):
             node["enabled"] = enabled
 
         apply_result = await _apply_subscription_runtime_nodes(
-            nodes,
+            _select_public_ip_runtime_nodes(nodes),
             _get_dispatcher_saved_base_port(),
             allow_empty_generation=True,
         )
         if not apply_result.get("success"):
             return {"success": False, "message": f"切换失败: {apply_result.get('message') or '候选节点未就绪'}"}
 
+        sbm.save_nodes(nodes)
         group_nodes = [
             node for node in nodes
             if isinstance(node, dict) and str(node.get("group_id") or "") == str(group_id)
@@ -12357,12 +12416,13 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
         for idx in group_indices:
             nodes[idx]['enabled'] = enabled
         apply_result = await _apply_subscription_runtime_nodes(
-            nodes,
+            _select_public_ip_runtime_nodes(nodes),
             _get_dispatcher_saved_base_port(),
             allow_empty_generation=True,
         )
         if not apply_result.get("success"):
             return {"success": False, "message": f"切换失败: {apply_result.get('message') or '候选节点未就绪'}"}
+        sbm.save_nodes(nodes)
         group_node_list = [nodes[i] for i in group_indices if isinstance(nodes[i], dict)]
         node_summary = summarize_subscription_nodes(group_node_list)
         await db.update_subscription_group_servers(group_id, node_summary["total"], node_summary["active"])

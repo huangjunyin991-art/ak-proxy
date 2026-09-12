@@ -226,6 +226,7 @@ async def test_toggle_node_only_changes_matching_identity_in_requested_group(mon
     other_group = _node(group_id="group-b", port=443)
     saved_nodes = [target, duplicate, other_route, other_group]
     published = []
+    catalog_saves = []
     db_updates = []
 
     async def require_admin(*args, **kwargs):
@@ -241,6 +242,7 @@ async def test_toggle_node_only_changes_matching_identity_in_requested_group(mon
 
     monkeypatch.setattr(proxy_server, "_require_admin_token", require_admin)
     monkeypatch.setattr(singbox_manager, "load_saved_nodes", lambda: deepcopy(saved_nodes))
+    monkeypatch.setattr(singbox_manager, "save_nodes", lambda nodes: catalog_saves.append(deepcopy(nodes)))
     monkeypatch.setattr(proxy_server, "_apply_subscription_runtime_nodes", apply_nodes)
     monkeypatch.setattr(proxy_server.db, "update_subscription_group_servers", update_counts)
     monkeypatch.setattr(proxy_server._SINGBOX_STATUS_CACHE, "invalidate", lambda: None)
@@ -252,5 +254,6 @@ async def test_toggle_node_only_changes_matching_identity_in_requested_group(mon
     )
 
     assert result["success"] is True
-    assert [node["enabled"] for node in published[0]] == [False, False, True, True]
+    assert [node["enabled"] for node in published[0]] == [True, True]
+    assert [node["enabled"] for node in catalog_saves[-1]] == [False, False, True, True]
     assert db_updates == [("group-a", 2, 1)]

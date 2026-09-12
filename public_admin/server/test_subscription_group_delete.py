@@ -132,8 +132,8 @@ async def test_runtime_publish_failure_restores_saved_nodes_and_group_record(mon
         raise RuntimeError("dispatcher replacement failed")
 
     monkeypatch.setattr(proxy_server, "PUBLIC_ADMIN_DIR", str(tmp_path))
-    monkeypatch.setattr(singbox_manager, "load_saved_nodes", lambda: deepcopy(old_nodes))
-    monkeypatch.setattr(singbox_manager, "save_nodes", save_nodes)
+    monkeypatch.setattr(singbox_manager, "load_runtime_nodes", lambda: deepcopy(old_nodes))
+    monkeypatch.setattr(singbox_manager, "save_runtime_nodes", save_nodes)
     monkeypatch.setattr(proxy_cores, "apply_nodes", fake_apply_nodes)
     monkeypatch.setattr(proxy_server.dispatcher, "replace_socks5_exits", replace_exits)
 

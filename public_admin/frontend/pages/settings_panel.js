@@ -1642,7 +1642,7 @@
                 const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${encodeURIComponent(groupId)}/nodes`, { headers: getHeaders() });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.message || '节点状态获取失败');
-                const stateOrder = { available: 0, pending: 1, unavailable: 2, unsupported: 3, disabled: 4 };
+                const stateOrder = { available: 0, pending: 1, standby_shared_ip: 2, unavailable: 3, unsupported: 4, disabled: 5 };
                 const nodes = (data.nodes || [])
                     .filter(n => n && typeof n === 'object')
                     .sort((a, b) => {
@@ -1659,6 +1659,7 @@
                 const stateLabels = {
                     available: '可用',
                     pending: '检测中',
+                    standby_shared_ip: '同IP待命',
                     unavailable: '不可用',
                     unsupported: '不支持',
                     disabled: '已禁用'
@@ -1671,6 +1672,7 @@
                     const groupIdArg = jsArg(groupId);
                     const identityArg = jsArg(node.node_identity || '');
                     const endpoint = node.port ? `${node.server || ''}:${node.port}` : (node.server || '');
+                    const publicIp = node.public_exit_ip ? ` · 出口 ${node.public_exit_ip}` : '';
                     const stateTitle = state === 'unsupported' && node.core_unsupported_reason
                         ? node.core_unsupported_reason
                         : stateText;
@@ -1681,7 +1683,7 @@
                             <div style="min-width:0;">
                                 <div class="sub-group-server-name" title="${escapeSubGroupAttr(node.name || node.display_name || `服务器${idx + 1}`)}">${escapeHtml(node.name || node.display_name || `服务器${idx + 1}`)}</div>
                                 <div class="sub-group-server-meta" title="${escapeSubGroupAttr(endpoint)}">
-                                    ${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} · ${escapeHtml(endpoint)}
+                                    ${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} · ${escapeHtml(endpoint)}${escapeHtml(publicIp)}
                                 </div>
                             </div>
                             <span class="sub-group-server-state" title="${escapeSubGroupAttr(stateTitle)}">${stateText}</span>

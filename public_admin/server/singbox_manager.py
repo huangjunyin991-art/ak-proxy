@@ -27,7 +27,8 @@ logger = logging.getLogger("TransparentProxy")
 # ===== 路径配置 =====
 SINGBOX_DIR = Path.home() / "sing-box"
 SINGBOX_CONFIG = SINGBOX_DIR / "config.json"
-NODES_FILE = SINGBOX_DIR / "nodes.json"  # 持久化节点列表
+NODES_FILE = SINGBOX_DIR / "nodes.json"  # 原始节点目录（兼容历史路径）
+RUNTIME_NODES_FILE = SINGBOX_DIR / "runtime_nodes.json"  # 当前已发布的运行出口集
 SINGBOX_BIN = os.environ.get("AK_SINGBOX_BIN", "sing-box")  # sing-box 二进制 (需在 PATH 中)
 SINGBOX_SERVICE = "sing-box"  # systemd 服务名
 
@@ -115,10 +116,29 @@ def load_saved_nodes() -> list[dict]:
 
 
 def save_nodes(nodes: list[dict]):
-    """保存节点列表到磁盘"""
+    """保存原始节点目录；不得写入公网 IP 去重后的运行子集。"""
     ensure_dir()
     atomic_write_text(NODES_FILE, json.dumps(nodes, ensure_ascii=False, indent=2))
     logger.info(f"[SingBox] 保存 {len(nodes)} 个节点到 {NODES_FILE}")
+
+
+def load_runtime_nodes() -> list[dict]:
+    """加载已发布运行出口；旧安装首次升级时回退到完整目录。"""
+    try:
+        if RUNTIME_NODES_FILE.exists():
+            payload = json.loads(RUNTIME_NODES_FILE.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                return payload
+    except Exception as e:
+        logger.warning(f"[SingBox] 加载运行节点列表失败: {e}")
+    return load_saved_nodes()
+
+
+def save_runtime_nodes(nodes: list[dict]):
+    """原子保存当前运行出口集，不改变原始节点目录。"""
+    ensure_dir()
+    atomic_write_text(RUNTIME_NODES_FILE, json.dumps(nodes, ensure_ascii=False, indent=2))
+    logger.info(f"[SingBox] 保存 {len(nodes)} 个运行节点到 {RUNTIME_NODES_FILE}")
 
 
 # ===== sing-box 配置生成 =====
