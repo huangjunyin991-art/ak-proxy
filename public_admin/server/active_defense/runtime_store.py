@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 import time
 from typing import Any
 
+from .account_group import normalize_account_group_key
+
 
 @dataclass
 class ActiveDefenseRuntimeStore:
@@ -56,7 +58,7 @@ class ActiveDefenseRuntimeStore:
         stale_accounts = [account for account, ts in accounts.items() if now - float(ts or 0) > window_seconds]
         for account in stale_accounts:
             accounts.pop(account, None)
-        accounts[username] = now
+        accounts[normalize_account_group_key(username)] = now
         return len(accounts)
 
     def clear_login_403_accounts(self, ip: str) -> None:

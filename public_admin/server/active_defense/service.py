@@ -1,6 +1,7 @@
 import time
 from typing import Awaitable, Callable
 
+from .account_group import normalize_account_group_key
 from .models import ActiveDefenseDecision, ActiveDefensePolicy
 from .runtime_store import ActiveDefenseRuntimeStore
 
@@ -131,7 +132,8 @@ class ActiveDefenseService:
         if await is_banned(normalized_ip):
             return ActiveDefenseDecision(allowed=False, code="already_banned", event_type="login_403_distinct_account", ip=normalized_ip)
         self._prune_runtime()
-        count = self._store.record_login_403_account(normalized_ip, normalized_username, policy.login_403_window_seconds)
+        account_group = normalize_account_group_key(normalized_username)
+        count = self._store.record_login_403_account(normalized_ip, account_group, policy.login_403_window_seconds)
         if count < policy.login_403_distinct_account_threshold:
             return ActiveDefenseDecision(allowed=True, code="recorded", event_type="login_403_distinct_account", ip=normalized_ip, count=count, threshold=policy.login_403_distinct_account_threshold)
         trigger_reason = f"{policy.login_403_window_seconds}秒内{count}个不同账号登录失败: {reason}"
