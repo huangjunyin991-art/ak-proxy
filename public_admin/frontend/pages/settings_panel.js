@@ -896,7 +896,7 @@
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:8px;">
                         <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;">
-                            <div style="font-size:10px;color:var(--text-secondary);">并发</div>
+                            <div style="font-size:10px;color:var(--text-secondary);">请求并发</div>
                             <div style="font-size:15px;font-weight:bold;color:#667eea;">${ex.active}</div>
                         </div>
                         <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;" title="当前节点实例累计请求；服务重启或节点重载后重新统计">

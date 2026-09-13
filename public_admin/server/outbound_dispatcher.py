@@ -29,6 +29,7 @@ import httpx
 from .rpc_timeout_policy import resolve_connect_timeout
 from .runtime_hygiene import RuntimeHygienePolicy
 from .security.upstream_http import resolve_upstream_tls_verify
+from .performance.connection_metrics import summarize_clients
 from .source_reachability import (
     SourceFleetGuard,
     SourceFleetStateStore,
@@ -722,6 +723,7 @@ class OutboundExit:
 
     def client_snapshot(self) -> dict:
         now = time.time()
+        pool_metrics = summarize_clients([self._client, *self._retired_clients])
         leased_clients = sum(1 for leases in self._client_leases.values() if leases > 0)
         retired_leases = sum(
             self._client_leases.get(id(client), 0)
@@ -745,6 +747,10 @@ class OutboundExit:
             "retired_leases": retired_leases,
             "retired_budget_blocked": self._retired_budget_blocked,
             "max_retired_clients": max(1, int(self._client_policy.outbound_client_max_retired_clients)),
+            "connections_available": pool_metrics["available"],
+            "open_connections": pool_metrics["open"],
+            "active_connections": pool_metrics["active"],
+            "idle_connections": pool_metrics["idle"],
         }
 
     def client_request_state(self, client: httpx.AsyncClient) -> dict[str, object]:
@@ -2790,7 +2796,13 @@ class OutboundDispatcher:
             available_count = sum(1 for ex in self.exits if ex.is_dispatch_ready and not ex.is_frozen)
             disabled_count = max(0, total_exits - available_count)
             available_ratio = round((available_count / total_exits) * 100, 1) if total_exits else 0
-            total_active = sum(ex.active for ex in self.exits)
+            # ``active`` is request concurrency, not the number of sockets.
+            # The dashboard's total_active field is retained for API
+            # compatibility but now reports actual in-use pool connections.
+            total_active = sum(
+                int((item.get("client") or {}).get("active_connections", 0))
+                for item in exits_info
+            )
             direct_critical_fallback = {
                 "rpm": self._count_direct_critical_requests(60.0),
                 "rps": self._count_direct_critical_requests(1.0),

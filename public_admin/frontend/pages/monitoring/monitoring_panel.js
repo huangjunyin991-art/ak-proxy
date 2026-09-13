@@ -1773,7 +1773,7 @@
             setHtmlIfChanged(cards,
                 renderCard('维护任务', service.running ? '运行中' : (policy.enabled === false ? '已关闭' : '未运行'), '周期 ' + formatSeconds(policy.cleanup_interval_seconds || 0) + '；执行 ' + formatNumber(service.run_count) + ' 次') +
                 renderCard('AK 代理连接池', formatNumber(akPool.open_clients) + ' 打开', '跟踪 ' + formatNumber(akPool.tracked_clients) + '；换新 ' + formatNumber(akPool.retire_count)) +
-                renderCard('出口连接池', formatNumber(dispatcherOpen) + ' 打开', '出口 ' + formatNumber(exits.length) + '；活跃 ' + formatNumber(dispatcher.total_active)) +
+                renderCard('出口活跃连接', formatNumber(dispatcher.total_active), '连接池 ' + formatNumber(dispatcherOpen) + ' 打开；出口 ' + formatNumber(exits.length)) +
                 renderCard('浏览会话缓存', formatNumber(browse.count), '过期待清理 ' + formatNumber(browse.expired_count) + '；已验证 ' + formatNumber(browse.validated_count)) +
                 renderCard('AK 登录缓存', formatNumber(auth.count), '过期待清理 ' + formatNumber(auth.expired_count)) +
                 renderCard('静态资源锁', formatNumber(staticCache.lock_count), '上次清理剩余 ' + formatNumber((staticCache.last_lock_cleanup || {}).remaining)) +

@@ -9,6 +9,42 @@ from .dispatcher_policy import rate_limiter as rate_limiter_module
 from .rpc_timeout_policy import LOGIN_RPC_TIMEOUT_SECONDS
 from .runtime_hygiene import RuntimeHygienePolicy
 from .source_reachability import SourceProbeResult
+from .performance.connection_metrics import inspect_client_connections, summarize_clients
+
+
+def test_connection_metrics_reads_httpcore_pool_and_separates_idle_connections():
+    class Connection:
+        def __init__(self, idle):
+            self.is_idle = idle
+            self.is_closed = False
+
+    class Pool:
+        connections = [Connection(True), Connection(False), Connection(True)]
+
+    class Client:
+        _transport = type("Transport", (), {"_pool": Pool()})()
+
+    assert inspect_client_connections(Client()) == {
+        "available": True,
+        "open": 3,
+        "active": 1,
+        "idle": 2,
+    }
+
+
+def test_connection_metrics_is_failure_safe_for_clients_without_pool():
+    assert inspect_client_connections(object()) == {
+        "available": False,
+        "open": 0,
+        "active": 0,
+        "idle": 0,
+    }
+    assert summarize_clients([object(), None]) == {
+        "available": False,
+        "open": 0,
+        "active": 0,
+        "idle": 0,
+    }
 
 
 def _saturate_regular_direct(dispatcher: OutboundDispatcher) -> None:
