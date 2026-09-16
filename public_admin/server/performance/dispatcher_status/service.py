@@ -14,6 +14,7 @@ class DispatcherStatusService:
         active_group_filter: Callable[[list[dict[str, Any]], set[str]], list[dict[str, Any]]],
         enabled_nodes_filter: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         runtime_nodes_builder: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
+        login_limit_snapshot: Callable[[], dict[str, Any]] | None = None,
         meta_ttl_seconds: float = 30.0,
     ):
         self._dispatcher = dispatcher
@@ -23,6 +24,7 @@ class DispatcherStatusService:
         self._active_group_filter = active_group_filter
         self._enabled_nodes_filter = enabled_nodes_filter
         self._runtime_nodes_builder = runtime_nodes_builder
+        self._login_limit_snapshot = login_limit_snapshot
         self._meta_cache = AsyncTTLCache(self._load_meta_status, meta_ttl_seconds, meta_ttl_seconds * 4)
 
     def get_light_status(self) -> dict[str, Any]:
@@ -41,6 +43,7 @@ class DispatcherStatusService:
         available_ratio = self._to_optional_float(status.get("available_ratio"))
         if available_ratio is None:
             available_ratio = round((available_exits / total_exits) * 100, 1) if total_exits else 0
+        login_limit = self._login_limit_snapshot() if self._login_limit_snapshot is not None else {}
         return {
             "total_exits": total_exits,
             "healthy_exits": status.get("healthy_exits", 0),
@@ -49,6 +52,9 @@ class DispatcherStatusService:
             "available_ratio": available_ratio,
             "total_active": status.get("total_active", 0),
             "max_login_per_min": status.get("max_login_per_min", 0),
+            "max_login_per_min_persisted": login_limit.get("persisted_value"),
+            "max_login_per_min_source": login_limit.get("source", "runtime"),
+            "max_login_per_min_loaded_at": login_limit.get("loaded_at"),
             "policy": status.get("policy", {}),
             "exits": light_exits,
         }

@@ -6,6 +6,7 @@ from .login_limit import (
     load_max_login_per_min,
     normalize_max_login_per_min,
     save_max_login_per_min,
+    LoginLimitPolicyService,
 )
 
 
@@ -49,3 +50,36 @@ async def test_save_valid_limit_and_reject_invalid_without_write():
     assert not await save_max_login_per_min(config, 0)
     assert len(config.calls) == calls_before
     assert config.calls[-1][1] == MAX_LOGIN_PER_MIN_CONFIG_KEY
+
+
+@pytest.mark.asyncio
+async def test_policy_applies_persisted_limit_and_reports_source():
+    class Dispatcher:
+        MAX_LOGIN_PER_MIN = 10
+
+        def set_max_login_per_min(self, value):
+            self.MAX_LOGIN_PER_MIN = value
+            return True
+
+    policy = LoginLimitPolicyService(FakeSystemConfig(5), Dispatcher())
+    await policy.load_and_apply(force=True)
+    assert policy.snapshot()["value"] == 5
+    assert policy.snapshot()["persisted_value"] == 5
+    assert policy.snapshot()["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_policy_rejects_invalid_runtime_update():
+    class Dispatcher:
+        MAX_LOGIN_PER_MIN = 10
+
+        def set_max_login_per_min(self, value):
+            self.MAX_LOGIN_PER_MIN = value
+            return True
+
+    config = FakeSystemConfig(5)
+    policy = LoginLimitPolicyService(config, Dispatcher())
+    ok, value = await policy.save_and_apply(0)
+    assert not ok
+    assert value is None
+    assert config.value == 5

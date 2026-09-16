@@ -277,9 +277,8 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 from .outbound_dispatcher import dispatcher, OutboundExit, LoginUpstreamNonJsonError, RpcUpstreamNonJsonError
 from .dispatcher_policy.login_limit import (
     DEFAULT_MAX_LOGIN_PER_MIN,
-    load_max_login_per_min,
+    LoginLimitPolicyService,
     normalize_max_login_per_min,
-    save_max_login_per_min,
 )
 from .runtime_performance import (
     BlockingPoolConfigService,
@@ -332,6 +331,11 @@ if SOCKS5_EXITS:
 
 dispatcher.MAX_LOGIN_PER_MIN = normalize_max_login_per_min(
     LOGIN_RATE_PER_EXIT, DEFAULT_MAX_LOGIN_PER_MIN
+)
+dispatcher_login_limit_policy = LoginLimitPolicyService(
+    db.system_config,
+    dispatcher,
+    logging.getLogger("TransparentProxy"),
 )
 
 
@@ -429,6 +433,7 @@ _DISPATCHER_STATUS_SERVICE = DispatcherStatusService(
     active_group_filter=_filter_nodes_by_active_groups,
     enabled_nodes_filter=_get_enabled_subscription_nodes,
     runtime_nodes_builder=_build_subscription_runtime_nodes_for_status,
+    login_limit_snapshot=dispatcher_login_limit_policy.snapshot,
 )
 
 
@@ -4902,7 +4907,15 @@ async def api_dispatcher_status(request: Request):
     if error_response is not None:
         return error_response
 
-    return dispatcher.get_status()
+    await dispatcher_login_limit_policy.load_and_apply(reason="status")
+    status = dispatcher.get_status()
+    snapshot = dispatcher_login_limit_policy.snapshot()
+    status.update({
+        "max_login_per_min_persisted": snapshot.get("persisted_value"),
+        "max_login_per_min_source": snapshot.get("source"),
+        "max_login_per_min_loaded_at": snapshot.get("loaded_at"),
+    })
+    return status
 
 
 
@@ -5056,15 +5069,10 @@ async def api_dispatcher_max_login(request: Request):
     if normalized < 1:
         return {"success": False, "message": "值无效（须≥1）"}
 
-    old_value = dispatcher.MAX_LOGIN_PER_MIN
-    if not await save_max_login_per_min(db.system_config, normalized):
+    ok, applied_value = await dispatcher_login_limit_policy.save_and_apply(normalized)
+    if not ok:
         return {"success": False, "message": "登录限额持久化失败，当前策略未变更"}
-
-    if not dispatcher.set_max_login_per_min(normalized):
-        # 极端情况下运行时应用失败，将数据库恢复为旧值，保持重启前后行为一致。
-        await save_max_login_per_min(db.system_config, old_value)
-        return {"success": False, "message": "登录限额应用失败，当前策略未变更"}
-    return {"success": True, "message": f"登录限额已调整为 {normalized}/min", "value": normalized}
+    return {"success": True, "message": f"登录限额已调整为 {applied_value}/min", "value": applied_value}
 
 
 @app.post("/api/dispatcher/start_singbox")
@@ -5572,6 +5580,7 @@ async def api_dispatcher_full(request: Request):
     if error_response is not None:
         return error_response
 
+    await dispatcher_login_limit_policy.load_and_apply(reason="full_status")
     singbox_status = await _get_singbox_service_status_cached()
     try:
         await _sync_subscription_nodes_with_active_groups(reload_singbox=False)
@@ -5600,7 +5609,15 @@ async def api_dispatcher_full(request: Request):
     except Exception as e:
         logger.debug(f"[Dispatcher] 合并订阅节点状态失败: {e}")
     proxy_cores = await _load_proxy_cores_status()
-    return {**status, "singbox": singbox_status, "proxy_cores": proxy_cores}
+    snapshot = dispatcher_login_limit_policy.snapshot()
+    return {
+        **status,
+        "singbox": singbox_status,
+        "proxy_cores": proxy_cores,
+        "max_login_per_min_persisted": snapshot.get("persisted_value"),
+        "max_login_per_min_source": snapshot.get("source"),
+        "max_login_per_min_loaded_at": snapshot.get("loaded_at"),
+    }
 
 
 @app.get("/api/dispatcher/light")
@@ -5609,6 +5626,7 @@ async def api_dispatcher_light(request: Request):
     if error_response is not None:
         return error_response
 
+    await dispatcher_login_limit_policy.load_and_apply(reason="light_status")
     return _DISPATCHER_STATUS_SERVICE.get_light_status()
 
 
@@ -8152,21 +8170,7 @@ async def admin_startup():
 
         logger.info("PostgreSQL 数据库连接成功")
 
-        try:
-            persisted_login_limit = await load_max_login_per_min(
-                db.system_config, dispatcher.MAX_LOGIN_PER_MIN
-            )
-            dispatcher.set_max_login_per_min(persisted_login_limit)
-            logger.info(
-                "[DispatcherPolicy] 已加载每出口登录限额: %s/min",
-                persisted_login_limit,
-            )
-        except Exception as e:
-            logger.warning(
-                "[DispatcherPolicy] 读取每出口登录限额失败，使用默认值 %s/min: %s",
-                dispatcher.MAX_LOGIN_PER_MIN,
-                e,
-            )
+        await dispatcher_login_limit_policy.start()
 
         try:
             await ws_ticket_service.ensure_schema()
@@ -8454,6 +8458,7 @@ async def admin_startup():
 async def admin_shutdown():
 
     global _PUBLIC_IP_SCAN_TASK
+    await dispatcher_login_limit_policy.stop()
     public_ip_task, _PUBLIC_IP_SCAN_TASK = _PUBLIC_IP_SCAN_TASK, None
     if public_ip_task is not None:
         public_ip_task.cancel()

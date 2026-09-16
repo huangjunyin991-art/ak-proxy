@@ -11,6 +11,7 @@ from .login_limit import (
     load_max_login_per_min,
     normalize_max_login_per_min,
     save_max_login_per_min,
+    LoginLimitPolicyService,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     'load_max_login_per_min',
     'normalize_max_login_per_min',
     'save_max_login_per_min',
+    'LoginLimitPolicyService',
 ]

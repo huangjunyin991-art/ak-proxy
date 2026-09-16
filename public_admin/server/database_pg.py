@@ -4947,7 +4947,20 @@ class SystemConfig:
                 'SELECT value FROM system_config WHERE key = $1', key
             )
             if row:
-                value = json.loads(row['value'])
+                # asyncpg decodes JSONB by default. Older deployments or custom
+                # codecs may still return the JSON text, so support both forms.
+                raw_value = row['value']
+                if isinstance(raw_value, memoryview):
+                    raw_value = raw_value.tobytes()
+                if isinstance(raw_value, (bytes, bytearray)):
+                    raw_value = raw_value.decode('utf-8')
+                if isinstance(raw_value, str):
+                    try:
+                        value = json.loads(raw_value)
+                    except (TypeError, ValueError):
+                        value = default
+                else:
+                    value = raw_value
             else:
                 value = default
         async with self._cache_lock:
@@ -4955,6 +4968,15 @@ class SystemConfig:
             if now - self._cache_time >= self._cache_ttl:
                 self._cache_time = now
         return value
+
+    async def invalidate(self, key: str | None = None) -> None:
+        """Invalidate cached configuration values before an external refresh."""
+        async with self._cache_lock:
+            if key is None:
+                self._cache.clear()
+            else:
+                self._cache.pop(key, None)
+            self._cache_time = 0.0
 
     async def set(self, key: str, value: Any, description: str = '') -> bool:
         try:
