@@ -1642,15 +1642,16 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(
     endpoint: str,
     *,
     frontend_authenticated: bool = False,
+    internal_sell_login: bool = False,
 ) -> dict:
     normalized_ip = str(client_ip or "").strip()
     if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
-    if frontend_authenticated:
+    if frontend_authenticated or internal_sell_login:
         logger.debug(
-            f"[LoginRateGuard] 前端登录页请求跳过短间隔封禁计数 ip={normalized_ip} endpoint={endpoint}"
+            f"[LoginRateGuard] 可信登录请求跳过短间隔封禁计数 ip={normalized_ip} endpoint={endpoint} internal_sell={int(internal_sell_login)}"
         )
         return {"frontend_authenticated": True}
     if active_defense_service is not None:
@@ -3192,6 +3193,13 @@ async def proxy_login(request: Request):
 
     password = params.get("password", "")
 
+    internal_sell_login = bool(
+        ak_sell_service is not None
+        and ak_sell_service.consume_login_exemption()
+        and str(getattr(getattr(request, "client", None), "host", "") or "") in {"127.0.0.1", "::1"}
+        and str(request.headers.get("x-ak-sell-internal") or "").strip()
+    )
+
     referer = request.headers.get("referer", "")
 
     
@@ -3223,6 +3231,7 @@ async def proxy_login(request: Request):
         client_ip,
         "/RPC/Login",
         frontend_authenticated=frontend_authenticated,
+        internal_sell_login=internal_sell_login,
     )
     if login_rate_result.get("already_banned"):
         return await _public_ip_ban_response(client_ip, status_code=403)

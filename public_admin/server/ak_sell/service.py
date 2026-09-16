@@ -8,6 +8,7 @@ import hmac
 import logging
 import uuid
 import struct
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -70,6 +71,7 @@ class AKSellService:
         self.ledger_recorder = ledger_recorder
         self.confirmation_recorder = confirmation_recorder
         self._refresh_locks: dict[str, asyncio.Lock] = {}
+        self._login_exemption_until: list[float] = []
 
     def is_internal_rpc_request(self, request) -> bool:
         client = getattr(request, "client", None)
@@ -78,6 +80,19 @@ class AKSellService:
             str(getattr(client, "host", "") or ""),
             self._internal_rpc_token,
         )
+
+    def grant_login_exemption(self, *, ttl_seconds: float = 15.0) -> None:
+        """Grant a short-lived exemption for the service's next upstream login."""
+        now = time.monotonic()
+        self._login_exemption_until.append(now + max(1.0, float(ttl_seconds)))
+
+    def consume_login_exemption(self) -> bool:
+        now = time.monotonic()
+        self._login_exemption_until[:] = [deadline for deadline in self._login_exemption_until if deadline > now]
+        if not self._login_exemption_until:
+            return False
+        self._login_exemption_until.pop(0)
+        return True
 
     def server_time(self) -> dict[str, str | int]:
         return self.clock.snapshot()
@@ -288,6 +303,7 @@ class AKSellService:
             ak_sell_trace.emit_trace(self.logger, "login_cache_hit", trace_id, account=request_data["account"])
             return self._result("login", cached, trace_id=trace_id)
         try:
+            self.grant_login_exemption()
             ak_sell_trace.emit_trace(self.logger, "login_forward_start", trace_id, account=request_data["account"])
             async with self._build_provider_client("login", trace_id) as client:
                 upstream = await self.provider.post_rpc(client, "Login", request_data)
