@@ -143,6 +143,23 @@ async def insert_login_delta(conn, delta: LoginAggregateDelta) -> None:
     )
 
 
+async def has_pending_live_deltas(conn) -> bool:
+    """Return whether live login records have not reached the rollup tables."""
+    try:
+        return bool(await conn.fetchval('''
+            SELECT EXISTS (
+                SELECT 1
+                FROM login_aggregate_delta
+                WHERE source = 'live' AND processed_at IS NULL
+                LIMIT 1
+            )
+        '''))
+    except Exception:
+        # Rollup reads must remain compatible with older installations while
+        # the aggregate tables are being created or upgraded.
+        return False
+
+
 async def claim_pending_deltas(conn, limit: int) -> list[dict[str, Any]]:
     rows = await conn.fetch('''
         SELECT id, login_record_id, username, ip_address, request_path, status_code,

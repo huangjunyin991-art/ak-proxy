@@ -55,6 +55,11 @@ def test_subscription_node_identity_tracks_complete_upstream_configuration():
     assert subscription_node_identity(json_node) == subscription_node_identity(renamed_tag)
     assert subscription_node_identity(json_node) != subscription_node_identity(changed_tls)
 
+    runtime_copy = deepcopy(original)
+    runtime_copy["core_type"] = "mihomo"
+    runtime_copy["core_supported"] = True
+    assert subscription_node_identity(original) == subscription_node_identity(runtime_copy)
+
 
 def test_subscription_node_summary_deduplicates_only_identical_routes():
     duplicate = _node(name="duplicate")

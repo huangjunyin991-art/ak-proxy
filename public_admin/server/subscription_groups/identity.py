@@ -27,7 +27,8 @@ def subscription_node_identity(node: dict[str, Any]) -> str:
     """Return an irreversible identity for one complete upstream route."""
     raw = node.get("raw") if isinstance(node.get("raw"), dict) else {}
     payload = {
-        "core_type": str(node.get("core_type") or "").strip().lower(),
+        # core_type/core_supported are derived by the local proxy-core
+        # classifier and may differ between catalogue and runtime copies.
         "type": str(node.get("type") or raw.get("type") or "").strip().lower(),
         "server": str(node.get("server") or "").strip().lower(),
         "port": _normalized_port(node.get("port")),

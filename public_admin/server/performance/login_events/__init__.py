@@ -1,4 +1,4 @@
-from .repository import ensure_login_event_tables
+from .repository import ensure_login_event_tables, has_pending_live_deltas
 from .audit_queue import LoginAuditQueue, LoginAuditWrite
 from .schemas import LoginAuditEvent
 from .service import (
@@ -18,6 +18,7 @@ __all__ = [
     'LoginSideEffectQueue',
     'build_login_delta_from_audit',
     'ensure_login_event_tables',
+    'has_pending_live_deltas',
     'flush_pending_login_deltas',
     'insert_login_delta',
     'run_login_delta_backfill_once',

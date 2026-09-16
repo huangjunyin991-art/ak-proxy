@@ -19,7 +19,65 @@ class RollupOnlyConnection:
 
     async def fetchval(self, query, *args):
         self.fetchval_calls += 1
+        if "login_aggregate_delta" in query:
+            return False
         raise AssertionError("legacy checks should not run when rollup already has data")
+
+
+class ZeroRollupConnection:
+    def __init__(self, *, pending=False, has_rows=True):
+        self.pending = pending
+        self.has_rows = has_rows
+        self.queries = []
+
+    async def fetchrow(self, query, *args):
+        self.queries.append(query)
+        if "FROM login_records" in query:
+            return {}
+        if "login_rollup_daily" in query:
+            return {
+                "total": 0,
+                "success": 0,
+                "active_users": 0,
+                "peak_rpm": 0,
+                "hourly_data_json": "[]",
+                "top_users_json": "[]",
+                "top_ips_json": "[]",
+            }
+        if "login_counts" in query:
+            return {
+                "total_users": 1,
+                "total_ips": 1,
+                "today_logins": 0,
+                "banned_count": 0,
+                "total_logins": 0,
+                "total_ace": 0,
+                "total_ep": 0,
+                "total_sp": 0,
+                "total_rp": 0,
+                "total_tp": 0,
+            }
+        raise AssertionError("unexpected query")
+
+    async def fetchval(self, query, *args):
+        self.queries.append(query)
+        if "login_aggregate_delta" in query:
+            return self.pending
+        return self.has_rows
+
+
+async def test_dashboard_uses_raw_rows_when_live_rollup_is_zero():
+    conn = ZeroRollupConnection(pending=True)
+    row = await fetch_traffic_dashboard_row(conn, date(2026, 6, 8), date(2026, 6, 9))
+    assert any("FROM login_records" in query for query in conn.queries)
+    assert row == {}
+
+
+async def test_admin_summary_uses_raw_rows_when_live_rollup_is_zero():
+    conn = ZeroRollupConnection(pending=True)
+    row = await fetch_admin_summary_row(conn, date(2026, 6, 8), date(2026, 6, 9))
+    assert any("FROM login_records" in query for query in conn.queries)
+    assert row == {}
 
 
 async def test_dashboard_prefers_populated_rollup_before_backfill_ready():
@@ -34,7 +92,7 @@ async def test_dashboard_prefers_populated_rollup_before_backfill_ready():
     })
     row = await fetch_traffic_dashboard_row(conn, date(2026, 6, 8), date(2026, 6, 9))
     assert row["total"] == 8
-    assert conn.fetchval_calls == 0
+    assert conn.fetchval_calls == 1
 
 
 async def test_admin_summary_prefers_populated_rollup_before_backfill_ready():
@@ -52,12 +110,14 @@ async def test_admin_summary_prefers_populated_rollup_before_backfill_ready():
     })
     row = await fetch_admin_summary_row(conn, date(2026, 6, 8), date(2026, 6, 9))
     assert row["total_logins"] == 200
-    assert conn.fetchval_calls == 0
+    assert conn.fetchval_calls == 1
 
 
 async def main():
     await test_dashboard_prefers_populated_rollup_before_backfill_ready()
     await test_admin_summary_prefers_populated_rollup_before_backfill_ready()
+    await test_dashboard_uses_raw_rows_when_live_rollup_is_zero()
+    await test_admin_summary_uses_raw_rows_when_live_rollup_is_zero()
 
 
 if __name__ == "__main__":
