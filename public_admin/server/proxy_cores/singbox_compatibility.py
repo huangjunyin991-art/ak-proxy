@@ -17,6 +17,14 @@ def _alpn_values(value: Any) -> list[str]:
 def normalize_singbox_outbound(outbound: dict[str, Any]) -> dict[str, Any]:
     """Return a runtime-safe copy without changing the stored subscription."""
     normalized = deepcopy(outbound)
+
+    # The generated configuration intentionally has no named DNS servers.
+    # Provider exports may still carry ``domain_resolver`` (often ``local``),
+    # which sing-box validates as a reference to a configured DNS server and
+    # rejects when that tag is absent. Let sing-box use its default resolver
+    # instead of allowing one bad provider field to abort the whole candidate.
+    normalized.pop("domain_resolver", None)
+
     if str(normalized.get("type") or "").strip().lower() != "anytls":
         return normalized
 

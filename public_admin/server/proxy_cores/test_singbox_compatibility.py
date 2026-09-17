@@ -60,3 +60,20 @@ def test_h3_alpn_is_preserved_for_quic_protocols():
         normalized = normalize_singbox_outbound(source)
 
         assert normalized["tls"]["alpn"] == ["h3"]
+
+
+def test_undefined_domain_resolver_is_removed_from_provider_outbound():
+    source = {
+        "type": "vless",
+        "server": "provider.example.com",
+        "server_port": 443,
+        "uuid": "00000000-0000-0000-0000-000000000000",
+        "domain_resolver": "local",
+    }
+
+    normalized = normalize_singbox_outbound(source)
+    generated = generate_config([_native_node(source)])
+
+    assert "domain_resolver" not in normalized
+    assert "domain_resolver" not in generated["outbounds"][0]
+    assert source["domain_resolver"] == "local"
