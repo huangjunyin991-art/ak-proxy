@@ -304,6 +304,7 @@ from .performance.request_metrics import (
     finish_current_request,
     mark_current_request_stage,
 )
+from .performance.exit_request_stats import ExitRequestStatsService
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .db.bulk_writer import get_bulk_writer_snapshot
 from .public_rpc_cache import CachedRpcResponse, StockPriceRpcCache
@@ -8328,6 +8329,13 @@ async def admin_startup():
     dispatcher.alert_callback = _record_dispatcher_alert_event
     dispatcher.login_non_json_callback = _record_login_upstream_non_json_event
     dispatcher.rpc_non_json_callback = _record_rpc_upstream_json_error_event
+    dispatcher.request_stats_callback = _exit_request_stats_service.record
+    dispatcher.request_stats_supplier = _exit_request_stats_service.snapshot
+    try:
+        await _exit_request_stats_service.start()
+        logger.info("[ExitRequestStats] seven-day daily summaries initialized")
+    except Exception as e:
+        logger.warning(f"[ExitRequestStats] initialization failed, continuing without persistence: {e}")
 
     await dispatcher.start()
 
@@ -8541,6 +8549,8 @@ async def admin_shutdown():
     await db.stop_login_audit_queue()
 
     await _login_event_worker.stop()
+
+    await _exit_request_stats_service.stop()
 
     if notify_center_worker is not None:
         await notify_center_worker.stop()
@@ -16753,6 +16763,22 @@ def _record_request_metric(kind: str, method: str, path: str, status_code: int =
         logger.debug(f"[RequestMetrics] record failed: {exc}")
 
 
+def _record_exit_request_stat(exit_obj: Any, status_code: int = 0) -> None:
+    """Record one real web-pool upstream attempt without blocking the request."""
+    service = globals().get("_exit_request_stats_service")
+    if service is None or exit_obj is None:
+        return
+    try:
+        service.record(
+            identity=str(getattr(exit_obj, "node_identity", "") or getattr(exit_obj, "name", "") or "direct"),
+            name=str(getattr(exit_obj, "name", "") or ""),
+            exit_ip=str(getattr(exit_obj, "exit_ip", "") or ""),
+            status_code=int(status_code or 0),
+        )
+    except Exception:
+        logger.debug("[ExitRequestStats] web record callback failed", exc_info=True)
+
+
 def _response_text_preview(response: httpx.Response | None, limit: int = 500) -> str:
     if response is None:
         return ""
@@ -17193,6 +17219,7 @@ _login_event_worker = LoginEventWorker(
     logger=logger,
 )
 _request_metrics_service = RequestMetricsService()
+_exit_request_stats_service = ExitRequestStatsService(db._get_pool, logger=logger)
 _request_metrics_config_service: RequestMetricsConfigService | None = None
 _runtime_hygiene_service: RuntimeHygieneService | None = None
 _runtime_hygiene_config_service: RuntimeHygieneConfigService | None = None
@@ -20349,8 +20376,10 @@ async def _proxy_ak_public_cacheable_page(request: Request, page_path: str):
             resp = await client.get(target_url, headers=_build_ak_static_warmup_headers())
             upstream_ms = _elapsed_ms(upstream_started_at)
         except Exception:
+            _record_exit_request_stat(selected_exit, 0)
             await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="public_page_cache_error")
             raise
+        _record_exit_request_stat(selected_exit, resp.status_code)
         content_type = resp.headers.get("content-type", "")
         raw_text = resp.content.decode("utf-8", errors="replace")
         content = _transform_ak_public_page_html(raw_text, request).encode("utf-8")
@@ -20482,8 +20511,10 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
             )
             upstream_ms = _elapsed_ms(upstream_started_at)
         except Exception:
+            _record_exit_request_stat(selected_exit, 0)
             await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="static_request_error")
             raise
+        _record_exit_request_stat(selected_exit, resp.status_code)
 
         skip_headers = {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip_headers}
@@ -20744,8 +20775,10 @@ async def ak_web_proxy(request: Request, path: str):
                 content=body or None,
             )
         except Exception:
+            _record_exit_request_stat(selected_exit, 0)
             await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="request_error")
             raise
+        _record_exit_request_stat(selected_exit, resp.status_code)
         upstream_ms = _elapsed_ms(upstream_started_at)
         _admin_ak_trace(lambda: f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
         final_url_str = str(resp.url)

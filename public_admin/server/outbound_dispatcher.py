@@ -843,6 +843,8 @@ class OutboundDispatcher:
         self._wide_spread_group_rr_counter: int = 0
         self._login_group_rr_counter: int = 0
         self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
+        self.request_stats_callback = None
+        self.request_stats_supplier = None
         self.login_non_json_callback = None
         self.rpc_non_json_callback = None
         self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
@@ -1949,6 +1951,7 @@ class OutboundDispatcher:
 
             current_exit.active += 1
             client = None
+            attempt_status_code = 0
             attempt_started_at = time.perf_counter()
             client_prepare_ms = 0
             send_started_at = None
@@ -2038,6 +2041,7 @@ class OutboundDispatcher:
                 resp.extensions["ak_exit_is_direct"] = current_exit.is_direct
                 resp.extensions["ak_exit_group"] = current_exit.group_name or current_exit.group_id or current_exit.name
                 resp.extensions["ak_exit_local_port"] = current_exit.local_port
+                attempt_status_code = int(resp.status_code or 0)
                 # WAF and rate-limit pages are often HTML. Record their status
                 # before JSON validation so a visible upstream 403/429 never
                 # disappears from the exit card.
@@ -2175,6 +2179,16 @@ class OutboundDispatcher:
                 else:
                     logger.error(f"[Dispatcher] 出口链路全部失败，最后出口={current_exit.name}: {e}")
             finally:
+                if callable(self.request_stats_callback):
+                    try:
+                        self.request_stats_callback(
+                            identity=current_exit.node_identity or current_exit.name,
+                            name=current_exit.name,
+                            exit_ip=current_exit.exit_ip,
+                            status_code=attempt_status_code,
+                        )
+                    except Exception:
+                        logger.debug("[ExitRequestStats] record callback failed", exc_info=True)
                 if client is not None:
                     current_exit.release_client(client)
                 current_exit.active -= 1
@@ -2741,6 +2755,13 @@ class OutboundDispatcher:
                 if ex.ensure_current_risk_day():
                     self._schedule_source_fleet_state_persist()
                 rate_limit_feedback = ex.rate_limit_feedback_status()
+                persistent = {}
+                if callable(self.request_stats_supplier):
+                    try:
+                        payload = self.request_stats_supplier(ex.node_identity or ex.name) or {}
+                        persistent = next(iter(payload.values()), {}) if payload else {}
+                    except Exception:
+                        persistent = {}
                 exits_info.append({
                     "index": i,
                     "name": ex.name,
@@ -2766,7 +2787,12 @@ class OutboundDispatcher:
                     "source_probe_status_code": ex.source_probe_status_code,
                     "source_probe_url": self.source_probe.probe_url,
                     "active": ex.active,
-                    "total_requests": ex.total,
+                    "total_requests": int(persistent.get("total_requests") or 0) or ex.total,
+                    "today_requests": int(persistent.get("total_requests") or 0) or ex.total,
+                    "today_success_requests": int(persistent.get("success_requests") or 0),
+                    "today_error_requests": int(persistent.get("error_requests") or 0),
+                    "today_status_403": int(persistent.get("status_403") or 0),
+                    "today_status_429": int(persistent.get("status_429") or 0),
                     "login_requests": ex.login_count,
                     "login_cooldown": ex.get_login_cooldown_detail(self.MAX_LOGIN_PER_MIN),
                     "errors": ex.errors,

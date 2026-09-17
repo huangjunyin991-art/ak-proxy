@@ -899,9 +899,9 @@
                             <div style="font-size:10px;color:var(--text-secondary);">请求并发</div>
                             <div style="font-size:15px;font-weight:bold;color:#667eea;">${ex.active}</div>
                         </div>
-                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;" title="当前节点实例累计请求；服务重启或节点重载后重新统计">
-                            <div style="font-size:10px;color:var(--text-secondary);">请求</div>
-                            <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
+                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;" title="今日实际上游请求，保留最近7天；不含缓存命中">
+                            <div style="font-size:10px;color:var(--text-secondary);">今日请求</div>
+                            <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.today_requests ?? ex.total_requests ?? 0}</div>
                         </div>
                         <div style="background:rgba(0,212,255,0.08);border-radius:6px;padding:7px 5px;min-width:0;text-align:center;" title="${escapeHtml(latencyTitle)}">
                             <div style="font-size:10px;color:var(--text-secondary);">延迟</div>
