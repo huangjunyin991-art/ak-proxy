@@ -1652,13 +1652,13 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(
     normalized_ip = str(client_ip or "").strip()
     if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
-    if await _is_ip_banned_for_penalty(normalized_ip):
-        return {"already_banned": True}
     if frontend_authenticated or internal_sell_login:
         logger.debug(
             f"[LoginRateGuard] 可信登录请求跳过短间隔封禁计数 ip={normalized_ip} endpoint={endpoint} internal_sell={int(internal_sell_login)}"
         )
         return {"frontend_authenticated": True}
+    if await _is_ip_banned_for_penalty(normalized_ip):
+        return {"already_banned": True}
     if active_defense_service is not None:
         try:
             await _refresh_active_defense_policy()
@@ -1782,7 +1782,21 @@ async def _sync_saved_password_after_login_forget_success(api_path: str, params:
         logger.warning(f"[LoginForgetPasswordReset] 同步本地保存密码失败: account={account}, source={source}, has_new_password={bool(new_password)}, error={e}")
 
 
-async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
+async def _record_login_403_and_maybe_ban_ip(
+    client_ip: str,
+    username: str,
+    reason: str,
+    *,
+    internal_sell_login: bool = False,
+) -> None:
+    if internal_sell_login:
+        logger.debug(
+            "[Login403Guard] 挂卖内部登录跳过IP级403处罚 ip=%s account=%s reason=%s",
+            client_ip,
+            username,
+            reason,
+        )
+        return
     if active_defense_service is None:
         return
     await _refresh_active_defense_policy()
@@ -1808,7 +1822,19 @@ def _is_rpc_login_password_failure(result: dict, local_password_mismatch: bool =
     return "賬戶或密碼不正確" in normalized_msg or "账户或密码" in normalized_msg or "密碼不正確" in normalized_msg or "密码不正确" in normalized_msg
 
 
-async def _record_account_password_fail_and_maybe_ban_ip(client_ip: str, username: str) -> None:
+async def _record_account_password_fail_and_maybe_ban_ip(
+    client_ip: str,
+    username: str,
+    *,
+    internal_sell_login: bool = False,
+) -> None:
+    if internal_sell_login:
+        logger.debug(
+            "[LoginPasswordGuard] 挂卖内部登录跳过IP级密码错误处罚 ip=%s account=%s",
+            client_ip,
+            username,
+        )
+        return
     if active_defense_service is None:
         return
     await _refresh_active_defense_policy()
@@ -3200,9 +3226,7 @@ async def proxy_login(request: Request):
 
     internal_sell_login = bool(
         ak_sell_service is not None
-        and ak_sell_service.consume_login_exemption()
-        and str(getattr(getattr(request, "client", None), "host", "") or "") in {"127.0.0.1", "::1"}
-        and str(request.headers.get("x-ak-sell-internal") or "").strip()
+        and ak_sell_service.is_internal_rpc_request(request)
     )
 
     referer = request.headers.get("referer", "")
@@ -3216,8 +3240,12 @@ async def proxy_login(request: Request):
     # 本地封禁检查（内存集合，启动时已从DB预加载）
 
     if ENABLE_LOCAL_BAN:
-
-        if account.lower() in stats.banned_accounts or await _is_ip_banned_for_penalty(client_ip):
+        account_banned = account.lower() in stats.banned_accounts
+        ip_banned = (
+            not internal_sell_login
+            and await _is_ip_banned_for_penalty(client_ip)
+        )
+        if account_banned or ip_banned:
 
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
             try:
@@ -3280,7 +3308,12 @@ async def proxy_login(request: Request):
                     )
                 except Exception as e:
                     logger.warning(f"[Login] 白名单拦截记录失败: {e}")
-                await _record_login_403_and_maybe_ban_ip(client_ip, account, "whitelist_unauthorized")
+                await _record_login_403_and_maybe_ban_ip(
+                    client_ip,
+                    account,
+                    "whitelist_unauthorized",
+                    internal_sell_login=internal_sell_login,
+                )
                 return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
 
             if auth_info['expire_time'] < datetime.now():
@@ -3295,7 +3328,12 @@ async def proxy_login(request: Request):
                     )
                 except Exception as e:
                     logger.warning(f"[Login] 白名单过期记录失败: {e}")
-                await _record_login_403_and_maybe_ban_ip(client_ip, account, "whitelist_expired")
+                await _record_login_403_and_maybe_ban_ip(
+                    client_ip,
+                    account,
+                    "whitelist_expired",
+                    internal_sell_login=internal_sell_login,
+                )
                 return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
             logger.info(f"[Login] 白名单生效，允许登录: {account}")
@@ -3537,7 +3575,12 @@ async def proxy_login(request: Request):
         stats.login_fail += 1
 
         logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
-        await _record_login_403_and_maybe_ban_ip(client_ip, account, "login_failed")
+        await _record_login_403_and_maybe_ban_ip(
+            client_ip,
+            account,
+            "login_failed",
+            internal_sell_login=internal_sell_login,
+        )
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
 
@@ -3589,7 +3632,11 @@ async def proxy_login(request: Request):
 
         try:
 
-            await _record_account_password_fail_and_maybe_ban_ip(client_ip, account)
+            await _record_account_password_fail_and_maybe_ban_ip(
+                client_ip,
+                account,
+                internal_sell_login=internal_sell_login,
+            )
 
         except Exception as e:
 

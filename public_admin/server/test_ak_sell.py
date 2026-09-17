@@ -757,6 +757,16 @@ def test_ak_sell_internal_rpc_token_requires_loopback_and_matches_constant_time(
     assert service.is_internal_rpc_request(make_local_request({AK_SELL_INTERNAL_RPC_HEADER: "wrong"})) is False
 
 
+def test_ak_sell_internal_rpc_identity_is_stable_without_time_window():
+    service = AKSellService(provider=FakeProvider(), clock=fixed_clock())
+    token = service._internal_rpc_token
+
+    assert all(
+        service.is_internal_rpc_request(make_local_request({AK_SELL_INTERNAL_RPC_HEADER: token}))
+        for _ in range(20)
+    )
+
+
 @pytest.mark.asyncio
 async def test_google_bind_route_requires_only_machine_authorization():
     service = AKSellService(
