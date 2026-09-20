@@ -64,3 +64,34 @@ async def test_fastpath_timeout_is_clamped_to_five_seconds():
 
     assert result.success is False
     assert observed == [5.0]
+
+
+@pytest.mark.anyio
+async def test_fastpath_opens_short_circuit_after_repeated_transport_failures():
+    calls = 0
+
+    async def load_auth(_account):
+        return {"userkey": "cached-key", "login_result": {"UserData": {"Id": 123}}}
+
+    async def save_auth(*_args, **_kwargs):
+        return None
+
+    async def forward(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise TimeoutError("upstream unavailable")
+
+    service = AkUserKeyLoginFastPath(
+        load_auth_state=load_auth,
+        save_auth_state=save_auth,
+        forward_request=forward,
+        ttl_seconds=3600,
+        validation_timeout_seconds=1,
+        validation_failure_threshold=2,
+        validation_cooldown_seconds=30,
+    )
+
+    assert (await service.try_login(username="demo")).reason == "request_failed:TimeoutError"
+    assert (await service.try_login(username="demo")).reason == "request_failed:TimeoutError"
+    assert (await service.try_login(username="demo")).reason == "validation_circuit_open"
+    assert calls == 2

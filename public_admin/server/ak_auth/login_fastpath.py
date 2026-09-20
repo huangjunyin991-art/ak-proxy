@@ -1,6 +1,8 @@
 import copy
+import asyncio
 import logging
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlencode
@@ -23,6 +25,9 @@ class AkUserKeyLoginFastPath:
         forward_request: ForwardRequest,
         ttl_seconds: int,
         validation_timeout_seconds: float = 3.0,
+        validation_failure_threshold: int = 3,
+        validation_failure_window_seconds: float = 60.0,
+        validation_cooldown_seconds: float = 60.0,
     ):
         self.load_auth_state = load_auth_state
         self.save_auth_state = save_auth_state
@@ -32,6 +37,11 @@ class AkUserKeyLoginFastPath:
             self.validation_timeout_seconds = min(5.0, max(1.0, float(validation_timeout_seconds)))
         except (TypeError, ValueError):
             self.validation_timeout_seconds = 3.0
+        self.validation_failure_threshold = max(1, int(validation_failure_threshold or 3))
+        self.validation_failure_window_seconds = max(1.0, float(validation_failure_window_seconds or 60.0))
+        self.validation_cooldown_seconds = max(1.0, float(validation_cooldown_seconds or 60.0))
+        self._validation_failures: deque[float] = deque()
+        self._validation_circuit_open_until = 0.0
 
     async def try_login(
         self,
@@ -61,6 +71,18 @@ class AkUserKeyLoginFastPath:
             return AkLoginFastPathResult(success=False, reason='missing_userkey')
         if not user_id:
             return AkLoginFastPathResult(success=False, reason='missing_user_id')
+        if self._validation_circuit_is_open():
+            logger.info(
+                f"[AKUserKeyFastPath] username={normalized_username} result=fallback "
+                f"reason=validation_circuit_open cooldown={self._validation_circuit_open_until - time.monotonic():.1f}s"
+            )
+            return AkLoginFastPathResult(
+                success=False,
+                reason='validation_circuit_open',
+                userkey=userkey,
+                user_id=user_id,
+                username=normalized_username,
+            )
         validation = await self.validate_userkey(
             userkey=userkey,
             user_id=user_id,
@@ -71,6 +93,7 @@ class AkUserKeyLoginFastPath:
             force_direct=force_direct,
         )
         if not validation.valid:
+            self._record_validation_failure(validation.reason)
             logger.info(
                 f"[AKUserKeyFastPath] username={normalized_username} user_id={user_id} key_tail={_tail(userkey)} "
                 f"result=fallback reason={validation.reason} status={validation.status_code} elapsed={validation.elapsed_ms}ms"
@@ -83,6 +106,7 @@ class AkUserKeyLoginFastPath:
                 username=normalized_username,
                 validation=validation,
             )
+        self._reset_validation_failures()
         response_payload = _build_login_payload(login_payload, userkey, user_id)
         try:
             await self.save_auth_state(
@@ -109,6 +133,37 @@ class AkUserKeyLoginFastPath:
             validation=validation,
         )
 
+    def _validation_circuit_is_open(self) -> bool:
+        now = time.monotonic()
+        if self._validation_circuit_open_until <= now:
+            self._validation_circuit_open_until = 0.0
+            return False
+        return True
+
+    def _record_validation_failure(self, reason: str) -> None:
+        # Only transport failures indicate a broken validation path. Invalid
+        # credentials and upstream business responses must remain eligible for
+        # the normal login flow on the next request.
+        if not str(reason or '').startswith('request_failed:'):
+            return
+        now = time.monotonic()
+        cutoff = now - self.validation_failure_window_seconds
+        while self._validation_failures and self._validation_failures[0] <= cutoff:
+            self._validation_failures.popleft()
+        self._validation_failures.append(now)
+        if len(self._validation_failures) >= self.validation_failure_threshold:
+            self._validation_circuit_open_until = now + self.validation_cooldown_seconds
+            self._validation_failures.clear()
+            logger.warning(
+                '[AKUserKeyFastPath] validation circuit opened failures=%s cooldown=%.1fs',
+                self.validation_failure_threshold,
+                self.validation_cooldown_seconds,
+            )
+
+    def _reset_validation_failures(self) -> None:
+        self._validation_failures.clear()
+        self._validation_circuit_open_until = 0.0
+
     async def validate_userkey(
         self,
         *,
@@ -131,17 +186,20 @@ class AkUserKeyLoginFastPath:
         raw_body = urlencode(params).encode('utf-8')
         started_at = time.perf_counter()
         try:
-            response = await self.forward_request(
-                'POST',
-                'public_IndexData',
-                content_type,
-                params,
-                raw_body,
-                request_headers,
-                client_ip=client_ip,
-                selected_exit=selected_exit,
-                force_direct=force_direct,
-                request_timeout_seconds=self.validation_timeout_seconds,
+            response = await asyncio.wait_for(
+                self.forward_request(
+                    'POST',
+                    'public_IndexData',
+                    content_type,
+                    params,
+                    raw_body,
+                    request_headers,
+                    client_ip=client_ip,
+                    selected_exit=selected_exit,
+                    force_direct=force_direct,
+                    request_timeout_seconds=self.validation_timeout_seconds,
+                ),
+                timeout=self.validation_timeout_seconds,
             )
         except Exception as exc:
             return AkUserKeyValidationResult(valid=False, reason=f'request_failed:{type(exc).__name__}', elapsed_ms=_elapsed_ms(started_at))

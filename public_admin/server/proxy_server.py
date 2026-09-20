@@ -18049,13 +18049,16 @@ def _clear_browse_session_password(session: Optional[dict]) -> bool:
 async def _try_ak_userkey_login_fastpath(username: str, password: str, headers: dict,
                                         client_ip: str = "", selected_exit=None,
                                         force_direct: bool = False):
-    service = AkUserKeyLoginFastPath(
-        load_auth_state=lambda account: db.load_ak_auth_state(account, check_expiry=False),
-        save_auth_state=db.save_ak_auth_state,
-        forward_request=forward_request,
-        ttl_seconds=_BROWSE_SESSION_TTL,
-        validation_timeout_seconds=LOGIN_FASTPATH_VALIDATION_TIMEOUT,
-    )
+    service = globals().get("_ak_userkey_fastpath_service")
+    if service is None:
+        service = AkUserKeyLoginFastPath(
+            load_auth_state=lambda account: db.load_ak_auth_state(account, check_expiry=False),
+            save_auth_state=db.save_ak_auth_state,
+            forward_request=forward_request,
+            ttl_seconds=_BROWSE_SESSION_TTL,
+            validation_timeout_seconds=LOGIN_FASTPATH_VALIDATION_TIMEOUT,
+        )
+        globals()["_ak_userkey_fastpath_service"] = service
     return await service.try_login(
         username=username,
         password=password,

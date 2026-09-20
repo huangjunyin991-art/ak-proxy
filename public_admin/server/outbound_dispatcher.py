@@ -148,7 +148,7 @@ class OutboundExit:
                  '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
                  '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason',
                  '_client_retire_pending', '_client_retire_pending_reason', '_retired_clients',
-                 '_client_leases', '_retired_budget_blocked')
+                 '_client_leases', '_retired_budget_blocked', '_retirement_task')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None,
                  core_type: str = "", local_port: int = 0, group_id: str = "", group_name: str = "",
@@ -213,6 +213,7 @@ class OutboundExit:
         # cannot tell whether a retired pool still has a request using it.
         self._client_leases: dict[int, int] = {}
         self._retired_budget_blocked = 0
+        self._retirement_task: asyncio.Task | None = None
 
     @property
     def is_direct(self) -> bool:
@@ -668,6 +669,31 @@ class OutboundExit:
                 closed += int(await self._close_client_locked(reason))
             return bool(closed)
 
+    def schedule_client_retirement(self) -> bool:
+        """Schedule failed-pool cleanup without delaying the request path.
+
+        A transport close can block while a canceled socket operation drains.
+        Running that cleanup from ``forward``'s finally block made unrelated
+        requests wait on the per-exit client lock.  Keep one cleanup task per
+        exit and let normal dispatch continue immediately.
+        """
+        task = self._retirement_task
+        if task is not None and not task.done():
+            return False
+
+        async def _run() -> None:
+            try:
+                await self.finalize_client_retirement()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("[Dispatcher] 后台客户端回收失败 exit=%s error=%s", self.name, type(exc).__name__)
+            finally:
+                self._retirement_task = None
+
+        self._retirement_task = asyncio.create_task(_run(), name=f"ak-retire-client-{self.name}")
+        return True
+
     async def close_client_when_idle(self, reason: str = "closed") -> bool:
         """Close clients without aborting requests that still own the pool.
 
@@ -746,6 +772,7 @@ class OutboundExit:
             "leased_clients": leased_clients,
             "retired_leases": retired_leases,
             "retired_budget_blocked": self._retired_budget_blocked,
+            "retirement_task_pending": bool(self._retirement_task and not self._retirement_task.done()),
             "max_retired_clients": max(1, int(self._client_policy.outbound_client_max_retired_clients)),
             "connections_available": pool_metrics["available"],
             "open_connections": pool_metrics["open"],
@@ -2193,41 +2220,12 @@ class OutboundDispatcher:
                     current_exit.release_client(client)
                 current_exit.active -= 1
                 mark_current_request_stage(
-                    "client_retire_start",
+                    "client_retire_scheduled",
                     endpoint=api_path,
                     attempt_no=attempt_index + 1,
                     exit_name=current_exit.name,
                 )
-                try:
-                    await asyncio.wait_for(
-                        current_exit.finalize_client_retirement(),
-                        timeout=CLIENT_RETIRE_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    logger.error(
-                        "[Dispatcher] 出口客户端回收超时，跳过本次回收 exit=%s timeout=%.1fs",
-                        current_exit.name,
-                        CLIENT_RETIRE_TIMEOUT_SECONDS,
-                    )
-                    mark_current_request_stage(
-                        "client_retire_timeout",
-                        endpoint=api_path,
-                        attempt_no=attempt_index + 1,
-                        exit_name=current_exit.name,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "[Dispatcher] 出口客户端回收失败 exit=%s error=%s",
-                        current_exit.name,
-                        type(exc).__name__,
-                    )
-                else:
-                    mark_current_request_stage(
-                        "client_retire_done",
-                        endpoint=api_path,
-                        attempt_no=attempt_index + 1,
-                        exit_name=current_exit.name,
-                    )
+                current_exit.schedule_client_retirement()
         if last_403_response is not None:
             return last_403_response
         if last_error:
