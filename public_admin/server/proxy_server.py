@@ -18339,6 +18339,35 @@ def _is_javascript_response(path: str, content_type: str = "") -> bool:
     return normalized_path.endswith((".js", ".mjs")) or "javascript" in normalized_type or "ecmascript" in normalized_type
 
 
+def _decode_upstream_javascript(content: bytes, content_type: str = "") -> str:
+    """Decode upstream scripts for browsers; legacy AK scripts may be GBK without charset."""
+    raw = bytes(content or b"")
+    if not raw:
+        return ""
+    declared = re.search(r"charset\s*=\s*['\"]?\s*([\w.-]+)", str(content_type or ""), re.IGNORECASE)
+    encodings = []
+    if declared:
+        encodings.append(declared.group(1).strip())
+    encodings.extend(("utf-8", "gb18030"))
+    seen = set()
+    for encoding in encodings:
+        normalized = encoding.lower().replace("_", "-")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            return raw.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def _javascript_content_type(content_type: str = "") -> str:
+    value = str(content_type or "application/javascript").strip()
+    value = re.sub(r"\s*;\s*charset\s*=\s*[^;]+", "", value, flags=re.IGNORECASE)
+    return f"{value}; charset=utf-8"
+
+
 def _build_ak_web_static_cache_request(method: str, site_prefix: str, target_url: str, normalized_path: str):
     cache_request = StaticResourceRequest(
         method=method,
@@ -20127,16 +20156,17 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
     if "text/css" in lowered_content_type:
         text = content.decode("utf-8", errors="replace")
         return _rewrite_public_css_roots(text).encode("utf-8")
+    if _is_javascript_response(normalized_path, lowered_content_type):
+        text = _decode_upstream_javascript(content, content_type)
+    else:
+        return content
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
-        text = content.decode("utf-8", errors="replace")
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
         text, _ = _patch_base_js_tab_bar_language_fallback(text)
         return text.encode("utf-8")
     if normalized_path.lower() == "content/js/vue-component.js" and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
-        text = content.decode("utf-8", errors="replace")
         return _patch_vue_component_content(text).encode("utf-8")
     if normalized_path.lower() in _AK_TAB_BAR_PAGE_JS_PATHS and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
-        text = content.decode("utf-8", errors="replace")
         text, _ = _patch_tab_bar_page_js_language(text)
         if normalized_path.lower() == "content/js/pages/center.js":
             text, _ = _patch_center_page_js_deferred_load(text)
@@ -20594,6 +20624,9 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip_headers}
         content_type = resp.headers.get("content-type", "")
         content = _transform_ak_public_static_content(normalized_path, content_type, resp.content)
+        if _is_javascript_response(normalized_path, content_type):
+            content_type = _javascript_content_type(content_type)
+            resp_headers["content-type"] = content_type
         response = Response(
             content=content,
             status_code=resp.status_code,
@@ -20886,8 +20919,12 @@ async def ak_web_proxy(request: Request, path: str):
                         "content-encoding", "transfer-encoding", "content-length", "set-cookie"}
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip_headers}
 
-        content = resp.content
         content_type = resp.headers.get("content-type", "")
+        content = resp.content
+        if _is_javascript_response(normalized_path, content_type):
+            content = _decode_upstream_javascript(content, content_type).encode("utf-8")
+            content_type = _javascript_content_type(content_type)
+            resp_headers["content-type"] = content_type
         is_static_asset = bool(static_cache_request)
         rewrite_started_at = time.perf_counter()
         if fetch_dest == "script" and "application/json" in content_type.lower():
