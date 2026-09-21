@@ -20205,6 +20205,30 @@ def _patch_center_page_js_deferred_load(text: str) -> tuple[str, bool]:
     return text, patched
 
 
+def _patch_login_js_retired_message(text: str) -> tuple[str, bool]:
+    """Replace the client-side no-token prompt for the retired public login page."""
+    source = str(text or "")
+    marker = "if (!window.turnstileLoginToken)"
+    marker_start = source.find(marker)
+    if marker_start < 0:
+        return source, False
+    block_end = source.find("return;", marker_start)
+    if block_end < 0:
+        block_end = len(source)
+    else:
+        block_end += len("return;")
+    block = source[marker_start:block_end]
+    replacement, count = re.subn(
+        r"APP\.GLOBAL\.toastMsg\([^;]*\);",
+        f"APP.GLOBAL.toastMsg({json.dumps(PUBLIC_LOGIN_RETIRED_MESSAGE, ensure_ascii=False)});",
+        block,
+        count=1,
+    )
+    if not count:
+        return source, False
+    return source[:marker_start] + replacement + source[block_end:], True
+
+
 def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
     lowered_content_type = str(content_type or "").lower()
     if not content:
@@ -20216,6 +20240,9 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         text = _decode_upstream_javascript(content, content_type)
     else:
         return content
+    if normalized_path.lower() == "content/js/pages/account/login.js":
+        text, _ = _patch_login_js_retired_message(text)
+        return text.encode("utf-8")
     if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
         text, _ = _inject_base_js_no_login_probe(text, rewrite_rpc_to_admin=False)
         text, _ = _patch_base_js_tab_bar_language_fallback(text)
