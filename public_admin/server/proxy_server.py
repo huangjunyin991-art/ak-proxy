@@ -20171,7 +20171,11 @@ def _transform_ak_public_static_content(normalized_path: str, content_type: str,
         if normalized_path.lower() == "content/js/pages/center.js":
             text, _ = _patch_center_page_js_deferred_load(text)
         return text.encode("utf-8")
-    return content
+    # Even unpatched scripts (especially login.js) must be re-encoded.  Some
+    # upstream AK assets are GBK without a charset declaration; returning the
+    # original bytes while advertising UTF-8 produces replacement characters
+    # in browser dialogs.
+    return text.encode("utf-8")
 
 
 def _build_public_cached_static_response(cached_static, normalized_path: str) -> Response:
@@ -20179,7 +20183,7 @@ def _build_public_cached_static_response(cached_static, normalized_path: str) ->
     body = cached_static.body or b""
     lowered_content_type = str(content_type or "").lower()
     lowered_path = str(normalized_path or "").lower()
-    if lowered_path.endswith("base.js") or lowered_path == "content/js/vue-component.js" or lowered_path in _AK_TAB_BAR_PAGE_JS_PATHS or "text/css" in lowered_content_type:
+    if _is_javascript_response(normalized_path, content_type) or lowered_path.endswith("base.js") or lowered_path == "content/js/vue-component.js" or lowered_path in _AK_TAB_BAR_PAGE_JS_PATHS or "text/css" in lowered_content_type:
         body = _transform_ak_public_static_content(normalized_path, content_type, body)
         headers = {
             k: v
