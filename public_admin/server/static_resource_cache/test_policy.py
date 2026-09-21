@@ -58,6 +58,27 @@ def test_non_whitelisted_html_stays_uncacheable():
     assert not policy.can_store(request, payload)
 
 
+def test_javascript_is_never_cached():
+    request = StaticResourceRequest(
+        method="GET",
+        namespace="/public-static-v2",
+        url="https://k937.com/content/js/pages/account/login.js?v=29",
+        path="content/js/pages/account/login.js",
+    )
+    payload = StaticResourcePayload(
+        status_code=200,
+        headers={},
+        policy_headers={"content-type": "application/javascript", "cache-control": "public, max-age=86400"},
+        content_type="application/javascript",
+        body=b"window.turnstile && window.turnstile.render();",
+    )
+
+    policy = _policy()
+
+    assert not policy.can_read(request)
+    assert not policy.can_store(request, payload)
+
+
 def test_cacheable_html_still_rejects_sensitive_query():
     request = StaticResourceRequest(
         method="GET",

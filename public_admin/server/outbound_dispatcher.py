@@ -1310,6 +1310,14 @@ class OutboundDispatcher:
         api_path: str = "",
         max_tunnel_fallbacks: int = 3,
     ) -> list[OutboundExit]:
+        # A Turnstile-bearing login token is single-use and may be bound to the
+        # first egress. A negative value explicitly disables every fallback,
+        # including the implicit direct-exit fallback.
+        try:
+            if int(max_tunnel_fallbacks) < 0:
+                return []
+        except (TypeError, ValueError):
+            pass
         direct = self._safe_direct()
         candidate_indices = [
             i for i, ex in enumerate(self.exits)

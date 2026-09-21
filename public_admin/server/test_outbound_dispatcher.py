@@ -840,6 +840,14 @@ def test_fallback_sequence_tries_three_tunnels_then_direct_across_groups():
     assert [item.name for item in attempts] == ["group-2", "group-3", "group-4", "direct"]
 
 
+def test_negative_fallback_limit_disables_direct_fallback_for_single_use_login_tokens():
+    dispatcher = OutboundDispatcher()
+    _add_ready_socks5(dispatcher, "failed", 10001, group_id="g1")
+    _add_ready_socks5(dispatcher, "other", 10002, group_id="g2")
+
+    assert dispatcher._fallback_sequence(dispatcher.exits[1], "Login", max_tunnel_fallbacks=-1) == []
+
+
 def test_fallback_sequence_keeps_availability_before_group_spread():
     dispatcher = OutboundDispatcher()
     _add_ready_socks5(dispatcher, "failed", 10001, group_id="g1")

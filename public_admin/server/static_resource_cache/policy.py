@@ -19,6 +19,10 @@ class StaticResourceCachePolicy:
         path = self._normalized_path(request.path or urlsplit(request.url).path)
         if not path or path.endswith('/') or path.startswith('/rpc/'):
             return False
+        # Login resources contain short-lived Turnstile state. Reusing a cached
+        # HTML/JS pair can leave the page with a stale widget or callback.
+        if self._is_login_resource(path) or self._is_javascript_resource(path):
+            return False
         is_cacheable_html = self._is_cacheable_html_path(path)
         if path.startswith('/pages/') and path.endswith('.html') and not is_cacheable_html:
             return False
@@ -60,3 +64,18 @@ class StaticResourceCachePolicy:
             if str(item or '').strip()
         }
         return normalized in allowed_paths
+
+    @staticmethod
+    def _is_login_resource(path: str) -> bool:
+        normalized = str(path or '').lower()
+        return (
+            normalized.endswith('/pages/account/login.html')
+            or '/pages/account/login.' in normalized
+            or normalized.endswith('/login.js')
+            or '/login.' in normalized
+        )
+
+    @staticmethod
+    def _is_javascript_resource(path: str) -> bool:
+        normalized = str(path or '').lower().split('?', 1)[0]
+        return normalized.endswith(('.js', '.mjs'))

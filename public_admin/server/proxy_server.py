@@ -1823,6 +1823,36 @@ def _is_rpc_login_password_failure(result: dict, local_password_mismatch: bool =
     return "賬戶或密碼不正確" in normalized_msg or "账户或密码" in normalized_msg or "密碼不正確" in normalized_msg or "密码不正确" in normalized_msg
 
 
+def _login_turnstile_metadata(params: dict) -> dict[str, Any]:
+    """Return safe Turnstile diagnostics without ever logging the token itself."""
+    token = ""
+    if isinstance(params, dict):
+        for key, value in params.items():
+            if str(key or "").strip().lower() == "turnstiletoken":
+                token = str(value or "").strip()
+                break
+    return {
+        "turnstile_present": bool(token),
+        "turnstile_len": len(token),
+        "turnstile_sha256": hashlib.sha256(token.encode("utf-8")).hexdigest()[:16] if token else "",
+    }
+
+
+def _is_human_verification_required(result: dict) -> bool:
+    if not isinstance(result, dict):
+        return False
+    message = str(result.get("Msg") or result.get("Message") or "").replace(" ", "").lower()
+    return any(marker in message for marker in (
+        "请完成人机验证",
+        "請完成人機驗證",
+        "人机验证",
+        "人機驗證",
+        "turnstile",
+        "captcha",
+        "cloudflare",
+    ))
+
+
 async def _record_account_password_fail_and_maybe_ban_ip(
     client_ip: str,
     username: str,
@@ -3214,6 +3244,8 @@ async def proxy_login(request: Request):
     raw_body = await request.body() if request.method == "POST" else b""
 
     params = parse_request_params(content_type, dict(request.query_params), raw_body)
+    turnstile_metadata = _login_turnstile_metadata(params)
+    login_max_tunnel_fallbacks = -1 if turnstile_metadata["turnstile_present"] else 3
 
     
 
@@ -3234,7 +3266,12 @@ async def proxy_login(request: Request):
 
     
 
-    logger.info(f"[Login] 账号={account}, IP={client_ip}")
+    logger.info(
+        f"[Login] 账号={account}, IP={client_ip} "
+        f"turnstile_present={int(turnstile_metadata['turnstile_present'])} "
+        f"turnstile_len={turnstile_metadata['turnstile_len']} "
+        f"turnstile_sha256={turnstile_metadata['turnstile_sha256'] or '-'}"
+    )
 
     
 
@@ -3413,7 +3450,9 @@ async def proxy_login(request: Request):
 
                     request.method, "Login", content_type, params, raw_body, login_forward_headers,
 
-                    client_ip=client_ip, is_login=True
+                    client_ip=client_ip,
+                    is_login=True,
+                    max_tunnel_fallbacks=login_max_tunnel_fallbacks,
 
                 )
                 upstream_ms = _elapsed_ms(upstream_started_at)
@@ -3462,7 +3501,9 @@ async def proxy_login(request: Request):
 
                     request.method, "Login", content_type, params, raw_body, login_forward_headers,
 
-                    client_ip=client_ip, is_login=True
+                    client_ip=client_ip,
+                    is_login=True,
+                    max_tunnel_fallbacks=login_max_tunnel_fallbacks,
 
                 )
                 upstream_ms = _elapsed_ms(upstream_started_at)
@@ -3501,7 +3542,12 @@ async def proxy_login(request: Request):
 
     is_success = result.get("Error") == False or (not result.get("Error") and result.get("UserData"))
 
-    password_failure = (not is_success) and _is_rpc_login_password_failure(result, local_password_mismatch)
+    human_verification_required = (not is_success) and _is_human_verification_required(result)
+    password_failure = (
+        (not is_success)
+        and not human_verification_required
+        and _is_rpc_login_password_failure(result, local_password_mismatch)
+    )
 
     
 
@@ -3575,13 +3621,27 @@ async def proxy_login(request: Request):
 
         stats.login_fail += 1
 
-        logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
-        await _record_login_403_and_maybe_ban_ip(
-            client_ip,
-            account,
-            "login_failed",
-            internal_sell_login=internal_sell_login,
+        logger.info(
+            f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')} "
+            f"classification={'human_verification' if human_verification_required else 'login_failed'}"
         )
+        if human_verification_required:
+            logger.warning(
+                "[LoginHumanVerification] 上游要求人机验证，跳过密码错误与403封禁 "
+                "account=%s ip=%s turnstile_present=%s turnstile_len=%s turnstile_sha256=%s",
+                account,
+                client_ip,
+                int(turnstile_metadata["turnstile_present"]),
+                turnstile_metadata["turnstile_len"],
+                turnstile_metadata["turnstile_sha256"] or "-",
+            )
+        else:
+            await _record_login_403_and_maybe_ban_ip(
+                client_ip,
+                account,
+                "login_failed",
+                internal_sell_login=internal_sell_login,
+            )
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
 
@@ -3610,6 +3670,8 @@ async def proxy_login(request: Request):
             extra_data=json.dumps({
                 "status": "success" if is_success else "failed",
                 "msg": result.get("Msg", ""),
+                "classification": "success" if is_success else ("human_verification" if human_verification_required else "login_failed"),
+                **turnstile_metadata,
                 "local_password_mismatch": local_password_mismatch,
                 "upstream_password_probe": upstream_password_probe,
                 "local_password_probe_previous_failures": local_password_probe_previous_failures,
@@ -18271,6 +18333,12 @@ def _apply_no_store_headers(response: Response):
     return response
 
 
+def _is_javascript_response(path: str, content_type: str = "") -> bool:
+    normalized_path = str(path or "").lower().split("?", 1)[0]
+    normalized_type = str(content_type or "").lower()
+    return normalized_path.endswith((".js", ".mjs")) or "javascript" in normalized_type or "ecmascript" in normalized_type
+
+
 def _build_ak_web_static_cache_request(method: str, site_prefix: str, target_url: str, normalized_path: str):
     cache_request = StaticResourceRequest(
         method=method,
@@ -20100,7 +20168,10 @@ def _build_public_cached_static_response(cached_static, normalized_path: str) ->
             cached_static.path,
             content_type,
         )
-    return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+    response = _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+    if _is_javascript_response(normalized_path, content_type):
+        _apply_no_store_headers(response)
+    return response
 
 
 def _filter_ak_static_query(query: str) -> str:
@@ -20529,6 +20600,8 @@ async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_pat
             headers=resp_headers,
             media_type=content_type or "application/octet-stream",
         )
+        if _is_javascript_response(normalized_path, content_type):
+            _apply_no_store_headers(response)
         if cache_request:
             stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
                 cache_request,
@@ -20970,7 +21043,9 @@ async def ak_web_proxy(request: Request, path: str):
 
         response = Response(content=content, status_code=resp.status_code,
                             headers=resp_headers, media_type=content_type or "application/octet-stream")
-        if "text/html" in content_type and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
+        if _is_javascript_response(normalized_path, content_type):
+            _apply_no_store_headers(response)
+        elif "text/html" in content_type and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
             _apply_no_store_headers(response)
         static_cache_state = "NONE"
         if is_static_asset:

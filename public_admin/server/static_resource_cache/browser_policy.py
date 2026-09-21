@@ -81,6 +81,8 @@ class StaticResourceBrowserPolicy:
 
     def browser_cache_control(self, path: str, content_type: str = '') -> str:
         ext = self._extension(path, content_type)
+        if ext in {'.js', '.mjs'}:
+            return 'no-store, no-cache, must-revalidate, max-age=0'
         max_age = self.browser_max_age_seconds(path, content_type)
         if ext in self.media_extensions:
             return f'public, max-age={max_age}, immutable'
