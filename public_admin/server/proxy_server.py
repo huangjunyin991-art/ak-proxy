@@ -3216,6 +3216,32 @@ h1 {{ color: #00e5ff; }} h3 {{ color: #00ff88; margin-top: 0; }}
 
 # ===== 登录拦截 =====
 
+PUBLIC_LOGIN_RETIRED_MESSAGE = "当前网站已停止使用，请使用K937.com或者F637.com进行访问！"
+
+
+def _public_login_retired_response(status_code: int = 200) -> JSONResponse:
+    """Explain the retired public login endpoint without exposing internal failures."""
+    return JSONResponse(
+        {
+            "Error": True,
+            "Msg": PUBLIC_LOGIN_RETIRED_MESSAGE,
+            "message": PUBLIC_LOGIN_RETIRED_MESSAGE,
+        },
+        status_code=status_code,
+    )
+
+
+def _login_failure_response(
+    *,
+    internal_sell_login: bool,
+    status_code: int = 200,
+    payload: dict | None = None,
+) -> JSONResponse:
+    """Keep machine-to-machine login diagnostics while retiring the public endpoint."""
+    if not internal_sell_login:
+        return _public_login_retired_response(status_code=status_code)
+    return JSONResponse(payload or {"Error": True}, status_code=status_code)
+
 @app.api_route("/RPC/Login", methods=["GET", "POST"])
 
 async def proxy_login(request: Request):
@@ -3296,6 +3322,8 @@ async def proxy_login(request: Request):
             except Exception as e:
                 logger.warning(f"[Login] 封禁记录失败: {e}")
 
+            if not internal_sell_login:
+                return _public_login_retired_response(status_code=403)
             return await _public_ip_ban_response(client_ip)
 
     login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(
@@ -3305,13 +3333,19 @@ async def proxy_login(request: Request):
         internal_sell_login=internal_sell_login,
     )
     if login_rate_result.get("already_banned"):
+        if not internal_sell_login:
+            return _public_login_retired_response(status_code=403)
         return await _public_ip_ban_response(client_ip, status_code=403)
     if login_rate_result.get("blocked"):
+        if not internal_sell_login:
+            return _public_login_retired_response(status_code=429)
         return JSONResponse(
             {"Error": True, "Msg": login_rate_result.get("message") or "登录请求过于频繁，请稍后再试"},
             status_code=429,
         )
     if login_rate_result.get("duration_seconds"):
+        if not internal_sell_login:
+            return _public_login_retired_response(status_code=403)
         return await _public_ip_ban_response(
             client_ip,
             status_code=403,
@@ -3352,6 +3386,8 @@ async def proxy_login(request: Request):
                     "whitelist_unauthorized",
                     internal_sell_login=internal_sell_login,
                 )
+                if not internal_sell_login:
+                    return _public_login_retired_response()
                 return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
 
             if auth_info['expire_time'] < datetime.now():
@@ -3372,6 +3408,8 @@ async def proxy_login(request: Request):
                     "whitelist_expired",
                     internal_sell_login=internal_sell_login,
                 )
+                if not internal_sell_login:
+                    return _public_login_retired_response()
                 return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
             logger.info(f"[Login] 白名单生效，允许登录: {account}")
@@ -3392,9 +3430,10 @@ async def proxy_login(request: Request):
             )
         except Exception as record_error:
             logger.warning(f"[Login] 白名单异常记录失败: {record_error}")
-        return JSONResponse(
-            {"Error": True, "Msg": "授权校验暂不可用，请稍后重试"},
+        return _login_failure_response(
+            internal_sell_login=internal_sell_login,
             status_code=503,
+            payload={"Error": True, "Msg": "授权校验暂不可用，请稍后重试"},
         )
 
     if risk_isolation_login_guard is not None and await risk_isolation_login_guard.should_hide_login(account):
@@ -3409,8 +3448,12 @@ async def proxy_login(request: Request):
             )
         except Exception as e:
             logger.warning(f"[RiskIsolation] 隔离登录记录失败: {e}")
-        if page_404_enabled:
+        if page_404_enabled and internal_sell_login:
             return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
+        if page_404_enabled:
+            return _public_login_retired_response(status_code=404)
+        if not internal_sell_login:
+            return _public_login_retired_response(status_code=403)
         return JSONResponse({"Error": True}, status_code=403)
 
 
@@ -3533,8 +3576,14 @@ async def proxy_login(request: Request):
         )
 
         if isinstance(e, (LoginUpstreamNonJsonError, RpcUpstreamNonJsonError, RpcUpstreamJsonParseError)):
-            return JSONResponse({"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE})
-        return JSONResponse({"Error": True, "Msg": f"API连接失败: {str(e)}"})
+            return _login_failure_response(
+                internal_sell_login=internal_sell_login,
+                payload={"Error": True, "Msg": RPC_UPSTREAM_NETWORK_ERROR_MESSAGE},
+            )
+        return _login_failure_response(
+            internal_sell_login=internal_sell_login,
+            payload={"Error": True, "Msg": f"API连接失败: {str(e)}"},
+        )
 
     
 
@@ -3805,7 +3854,14 @@ async def proxy_login(request: Request):
 
     })
 
-    resp = JSONResponse(result)
+    response_payload = result
+    if not is_success and not internal_sell_login:
+        response_payload = dict(result)
+        response_payload["Error"] = True
+        response_payload["Msg"] = PUBLIC_LOGIN_RETIRED_MESSAGE
+        response_payload["message"] = PUBLIC_LOGIN_RETIRED_MESSAGE
+
+    resp = JSONResponse(response_payload)
     if response is not None:
         resp = _mirror_upstream_set_cookies(resp, response.headers)
 
